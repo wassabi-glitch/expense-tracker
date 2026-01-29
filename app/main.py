@@ -1,0 +1,43 @@
+from fastapi import FastAPI, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+
+
+from . import models
+from app.session import get_db
+from .routers import users, expenses, budget, analytics
+
+# Tables are managed by Alembic migrations.
+
+app = FastAPI(
+    title="Expense Tracker API",
+    description="A professional API to track your spending and manage budgets.",
+    version="1.0.0"
+)
+
+# TODO: Replace with your frontend domain(s) in production.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/", tags=["Root"])
+def read_root():
+    return {"message": "Welcome to your Expense Tracker API. Head to /docs for the swagger UI!"}
+
+
+@app.get("/health", tags=["Health"])
+def health_check(db: Session = Depends(get_db)):
+    """Check if the API and Database are connected."""
+    return {"status": "online", "database": "connected"}
+
+
+# Include Routers
+app.include_router(users.router)
+app.include_router(expenses.router)
+app.include_router(budget.router)
+app.include_router(analytics.router)
