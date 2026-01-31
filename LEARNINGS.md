@@ -130,3 +130,8 @@
      - `http://localhost:9000/health`
   6) Stop containers when done:
      - `docker-compose down`
+
+## Render Deployment (Success)
+- App is live at Render URL and responds on `/health`.
+- Use `/docs` to confirm Swagger UI is available.
+- Common success check: `/health` returns `{status: online, database: connected}`.
