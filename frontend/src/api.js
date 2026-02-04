@@ -1,4 +1,4 @@
-const API_BASE = "https://expense-tracker-s8ma.onrender.com";
+const API_BASE = "http://127.0.0.1:9000"
 
 function getToken() {
     return localStorage.getItem("token");
@@ -64,7 +64,7 @@ export async function signin(email, password) {
     const token = data?.access_token || data?.token;
     if (!token) throw new Error("Sign-in succeeded but no token returned");
 
-    localStorage.setItem("token", token);
+    localStorage.setItem("access_token", token);
     return data;
 }
 
@@ -77,5 +77,5 @@ export async function signup(username, email, password) {
 
 
 export function isLoggedIn() {
-    return !!getToken();
+    return !!localStorage.getItem("access_token");
 }

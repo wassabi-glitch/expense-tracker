@@ -6,7 +6,7 @@ services:
     restart: always
     environment:
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=helloPOSTGRES2005
+      - POSTGRES_PASSWORD=helloPOSTGRES
       - POSTGRES_DB=ExpenseTracker
     ports:
       - "5432:5432"
