@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Date, Integer, String, Float, DateTime, ForeignKey, Enum
+from sqlalchemy import Boolean, Column, Date, Integer, BigInteger, String, DateTime, ForeignKey, Enum
 from sqlalchemy.sql import func
 from .session import Base
 import enum
@@ -34,7 +34,7 @@ class Expense(Base):
     __tablename__ = "expenses"
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, nullable=False)
-    amount = Column(Float, nullable=False)
+    amount = Column(BigInteger, nullable=False)
     category = Column(Enum(ExpenseCategory), name="expense_category_enum",
                       default=ExpenseCategory.OTHER, nullable=False)
     description = Column(String, nullable=True)
@@ -50,7 +50,7 @@ class Budget(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     category = Column(Enum(ExpenseCategory), nullable=False)
-    monthly_limit = Column(Float, nullable=False)
+    monthly_limit = Column(BigInteger, nullable=False)
 
     # NEW: This is the 'Memory' we discussed to prevent notification spam
     # It stores the highest threshold already reached this month (e.g., 50 or 90)

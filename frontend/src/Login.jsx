@@ -11,7 +11,6 @@ import {
     CardTitle,
     CardFooter
 } from "./components/ui/card";
-import authBg from "./assets/auth-bg1.jpg";
 import { signin } from "./api";
 
 export default function Login() {
@@ -50,8 +49,8 @@ export default function Login() {
                     }}
                 ></div>
 
-                {/* --- Optional: A subtle noise texture overlay for grit --- */}
-                <div className="absolute inset-0 z-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] mix-blend-overlay"></div>
+                {/* --- Local texture replacement (no external request) --- */}
+                <div className="absolute inset-0 z-0 bg-gradient-to-br from-transparent via-zinc-200/5 to-zinc-400/10"></div>
 
 
                 {/* --- 2. TOP CONTENT (Branding) --- */}
@@ -121,6 +120,7 @@ export default function Login() {
                                     placeholder="m@example.com"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
+                                    className="focus-visible:ring-0 focus-visible:ring-offset-0"
                                     required
                                 />
                             </div>
@@ -136,11 +136,12 @@ export default function Login() {
                                     type="password"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
+                                    className="focus-visible:ring-0 focus-visible:ring-offset-0"
                                     required
                                 />
                             </div>
 
-                            <Button type="submit" className="w-full bg-zinc-900 hover:bg-zinc-800 text-white">
+                            <Button type="submit" className="w-full">
                                 Sign In
                             </Button>
 

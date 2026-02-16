@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
+from app.redis_rate_limiter import consume_token_bucket
 from app.utils import check_budget_alerts
 from .. import models, oauth2, schemas
 from ..session import get_db
@@ -18,9 +19,55 @@ router = APIRouter(
     tags=['Expenses']    # This groups them nicely in your /docs page
 )
 
+CSV_FORMULA_PREFIXES = ("=", "+", "-", "@")
+
+
+def sanitize_csv_cell(value: str) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    if text.startswith(CSV_FORMULA_PREFIXES):
+        return f"'{text}"
+    return text
+
+
+EXPENSE_WRITE_BUCKET_CAPACITY = 10
+EXPENSE_WRITE_REFILL_RATE = 10 / 60  # ~0.1667 tokens/sec => 10 write ops/min sustained
+
+
+def enforce_expense_write_rate_limit(user_id: int) -> dict[str, str]:
+    rl = consume_token_bucket(
+        scope="expenses_write",
+        identifier=str(user_id),
+        capacity=EXPENSE_WRITE_BUCKET_CAPACITY,
+        refill_rate_per_second=EXPENSE_WRITE_REFILL_RATE,
+    )
+    headers = {
+        "X-RateLimit-Limit": str(rl.limit),
+        "X-RateLimit-Remaining": str(rl.remaining),
+        "X-RateLimit-Reset": str(rl.reset_seconds),
+    }
+    if not rl.allowed:
+        headers["Retry-After"] = str(rl.reset_seconds)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many expense write requests. Please try again later.",
+            headers=headers,
+        )
+    return headers
+
 
 @router.post("/", response_model=schemas.ExpenseOut, status_code=status.HTTP_201_CREATED)
-def create_expense(expense: schemas.ExpenseCreate, db: Session = Depends(get_db), current_user: models.User = Depends(oauth2.get_current_user)):
+def create_expense(
+    expense: schemas.ExpenseCreate,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+):
+    rate_headers = enforce_expense_write_rate_limit(current_user.id)
+    for k, v in rate_headers.items():
+        response.headers[k] = v
+
     budget = db.query(models.Budget).filter(
         models.Budget.owner_id == current_user.id,
         models.Budget.category == expense.category,
@@ -93,9 +140,15 @@ def get_expenses(
         expenses_query = expenses_query.order_by(models.Expense.amount.desc())
     elif sort == "cheapest":
         expenses_query = expenses_query.order_by(models.Expense.amount.asc())
-    else:
-        # Default: Newest first based on creation time
+    elif sort == "oldest":
         expenses_query = expenses_query.order_by(
+            models.Expense.date.asc(),
+            models.Expense.created_at.asc(),
+        )
+    else:
+        # Default: Newest first by expense date, then creation time for stable ordering
+        expenses_query = expenses_query.order_by(
+            models.Expense.date.desc(),
             models.Expense.created_at.desc())
 
     # 6. Pagination and Execution
@@ -104,100 +157,12 @@ def get_expenses(
     return expenses
 
 
-@router.get("/this-month-stats", response_model=schemas.ExpenseStats)
-def get_expense_stats(
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(oauth2.get_current_user),
-):
-
-    today = date.today()
-    current_month_start = today.replace(day=1)
-    # 1. Base Stats (Monthly stats)
-    stats_query = db.query(
-        func.sum(models.Expense.amount).label("total"),
-        func.avg(models.Expense.amount).label("average"),
-        func.max(models.Expense.amount).label("max"),
-        func.min(models.Expense.amount).label("min")
-    ).filter(models.Expense.owner_id == current_user.id,
-             models.Expense.date >= current_month_start)
-
-    # 2. Setup date cutoff if 'days' is provided
-    # cutoff_date = None
-    # if days > 0:
-    #     cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
-    #     # Apply filter to the global stats
-    #     stats_query = stats_query.filter(
-    #         models.Expense.date >= cutoff_date)
-
-    # 3. Category Breakdown Query (The "Deep" Join)
-    # Note: We put the date filter INSIDE the outerjoin condition
-    # so that categories with 0 expenses still show up.
-    category_breakdown_query = db.query(
-        models.Budget.category,
-        models.Budget.monthly_limit,
-        func.coalesce(func.sum(models.Expense.amount), 0).label("total"),
-        func.count(models.Expense.id).label("count")
-    ).outerjoin(
-        models.Expense,
-        (models.Expense.category == models.Budget.category) &
-        (models.Expense.owner_id == models.Budget.owner_id) &
-        ((models.Expense.date >= current_month_start))
-    ).filter(
-        models.Budget.owner_id == current_user.id,
-        models.Budget.is_active == True
-    ).group_by(
-        models.Budget.category,
-        models.Budget.monthly_limit
-    )
-
-    # 4. Execute Queries
-    stats = stats_query.first()
-    category_breakdown = category_breakdown_query.all()
-
-    # 5. Build the Enhanced Breakdown
-    enhanced_breakdown = []
-
-    # Unpacking order must match the db.query() columns exactly:
-    # 1. category, 2. monthly_limit, 3. total, 4. count
-    for category, monthly_limit, total, count in category_breakdown:
-        category_name = category.value if hasattr(
-            category, "value") else category
-
-        percentage_used = (round(total / monthly_limit * 100, 2)
-                           ) if monthly_limit > 0 else 0
-        if percentage_used >= 100:
-            budget_status = schemas.BudgetStatus.Over_limit
-        elif percentage_used >= 90:
-            budget_status = schemas.BudgetStatus.Critical
-        else:
-            budget_status = schemas.BudgetStatus.Healthy
-
-        enhanced_breakdown.append({
-            "category": category_name,
-            "total": float(total),
-            "count": int(count),
-            "budget_limit": float(monthly_limit),
-            "remaining": float(max(0, monthly_limit - total)),
-            "percentage_used": round(percentage_used, 1),
-            "is_over_budget": total > monthly_limit,
-            "budget_status": budget_status,
-        })
-
-    # 6. Final Return (Indented correctly outside the for-loop)
-    return {
-        "total_expenses": stats.total or 0,
-        "average_expenses": stats.average or 0,
-        "max_expenses": stats.max or 0,
-        "min_expenses": stats.min or 0,
-        "category_breakdown": enhanced_breakdown
-    }
-
-
 @router.get("/export")
 def export_csv_expense(db: Session = Depends(get_db), current_user: models.User = Depends(oauth2.get_current_user),
                        category: Optional[str] = None,
                        start_date: Optional[date] = None,
-                       end_date: Optional[date] = None):
+                       end_date: Optional[date] = None,
+                       sort: str = "newest"):
 
     expenses_query = db.query(models.Expense).options(
         joinedload(models.Expense.owner)
@@ -213,6 +178,22 @@ def export_csv_expense(db: Session = Depends(get_db), current_user: models.User 
         expenses_query = expenses_query.filter(
             models.Expense.category == category)
 
+    if sort == "oldest":
+        expenses_query = expenses_query.order_by(
+            models.Expense.date.asc(),
+            models.Expense.created_at.asc(),
+        )
+    elif sort == "newest":
+        expenses_query = expenses_query.order_by(
+            models.Expense.date.desc(),
+            models.Expense.created_at.desc(),
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid sort. Use 'newest' or 'oldest'."
+        )
+
     expenses = expenses_query.all()
 
     output = StringIO()
@@ -223,11 +204,11 @@ def export_csv_expense(db: Session = Depends(get_db), current_user: models.User 
     for exp in expenses:
         writer.writerow([
             exp.date,
-            exp.title,
+            sanitize_csv_cell(exp.title),
             exp.amount,
             exp.category.value if hasattr(
                 exp.category, "value") else exp.category,
-            exp.description or ""
+            sanitize_csv_cell(exp.description)
         ])
 
     output.seek(0)
@@ -254,7 +235,17 @@ def get_expense(id: int, db: Session = Depends(get_db), current_user: models.Use
 
 
 @router.put("/{id}", response_model=schemas.ExpenseOut)
-def update_expense(id: int, expense: schemas.ExpenseUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(oauth2.get_current_user)):
+def update_expense(
+    id: int,
+    expense: schemas.ExpenseUpdate,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+):
+    rate_headers = enforce_expense_write_rate_limit(current_user.id)
+    for k, v in rate_headers.items():
+        response.headers[k] = v
+
     # Find the expense
     db_expense_query = db.query(models.Expense).filter(
         models.Expense.id == id)
@@ -280,7 +271,16 @@ def update_expense(id: int, expense: schemas.ExpenseUpdate, db: Session = Depend
 
 
 @router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_expense(id: int, db: Session = Depends(get_db), current_user: models.User = Depends(oauth2.get_current_user)):
+def delete_expense(
+    id: int,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+):
+    rate_headers = enforce_expense_write_rate_limit(current_user.id)
+    for k, v in rate_headers.items():
+        response.headers[k] = v
+
     # Find the expense
     db_expense_query = db.query(models.Expense).filter(
         models.Expense.id == id)

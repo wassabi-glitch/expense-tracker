@@ -6,15 +6,14 @@ from fastapi.security import OAuth2PasswordBearer
 
 from app import models
 from . import schemas
-import os
 from config import settings
 
 # These would ideally come from your Docker environment variables
-SECRET_KEY = settings.secret_key
+SECRET_KEY = settings.secret_key.get_secret_value()
 ALGORITHM = settings.algorithm
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.access_token_expire_minutes
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/users/sign-in")
 
 
 def create_access_token(data: dict):
@@ -54,4 +53,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db=Depends(get_db)):
 
     user = db.query(models.User).filter(
         models.User.id == token.user_id).first()
+
+    if user is None:
+        raise credentials_exception
     return user

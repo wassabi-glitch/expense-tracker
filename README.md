@@ -1,4 +1,4 @@
-# Expense Tracker API
+ï»¿# Expense Tracker API
 
 A FastAPI backend for tracking expenses, budgets, and analytics, with JWT auth, CSV export, and Alembic migrations.
 
@@ -18,13 +18,13 @@ A FastAPI backend for tracking expenses, budgets, and analytics, with JWT auth, 
 - Pydantic
 
 ## Project Structure
-- `app/main.py` – FastAPI app + routers
-- `app/models.py` – SQLAlchemy models
-- `app/schemas.py` – Pydantic schemas + validation
-- `app/routers/` – API endpoints
-- `app/utils.py` – auth helpers + budget alerts
-- `alembic/` – migrations
-- `tests/` – pytest suite
+- `app/main.py` â€“ FastAPI app + routers
+- `app/models.py` â€“ SQLAlchemy models
+- `app/schemas.py` â€“ Pydantic schemas + validation
+- `app/routers/` â€“ API endpoints
+- `app/utils.py` â€“ auth helpers + budget alerts
+- `alembic/` â€“ migrations
+- `tests/` â€“ pytest suite
 
 ## Setup (Local)
 
@@ -93,7 +93,7 @@ Authorization: Bearer <token>
 - `GET /expenses/{id}`
 - `PUT /expenses/{id}`
 - `DELETE /expenses/{id}`
-- `GET /expenses/this-month-stats`
+- `GET /analytics/this-month-stats`
 - `GET /expenses/export`
 
 ### Budgets
@@ -128,3 +128,4 @@ Returns a downloadable `expenses.csv`.
 ---
 
 If you want, we can now walk through Docker and deployment next.
+

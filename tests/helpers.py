@@ -23,7 +23,7 @@ def create_budget(client, headers, category="Food", monthly_limit=1000):
     }, headers=headers)
 
 
-def create_expense(client, headers, title="Lunch", amount=10.0, category="Food", description="test"):
+def create_expense(client, headers, title="Lunch", amount=10, category="Food", description="test"):
     return client.post("/expenses/", json={
         "title": title,
         "amount": amount,

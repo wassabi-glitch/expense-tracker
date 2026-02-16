@@ -10,7 +10,6 @@ import {
     CardFooter,
     CardDescription
 } from "./components/ui/card";
-import authBg from "./assets/auth-bg1.jpg";
 import { signup } from "./api";
 
 export default function Signup() {
@@ -48,8 +47,8 @@ export default function Signup() {
                     }}
                 ></div>
 
-                {/* --- Optional: A subtle noise texture overlay for grit --- */}
-                <div className="absolute inset-0 z-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] mix-blend-overlay"></div>
+                {/* --- Local texture replacement (no external request) --- */}
+                <div className="absolute inset-0 z-0 bg-gradient-to-br from-transparent via-zinc-200/5 to-zinc-400/10"></div>
 
 
                 {/* --- 2. TOP CONTENT (Branding) --- */}
@@ -119,6 +118,7 @@ export default function Signup() {
                                     value={username}
                                     onChange={(e) => setUsername(e.target.value)}
                                     placeholder="johndoe"
+                                    className="focus-visible:ring-0 focus-visible:ring-offset-0"
                                     required
                                 />
                             </div>
@@ -131,6 +131,7 @@ export default function Signup() {
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
                                     placeholder="you@example.com"
+                                    className="focus-visible:ring-0 focus-visible:ring-offset-0"
                                     required
                                 />
                             </div>
@@ -143,11 +144,12 @@ export default function Signup() {
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
                                     placeholder="********"
+                                    className="focus-visible:ring-0 focus-visible:ring-offset-0"
                                     required
                                 />
                             </div>
 
-                            <Button className="w-full bg-zinc-900 hover:bg-zinc-800 text-white" type="submit">
+                            <Button className="w-full" type="submit">
                                 Create account
                             </Button>
 
