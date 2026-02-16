@@ -127,7 +127,7 @@ def login(
     access_token = oauth2.create_access_token(data={"user_id": user.id})
 
     # 4. Return the token
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"access_token": access_token, "token_type": "bearer"}  # nosec B105 (OAuth token type, not a secret)
 
 
 @router.get("/me", response_model=schemas.UserOut)

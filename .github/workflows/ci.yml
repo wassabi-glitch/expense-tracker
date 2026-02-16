@@ -94,7 +94,6 @@ jobs:
 
       - name: Run Bandit Scan
         run: bandit -r app -x tests
-        continue-on-error: true
 
   frontend-build:
     name: Frontend Build
