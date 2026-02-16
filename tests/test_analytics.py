@@ -170,3 +170,31 @@ def test_daily_trend_invalid_range(client):
         headers=headers,
     )
     assert res.status_code == 400
+
+
+def test_daily_trend_rejects_dates_before_2020(client):
+    headers = create_user_and_token(
+        client, "mindateuser", "mindateuser@example.com", "Password123!"
+    )
+    create_budget(client, headers, category="Food", monthly_limit=500)
+
+    res = client.get(
+        "/analytics/daily-trend?start_date=2019-12-31&end_date=2020-01-02",
+        headers=headers,
+    )
+    assert res.status_code == 400
+    assert "2020-01-01" in res.text
+
+
+def test_category_breakdown_rejects_dates_before_2020(client):
+    headers = create_user_and_token(
+        client, "mincatuser", "mincatuser@example.com", "Password123!"
+    )
+    create_budget(client, headers, category="Food", monthly_limit=500)
+
+    res = client.get(
+        "/analytics/category-breakdown?start_date=2019-12-31&end_date=2020-01-02",
+        headers=headers,
+    )
+    assert res.status_code == 400
+    assert "2020-01-01" in res.text

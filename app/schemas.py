@@ -79,8 +79,8 @@ class UserOut(UserBase):
 
 class ExpenseBase(BaseModel):
     title: str
-    amount: float = Field(
-        gt=0, description="The amount must be a positive number")
+    amount: int = Field(
+        gt=0, description="The amount must be a positive integer")
     category: ExpenseCategory  # This ensures only our defined Enum values are accepted
     description: Optional[str] = None
     date: date
@@ -122,7 +122,7 @@ class ExpenseCreate(ExpenseBase):
 class ExpenseUpdate(BaseModel):
     # Everything is optional in an update so the user can change just one field
     title: Optional[str] = None
-    amount: Optional[float] = Field(None, gt=0)
+    amount: Optional[int] = Field(None, gt=0)
     category: Optional[ExpenseCategory] = None
     description: Optional[str] = None
     date: Optional[date]
@@ -158,10 +158,10 @@ class BudgetStatus(str, Enum):
 # This handles the individual category objects
 class CategoryStat(BaseModel):
     category: str
-    total: float
+    total: int
     count: int
-    budget_limit: float    # NEW
-    remaining: float       # NEW
+    budget_limit: int    # NEW
+    remaining: int       # NEW
     percentage_used: float  # NEW
     is_over_budget: bool   # NEW
     budget_status: BudgetStatus
@@ -170,10 +170,10 @@ class CategoryStat(BaseModel):
 
 
 class ExpenseStats(BaseModel):
-    total_expenses: float
+    total_expenses: int
     average_expenses: float
-    max_expenses: float
-    min_expenses: float
+    max_expenses: int
+    min_expenses: int
     category_breakdown: List[CategoryStat]
 
     model_config = ConfigDict(from_attributes=True)
@@ -181,7 +181,7 @@ class ExpenseStats(BaseModel):
 
 class BudgetBase(BaseModel):
     category: ExpenseCategory
-    monthly_limit: float = Field(gt=0)
+    monthly_limit: int = Field(gt=0)
 
 
 class BudgetCreate(BudgetBase):
@@ -198,7 +198,7 @@ class BudgetOut(BudgetBase):
 
 class BudgetUpdate(BaseModel):
     # This is the ONLY thing a user should touch
-    monthly_limit: float = Field(..., gt=0)
+    monthly_limit: int = Field(..., gt=0)
 
     model_config = ConfigDict(
         from_attributes=True,
@@ -207,7 +207,7 @@ class BudgetUpdate(BaseModel):
 
 
 class AnalyticsHistory(BaseModel):
-    total_spent_lifetime: float
+    total_spent_lifetime: int
     average_transaction: float
     total_transaction: int
     member_since: Optional[date]
@@ -215,4 +215,10 @@ class AnalyticsHistory(BaseModel):
 
 class DailyTrendItem(BaseModel):
     date: date
-    amount: float
+    amount: int
+
+
+class CategoryBreakdownItem(BaseModel):
+    category: str
+    total: int
+    count: int

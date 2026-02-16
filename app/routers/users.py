@@ -1,19 +1,47 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from .. import oauth2
 from .. import models, schemas, utils
 from ..session import get_db
+from app.redis_rate_limiter import check_and_consume
 
 router = APIRouter(
     prefix="/users",  # This means you don't have to type "/expenses" in every route!
     tags=['Users']    # This groups them nicely in your /docs page
 )
 
+# Used to reduce login timing differences between "user not found" and "bad password".
+DUMMY_PASSWORD_HASH = utils.hash_password("dummy-password-not-used")
+
 
 @router.post("/sign-up", response_model=schemas.UserOut, status_code=status.HTTP_201_CREATED)
-def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+def create_user(
+    user: schemas.UserCreate,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    client_ip = request.client.host if request.client else "unknown"
+    signup_key = client_ip
+    rl = check_and_consume("signup", signup_key)
+    rate_headers = {
+        "X-RateLimit-Limit": str(rl.limit),
+        "X-RateLimit-Remaining": str(rl.remaining),
+        "X-RateLimit-Reset": str(rl.reset_seconds),
+    }
+    for k, v in rate_headers.items():
+        response.headers[k] = v
+
+    if not rl.allowed:
+        rate_headers["Retry-After"] = str(rl.reset_seconds)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many sign-up attempts. Please try again later.",
+            headers=rate_headers,
+        )
+
     # 1. Check if user already exists
     db_user = db.query(models.User).filter(
         models.User.email == user.email).first()
@@ -49,7 +77,31 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 
 
 @router.post('/sign-in')
-def login(user_credentials: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(
+    response: Response,
+    request: Request,
+    user_credentials: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
+    username = (user_credentials.username or "").strip().lower()
+    client_ip = request.client.host if request.client else "unknown"
+    rate_key = f"{client_ip}|{username}"
+    rl = check_and_consume("login", rate_key)
+    rate_headers = {
+        "X-RateLimit-Limit": str(rl.limit),
+        "X-RateLimit-Remaining": str(rl.remaining),
+        "X-RateLimit-Reset": str(rl.reset_seconds),
+    }
+    for k, v in rate_headers.items():
+        response.headers[k] = v
+
+    if not rl.allowed:
+        rate_headers["Retry-After"] = str(rl.reset_seconds)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Please try again later.",
+            headers=rate_headers,
+        )
 
     # 1. Try to find the user in the DB
     user = db.query(models.User).filter(
@@ -57,15 +109,27 @@ def login(user_credentials: OAuth2PasswordRequestForm = Depends(), db: Session =
 
     # 2. If user doesn't exist or password is wrong, throw a 403
     if not user:
+        utils.verify_password(user_credentials.password or "", DUMMY_PASSWORD_HASH)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Invalid Credentials")
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid Credentials",
+            headers=rate_headers,
+        )
 
     if not utils.verify_password(user_credentials.password, user.hashed_password):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Invalid Credentials")
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid Credentials",
+            headers=rate_headers,
+        )
 
     # 3. Create the token
     access_token = oauth2.create_access_token(data={"user_id": user.id})
 
     # 4. Return the token
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.get("/me", response_model=schemas.UserOut)
+def get_me(current_user: models.User = Depends(oauth2.get_current_user)):
+    return current_user

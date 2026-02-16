@@ -1,5 +1,6 @@
 import pytest
 from app import models
+from app.redis_rate_limiter import redis_client
 
 
 # -----------------
@@ -14,6 +15,9 @@ def test_signup_success(client, session):
 
     response = client.post("/users/sign-up", json=payload)
     assert response.status_code == 201
+    assert "X-RateLimit-Limit" in response.headers
+    assert "X-RateLimit-Remaining" in response.headers
+    assert "X-RateLimit-Reset" in response.headers
 
     data = response.json()
     assert data["username"] == payload["username"]
@@ -122,6 +126,30 @@ def test_signup_email_normalized(client):
     assert data["email"] == "alice@example.com"
 
 
+def test_signup_rate_limit_blocks_after_repeated_attempts(client):
+    for key in redis_client.scan_iter("rl:signup:*"):
+        redis_client.delete(key)
+
+    for i in range(5):
+        res = client.post("/users/sign-up", json={
+            "username": f"rlsignup{i}",
+            "email": f"rlsignup{i}@example.com",
+            "password": "Password123!",
+        })
+        assert res.status_code == 201
+        assert "X-RateLimit-Limit" in res.headers
+        assert "X-RateLimit-Remaining" in res.headers
+        assert "X-RateLimit-Reset" in res.headers
+
+    blocked = client.post("/users/sign-up", json={
+        "username": "rlsignup_blocked",
+        "email": "rlsignup_blocked@example.com",
+        "password": "Password123!",
+    })
+    assert blocked.status_code == 429
+    assert "Retry-After" in blocked.headers
+
+
 # -----------------
 # SIGN-IN TESTS
 # -----------------
@@ -141,6 +169,9 @@ def test_signin_success(client):
     data = response.json()
     assert "access_token" in data
     assert data["token_type"] == "bearer"
+    assert "X-RateLimit-Limit" in response.headers
+    assert "X-RateLimit-Remaining" in response.headers
+    assert "X-RateLimit-Reset" in response.headers
 
 
 @pytest.mark.parametrize("email,password,status_code", [
@@ -162,3 +193,29 @@ def test_signin_failure(client, email, password, status_code):
     })
 
     assert res.status_code == status_code
+
+
+def test_signin_rate_limit_blocks_after_repeated_failures(client):
+    email = "ratelimit@example.com"
+    client.post("/users/sign-up", json={
+        "username": "ratelimituser",
+        "email": email,
+        "password": "Password123!"
+    })
+
+    for _ in range(5):
+        res = client.post("/users/sign-in", data={
+            "username": email,
+            "password": "WrongPassword123!",
+        })
+        assert res.status_code == 403
+        assert "X-RateLimit-Limit" in res.headers
+        assert "X-RateLimit-Remaining" in res.headers
+        assert "X-RateLimit-Reset" in res.headers
+
+    blocked = client.post("/users/sign-in", data={
+        "username": email,
+        "password": "WrongPassword123!",
+    })
+    assert blocked.status_code == 429
+    assert "Retry-After" in blocked.headers

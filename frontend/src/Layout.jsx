@@ -1,7 +1,15 @@
-﻿import React from "react"
-import { Outlet, NavLink } from "react-router-dom"
+import React from "react"
+import { Outlet, NavLink, useNavigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./components/ui/dialog"
 import {
   LayoutDashboard,
   Receipt,
@@ -17,6 +25,7 @@ import {
   Moon,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { getCurrentUser, logout } from "./api"
 
 // --- NAVIGATION ITEMS ---
 const mainNavItems = [
@@ -44,6 +53,9 @@ function useDarkMode() {
   React.useEffect(() => {
     document.documentElement.classList.toggle("dark", isDark)
     localStorage.setItem("theme", isDark ? "dark" : "light")
+    return () => {
+      document.documentElement.classList.remove("dark")
+    }
   }, [isDark])
 
   return { isDark, toggle: () => setIsDark((v) => !v) }
@@ -136,7 +148,30 @@ function NavList({ onNavigate }) {
 
 export default function Layout() {
   const [mobileOpen, setMobileOpen] = React.useState(false)
+  const [logoutOpen, setLogoutOpen] = React.useState(false)
+  const [username, setUsername] = React.useState("")
+  const [email, setEmail] = React.useState("")
   const { isDark, toggle } = useDarkMode()
+  const navigate = useNavigate()
+
+  React.useEffect(() => {
+    const loadCurrentUser = async () => {
+      try {
+        const user = await getCurrentUser()
+        setUsername(user?.username || "")
+        setEmail(user?.email || "")
+      } catch {
+        setUsername("")
+        setEmail("")
+      }
+    }
+    loadCurrentUser()
+  }, [])
+
+  const handleLogout = () => {
+    logout()
+    navigate("/sign-in", { replace: true })
+  }
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background">
@@ -182,8 +217,8 @@ export default function Layout() {
           </Button>
 
           <div className="hidden text-right md:block">
-            <p className="text-sm font-medium leading-none">Alex Johnson</p>
-            <p className="text-xs text-muted-foreground">Premium Plan</p>
+            <p className="text-sm font-medium leading-none">{username || "User"}</p>
+            <p className="text-xs text-muted-foreground">{email || "Signed in"}</p>
           </div>
 
           <div className="flex h-9 w-9 items-center justify-center rounded-full border bg-muted text-muted-foreground">
@@ -204,9 +239,10 @@ export default function Layout() {
             <Button
               variant="ghost"
               className="w-full justify-start text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => setLogoutOpen(true)}
             >
               <LogOut className="mr-2 h-4 w-4" />
-              Sign Out
+              Sign out
             </Button>
           </div>
         </aside>
@@ -218,6 +254,25 @@ export default function Layout() {
           </div>
         </main>
       </div>
+
+      <Dialog open={logoutOpen} onOpenChange={setLogoutOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Sign out?</DialogTitle>
+            <DialogDescription>You will be logged out and redirected to the sign-in page.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLogoutOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleLogout}>
+              Sign out
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
+
+

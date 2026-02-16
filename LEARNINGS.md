@@ -135,3 +135,49 @@
 - App is live at Render URL and responds on `/health`.
 - Use `/docs` to confirm Swagger UI is available.
 - Common success check: `/health` returns `{status: online, database: connected}`.
+
+## Docker Daily Workflow (Simple)
+- Daily start: `docker-compose up -d`
+- Check containers: `docker-compose ps`
+- Rebuild only when image-related files change (Dockerfile, requirements, base image): `docker-compose up -d --build`
+- Stop when done: `docker-compose down`
+- Optional logs: `docker-compose logs -f api`
+
+## URL Params Mental Model (Reusable)
+- **Core idea**: URL query params are the single source of truth for page filters/sort/pagination, and both frontend + backend map to/from that contract.
+- **Think in 5 layers**:
+  1) UI state (inputs like search/category/page).
+  2) URL state (`?search=...&page=...`) for shareable/bookmarkable screens.
+  3) API client serialization (`URLSearchParams` / query builder).
+  4) Backend endpoint params (typed query args).
+  5) DB/query filters + validation.
+
+- **Implementation recipe (any project)**:
+  1) Define a small query contract: names, types, defaults (ex: `search`, `category`, `sort`, `page`, `limit`, `start_date`, `end_date`).
+  2) On page load, read URL params into UI state.
+  3) When UI changes, update URL params (omit empty/default values to keep URL clean).
+  4) Build request query string from state using a serializer.
+  5) Backend parses typed params and applies filters/sorting/pagination.
+  6) Validate invalid combinations (ex: only one of `start_date/end_date`, negative page, huge date ranges).
+  7) Keep defaults aligned frontend/backend.
+
+- **Why this scales**:
+  - Deep links work (`copy URL` = same screen state).
+  - Browser back/forward works naturally.
+  - Filters are testable as pure input/output.
+  - Easy to add new params later without rewriting flows.
+
+- **Design rules I should keep**:
+  - Keep one canonical param name per concept (`start_date`, not mixed aliases).
+  - URL should represent user-visible state only (not internal UI toggles).
+  - Use safe defaults and bounds (`days <= 366`, `page >= 1`).
+  - Frontend should prevent obvious invalid combos; backend must still enforce.
+  - Prefer idempotent GET endpoints for filtered reads.
+
+- **Quick add-a-new-param checklist** (example: `min_amount`):
+  1) Add to page state + initialize from URL.
+  2) Add to URL write-back effect.
+  3) Add to API query builder.
+  4) Add typed backend query arg.
+  5) Apply DB filter + validation.
+  6) Add/adjust tests for that param and combinations.

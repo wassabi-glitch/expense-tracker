@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 
+from app.redis_rate_limiter import redis_client
 from tests.helpers import create_user_and_token, create_budget, create_expense
 
 
@@ -16,8 +17,11 @@ def test_create_and_get_expense(client):
         client, "expuser2", "expuser2@example.com", "Password123!"
     )
     create_budget(client, headers, category="Food", monthly_limit=500)
-    res = create_expense(client, headers, title="Burger", amount=12.5, category="Food")
+    res = create_expense(client, headers, title="Burger", amount=12, category="Food")
     assert res.status_code == 201
+    assert "X-RateLimit-Limit" in res.headers
+    assert "X-RateLimit-Remaining" in res.headers
+    assert "X-RateLimit-Reset" in res.headers
     expense_id = res.json()["id"]
 
     res_get = client.get(f"/expenses/{expense_id}", headers=headers)
@@ -170,6 +174,40 @@ def test_list_expenses_filters_and_sort(client):
     amounts = [item["amount"] for item in res_sort.json()]
     assert amounts == sorted(amounts, reverse=True)
 
+    res_oldest = client.get("/expenses/?sort=oldest", headers=headers)
+    assert res_oldest.status_code == 200
+    dates = [item["date"] for item in res_oldest.json()]
+    assert dates == sorted(dates)
+
+
+def test_list_expenses_newest_uses_expense_date(client):
+    headers = create_user_and_token(
+        client, "expuser14", "expuser14@example.com", "Password123!"
+    )
+    create_budget(client, headers, category="Food", monthly_limit=500)
+
+    client.post("/expenses/", json={
+        "title": "Older by date",
+        "amount": 10,
+        "category": "Food",
+        "description": "test",
+        "date": "2024-01-01",
+    }, headers=headers)
+    client.post("/expenses/", json={
+        "title": "Newer by date",
+        "amount": 10,
+        "category": "Food",
+        "description": "test",
+        "date": "2025-01-01",
+    }, headers=headers)
+
+    res = client.get("/expenses/?sort=newest", headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data) >= 2
+    assert data[0]["date"] >= data[1]["date"]
+    assert data[0]["title"] == "Newer by date"
+
 
 def test_list_expenses_time_range(client):
     headers = create_user_and_token(
@@ -236,3 +274,30 @@ def test_delete_expense(client):
     assert res_del.status_code == 204
     res_get = client.get(f"/expenses/{expense_id}", headers=headers)
     assert res_get.status_code == 404
+
+
+def test_expense_write_rate_limit_blocks_burst(client):
+    for key in redis_client.scan_iter("tb:expenses_write:*"):
+        redis_client.delete(key)
+
+    headers = create_user_and_token(
+        client, "expuser15", "expuser15@example.com", "Password123!"
+    )
+    create_budget(client, headers, category="Food", monthly_limit=5000)
+
+    blocked = None
+    for i in range(25):
+        res = client.post("/expenses/", json={
+            "title": f"Burst {i}",
+            "amount": 10,
+            "category": "Food",
+            "description": "test",
+            "date": date.today().isoformat(),
+        }, headers=headers)
+        if res.status_code == 429:
+            blocked = res
+            break
+
+    assert blocked is not None
+    assert blocked.status_code == 429
+    assert "Retry-After" in blocked.headers

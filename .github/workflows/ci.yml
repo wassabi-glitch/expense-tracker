@@ -1,0 +1,139 @@
+﻿name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - hardening-v1
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  backend-tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_HOSTNAME: localhost
+      DATABASE_PORT: "5432"
+      DATABASE_USERNAME: ci_user
+      DATABASE_PASSWORD: ci_password
+      DATABASE_NAME: ci_db
+      SECRET_KEY: ci_secret_key_change_in_prod
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+      CORS_ORIGINS: http://localhost:5173
+      TRUSTED_HOSTS: localhost,127.0.0.1,testserver
+      IS_PRODUCTION: "false"
+      REDIS_URL: redis://localhost:6379/0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Backend Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Wait For Redis
+        run: |
+          python - <<'PY'
+          import time
+          import redis
+
+          client = redis.Redis.from_url("redis://localhost:6379/0")
+          deadline = time.time() + 30
+
+          while True:
+              try:
+                  if client.ping():
+                      print("Redis is ready")
+                      break
+              except Exception:
+                  pass
+
+              if time.time() > deadline:
+                  raise SystemExit("Redis did not become ready in time")
+              time.sleep(1)
+          PY
+
+      - name: Run Pytest
+        run: pytest -q
+
+  frontend-build:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Build Frontend
+        run: npm run build
+
+  security-audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pip-audit
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+
+      - name: Python Dependency Audit
+        working-directory: .
+        run: pip-audit -r requirements.txt --ignore-vuln CVE-2024-23342
+        continue-on-error: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: NPM Audit (high+)
+        run: npm audit --audit-level=high
+        continue-on-error: true
+

@@ -11,6 +11,7 @@ import Budgets from "./Budgets";
 import Analytics from "./Analytics";
 import ExportPage from "./ExportPage";
 import Settings from "./Settings";
+import NotFound from "./NotFound";
 
 export default function App() {
   const [status, setStatus] = useState("loading...");
@@ -40,7 +41,7 @@ export default function App() {
           <Route path="/settings" element={<Settings />} />
         </Route>
       </Route>
-      {/* <Route path="*" element={<Navigate to="/sign-in" />} /> */}
+      <Route path="*" element={<NotFound />} />
     </Routes>
   );
 }
