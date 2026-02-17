@@ -1,6 +1,6 @@
 
 import csv
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta, tzinfo
 from io import StringIO
 from typing import List, Optional
 
@@ -10,6 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.redis_rate_limiter import consume_token_bucket
+from app.timezone import get_request_timezone, now_in_tz, today_in_tz
 from app.utils import check_budget_alerts
 from .. import models, oauth2, schemas
 from ..session import get_db
@@ -63,7 +64,15 @@ def create_expense(
     response: Response,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_request_timezone),
 ):
+    local_today = today_in_tz(user_tz)
+    if expense.date > local_today:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot add expense for the future!",
+        )
+
     rate_headers = enforce_expense_write_rate_limit(current_user.id)
     for k, v in rate_headers.items():
         response.headers[k] = v
@@ -94,6 +103,7 @@ def create_expense(
 def get_expenses(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_request_timezone),
     limit: int = 10,
     skip: int = 0,
     search: Optional[str] = None,
@@ -109,7 +119,7 @@ def get_expenses(
     ).filter(models.Expense.owner_id == current_user.id)
 
     # 1. Handle Pre-defined Time Range Filters
-    today = datetime.now()
+    today = now_in_tz(user_tz)
     if time_range == "past_week":
         start_date = (today - timedelta(days=7)).date()
     elif time_range == "past_month":
@@ -241,7 +251,20 @@ def update_expense(
     response: Response,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_request_timezone),
 ):
+    if expense.date is not None:
+        if expense.date > today_in_tz(user_tz):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You cannot add expense for the future!",
+            )
+        if expense.date.year < 2020:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Date is too far in the past (must be 2020 or later)",
+            )
+
     rate_headers = enforce_expense_write_rate_limit(current_user.id)
     for k, v in rate_headers.items():
         response.headers[k] = v

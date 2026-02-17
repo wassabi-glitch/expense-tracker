@@ -137,7 +137,7 @@ def test_create_expense_invalid_date(client):
         "description": "test",
         "date": future_date,
     }, headers=headers)
-    assert res_future.status_code == 422
+    assert res_future.status_code == 400
 
     past_date = date(2019, 12, 31).isoformat()
     res_past = client.post("/expenses/", json={

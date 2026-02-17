@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     redis_url: str
     trusted_hosts: str = "localhost,127.0.0.1,testserver"
     is_production: bool = False
+    default_timezone: str = "UTC"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

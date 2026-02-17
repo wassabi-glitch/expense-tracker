@@ -24,6 +24,7 @@ import {
 import { Input } from "./components/ui/input";
 
 import { getAnalyticsHistory, getCategoryBreakdown, getDailyTrend } from "./api";
+import { toISODateInTimeZone } from "./lib/date";
 
 // ------------------ formatters ------------------
 const formatCompactUZS = (value) => {
@@ -45,13 +46,6 @@ const formatLongDate = (iso) => {
     day: "numeric",
     year: "numeric",
   });
-};
-
-const toISODate = (d) => {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
 };
 
 const fromISODate = (iso) => {
@@ -107,8 +101,7 @@ export default function Analytics() {
   const [startInput, setStartInput] = useState(() => searchParams.get("start_date") || "");
   const [endInput, setEndInput] = useState(() => searchParams.get("end_date") || "");
 
-  const today = useMemo(() => new Date(), []);
-  const todayISO = useMemo(() => toISODate(today), [today]);
+  const todayISO = useMemo(() => toISODateInTimeZone(), []);
 
   // ------------------ load summary once ------------------
   useEffect(() => {

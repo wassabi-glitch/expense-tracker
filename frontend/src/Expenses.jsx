@@ -21,6 +21,7 @@ import {
   getExpenses,
   updateExpense,
 } from "./api";
+import { toISODateInTimeZone } from "./lib/date";
 
 const PAGE_SIZE = 10;
 const MIN_EXPENSE_DATE = "2020-01-01";
@@ -40,7 +41,7 @@ export default function Expenses() {
   const [startDate, setStartDate] = useState(() => searchParams.get("start_date") || "");
   const [endDate, setEndDate] = useState(() => searchParams.get("end_date") || "");
   const [sort, setSort] = useState(() => searchParams.get("sort") || "newest");
-  const todayISO = useMemo(() => new Date().toISOString().split("T")[0], []);
+  const todayISO = useMemo(() => toISODateInTimeZone(), []);
 
   const [page, setPage] = useState(() => {
     const raw = Number(searchParams.get("page") || "1");

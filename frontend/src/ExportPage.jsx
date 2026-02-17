@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./com
 import { Input } from "./components/ui/input";
 import { LoadingSpinner } from "./components/ui/loading-spinner";
 import { exportExpensesCsv, getCategories } from "./api";
+import { toISODateInTimeZone } from "./lib/date";
 
 const MIN_EXPENSE_DATE = "2020-01-01";
 
@@ -25,7 +26,7 @@ export default function ExportPage() {
     return raw === "oldest" ? "oldest" : "newest";
   });
 
-  const todayISO = useMemo(() => new Date().toISOString().split("T")[0], []);
+  const todayISO = useMemo(() => toISODateInTimeZone(), []);
 
   useEffect(() => {
     const loadMeta = async () => {
