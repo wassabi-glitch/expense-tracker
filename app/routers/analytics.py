@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from datetime import date, timedelta
+from datetime import date, timedelta, tzinfo
 from typing import List
 
 from app import schemas
 from app.session import get_db
+from app.timezone import get_request_timezone, today_in_tz
 from .. import models, oauth2
 
 router = APIRouter(
@@ -20,8 +21,9 @@ MIN_ANALYTICS_DATE = date(2020, 1, 1)
 def get_this_month_stats(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_request_timezone),
 ):
-    today = date.today()
+    today = today_in_tz(user_tz)
     current_month_start = today.replace(day=1)
 
     stats_query = db.query(
@@ -119,9 +121,10 @@ def get_daily_trend(
     start_date: date | None = None,
     end_date: date | None = None,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(oauth2.get_current_user)
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_request_timezone),
 ):
-    today = date.today()
+    today = today_in_tz(user_tz)
     if (start_date is None) ^ (end_date is None):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -209,8 +212,9 @@ def get_daily_trend(
 def get_month_to_date_trend(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_request_timezone),
 ):
-    today = date.today()
+    today = today_in_tz(user_tz)
     month_start = today.replace(day=1)
 
     first_expense = db.query(func.min(models.Expense.date)).filter(
@@ -260,8 +264,9 @@ def get_category_breakdown(
     end_date: date | None = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_request_timezone),
 ):
-    today = date.today()
+    today = today_in_tz(user_tz)
 
     if (start_date is None) ^ (end_date is None):
         raise HTTPException(

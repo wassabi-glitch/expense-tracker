@@ -88,8 +88,6 @@ class ExpenseBase(BaseModel):
     @field_validator("date")
     @classmethod
     def validate_date(cls, v: date):
-        if v > date.today():
-            raise ValueError("You cannot add expense for the future!")
         if v.year < 2020:
             raise ValueError(
                 "Date is too far in the past (must be 2020 or later)")

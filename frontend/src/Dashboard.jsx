@@ -26,6 +26,7 @@ import {
 } from "recharts";
 
 import { getExpenses, getMonthToDateTrend, getThisMonthStats } from "./api";
+import { toISODateInTimeZone } from "./lib/date";
 
 const formatPrettyDate = (isoDate) => {
   if (!isoDate) return "";
@@ -81,10 +82,9 @@ export default function Dashboard() {
       setLoading(true);
       setError("");
       try {
-        const today = new Date();
-        const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-        const startDate = monthStart.toISOString().split("T")[0];
-        const endDate = today.toISOString().split("T")[0];
+        const endDate = toISODateInTimeZone();
+        const [year, month] = endDate.split("-");
+        const startDate = `${year}-${month}-01`;
 
         const [statsRes, expensesRes] = await Promise.all([
           getThisMonthStats(),
@@ -138,8 +138,7 @@ export default function Dashboard() {
       categoryBreakdown[0] || null
     );
 
-    const now = new Date();
-    const dayOfMonth = now.getDate();
+    const dayOfMonth = Number(toISODateInTimeZone().split("-")[2] || 1);
     const avgDaily = dayOfMonth > 0 ? Math.round(totalSpent / dayOfMonth) : 0;
 
     return {

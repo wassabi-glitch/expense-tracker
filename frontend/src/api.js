@@ -4,6 +4,14 @@ function getToken() {
     return localStorage.getItem("access_token");
 }
 
+function getBrowserTimeZone() {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    } catch {
+        return "UTC";
+    }
+}
+
 function redirectToSigninOnUnauthorized() {
     localStorage.removeItem("access_token");
     if (typeof window !== "undefined" && window.location.pathname !== "/sign-in") {
@@ -22,6 +30,7 @@ export function logout() {
 async function request(path, options = {}) {
     const headers = {
         "Content-Type": "application/json",
+        "X-Timezone": getBrowserTimeZone(),
         ...(options.headers || {}),
     };
 
@@ -68,6 +77,7 @@ export async function signin(email, password) {
         method: "POST",
         headers: {
             "Content-Type": "application/x-www-form-urlencoded",
+            "X-Timezone": getBrowserTimeZone(),
         },
         body,
     });
@@ -203,7 +213,10 @@ export async function exportExpensesCsv(params = {}) {
     const query = searchParams.toString();
 
     const token = getToken();
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const headers = {
+        "X-Timezone": getBrowserTimeZone(),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
 
     const res = await fetch(`${API_BASE}/expenses/export${query ? `?${query}` : ""}`, {
         method: "GET",
