@@ -194,7 +194,6 @@ jobs:
       - name: Python Dependency Audit
         working-directory: .
         run: pip-audit -r requirements.txt --ignore-vuln CVE-2024-23342
-        continue-on-error: true
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -208,4 +207,3 @@ jobs:
 
       - name: NPM Audit (high+)
         run: npm audit --audit-level=high
-        continue-on-error: true
