@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -39,7 +39,7 @@ function GoogleIcon() {
 
 export default function Login() {
     const { t } = useTranslation();
-    const translateValidation = (message) => t(message, { defaultValue: message });
+    const translateValidation = useCallback((message) => t(message, { defaultValue: message }), [t]);
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
@@ -65,7 +65,7 @@ export default function Login() {
     useEffect(() => {
         // Clean up a stray empty hash so URL stays /sign-in instead of /sign-in#
         if (window.location.hash === "#") {
-            window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+            window.history.replaceState(null, "", `${window.location.pathname}${window.location.search} `);
         }
 
     }, []);
@@ -162,7 +162,7 @@ export default function Login() {
                                 setStatus("");
                                 setFieldErrors((prev) => ({ ...prev, password: "" }));
                             }}
-                            className={`${loginInputClass} pr-10`}
+                            className={`${loginInputClass} pr - 10`}
                             placeholder={t("auth.password")}
                             required
                         />
@@ -184,7 +184,7 @@ export default function Login() {
                     </div>
                     <div className="-mt-2">
                         <Link
-                            to={email ? `/forgot-password?email=${encodeURIComponent(email)}` : "/forgot-password"}
+                            to={email ? `/ forgot - password ? email = ${encodeURIComponent(email)} ` : "/forgot-password"}
                             className="text-xs text-muted-foreground underline hover:text-foreground"
                         >
                             {t("auth.forgotPassword")}
@@ -194,7 +194,7 @@ export default function Login() {
 
                 <Button
                     type="submit"
-                    className={`h-11 w-full ${disabledLoginButtonCursorClass}`}
+                    className={`h - 11 w - full ${disabledLoginButtonCursorClass} `}
                     disabled={!canSignIn}
                 >
                     {isSubmitting ? (
@@ -214,7 +214,7 @@ export default function Login() {
                 {showResendVerification && (
                     <p className="text-sm text-center text-muted-foreground">
                         <Link
-                            to={email ? `/resend-verification?email=${encodeURIComponent(email)}` : "/resend-verification"}
+                            to={email ? `/ resend - verification ? email = ${encodeURIComponent(email)} ` : "/resend-verification"}
                             className="underline font-medium text-foreground hover:text-foreground/80"
                         >
                             {t("auth.resendVerificationAction")}

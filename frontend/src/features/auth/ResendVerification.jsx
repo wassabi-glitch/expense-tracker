@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { CheckCircle2 } from "lucide-react";
@@ -12,7 +12,7 @@ import { AuthFormCard } from "@/components/AuthFormCard";
 export default function ResendVerification() {
   const INITIAL_SIGNUP_COOLDOWN_SECONDS = 20;
   const { t } = useTranslation();
-  const translateValidation = (message) => t(message, { defaultValue: message });
+  const translateValidation = useCallback((message) => t(message, { defaultValue: message }), [t]);
   const initialEmail = useMemo(() => {
     if (typeof window === "undefined") return "";
     const params = new URLSearchParams(window.location.search);

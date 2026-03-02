@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Car, Gamepad2, Home, Trash2, Utensils, Wrench, Circle } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -108,10 +108,12 @@ export default function Budgets() {
       ? "ru-RU"
       : "en-US";
 
-  const tCategory = (name) => t(`categories.${name}`, { defaultValue: name });
-  const compareLocalizedCategory = (leftCategory, rightCategory) =>
-    tCategory(leftCategory).localeCompare(tCategory(rightCategory), categorySortLocale, { sensitivity: "base" });
-  async function loadBudgetsPage({ showSpinner = true } = {}) {
+  const tCategory = useCallback((name) => t(`categories.${name}`, { defaultValue: name }), [t]);
+  const compareLocalizedCategory = useCallback((leftCategory, rightCategory) =>
+    tCategory(leftCategory).localeCompare(tCategory(rightCategory), categorySortLocale, { sensitivity: "base" }),
+    [tCategory, categorySortLocale]
+  );
+  const loadBudgetsPage = useCallback(async ({ showSpinner = true } = {}) => {
     if (showSpinner) setLoading(true);
     setAnimateProgress(false);
     setError("");
@@ -155,11 +157,11 @@ export default function Budgets() {
     } finally {
       if (showSpinner) setLoading(false);
     }
-  }
+  }, [currentYear, currentMonth, t]);
 
   useEffect(() => {
     loadBudgetsPage();
-  }, []);
+  }, [loadBudgetsPage]);
 
   const sortedBudgets = useMemo(
     () =>
@@ -168,7 +170,7 @@ export default function Budgets() {
         b.budgetMonth - a.budgetMonth ||
         compareLocalizedCategory(a.category, b.category)
       ),
-    [budgets, appLang]
+    [budgets, compareLocalizedCategory]
   );
   const visibleBudgets = useMemo(
     () =>
@@ -183,7 +185,7 @@ export default function Budgets() {
   const monthLocale = getDateLocale(appLang);
   const fallbackMonthNames = getFallbackMonthsLong(appLang);
 
-  const formatBudgetMonth = (year, month) => formatMonthYear(year, month, appLang);
+  const formatBudgetMonth = useCallback((year, month) => formatMonthYear(year, month, appLang), [appLang]);
 
   const formatBudgetAmountInput = (raw) => formatAmountInput(raw, maxBudgetAmountDigits);
   const budgetYearOptions = useMemo(() => {
@@ -269,10 +271,10 @@ export default function Budgets() {
         seen.add(item.value);
         return true;
       });
-  }, [showHistory, sortedBudgets, visibleBudgets, monthLocale, fallbackMonthNames]);
+  }, [showHistory, sortedBudgets, visibleBudgets, formatBudgetMonth]);
   const localizedCategoryOptions = useMemo(
     () => [...categories].sort((a, b) => compareLocalizedCategory(a, b)),
-    [categories, appLang]
+    [categories, compareLocalizedCategory]
   );
   const filteredBudgets = useMemo(() => {
     let rows = budgetsWithDerived;
@@ -309,8 +311,7 @@ export default function Budgets() {
       }
     });
     return sorted;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [budgetsWithDerived, filterCategory, filterStatus, filterMonth, sortBy, appLang]);
+  }, [budgetsWithDerived, filterCategory, filterStatus, filterMonth, sortBy, compareLocalizedCategory]);
   const resetBudgetFilters = () => {
     setSearchParams(prev => {
       prev.delete("category");

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowLeft, Check, Circle, Eye, EyeOff } from "lucide-react";
 import { z } from "zod";
@@ -75,7 +75,7 @@ export default function Signup() {
     const signupInputClass = "h-11 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-emerald-500";
     const disabledSignupButtonCursorClass = "disabled:pointer-events-auto disabled:cursor-not-allowed";
 
-    const translateValidation = (message) => t(message, { defaultValue: message });
+    const translateValidation = useCallback((message) => t(message, { defaultValue: message }), [t]);
     const passwordRules = evaluatePasswordRules(password, email);
     const passwordTouched = password.length > 0;
 

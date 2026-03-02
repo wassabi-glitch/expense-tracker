@@ -1,6 +1,7 @@
 import React from "react";
 import { Inbox } from "lucide-react";
 
+// eslint-disable-next-line no-unused-vars
 export function EmptyState({ icon: Icon = Inbox, title, description, className = "", inline = false }) {
     if (inline) {
         return (

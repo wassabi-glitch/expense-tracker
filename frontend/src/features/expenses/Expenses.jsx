@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Plus, Search, ChevronLeft, ChevronRight, Inbox, Trash2 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -160,7 +160,7 @@ export default function Expenses() {
     };
   }, [search, category, startDate, endDate, sort, page]);
 
-  async function loadExpenses({ initial = false } = {}) {
+  const loadExpenses = useCallback(async ({ initial = false } = {}) => {
     if (initial) {
       setLoading(true);
     } else {
@@ -195,12 +195,12 @@ export default function Expenses() {
       }
       pageNavLockRef.current = false;
     }
-  }
+  }, [queryParams, dateFilterError, t]);
 
   useEffect(() => {
     loadExpenses({ initial: firstLoadRef.current });
     if (firstLoadRef.current) firstLoadRef.current = false;
-  }, [queryParams, dateFilterError]);
+  }, [loadExpenses]);
 
   useEffect(() => {
     const next = new URLSearchParams();
