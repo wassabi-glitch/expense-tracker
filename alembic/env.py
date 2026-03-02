@@ -26,9 +26,12 @@ if config.config_file_name is not None:
 target_metadata = models.Base.metadata
 
 # Use DATABASE_URL if set; otherwise fall back to app.session default.
-config.set_main_option(
-    "sqlalchemy.url", os.getenv("DATABASE_URL", SQLALCHEMY_DATABASE_URL)
-)
+# Use app config (.env via pydantic settings) as single source of truth.
+# Only use DATABASE_URL if you intentionally set ALEMBIC_USE_DATABASE_URL=true.
+use_override = os.getenv("ALEMBIC_USE_DATABASE_URL", "false").lower() == "true"
+db_url = os.getenv("DATABASE_URL") if use_override else SQLALCHEMY_DATABASE_URL
+config.set_main_option("sqlalchemy.url", db_url)
+
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

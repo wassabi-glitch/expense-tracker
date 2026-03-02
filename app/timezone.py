@@ -19,14 +19,11 @@ def _safe_zoneinfo(name: str | None) -> tzinfo:
         return timezone.utc
 
 
-def get_request_timezone(x_timezone: str | None = Header(default=None, alias="X-Timezone")) -> tzinfo | None:
+def get_request_timezone(x_timezone: str | None = Header(default=None, alias="X-Timezone")) -> tzinfo:
     # Allow clients to send an IANA timezone like "Asia/Tashkent".
-    # Missing header keeps legacy server-local behavior.
-    # Invalid values safely fall back to configured default, then UTC.
+    # Missing/invalid values fall back to configured default timezone, then UTC.
     normalized = (x_timezone or "").strip()
-    if not normalized:
-        return None
-    return _safe_zoneinfo(normalized)
+    return _safe_zoneinfo(normalized or None)
 
 
 def today_in_tz(tz: tzinfo | None) -> date:

@@ -1,30 +1,47 @@
-const API_BASE = "http://127.0.0.1:9000"
+const API_BASE = "http://localhost:9000"
+const GOOGLE_LOGIN_URL = `${API_BASE}/auth/google/login`
+import { getBrowserTimeZone } from "./lib/date";
 
 function getToken() {
     return localStorage.getItem("access_token");
 }
 
-function getBrowserTimeZone() {
-    try {
-        return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-    } catch {
-        return "UTC";
+function resetThemeOnSignout() {
+    if (typeof document !== "undefined") {
+        document.documentElement.classList.remove("dark", "theme-switching");
     }
+    localStorage.removeItem("theme");
 }
 
 function redirectToSigninOnUnauthorized() {
+    localStorage.removeItem("token");
     localStorage.removeItem("access_token");
+    resetThemeOnSignout();
     if (typeof window !== "undefined" && window.location.pathname !== "/sign-in") {
         window.location.replace("/sign-in");
     }
 }
 
-// function setToken(token) {
-//     localStorage.setItem("token", token);
-// }
+function extractErrorMessage(data, fallback) {
+    const detail = data?.detail;
+    if (typeof detail === "string" && detail) return detail;
+    if (Array.isArray(detail) && detail.length > 0) {
+        const first = detail[0];
+        if (typeof first === "string" && first) return first;
+        if (first && typeof first.msg === "string" && first.msg) return first.msg;
+    }
+    if (detail && typeof detail === "object") {
+        if (typeof detail.code === "string" && detail.code) return detail.code;
+        if (typeof detail.message === "string" && detail.message) return detail.message;
+    }
+    if (typeof data?.message === "string" && data.message) return data.message;
+    return fallback;
+}
 
 export function logout() {
+    localStorage.removeItem("token");
     localStorage.removeItem("access_token");
+    resetThemeOnSignout();
 }
 
 async function request(path, options = {}) {
@@ -47,7 +64,7 @@ async function request(path, options = {}) {
         if (res.status === 401) {
             redirectToSigninOnUnauthorized();
         }
-        const msg = data?.detail || data?.message || `Request failed: ${res.status}`;
+        const msg = extractErrorMessage(data, `Request failed: ${res.status}`);
         const err = new Error(msg);
         err.status = res.status;
         const retryAfter = res.headers.get("Retry-After");
@@ -68,9 +85,8 @@ export async function getHealth() {
 }
 
 export async function signin(email, password) {
-    // x-www-form-urlencoded (common for FastAPI OAuth2PasswordRequestForm)
     const body = new URLSearchParams();
-    body.append("username", email);   // FastAPI often uses "username" even if it's an email
+    body.append("username", email);
     body.append("password", password);
 
     const res = await fetch(`${API_BASE}/users/sign-in`, {
@@ -89,13 +105,23 @@ export async function signin(email, password) {
         if (res.status === 401) {
             redirectToSigninOnUnauthorized();
         }
-        const msg = data?.detail || data?.message || `Sign-in failed: ${res.status}`;
-        throw new Error(msg);
+        const msg = extractErrorMessage(data, `Sign-in failed: ${res.status}`);
+        const err = new Error(msg);
+        err.status = res.status;
+        const retryAfter = res.headers.get("Retry-After");
+        if (retryAfter) {
+            const parsed = Number(retryAfter);
+            if (Number.isFinite(parsed) && parsed > 0) {
+                err.retryAfterSeconds = Math.ceil(parsed);
+            }
+        }
+        throw err;
     }
 
-    const token = data?.access_token || data?.token;
+    const token = data?.access_token;
     if (!token) throw new Error("Sign-in succeeded but no token returned");
 
+    localStorage.removeItem("token");
     localStorage.setItem("access_token", token);
     return data;
 }
@@ -107,9 +133,123 @@ export async function signup(username, email, password) {
     });
 }
 
+export async function forgotPassword(email) {
+    const res = await fetch(`${API_BASE}/auth/forgot-password`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-Timezone": getBrowserTimeZone(),
+        },
+        body: JSON.stringify({ email }),
+    });
+
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : null;
+
+    if (!res.ok) {
+        const msg = extractErrorMessage(data, `Forgot-password failed: ${res.status}`);
+        const err = new Error(msg);
+        err.status = res.status;
+        const retryAfter = res.headers.get("Retry-After");
+        if (retryAfter) {
+            const parsed = Number(retryAfter);
+            if (Number.isFinite(parsed) && parsed > 0) {
+                err.retryAfterSeconds = Math.ceil(parsed);
+            }
+        }
+        throw err;
+    }
+
+    return data;
+}
+
+export async function resendVerification(email) {
+    const res = await fetch(`${API_BASE}/auth/resend-verification`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-Timezone": getBrowserTimeZone(),
+        },
+        body: JSON.stringify({ email }),
+    });
+
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : null;
+
+    if (!res.ok) {
+        const msg = extractErrorMessage(data, `Resend-verification failed: ${res.status}`);
+        const err = new Error(msg);
+        err.status = res.status;
+        const retryAfter = res.headers.get("Retry-After");
+        if (retryAfter) {
+            const parsed = Number(retryAfter);
+            if (Number.isFinite(parsed) && parsed > 0) {
+                err.retryAfterSeconds = Math.ceil(parsed);
+            }
+        }
+        throw err;
+    }
+
+    return data;
+}
+
+export async function verifyEmail(token) {
+    const params = new URLSearchParams({ token });
+    const res = await fetch(`${API_BASE}/auth/verify-email?${params.toString()}`, {
+        method: "GET",
+        headers: {
+            "X-Timezone": getBrowserTimeZone(),
+        },
+    });
+
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : null;
+
+    if (!res.ok) {
+        const msg = extractErrorMessage(data, `Verify-email failed: ${res.status}`);
+        throw new Error(msg);
+    }
+
+    return data;
+}
+
+export async function resetPassword(token, new_password) {
+    const res = await fetch(`${API_BASE}/auth/reset-password`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-Timezone": getBrowserTimeZone(),
+        },
+        body: JSON.stringify({ token, new_password }),
+    });
+
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : null;
+
+    if (!res.ok) {
+        const msg = extractErrorMessage(data, `Reset-password failed: ${res.status}`);
+        const err = new Error(msg);
+        err.status = res.status;
+        const retryAfter = res.headers.get("Retry-After");
+        if (retryAfter) {
+            const parsed = Number(retryAfter);
+            if (Number.isFinite(parsed) && parsed > 0) {
+                err.retryAfterSeconds = Math.ceil(parsed);
+            }
+        }
+        throw err;
+    }
+
+    return data;
+}
+
 
 export function isLoggedIn() {
     return !!localStorage.getItem("access_token");
+}
+
+export function getGoogleLoginUrl() {
+    return GOOGLE_LOGIN_URL;
 }
 
 export async function getCurrentUser() {
@@ -120,22 +260,22 @@ export async function getBudgets() {
     return request("/budgets/", { method: "GET" });
 }
 
-export async function createBudget(category, monthly_limit) {
+export async function createBudget(category, monthly_limit, budget_year, budget_month) {
     return request("/budgets/", {
         method: "POST",
-        body: JSON.stringify({ category, monthly_limit }),
+        body: JSON.stringify({ category, monthly_limit, budget_year, budget_month }),
     });
 }
 
-export async function updateBudget(category, monthly_limit) {
-    return request(`/budgets/${encodeURIComponent(category)}`, {
-        method: "PUT",
+export async function updateBudget(category, monthly_limit, budget_year, budget_month) {
+    return request(`/budgets/${encodeURIComponent(budget_year)}/${encodeURIComponent(budget_month)}/${encodeURIComponent(category)}`, {
+        method: "PATCH",
         body: JSON.stringify({ monthly_limit }),
     });
 }
 
-export async function deleteBudget(category) {
-    return request(`/budgets/${encodeURIComponent(category)}`, {
+export async function deleteBudget(category, budget_year, budget_month) {
+    return request(`/budgets/${encodeURIComponent(budget_year)}/${encodeURIComponent(budget_month)}/${encodeURIComponent(category)}`, {
         method: "DELETE",
     });
 }
@@ -232,17 +372,26 @@ export async function exportExpensesCsv(params = {}) {
         if (text) {
             try {
                 const data = JSON.parse(text);
-                msg = data?.detail || data?.message || msg;
+                msg = extractErrorMessage(data, msg);
             } catch {
                 msg = text;
             }
         }
-        throw new Error(msg);
+        const err = new Error(msg);
+        err.status = res.status;
+        const retryAfter = res.headers.get("Retry-After");
+        if (retryAfter) {
+            const parsed = Number(retryAfter);
+            if (Number.isFinite(parsed) && parsed > 0) {
+                err.retryAfterSeconds = Math.ceil(parsed);
+            }
+        }
+        throw err;
     }
 
     const blob = await res.blob();
     const contentDisposition = res.headers.get("Content-Disposition") || "";
-    const fileNameMatch = /filename=\"?([^\";]+)\"?/i.exec(contentDisposition);
+    const fileNameMatch = /filename="?([^";]+)"?/i.exec(contentDisposition);
     const filename = fileNameMatch?.[1] || "expenses.csv";
 
     return { blob, filename };

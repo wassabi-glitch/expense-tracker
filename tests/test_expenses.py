@@ -1,5 +1,7 @@
 from datetime import date, timedelta
 
+import app.routers.expenses as expenses_router
+from app import models
 from app.redis_rate_limiter import redis_client
 from tests.helpers import create_user_and_token, create_budget, create_expense
 
@@ -53,7 +55,7 @@ def test_create_expense_invalid_title(client):
     res_blank = create_expense(client, headers, title="   ", amount=10, category="Food")
     assert res_blank.status_code == 422
 
-    res_long = create_expense(client, headers, title="a" * 81, amount=10, category="Food")
+    res_long = create_expense(client, headers, title="a" * 33, amount=10, category="Food")
     assert res_long.status_code == 422
 
 
@@ -150,6 +152,98 @@ def test_create_expense_invalid_date(client):
     assert res_past.status_code == 422
 
 
+def test_create_expense_future_date_uses_request_timezone(client, monkeypatch):
+    headers = create_user_and_token(
+        client, "expusertz1", "expusertz1@example.com", "Password123!"
+    )
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2026, budget_month=2)
+
+    def fake_today_in_tz(tz):
+        key = getattr(tz, "key", "")
+        if key == "Asia/Tashkent":
+            return date(2026, 2, 2)
+        return date(2026, 2, 1)
+
+    monkeypatch.setattr(expenses_router, "today_in_tz", fake_today_in_tz)
+
+    base_payload = {
+        "title": "Lunch",
+        "amount": 10,
+        "category": "Food",
+        "description": "test",
+        "date": "2026-02-02",
+    }
+
+    res_tashkent = client.post(
+        "/expenses/",
+        json=base_payload,
+        headers={**headers, "X-Timezone": "Asia/Tashkent"},
+    )
+    assert res_tashkent.status_code == 201, res_tashkent.text
+
+    res_utc = client.post(
+        "/expenses/",
+        json={**base_payload, "title": "Dinner"},
+        headers={**headers, "X-Timezone": "UTC"},
+    )
+    assert res_utc.status_code == 400
+    assert res_utc.json()["detail"] == "expenses.date_in_future"
+
+
+def test_update_expense_future_date_uses_request_timezone(client, monkeypatch):
+    headers = create_user_and_token(
+        client, "expusertz2", "expusertz2@example.com", "Password123!"
+    )
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2026, budget_month=2)
+
+    created = client.post(
+        "/expenses/",
+        json={
+            "title": "Lunch",
+            "amount": 10,
+            "category": "Food",
+            "description": "test",
+            "date": "2026-02-01",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    expense_id = created.json()["id"]
+
+    def fake_today_in_tz(tz):
+        key = getattr(tz, "key", "")
+        if key == "Asia/Tashkent":
+            return date(2026, 2, 2)
+        return date(2026, 2, 1)
+
+    monkeypatch.setattr(expenses_router, "today_in_tz", fake_today_in_tz)
+
+    res_tashkent = client.put(
+        f"/expenses/{expense_id}",
+        json={
+            "title": "Lunch Updated",
+            "amount": 11,
+            "description": "test updated",
+            "date": "2026-02-02",
+        },
+        headers={**headers, "X-Timezone": "Asia/Tashkent"},
+    )
+    assert res_tashkent.status_code == 200, res_tashkent.text
+
+    res_utc = client.put(
+        f"/expenses/{expense_id}",
+        json={
+            "title": "Lunch Updated",
+            "amount": 11,
+            "description": "test updated",
+            "date": "2026-02-03",
+        },
+        headers={**headers, "X-Timezone": "UTC"},
+    )
+    assert res_utc.status_code == 400
+    assert res_utc.json()["detail"] == "expenses.date_in_future"
+
+
 def test_list_expenses_filters_and_sort(client):
     headers = create_user_and_token(
         client, "expuser12", "expuser12@example.com", "Password123!"
@@ -184,7 +278,8 @@ def test_list_expenses_newest_uses_expense_date(client):
     headers = create_user_and_token(
         client, "expuser14", "expuser14@example.com", "Password123!"
     )
-    create_budget(client, headers, category="Food", monthly_limit=500)
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2024, budget_month=1)
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2025, budget_month=1)
 
     client.post("/expenses/", json={
         "title": "Older by date",
@@ -213,10 +308,13 @@ def test_list_expenses_time_range(client):
     headers = create_user_and_token(
         client, "expuser13", "expuser13@example.com", "Password123!"
     )
-    create_budget(client, headers, category="Food", monthly_limit=500)
-
     old_date = (date.today() - timedelta(days=40)).isoformat()
     recent_date = (date.today() - timedelta(days=5)).isoformat()
+    old_dt = date.fromisoformat(old_date)
+    recent_dt = date.fromisoformat(recent_date)
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=old_dt.year, budget_month=old_dt.month)
+    if (old_dt.year, old_dt.month) != (recent_dt.year, recent_dt.month):
+        create_budget(client, headers, category="Food", monthly_limit=500, budget_year=recent_dt.year, budget_month=recent_dt.month)
 
     client.post("/expenses/", json={
         "title": "Old",
@@ -245,6 +343,7 @@ def test_update_expense(client):
         client, "expuser4", "expuser4@example.com", "Password123!"
     )
     create_budget(client, headers, category="Food", monthly_limit=500)
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2024, budget_month=1)
     res = create_expense(client, headers, title="Old", amount=10, category="Food")
     expense_id = res.json()["id"]
 
@@ -253,13 +352,77 @@ def test_update_expense(client):
         json={
             "title": "New",
             "amount": 20,
-            "category": "Food",
+            "description": "updated description",
             "date": "2024-01-01",
         },
         headers=headers,
     )
     assert res_update.status_code == 200
     assert res_update.json()["title"] == "New"
+
+
+def test_update_expense_allows_optional_description(client):
+    headers = create_user_and_token(
+        client, "expuser18", "expuser18@example.com", "Password123!"
+    )
+    create_budget(client, headers, category="Food", monthly_limit=500)
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2024, budget_month=1)
+    res = create_expense(client, headers, title="Meal", amount=10, category="Food", description="note")
+    expense_id = res.json()["id"]
+
+    res_update = client.put(
+        f"/expenses/{expense_id}",
+        json={
+            "title": "Meal Updated",
+            "amount": 25,
+            "description": None,
+            "date": "2024-01-01",
+        },
+        headers=headers,
+    )
+    assert res_update.status_code == 200, res_update.text
+    assert res_update.json()["category"] == "Food"
+    assert res_update.json()["description"] is None
+
+
+def test_update_expense_rejects_category_field(client):
+    headers = create_user_and_token(
+        client, "expuser16", "expuser16@example.com", "Password123!"
+    )
+    create_budget(client, headers, category="Food", monthly_limit=500)
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2024, budget_month=1)
+    res = create_expense(client, headers, title="Lunch", amount=10, category="Food")
+    expense_id = res.json()["id"]
+
+    res_update = client.put(
+        f"/expenses/{expense_id}",
+        json={
+            "title": "Lunch",
+            "amount": 10,
+            "category": "Transport",
+            "description": "test",
+            "date": "2024-01-01",
+        },
+        headers=headers,
+    )
+    assert res_update.status_code == 422
+
+
+def test_update_expense_requires_full_payload(client):
+    headers = create_user_and_token(
+        client, "expuser17", "expuser17@example.com", "Password123!"
+    )
+    create_budget(client, headers, category="Food", monthly_limit=500)
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2024, budget_month=1)
+    res = create_expense(client, headers, title="Snack", amount=5, category="Food")
+    expense_id = res.json()["id"]
+
+    res_update = client.put(
+        f"/expenses/{expense_id}",
+        json={"date": "2024-01-01"},
+        headers=headers,
+    )
+    assert res_update.status_code == 422
 
 
 def test_delete_expense(client):
@@ -301,3 +464,93 @@ def test_expense_write_rate_limit_blocks_burst(client):
     assert blocked is not None
     assert blocked.status_code == 429
     assert "Retry-After" in blocked.headers
+
+
+def test_create_expense_sets_budget_id_for_matching_month_budget(client, session):
+    headers = create_user_and_token(
+        client, "expbudgetfk1", "expbudgetfk1@example.com", "Password123!"
+    )
+    target_date = date(2024, 1, 15)
+    budget_res = create_budget(
+        client,
+        headers,
+        category="Food",
+        monthly_limit=500,
+        budget_year=2024,
+        budget_month=1,
+    )
+    assert budget_res.status_code == 201, budget_res.text
+    budget_id = budget_res.json()["id"]
+
+    res = create_expense(
+        client,
+        headers,
+        title="Lunch",
+        amount=10,
+        category="Food",
+        expense_date=target_date,
+    )
+    assert res.status_code == 201, res.text
+    expense_id = res.json()["id"]
+
+    db_expense = session.query(models.Expense).filter(models.Expense.id == expense_id).first()
+    assert db_expense is not None
+    assert db_expense.budget_id == budget_id
+
+
+def test_update_expense_rebinds_budget_id_when_date_month_changes(client, session):
+    headers = create_user_and_token(
+        client, "expbudgetfk2", "expbudgetfk2@example.com", "Password123!"
+    )
+    jan_budget = create_budget(
+        client,
+        headers,
+        category="Food",
+        monthly_limit=500,
+        budget_year=2024,
+        budget_month=1,
+    )
+    feb_budget = create_budget(
+        client,
+        headers,
+        category="Food",
+        monthly_limit=700,
+        budget_year=2024,
+        budget_month=2,
+    )
+    assert jan_budget.status_code == 201, jan_budget.text
+    assert feb_budget.status_code == 201, feb_budget.text
+    jan_budget_id = jan_budget.json()["id"]
+    feb_budget_id = feb_budget.json()["id"]
+
+    created = create_expense(
+        client,
+        headers,
+        title="Meal",
+        amount=20,
+        category="Food",
+        expense_date=date(2024, 1, 20),
+    )
+    assert created.status_code == 201, created.text
+    expense_id = created.json()["id"]
+
+    db_expense_before = session.query(models.Expense).filter(models.Expense.id == expense_id).first()
+    assert db_expense_before is not None
+    assert db_expense_before.budget_id == jan_budget_id
+
+    updated = client.put(
+        f"/expenses/{expense_id}",
+        json={
+            "title": "Meal moved",
+            "amount": 25,
+            "description": "moved to feb",
+            "date": "2024-02-10",
+        },
+        headers=headers,
+    )
+    assert updated.status_code == 200, updated.text
+
+    session.expire_all()
+    db_expense_after = session.query(models.Expense).filter(models.Expense.id == expense_id).first()
+    assert db_expense_after is not None
+    assert db_expense_after.budget_id == feb_budget_id

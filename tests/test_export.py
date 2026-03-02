@@ -1,5 +1,5 @@
 import csv
-from datetime import date, timedelta
+from datetime import date
 from io import StringIO
 
 from tests.helpers import create_user_and_token, create_budget, create_expense
@@ -23,7 +23,7 @@ def test_export_expenses_basic(client):
     assert res.headers["content-type"].startswith("text/csv")
 
     rows = _parse_csv(res.text)
-    assert rows[0] == ["date", "title", "amount", "category", "description"]
+    assert rows[0] == ["\ufeffdate", "title", "amount", "category", "description"]
     assert rows[1][1] == "Apples"
 
 
@@ -40,7 +40,7 @@ def test_export_expenses_filters(client):
     assert res.status_code == 200
 
     rows = _parse_csv(res.text)
-    assert rows[0] == ["date", "title", "amount", "category", "description"]
+    assert rows[0] == ["\ufeffdate", "title", "amount", "category", "description"]
     assert len(rows) == 2
     assert rows[1][3] == "Food"
 
@@ -52,33 +52,18 @@ def test_export_expenses_sorted_by_date_desc(client):
     create_budget(client, headers, category="Food", monthly_limit=500)
 
     today = date.today()
-    two_days_ago = today - timedelta(days=2)
-    one_day_ago = today - timedelta(days=1)
+    # Stay within same month by using day offsets from today, clamped to day 1
+    older_date = today.replace(day=max(1, today.day - 2))
+    newer_date = today.replace(day=max(1, today.day - 1))
 
-    res_old = client.post(
-        "/expenses/",
-        json={
-            "title": "Older",
-            "amount": 10,
-            "category": "Food",
-            "description": "old",
-            "date": two_days_ago.isoformat(),
-        },
-        headers=headers,
-    )
+    # Ensure dates are distinct (if today.day <= 2, they may overlap)
+    if older_date == newer_date:
+        newer_date = today
+
+    res_old = create_expense(client, headers, title="Older", amount=10, category="Food", description="old", expense_date=older_date)
     assert res_old.status_code == 201
 
-    res_new = client.post(
-        "/expenses/",
-        json={
-            "title": "Newest",
-            "amount": 20,
-            "category": "Food",
-            "description": "new",
-            "date": one_day_ago.isoformat(),
-        },
-        headers=headers,
-    )
+    res_new = create_expense(client, headers, title="Newest", amount=20, category="Food", description="new", expense_date=newer_date)
     assert res_new.status_code == 201
 
     res = client.get("/expenses/export", headers=headers)
@@ -97,33 +82,18 @@ def test_export_expenses_sorted_by_date_asc(client):
     create_budget(client, headers, category="Food", monthly_limit=500)
 
     today = date.today()
-    two_days_ago = today - timedelta(days=2)
-    one_day_ago = today - timedelta(days=1)
+    # Stay within same month by using day offsets from today, clamped to day 1
+    older_date = today.replace(day=max(1, today.day - 2))
+    newer_date = today.replace(day=max(1, today.day - 1))
 
-    res_old = client.post(
-        "/expenses/",
-        json={
-            "title": "Older",
-            "amount": 10,
-            "category": "Food",
-            "description": "old",
-            "date": two_days_ago.isoformat(),
-        },
-        headers=headers,
-    )
+    # Ensure dates are distinct
+    if older_date == newer_date:
+        newer_date = today
+
+    res_old = create_expense(client, headers, title="Older", amount=10, category="Food", description="old", expense_date=older_date)
     assert res_old.status_code == 201
 
-    res_new = client.post(
-        "/expenses/",
-        json={
-            "title": "Newest",
-            "amount": 20,
-            "category": "Food",
-            "description": "new",
-            "date": one_day_ago.isoformat(),
-        },
-        headers=headers,
-    )
+    res_new = create_expense(client, headers, title="Newest", amount=20, category="Food", description="new", expense_date=newer_date)
     assert res_new.status_code == 201
 
     res = client.get("/expenses/export?sort=oldest", headers=headers)

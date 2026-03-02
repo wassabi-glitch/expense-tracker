@@ -1,11 +1,14 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from typing import List, Optional
 from datetime import datetime, date
 from enum import Enum
 import re
 
-from sqlalchemy import Column, Integer
 from .models import ExpenseCategory  # Importing the enum we defined in models.py
+
+MIN_BUDGET_YEAR = 2020
+MAX_BUDGET_YEARS_AHEAD = 5
+
 
 # --- USER SCHEMAS ---
 
@@ -19,17 +22,17 @@ class UserBase(BaseModel):
     def validate_username(cls, v: str):
         v = v.strip()
         if not (3 <= len(v) <= 32):
-            raise ValueError("Username must be 3-32 characters long")
+            raise ValueError("auth.validation.username.length")
         if " " in v:
-            raise ValueError("Username cannot contain spaces")
+            raise ValueError("auth.validation.username.no_spaces")
         if not re.fullmatch(r"[A-Za-z0-9._]+", v):
-            raise ValueError("Username can only use letters, numbers, dots, and underscores")
+            raise ValueError("auth.validation.username.allowed_chars")
         if v[0] in "._" or v[-1] in "._":
-            raise ValueError("Username cannot start or end with . or _")
+            raise ValueError("auth.validation.username.edge_separators")
         if ".." in v or "__" in v or "._" in v or "_." in v:
-            raise ValueError("Username cannot contain consecutive or mixed separators")
+            raise ValueError("auth.validation.username.consecutive_separators")
         if v.isdigit():
-            raise ValueError("Username cannot be only numbers")
+            raise ValueError("auth.validation.username.not_only_numbers")
         return v
 
     @field_validator("email")
@@ -37,12 +40,12 @@ class UserBase(BaseModel):
     def normalize_email(cls, v: str):
         v = v.strip().lower()
         if len(v) > 254:
-            raise ValueError("Email is too long")
+            raise ValueError("auth.validation.email.too_long")
         local, _, domain = v.partition("@")
         if len(local) > 64:
-            raise ValueError("Email local part is too long")
+            raise ValueError("auth.validation.email.local_part_too_long")
         if not domain or "." not in domain:
-            raise ValueError("Email domain must contain a dot")
+            raise ValueError("auth.validation.email.domain_invalid")
         return v
 
 
@@ -52,20 +55,27 @@ class UserCreate(UserBase):
     @field_validator('password')
     def validate_password(cls, v):
         if len(v) < 8:
-            raise ValueError("Password too short (min 8)")
+            raise ValueError("auth.validation.password.min")
         if len(v) > 64:
-            raise ValueError("Password too long (max 64)")
+            raise ValueError("auth.validation.password.max")
         if " " in v:
-            raise ValueError("Password cannot contain spaces")
+            raise ValueError("auth.validation.password.no_spaces")
         if not re.search(r"[a-z]", v):
-            raise ValueError("Password must include a lowercase letter")
+            raise ValueError("auth.validation.password.lowercase")
         if not re.search(r"[A-Z]", v):
-            raise ValueError("Password must include an uppercase letter")
+            raise ValueError("auth.validation.password.uppercase")
         if not re.search(r"\d", v):
-            raise ValueError("Password must include a number")
+            raise ValueError("auth.validation.password.number")
         if not re.search(r"[^\w\s]", v):
-            raise ValueError("Password must include a special character")
+            raise ValueError("auth.validation.password.special")
         return v
+
+    @model_validator(mode="after")
+    def validate_password_not_contains_email_local_part(self):
+        local_part = self.email.split("@", 1)[0].strip().lower()
+        if local_part and local_part in self.password.lower():
+            raise ValueError("auth.validation.password.no_email_local_part")
+        return self
 
 
 class UserOut(UserBase):
@@ -76,6 +86,8 @@ class UserOut(UserBase):
 
 
 # --- EXPENSE SCHEMAS ---
+MAX_EXPENSE_AMOUNT = 999_999_999_999
+
 
 class ExpenseBase(BaseModel):
     title: str
@@ -89,8 +101,7 @@ class ExpenseBase(BaseModel):
     @classmethod
     def validate_date(cls, v: date):
         if v.year < 2020:
-            raise ValueError(
-                "Date is too far in the past (must be 2020 or later)")
+            raise ValueError("expenses.date_too_early")
 
         return v
 
@@ -98,8 +109,8 @@ class ExpenseBase(BaseModel):
     @classmethod
     def validate_title(cls, v: str):
         v = v.strip()
-        if not (3 <= len(v) <= 80):
-            raise ValueError("Title must be 3-80 characters long")
+        if not (3 <= len(v) <= 32):
+            raise ValueError("expenses.validation.title.length")
         return v
 
     @field_validator("description")
@@ -109,7 +120,14 @@ class ExpenseBase(BaseModel):
             return v
         v = v.strip()
         if len(v) > 500:
-            raise ValueError("Description must be 500 characters or less")
+            raise ValueError("expenses.validation.description.max_length")
+        return v
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount_max(cls, v: int):
+        if v > MAX_EXPENSE_AMOUNT:
+            raise ValueError("expenses.amount_too_large")
         return v
 
 
@@ -118,12 +136,45 @@ class ExpenseCreate(ExpenseBase):
 
 
 class ExpenseUpdate(BaseModel):
-    # Everything is optional in an update so the user can change just one field
-    title: Optional[str] = None
-    amount: Optional[int] = Field(None, gt=0)
-    category: Optional[ExpenseCategory] = None
+    # PUT is treated as full replacement for editable fields.
+    title: str
+    amount: int = Field(gt=0)
     description: Optional[str] = None
-    date: Optional[date]
+    date: date
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("date")
+    @classmethod
+    def validate_date(cls, v: date):
+        if v.year < 2020:
+            raise ValueError("expenses.date_too_early")
+        return v
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, v: str):
+        v = v.strip()
+        if not (3 <= len(v) <= 32):
+            raise ValueError("expenses.validation.title.length")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, v: Optional[str]):
+        if v is None:
+            return v
+        v = v.strip()
+        if len(v) > 500:
+            raise ValueError("expenses.validation.description.max_length")
+        return v
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount_max(cls, v: int):
+        if v > MAX_EXPENSE_AMOUNT:
+            raise ValueError("expenses.amount_too_large")
+        return v
 
 
 class ExpenseOut(ExpenseBase):
@@ -147,9 +198,64 @@ class TokenData(BaseModel):
     user_id: Optional[int] = None
 
 
+class MessageResponse(BaseModel):
+    message: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, v: str):
+        return v.strip().lower()
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, v: str):
+        return v.strip().lower()
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+    @field_validator("token")
+    @classmethod
+    def validate_token(cls, v: str):
+        value = v.strip()
+        if not value:
+            raise ValueError("auth.validation.reset.token_required")
+        return value
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v: str):
+        if len(v) < 8:
+            raise ValueError("auth.validation.password.min")
+        if len(v) > 64:
+            raise ValueError("auth.validation.password.max")
+        if " " in v:
+            raise ValueError("auth.validation.password.no_spaces")
+        if not re.search(r"[a-z]", v):
+            raise ValueError("auth.validation.password.lowercase")
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("auth.validation.password.uppercase")
+        if not re.search(r"\d", v):
+            raise ValueError("auth.validation.password.number")
+        if not re.search(r"[^\w\s]", v):
+            raise ValueError("auth.validation.password.special")
+        return v
+
+
 class BudgetStatus(str, Enum):
-    Healthy = "Healthy"
-    Critical = "Critical"
+    On_track = "On Track"
+    Warning = "Warning"
+    High_risk = "High Risk"
     Over_limit = "Over Limit"
 
 
@@ -180,6 +286,38 @@ class ExpenseStats(BaseModel):
 class BudgetBase(BaseModel):
     category: ExpenseCategory
     monthly_limit: int = Field(gt=0)
+    budget_year: int
+    budget_month: int
+
+    @field_validator("budget_year")
+    @classmethod
+    def validate_budget_year(cls, v: int):
+        if v < MIN_BUDGET_YEAR:
+            raise ValueError("budgets.year_too_early")
+        return v
+
+    @field_validator("budget_month")
+    @classmethod
+    def validate_budget_month(cls, v: int):
+        if v < 1 or v > 12:
+            raise ValueError("budgets.month_invalid")
+        return v
+
+    @model_validator(mode="after")
+    def validate_budget_window(self):
+        candidate = date(self.budget_year, self.budget_month, 1)
+        min_allowed = date(MIN_BUDGET_YEAR, 1, 1)
+
+        today = date.today()
+        max_allowed = date(today.year + MAX_BUDGET_YEARS_AHEAD, today.month, 1)
+
+        if candidate < min_allowed:
+            raise ValueError("budgets.month_too_early")
+
+        if candidate > max_allowed:
+            raise ValueError("budgets.month_too_far_in_future")
+
+        return self
 
 
 class BudgetCreate(BudgetBase):
@@ -190,12 +328,12 @@ class BudgetOut(BudgetBase):
     id: int
     owner_id: int
     created_at: datetime
-    # This is the 'Memory' piece we need for notifications4
+    spent: int = 0
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class BudgetUpdate(BaseModel):
-    # This is the ONLY thing a user should touch
     monthly_limit: int = Field(..., gt=0)
 
     model_config = ConfigDict(

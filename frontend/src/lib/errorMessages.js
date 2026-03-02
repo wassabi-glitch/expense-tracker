@@ -1,0 +1,86 @@
+export function localizeApiError(message, t) {
+  const raw = String(message || "");
+  const msg = raw.toLowerCase();
+  if (!msg) return "";
+
+  if (msg === "auth.credentials_invalid" || msg.includes("could not validate credentials")) {
+    return t("common.sessionExpired");
+  }
+  if (msg === "common.forbidden") {
+    return t("common.forbidden");
+  }
+  if (msg.includes("failed to fetch") || msg.includes("networkerror")) {
+    return t("common.networkError");
+  }
+  if (msg === "expenses.write_rate_limited") {
+    return t("expenses.tooManySoon");
+  }
+  if (msg === "budgets.write_rate_limited") {
+    return t("budgets.tooManySoon");
+  }
+  if (msg === "expenses.date_in_future") {
+    return t("expenses.dateFuture");
+  }
+  if (msg === "expenses.date_too_early") {
+    return t("expenses.dateTooEarly");
+  }
+  if (msg === "expenses.amount_too_large") {
+    return t("expenses.amountTooLarge");
+  }
+  if (msg === "expenses.invalid_sort") {
+    return t("expenses.requestFailed");
+  }
+  if (msg === "expenses.not_found") {
+    return t("expenses.loadFailed");
+  }
+  if (msg === "budgets.already_exists") {
+    return t("budgets.addFailed");
+  }
+  if (msg === "budgets.not_found") {
+    return t("budgets.loadFailed");
+  }
+  if (msg === "budgets.has_linked_expenses") {
+    return t("budgets.deleteBlockedLinkedExpenses");
+  }
+  if (msg === "analytics.range_both_or_days_required" || msg === "analytics.range_both_required") {
+    return t("analytics.hintProvideBoth");
+  }
+  if (msg === "analytics.date_too_early") {
+    return t("analytics.hintTooEarly");
+  }
+  if (msg === "analytics.end_date_in_future") {
+    return t("analytics.hintEndFuture");
+  }
+  if (msg === "analytics.start_after_end") {
+    return t("analytics.hintStartAfterEnd");
+  }
+  if (msg === "analytics.range_too_large") {
+    return t("analytics.hintMaxRange");
+  }
+  if (msg === "analytics.days_min_1") {
+    return t("analytics.hintInvalidDate");
+  }
+
+  if (
+    msg === "expenses.budget_required" ||
+    msg.includes("cannot create an expense for") ||
+    msg.includes("cannot add expense for")
+  ) {
+    const match = raw.match(/for\s+([A-Za-z]+)/i);
+    const categoryRaw = match?.[1] || "";
+    const categoryLabel = categoryRaw
+      ? t(`categories.${categoryRaw}`, { defaultValue: categoryRaw })
+      : t("expenses.category");
+    return t("expenses.budgetRequired", { category: categoryLabel });
+  }
+
+  if (msg.includes(".")) {
+    return t(raw, { defaultValue: "" });
+  }
+
+  if (msg.includes("exceeded maximum size") || msg.includes("out of range")) {
+    return t("expenses.amountTooLarge");
+  }
+
+  return "";
+}

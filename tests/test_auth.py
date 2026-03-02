@@ -153,12 +153,19 @@ def test_signup_rate_limit_blocks_after_repeated_attempts(client):
 # -----------------
 # SIGN-IN TESTS
 # -----------------
-def test_signin_success(client):
+def test_signin_success(client, session):
     client.post("/users/sign-up", json={
         "username": "bob",
         "email": "bob@example.com",
         "password": "MyPassword1!"
     })
+
+    # Mark user as verified (sign-in rejects unverified users)
+    user = session.query(models.User).filter(
+        models.User.email == "bob@example.com"
+    ).first()
+    user.is_verified = True
+    session.commit()
 
     response = client.post("/users/sign-in", data={
         "username": "bob@example.com",

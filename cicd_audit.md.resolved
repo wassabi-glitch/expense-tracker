@@ -1,0 +1,153 @@
+# CI/CD Pipeline Audit
+
+## What You Have Now
+
+### GitHub Actions ([ci.yml](file:///c:/Users/me/Desktop/MyPROJECTS/ExpenseTracker/.github/workflows/ci.yml)) — 4 Jobs
+
+| Job | What It Does | Verdict |
+|-----|-------------|---------|
+| **Backend Tests** | Spins up Redis, sets env vars, runs `pytest -q` | ✅ Good foundation |
+| **SAST (Bandit)** | Static analysis for Python security issues | ✅ Nice to have |
+| **Frontend Build** | `npm ci` + `npm run build` — verifies frontend compiles | ✅ Good |
+| **Dependency Audit** | `pip-audit` + `npm audit` for known vulnerabilities | ✅ Good (both `continue-on-error` though) |
+
+### What's Missing (❌)
+
+| Gap | Why It Matters | Priority |
+|-----|---------------|----------|
+| **No PostgreSQL in CI** | Your backend tests don't have a real DB service. Tests likely use SQLite or skip DB-dependent tests entirely. | 🔴 High |
+| **No frontend tests** | `npm run build` only checks compilation, not correctness. No Jest/Vitest tests. | 🟡 Medium |
+| **No linting in CI** | No `ruff`/`flake8` for Python, no `eslint` for JS. Code style isn't enforced. | 🟡 Medium |
+| **No test coverage report** | You don't know what % of your code is tested. | 🟡 Medium |
+| **No branch protection** | Nothing stops you from pushing directly to `main` without passing CI. | 🔴 High |
+| **No Docker image build test** | CI doesn't verify the Docker image builds successfully. | 🟢 Low (for now) |
+| **No migration check** | CI doesn't verify Alembic migrations apply cleanly on a fresh DB. | 🔴 High |
+| **No CD (auto-deploy)** | No automatic deployment to Render after merge to `main`. | 🟢 Low (Render has its own auto-deploy) |
+| **Dependency audit is soft-fail** | Both `pip-audit` and `npm audit` have `continue-on-error: true` — they never block a merge. | 🟡 Medium |
+
+---
+
+## Recommended Improvements
+
+### 🔴 Priority 1: Add PostgreSQL Service to CI
+
+Your app uses PostgreSQL in production. Tests should run against a real PostgreSQL, not SQLite.
+
+```yaml
+services:
+  postgres:
+    image: postgres:16-alpine
+    env:
+      POSTGRES_USER: ci_user
+      POSTGRES_PASSWORD: ci_password
+      POSTGRES_DB: ci_db
+    ports:
+      - 5432:5432
+    options: >-
+      --health-cmd pg_isready
+      --health-interval 5s
+      --health-timeout 3s
+      --health-retries 10
+  redis:
+    # ... (keep existing)
+```
+
+### 🔴 Priority 2: Add Migration Check Step
+
+After DB is up, run migrations before tests to catch migration bugs early:
+
+```yaml
+- name: Run Alembic Migrations
+  run: python -m alembic upgrade head
+```
+
+### 🔴 Priority 3: Branch Protection on GitHub
+
+Go to **GitHub → Repo → Settings → Branches → Branch protection rules** and set for `main`:
+- ✅ Require pull request before merging
+- ✅ Require status checks to pass (select all 4 CI jobs)
+- ✅ Require branches to be up to date
+- ❌ Don't allow force pushes
+
+This is **critical** for your step-by-step roadmap — it guarantees nothing merges without passing tests.
+
+### 🟡 Priority 4: Add Linting
+
+```yaml
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install ruff
+      - name: Ruff (Python)
+        run: ruff check app/ tests/
+
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: cd frontend && npm ci
+      - name: ESLint (Frontend)
+        run: cd frontend && npx eslint src/
+```
+
+### 🟡 Priority 5: Test Coverage
+
+```yaml
+- name: Run Pytest with Coverage
+  run: pytest -q --cov=app --cov-report=term-missing --cov-fail-under=60
+```
+
+This blocks merges if coverage drops below 60% (adjust threshold as you grow).
+
+### 🟡 Priority 6: Harden Dependency Audits
+
+Remove `continue-on-error: true` from at least `npm audit` so known high-severity vulnerabilities block the build:
+
+```yaml
+- name: NPM Audit (high+)
+  run: npm audit --audit-level=high
+  # Remove continue-on-error
+```
+
+### 🟢 Priority 7: Frontend Tests (Later)
+
+When you add Vitest tests to the frontend:
+
+```yaml
+- name: Run Frontend Tests
+  run: npm test -- --run
+```
+
+---
+
+## Recommended Final CI Pipeline Shape
+
+```
+CI (on push to main + PRs to main)
+├── lint              — ruff + eslint
+├── backend-tests     — postgres + redis + alembic migrate + pytest --cov
+├── frontend-build    — npm ci + npm run build (+ npm test later)
+├── sast-bandit       — bandit security scan
+└── security-audit    — pip-audit + npm audit (hard fail)
+```
+
+All 5 jobs must pass before merging to `main`.
+
+---
+
+## Your Makefile
+
+Current [Makefile](file:///c:/Users/me/Desktop/MyPROJECTS/ExpenseTracker/Makefile) is basic but functional. Consider adding:
+
+```makefile
+lint:
+	ruff check app/ tests/
+
+lint-fix:
+	ruff check --fix app/ tests/
+
+coverage:
+	pytest -q --cov=app --cov-report=term-missing
+```

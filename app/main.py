@@ -6,9 +6,11 @@ from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.session import get_db
-from .routers import users, expenses, budget, analytics
+from .routers import users, expenses, budget, analytics, auth
 from .models import ExpenseCategory
 from config import settings
+from app.routers import oauth_google
+
 
 # Tables are managed by Alembic migrations.
 
@@ -24,8 +26,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT","PATCH" ,"DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Timezone"],
+    expose_headers=["Retry-After", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Content-Disposition"],
 )
 
 app.add_middleware(
@@ -80,6 +83,7 @@ def health_check(db: Session = Depends(get_db)):
     """Check if the API and Database are connected."""
     return {"status": "online", "database": "connected"}
 
+
 @app.get("/meta/categories", tags=["Meta"])
 def get_categories():
     return [category.value for category in ExpenseCategory]
@@ -87,6 +91,8 @@ def get_categories():
 
 # Include Routers
 app.include_router(users.router)
+app.include_router(auth.router)
 app.include_router(expenses.router)
 app.include_router(budget.router)
 app.include_router(analytics.router)
+app.include_router(oauth_google.router)
