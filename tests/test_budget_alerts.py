@@ -25,26 +25,30 @@ def test_budget_alerts_thresholds(client, session):
     # 40% -> no alert
     create_expense(client, headers, title="Exp1", amount=40, category="Food")
     user_id = _get_user_id(session, "alertuser@example.com")
-    check_budget_alerts(session, user_id, "Food")
     budget = _get_budget(session, user_id, models.ExpenseCategory.FOOD)
+    check_budget_alerts(session, budget)
+    session.refresh(budget)
     assert budget.last_notified_threshold == 0
 
     # 50% -> alert
     create_expense(client, headers, title="Exp2", amount=10, category="Food")
-    check_budget_alerts(session, user_id, "Food")
     budget = _get_budget(session, user_id, models.ExpenseCategory.FOOD)
+    check_budget_alerts(session, budget)
+    session.refresh(budget)
     assert budget.last_notified_threshold == 50
 
     # 90% -> alert
     create_expense(client, headers, title="Exp3", amount=40, category="Food")
-    check_budget_alerts(session, user_id, "Food")
     budget = _get_budget(session, user_id, models.ExpenseCategory.FOOD)
+    check_budget_alerts(session, budget)
+    session.refresh(budget)
     assert budget.last_notified_threshold == 90
 
     # 100% -> alert
     create_expense(client, headers, title="Exp4", amount=20, category="Food")
-    check_budget_alerts(session, user_id, "Food")
     budget = _get_budget(session, user_id, models.ExpenseCategory.FOOD)
+    check_budget_alerts(session, budget)
+    session.refresh(budget)
     assert budget.last_notified_threshold == 100
 
 
@@ -56,8 +60,9 @@ def test_budget_alerts_reset_below_50(client, session):
 
     create_expense(client, headers, title="Exp1", amount=60, category="Food")
     user_id = _get_user_id(session, "alertuser2@example.com")
-    check_budget_alerts(session, user_id, "Food")
     budget = _get_budget(session, user_id, models.ExpenseCategory.FOOD)
+    check_budget_alerts(session, budget)
+    session.refresh(budget)
     assert budget.last_notified_threshold == 50
 
     # Delete expense -> total 0, should reset to 0
@@ -68,6 +73,7 @@ def test_budget_alerts_reset_below_50(client, session):
     session.delete(expense)
     session.commit()
 
-    check_budget_alerts(session, user_id, "Food")
     budget = _get_budget(session, user_id, models.ExpenseCategory.FOOD)
+    check_budget_alerts(session, budget)
+    session.refresh(budget)
     assert budget.last_notified_threshold == 0

@@ -52,10 +52,13 @@ def test_export_expenses_sorted_by_date_desc(client):
     create_budget(client, headers, category="Food", monthly_limit=500)
 
     today = date.today()
-    # Use mid-month anchor to avoid crossing month boundaries
-    anchor = today.replace(day=15) if today.day >= 15 else today
-    older_date = anchor - timedelta(days=2)
-    newer_date = anchor - timedelta(days=1)
+    # Stay within same month by using day offsets from today, clamped to day 1
+    older_date = today.replace(day=max(1, today.day - 2))
+    newer_date = today.replace(day=max(1, today.day - 1))
+
+    # Ensure dates are distinct (if today.day <= 2, they may overlap)
+    if older_date == newer_date:
+        newer_date = today
 
     res_old = create_expense(client, headers, title="Older", amount=10, category="Food", description="old", expense_date=older_date)
     assert res_old.status_code == 201
@@ -79,10 +82,13 @@ def test_export_expenses_sorted_by_date_asc(client):
     create_budget(client, headers, category="Food", monthly_limit=500)
 
     today = date.today()
-    # Use mid-month anchor to avoid crossing month boundaries
-    anchor = today.replace(day=15) if today.day >= 15 else today
-    older_date = anchor - timedelta(days=2)
-    newer_date = anchor - timedelta(days=1)
+    # Stay within same month by using day offsets from today, clamped to day 1
+    older_date = today.replace(day=max(1, today.day - 2))
+    newer_date = today.replace(day=max(1, today.day - 1))
+
+    # Ensure dates are distinct
+    if older_date == newer_date:
+        newer_date = today
 
     res_old = create_expense(client, headers, title="Older", amount=10, category="Food", description="old", expense_date=older_date)
     assert res_old.status_code == 201
