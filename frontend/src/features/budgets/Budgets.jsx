@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Car, Gamepad2, Home, Plus, Trash2, Utensils, Wrench, Circle } from "lucide-react";
+import { Car, Gamepad2, Home, Trash2, Utensils, Wrench, Circle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { Button } from "./components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
-import { LoadingSpinner } from "./components/ui/loading-spinner";
-import { Progress } from "./components/ui/progress";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { Progress } from "@/components/ui/progress";
 import {
   Dialog,
   DialogContent,
@@ -14,14 +14,14 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "./components/ui/dialog";
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "./components/ui/select";
+} from "@/components/ui/select";
 import {
   createBudget,
   deleteBudget,
@@ -29,23 +29,14 @@ import {
   getThisMonthStats,
   updateBudget,
   getCategories,
-} from "./api";
-import {
-  budgetCreateFormSchema,
-  budgetDeleteFormSchema,
-  budgetUpdateFormSchema,
-  MAX_BUDGET_AMOUNT,
-} from "./budgets/budgetSchemas";
-import { localizeApiError } from "./lib/errorMessages";
-
-const categoryIconMap = {
-  Food: Utensils,
-  Transport: Car,
-  Housing: Home,
-  Entertainment: Gamepad2,
-  Utilities: Wrench,
-  Other: Circle,
-};
+} from "@/lib/api";
+import { budgetCreateFormSchema, budgetDeleteFormSchema, budgetUpdateFormSchema, MAX_BUDGET_AMOUNT } from "./budgetSchemas";
+import { localizeApiError } from "@/lib/errorMessages";
+import { categoryIconMap } from "@/lib/category";
+import { formatUzs, formatCompactUzs, formatAmountInput, formatMonthYear, getFallbackMonthsLong, getDateLocale } from "@/lib/format";
+import { PageHeader } from "@/components/PageHeader";
+import { EmptyState } from "@/components/EmptyState";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 export default function Budgets() {
   const { t, i18n } = useTranslation();
@@ -117,10 +108,12 @@ export default function Budgets() {
       ? "ru-RU"
       : "en-US";
 
-  const tCategory = (name) => t(`categories.${name}`, { defaultValue: name });
-  const compareLocalizedCategory = (leftCategory, rightCategory) =>
-    tCategory(leftCategory).localeCompare(tCategory(rightCategory), categorySortLocale, { sensitivity: "base" });
-  async function loadBudgetsPage({ showSpinner = true } = {}) {
+  const tCategory = useCallback((name) => t(`categories.${name}`, { defaultValue: name }), [t]);
+  const compareLocalizedCategory = useCallback((leftCategory, rightCategory) =>
+    tCategory(leftCategory).localeCompare(tCategory(rightCategory), categorySortLocale, { sensitivity: "base" }),
+    [tCategory, categorySortLocale]
+  );
+  const loadBudgetsPage = useCallback(async ({ showSpinner = true } = {}) => {
     if (showSpinner) setLoading(true);
     setAnimateProgress(false);
     setError("");
@@ -164,11 +157,11 @@ export default function Budgets() {
     } finally {
       if (showSpinner) setLoading(false);
     }
-  }
+  }, [currentYear, currentMonth, t]);
 
   useEffect(() => {
     loadBudgetsPage();
-  }, []);
+  }, [loadBudgetsPage]);
 
   const sortedBudgets = useMemo(
     () =>
@@ -177,7 +170,7 @@ export default function Budgets() {
         b.budgetMonth - a.budgetMonth ||
         compareLocalizedCategory(a.category, b.category)
       ),
-    [budgets, appLang]
+    [budgets, compareLocalizedCategory]
   );
   const visibleBudgets = useMemo(
     () =>
@@ -187,90 +180,14 @@ export default function Budgets() {
     [showHistory, sortedBudgets, currentYear, currentMonth]
   );
 
-  const formatUzs = (value) => String(Number(value || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-  const formatCompactUzs = (value) =>
-    new Intl.NumberFormat("en-US", {
-      notation: "compact",
-      maximumFractionDigits: 1,
-    })
-      .format(Number(value || 0))
-      .replace(".0", "");
   const maxBudgetAmountDigits = String(MAX_BUDGET_AMOUNT).length;
   const maxBudgetAmountInputLength = formatUzs(MAX_BUDGET_AMOUNT).length;
-  const monthLocale = appLang.startsWith("uz")
-    ? "uz-UZ"
-    : appLang.startsWith("ru")
-      ? "ru-RU"
-      : "en-US";
+  const monthLocale = getDateLocale(appLang);
+  const fallbackMonthNames = getFallbackMonthsLong(appLang);
 
-  const fallbackMonthNames = useMemo(() => {
-    if (appLang.startsWith("uz")) {
-      return [
-        "Yanvar",
-        "Fevral",
-        "Mart",
-        "Aprel",
-        "May",
-        "Iyun",
-        "Iyul",
-        "Avgust",
-        "Sentyabr",
-        "Oktyabr",
-        "Noyabr",
-        "Dekabr",
-      ];
-    }
-    if (appLang.startsWith("ru")) {
-      return [
-        "Январь",
-        "Февраль",
-        "Март",
-        "Апрель",
-        "Май",
-        "Июнь",
-        "Июль",
-        "Август",
-        "Сентябрь",
-        "Октябрь",
-        "Ноябрь",
-        "Декабрь",
-      ];
-    }
-    return [
-      "January",
-      "February",
-      "March",
-      "April",
-      "May",
-      "June",
-      "July",
-      "August",
-      "September",
-      "October",
-      "November",
-      "December",
-    ];
-  }, [appLang]);
+  const formatBudgetMonth = useCallback((year, month) => formatMonthYear(year, month, appLang), [appLang]);
 
-  const formatBudgetMonth = (year, month) =>
-    (() => {
-      const formatted = new Intl.DateTimeFormat(monthLocale, { year: "numeric", month: "long" }).format(
-        new Date(year, month - 1, 1)
-      );
-      if (/M\d{2}/.test(formatted)) {
-        return `${fallbackMonthNames[month - 1]} ${year}`;
-      }
-      return formatted;
-    })();
-
-  const formatBudgetAmountInput = (raw) => {
-    const digits = String(raw ?? "")
-      .replace(/\D/g, "")
-      .slice(0, maxBudgetAmountDigits);
-    if (!digits) return "";
-    const normalized = digits.replace(/^0+(?=\d)/, "");
-    return normalized.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-  };
+  const formatBudgetAmountInput = (raw) => formatAmountInput(raw, maxBudgetAmountDigits);
   const budgetYearOptions = useMemo(() => {
     const minYear = 2020;
     const maxYear = currentYear + 5;
@@ -354,10 +271,10 @@ export default function Budgets() {
         seen.add(item.value);
         return true;
       });
-  }, [showHistory, sortedBudgets, visibleBudgets, monthLocale, fallbackMonthNames]);
+  }, [showHistory, sortedBudgets, visibleBudgets, formatBudgetMonth]);
   const localizedCategoryOptions = useMemo(
     () => [...categories].sort((a, b) => compareLocalizedCategory(a, b)),
-    [categories, appLang]
+    [categories, compareLocalizedCategory]
   );
   const filteredBudgets = useMemo(() => {
     let rows = budgetsWithDerived;
@@ -394,7 +311,7 @@ export default function Budgets() {
       }
     });
     return sorted;
-  }, [budgetsWithDerived, filterCategory, filterStatus, filterMonth, sortBy, appLang]);
+  }, [budgetsWithDerived, filterCategory, filterStatus, filterMonth, sortBy, compareLocalizedCategory]);
   const resetBudgetFilters = () => {
     setSearchParams(prev => {
       prev.delete("category");
@@ -532,20 +449,14 @@ export default function Budgets() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="container mx-auto px-4 py-8 space-y-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">{t("budgets.title")}</h1>
-            <p className="text-muted-foreground">{t("budgets.subtitle")}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => setShowHistory((v) => !v)}>
-              {showHistory ? t("budgets.hideHistory") : t("budgets.showHistory")}
-            </Button>
-            <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={openAdd}>
-              <Plus className="mr-2 h-4 w-4" /> {t("budgets.addBudget")}
-            </Button>
-          </div>
-        </div>
+        <PageHeader title={t("budgets.title")} description={t("budgets.subtitle")}>
+          <Button variant="outline" onClick={() => setShowHistory((v) => !v)}>
+            {showHistory ? t("budgets.hideHistory") : t("budgets.showHistory")}
+          </Button>
+          <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={openAdd}>
+            <Plus className="mr-2 h-4 w-4" /> {t("budgets.addBudget")}
+          </Button>
+        </PageHeader>
         {!loading && !error && (
           <Card className="shadow-sm">
             <CardHeader className="pb-3">
@@ -738,12 +649,11 @@ export default function Budgets() {
         )}
 
         {!loading && !error && filteredBudgets.length === 0 && (
-          <Card className="border-0 bg-card shadow-sm">
-            <CardHeader>
-              <CardTitle>{t("budgets.emptyFilteredTitle")}</CardTitle>
-              <CardDescription>{t("budgets.emptyFilteredDesc")}</CardDescription>
-            </CardHeader>
-          </Card>
+          <EmptyState
+            title={t("budgets.emptyFilteredTitle")}
+            description={t("budgets.emptyFilteredDesc")}
+            className="my-10"
+          />
         )}
       </div>
 
@@ -911,37 +821,21 @@ export default function Budgets() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent className="pt-8">
-          <DialogHeader className="space-y-3 pb-2">
-            <DialogTitle>{t("budgets.deleteDialogTitle")}</DialogTitle>
-            <DialogDescription>
-              {selectedBudget
-                ? `${t("budgets.deleteDialogDesc", { category: tCategory(selectedBudget.category) })} (${formatBudgetMonth(selectedBudget.budgetYear, selectedBudget.budgetMonth)})`
-                : ""}
-            </DialogDescription>
-          </DialogHeader>
-          {actionError && <p className="text-sm text-red-600">{actionError}</p>}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteOpen(false)} disabled={isDeletingBudget}>{t("common.cancel")}</Button>
-            <Button className="relative min-w-24" variant="destructive" onClick={handleDeleteBudget} disabled={isDeletingBudget}>
-              {isDeletingBudget ? (
-                <>
-                  <span className="invisible">{t("budgets.delete")}</span>
-                  <span className="absolute inset-0 flex items-center justify-center">
-                    <span
-                      aria-label="Loading"
-                      className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
-                    />
-                  </span>
-                </>
-              ) : (
-                t("budgets.delete")
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title={t("budgets.deleteDialogTitle")}
+        description={
+          selectedBudget
+            ? `${t("budgets.deleteDialogDesc", { category: tCategory(selectedBudget.category) })} (${formatBudgetMonth(selectedBudget.budgetYear, selectedBudget.budgetMonth)})`
+            : ""
+        }
+        onConfirm={handleDeleteBudget}
+        confirmText={t("budgets.delete")}
+        cancelText={t("common.cancel")}
+        isConfirming={isDeletingBudget}
+        error={actionError}
+      />
     </div>
   );
 }

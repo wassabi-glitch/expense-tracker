@@ -1,28 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Badge } from "./components/ui/badge";
-import { Button } from "./components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "./components/ui/card";
-import { LoadingSpinner } from "./components/ui/loading-spinner";
-import { Progress } from "./components/ui/progress";
+} from "@/components/ui/card";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { Progress } from "@/components/ui/progress";
 import { Download, Plus, Wallet, TrendingUp, Layers, Crown, Car, Gamepad2, Home, Utensils, Wrench, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const categoryIconMap = {
-  Food: Utensils,
-  Transport: Car,
-  Housing: Home,
-  Entertainment: Gamepad2,
-  Utilities: Wrench,
-  Other: Circle,
-};
+import { categoryIconMap } from "@/lib/category";
 
 import {
   Area,
@@ -36,71 +29,12 @@ import {
   YAxis,
 } from "recharts";
 
-import { getExpenses, getMonthToDateTrend, getThisMonthStats } from "./api";
-import { toISODateInTimeZone } from "./lib/date";
-import { localizeApiError } from "./lib/errorMessages";
-
-const UZ_MONTHS_SHORT = [
-  "Yan",
-  "Fev",
-  "Mar",
-  "Apr",
-  "May",
-  "Iyn",
-  "Iyl",
-  "Avg",
-  "Sen",
-  "Okt",
-  "Noy",
-  "Dek",
-];
-
-const formatPrettyDate = (isoDate, locale, lang) => {
-  if (!isoDate) return "";
-  const date = new Date(isoDate);
-  if (lang?.startsWith("uz")) {
-    const d = date.getDate();
-    const month = UZ_MONTHS_SHORT[date.getMonth()] || "";
-    return `${d} ${month}`;
-  }
-  return date.toLocaleDateString(locale, { month: "short", day: "numeric" });
-};
-
-const formatUzs = (value) => {
-  const num = Number(value || 0);
-  if (num >= 1_000_000_000_000) {
-    return `${(num / 1_000_000_000_000).toFixed(3).replace(/\.?0+$/, "")}T`;
-  }
-  if (num >= 1_000_000_000) {
-    return `${(num / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
-  }
-  return String(num).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-};
-
-const formatUzsCard = (value) => {
-  const num = Number(value || 0);
-  if (num >= 1_000_000_000_000) {
-    return `${(num / 1_000_000_000_000).toFixed(3).replace(/\.?0+$/, "")}T`;
-  }
-  return String(num).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-};
-
-const formatCompactUZS = (value) => {
-  const num = Number(value || 0);
-
-  if (num >= 1_000_000_000_000)
-    return `${(num / 1_000_000_000_000).toFixed(3).replace(/\.?0+$/, "")}T`;
-  if (num >= 1_000_000_000)
-    return `${(num / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
-  if (num >= 1_000_000)
-    return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-  if (num >= 1_000)
-    return `${(num / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
-
-  return num;
-};
-
-const shortMMDD = (iso) => String(iso || "").slice(5);
+import { getExpenses, getMonthToDateTrend, getThisMonthStats } from "@/lib/api";
+import { toISODateInTimeZone } from "@/lib/date";
+import { localizeApiError } from "@/lib/errorMessages";
+import { formatPrettyDate, formatUzs, formatUzsCard, formatCompactUzs, shortMMDD } from "@/lib/format";
+import { PageHeader } from "@/components/PageHeader";
+import { EmptyState } from "@/components/EmptyState";
 
 const tooltipStyle = {
   borderRadius: 10,
@@ -112,11 +46,6 @@ const tooltipStyle = {
 
 export default function Dashboard() {
   const { t, i18n } = useTranslation();
-  const chartLocale = i18n.language?.startsWith("ru")
-    ? "ru-RU"
-    : i18n.language?.startsWith("uz")
-      ? "uz-UZ"
-      : "en-US";
   const [loading, setLoading] = useState(true);
   const [animateProgress, setAnimateProgress] = useState(false);
   const [error, setError] = useState("");
@@ -156,7 +85,7 @@ export default function Dashboard() {
       }
     };
     load();
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const loadTrend = async () => {
@@ -171,7 +100,7 @@ export default function Dashboard() {
       }
     };
     loadTrend();
-  }, []);
+  }, [t]);
 
   const derived = useMemo(() => {
     const categoryBreakdown = stats?.category_breakdown || [];
@@ -259,26 +188,18 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="container mx-auto px-4 py-8 space-y-8">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">{t("dashboard.title")}</h1>
-            <p className="text-muted-foreground mt-1">
-              {t("dashboard.subtitle")}
-            </p>
-          </div>
-          <div className="flex gap-3">
-            <Button asChild variant="outline" className="bg-background hover:bg-muted">
-              <Link to="/export">
-                <Download className="mr-2 h-4 w-4" /> {t("dashboard.export")}
-              </Link>
-            </Button>
-            <Button asChild className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm">
-              <Link to="/expenses">
-                <Plus className="mr-2 h-4 w-4" /> {t("dashboard.addExpense")}
-              </Link>
-            </Button>
-          </div>
-        </div>
+        <PageHeader title={t("dashboard.title")} description={t("dashboard.subtitle")}>
+          <Button asChild variant="outline" className="bg-background hover:bg-muted">
+            <Link to="/export">
+              <Download className="mr-2 h-4 w-4" /> {t("dashboard.export")}
+            </Link>
+          </Button>
+          <Button asChild className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm">
+            <Link to="/expenses">
+              <Plus className="mr-2 h-4 w-4" /> {t("dashboard.addExpense")}
+            </Link>
+          </Button>
+        </PageHeader>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
@@ -314,7 +235,7 @@ export default function Dashboard() {
                 </div>
               )}
               {!loading && derived.categoryBreakdown.length === 0 && (
-                <p className="text-sm text-muted-foreground">{t("dashboard.noBudgetsYet")}</p>
+                <EmptyState inline description={t("dashboard.noBudgetsYet")} />
               )}
               {derived.categoryBreakdown.map((item) => {
                 const percent = Number(item.percentage_used || 0);
@@ -366,10 +287,10 @@ export default function Dashboard() {
                             "inline-block min-w-[140px] overflow-hidden text-ellipsis whitespace-nowrap text-right tabular-nums text-foreground",
                             hasHugeBudgetValues && "text-[13px]"
                           )}
-                          title={`${formatCompactUZS(item.total)} / ${formatCompactUZS(item.budget_limit)} UZS`}
+                          title={`${formatCompactUzs(item.total)} / ${formatCompactUzs(item.budget_limit)} UZS`}
                         >
-                          <span className="font-semibold">{formatCompactUZS(item.total)}</span> /{" "}
-                          <span className="font-semibold">{formatCompactUZS(item.budget_limit)}</span> UZS
+                          <span className="font-semibold">{formatCompactUzs(item.total)}</span> /{" "}
+                          <span className="font-semibold">{formatCompactUzs(item.budget_limit)}</span> UZS
                         </span>
                       </div>
                     </div>
@@ -397,7 +318,7 @@ export default function Dashboard() {
                 </div>
               )}
               {!loading && recentExpenses.length === 0 && (
-                <p className="text-sm text-muted-foreground">{t("dashboard.noExpensesYet")}</p>
+                <EmptyState inline description={t("dashboard.noExpensesYet")} />
               )}
               {recentExpenses.map((e) => (
                 <div
@@ -439,7 +360,7 @@ export default function Dashboard() {
               {trendLoading ? (
                 <div className="h-[220px] w-full animate-pulse rounded-lg bg-muted" />
               ) : chartData.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t("dashboard.noTrendDataYet")}</p>
+                <EmptyState inline description={t("dashboard.noTrendDataYet")} />
               ) : (
                 <div className="h-[240px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
@@ -465,7 +386,7 @@ export default function Dashboard() {
 
                       <YAxis
                         domain={[0, "auto"]}
-                        tickFormatter={(v) => formatCompactUZS(v)}
+                        tickFormatter={(v) => formatCompactUzs(v)}
                         tick={{ fontSize: 12 }}
                         axisLine={false}
                         tickLine={false}
@@ -483,7 +404,7 @@ export default function Dashboard() {
                         ]}
                         labelFormatter={(label, payload) => {
                           const full = payload?.[0]?.payload?.date;
-                          return full ? formatPrettyDate(full, chartLocale, i18n.language) : label;
+                          return full ? formatPrettyDate(full, i18n.language) : label;
                         }}
                       />
 
@@ -512,7 +433,7 @@ export default function Dashboard() {
               {loading ? (
                 <div className="h-full w-full animate-pulse rounded-lg bg-muted" />
               ) : monthCategoryChartData.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t("dashboard.noCategoryDataYet")}</p>
+                <EmptyState inline description={t("dashboard.noCategoryDataYet")} />
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={monthCategoryChartData} margin={{ top: 8, right: 8, left: 0, bottom: 10 }}>
@@ -529,7 +450,7 @@ export default function Dashboard() {
                       minTickGap={24}
                     />
                     <YAxis
-                      tickFormatter={(value) => formatCompactUZS(value)}
+                      tickFormatter={(value) => formatCompactUzs(value)}
                       tick={{ fontSize: 12 }}
                       axisLine={false}
                       tickLine={false}

@@ -327,3 +327,12 @@
 - **Budget rollover gated via Settings toggle**, not page-level
 - **Advanced analytics gated at page level** (blurred charts, not Settings)
 - **Each step: test -> CI -> merge to main before starting next step**
+
+
+1. git checkout -b feature/my-new-feature
+2. Make your changes
+3. git push -u origin feature/my-new-feature
+4. Open PR on GitHub
+5. CI runs automatically (all 5 jobs must pass)
+6. Merge when green ✅
+7. git checkout main && git pull

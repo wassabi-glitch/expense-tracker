@@ -1,6 +1,6 @@
 const API_BASE = "http://localhost:9000"
 const GOOGLE_LOGIN_URL = `${API_BASE}/auth/google/login`
-import { getBrowserTimeZone } from "./lib/date";
+import { getBrowserTimeZone } from "./date";
 
 function getToken() {
     return localStorage.getItem("access_token");

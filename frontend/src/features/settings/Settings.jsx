@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
-import { Button } from "./components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
-import { Input } from "./components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -12,9 +12,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "./components/ui/dialog";
-import { getCurrentUser, logout } from "./api";
-import { localizeApiError } from "./lib/errorMessages";
+} from "@/components/ui/dialog";
+import { getCurrentUser, logout } from "@/lib/api";
+import { localizeApiError } from "@/lib/errorMessages";
 
 const CURRENCY_KEY = "settings.currency";
 const DATE_FORMAT_KEY = "settings.date_format";

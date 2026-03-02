@@ -1,148 +1,48 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Plus, Search, ChevronLeft, ChevronRight, Inbox, Trash2 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
-import { LoadingSpinner } from "./components/ui/loading-spinner";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 
-import { Button } from "./components/ui/button";
-import { Input } from "./components/ui/input";
-import { Textarea } from "./components/ui/textarea";
-import { Badge } from "./components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "./components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "./components/ui/select";
+} from "@/components/ui/select";
 import {
   createExpense,
   deleteExpense,
   getCategories,
   getExpenses,
   updateExpense,
-} from "./api";
-import { toISODateInTimeZone } from "./lib/date";
-import { localizeApiError } from "./lib/errorMessages";
+} from "@/lib/api";
+import { toISODateInTimeZone } from "@/lib/date";
+import { localizeApiError } from "@/lib/errorMessages";
 import {
   expenseFormSchema,
   expenseUpdateFormSchema,
   MAX_EXPENSE_AMOUNT,
-} from "./expenses/expenseSchemas.js";
+} from "./expenseSchemas.js";
+import { PageHeader } from "@/components/PageHeader";
+import { EmptyState } from "@/components/EmptyState";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 const PAGE_SIZE = 10;
 const MIN_EXPENSE_DATE = "2020-01-01";
 const MAX_EXPENSE_AMOUNT_DIGITS = String(MAX_EXPENSE_AMOUNT).length;
 const ALL_CATEGORIES_SELECT = "__all_categories__";
 
-// const getCategoryBgClass = (category) => {
-//   switch (category) {
-//     case "Food":
-//       return "bg-amber-100 hover:bg-amber-200 dark:bg-amber-600 dark:hover:bg-amber-500";
+import { getCategoryBgClass } from "@/lib/category";
+import { formatAmountDisplay, formatAmountInput, formatDisplayDate, formatMonthYear } from "@/lib/format";
 
-//     case "Transport":
-//       return "bg-blue-100 hover:bg-blue-200 dark:bg-blue-600 dark:hover:bg-blue-500";
-
-//     case "Utilities":
-//       return "bg-orange-100 hover:bg-orange-200 dark:bg-orange-600 dark:hover:bg-orange-500";
-
-//     case "Entertainment":
-//       return "bg-violet-100 hover:bg-violet-200 dark:bg-violet-600 dark:hover:bg-violet-500";
-
-//     case "Housing":
-//       return "bg-teal-100 hover:bg-teal-200 dark:bg-teal-600 dark:hover:bg-teal-500";
-
-//     case "Other":
-//       return "bg-slate-100 hover:bg-slate-200 dark:bg-slate-600 dark:hover:bg-slate-500";
-
-//     default:
-//       return "";
-//   }
-// };
-
-// const getCategoryBgClass = (category) => {
-//   switch (category) {
-//     case "Food":
-//       return "bg-amber-100 hover:bg-amber-200 border border-amber-200 " +
-//         "dark:bg-amber-500/35 dark:hover:bg-amber-500/45 dark:border-amber-400/35";
-//     case "Transport":
-//       return "bg-blue-100 hover:bg-blue-200 border border-blue-200 " +
-//         "dark:bg-blue-500/35 dark:hover:bg-blue-500/45 dark:border-blue-400/35";
-//     case "Utilities":
-//       return "bg-orange-100 hover:bg-orange-200 border border-orange-200 " +
-//         "dark:bg-orange-500/35 dark:hover:bg-orange-500/45 dark:border-orange-400/35";
-//     case "Entertainment":
-//       return "bg-violet-100 hover:bg-violet-200 border border-violet-200 " +
-//         "dark:bg-violet-500/35 dark:hover:bg-violet-500/45 dark:border-violet-400/35";
-//     case "Housing":
-//       return "bg-teal-100 hover:bg-teal-200 border border-teal-200 " +
-//         "dark:bg-teal-500/35 dark:hover:bg-teal-500/45 dark:border-teal-400/35";
-//     case "Other":
-//       return "bg-slate-100 hover:bg-slate-200 border border-slate-200 " +
-//         "dark:bg-slate-400/30 dark:hover:bg-slate-400/40 dark:border-slate-300/30";
-//     default:
-//       return "";
-//   }
-// };
-
-// const getCategoryBgClass = (category) => {
-//   switch (category) {
-//     case "Food":
-//       return "bg-amber-100 hover:bg-amber-200 dark:bg-amber-900 dark:hover:bg-amber-600";
-
-//     case "Transport":
-//       return "bg-blue-100 hover:bg-blue-200 dark:bg-blue-900 dark:hover:bg-blue-600";
-
-//     case "Utilities":
-//       return "bg-orange-100 hover:bg-orange-200 dark:bg-orange-900 dark:hover:bg-orange-600";
-
-//     case "Entertainment":
-//       return "bg-violet-100 hover:bg-violet-200 dark:bg-violet-900 dark:hover:bg-violet-600";
-
-//     case "Housing":
-//       return "bg-teal-100 hover:bg-teal-200 dark:bg-teal-900 dark:hover:bg-teal-600";
-
-//     case "Other":
-//       return "bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-600";
-
-//     default:
-//       return "";
-//   }
-// };
-
-const getCategoryBgClass = (category) => {
-  switch (category) {
-    case "Food":
-      return `bg-green-100 hover:bg-green-200 border border-green-200 dark:bg-green-500/30 
-      dark:hover:bg-green-500/15 dark:border-green-400/35`;
-    case "Transport":
-      return "bg-blue-100 hover:bg-blue-200 border border-blue-200 " +
-        "dark:bg-blue-500/30 dark:hover:bg-blue-500/15 dark:border-blue-400/35";
-    case "Utilities":
-      return "bg-orange-100 hover:bg-orange-200 border border-orange-200 " +
-        "dark:bg-orange-500/30 dark:hover:bg-orange-500/15 dark:border-orange-400/35";
-    case "Entertainment":
-      return "bg-violet-100 hover:bg-violet-200 border border-violet-200 " +
-        "dark:bg-violet-500/30 dark:hover:bg-violet-500/15 dark:border-violet-400/35";
-    case "Housing":
-      return "bg-teal-100 hover:bg-teal-200 border border-teal-200 " +
-        "dark:bg-teal-500/30 dark:hover:bg-teal-500/15 dark:border-teal-400/35";
-    case "Other":
-      return "bg-slate-100 hover:bg-slate-200 border border-slate-200 " +
-        "dark:bg-slate-500/30 dark:hover:bg-slate-400/15 dark:border-slate-300/30";
-    default:
-      return "";
-  }
-};
 const parsePageParam = (value) => {
   const raw = String(value ?? "").trim();
   if (!raw) return 1;
@@ -205,57 +105,9 @@ export default function Expenses() {
   const selectContentClass =
     "max-h-[190px] overflow-y-auto bg-white text-black dark:bg-black dark:text-white";
   const appLang = String(i18n.resolvedLanguage || i18n.language || "en").toLowerCase();
-  const dateLocale = appLang.startsWith("uz")
-    ? "uz-UZ"
-    : appLang.startsWith("ru")
-      ? "ru-RU"
-      : "en-US";
-  const dateFormatter = useMemo(
-    () =>
-      new Intl.DateTimeFormat(dateLocale, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      }),
-    [dateLocale]
-  );
 
-  const fallbackMonths = useMemo(() => {
-    if (appLang.startsWith("uz")) {
-      return ["Yan", "Fev", "Mar", "Apr", "May", "Iyn", "Iyl", "Avg", "Sen", "Okt", "Noy", "Dek"];
-    }
-    if (appLang.startsWith("ru")) {
-      return ["Yanv", "Fev", "Mar", "Apr", "May", "Iyun", "Iyul", "Avg", "Sen", "Okt", "Noy", "Dek"];
-    }
-    return ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  }, [appLang]);
-
-  const formatDisplayDate = (value) => {
-    if (!value) return "-";
-    const [y, m, d] = String(value)
-      .split("-")
-      .map((part) => Number(part));
-    if (!y || !m || !d) return value;
-    const formatted = dateFormatter.format(new Date(Date.UTC(y, m - 1, d)));
-    if (/M\d{2}/.test(formatted)) {
-      return `${fallbackMonths[m - 1]} ${d}, ${y}`;
-    }
-    return formatted;
-  };
-  const formatMonthYear = (value) => {
-    if (!value) return "";
-    const [y, m] = String(value)
-      .split("-")
-      .map((part) => Number(part));
-    if (!y || !m) return "";
-    const formatted = new Intl.DateTimeFormat(dateLocale, { month: "long", year: "numeric" }).format(
-      new Date(Date.UTC(y, m - 1, 1))
-    );
-    if (/M\d{2}/.test(formatted)) {
-      return `${fallbackMonths[m - 1]} ${y}`;
-    }
-    return formatted;
-  };
+  const _formatDisplayDateLocal = (value) => formatDisplayDate(value, appLang);
+  const _formatMonthYearLocal = (value) => formatMonthYear(value, undefined, appLang);
 
   const dateFilterError = useMemo(() => {
     if (startDate && startDate > todayISO) return t("expenses.startFuture");
@@ -263,31 +115,6 @@ export default function Expenses() {
     if (startDate && endDate && startDate > endDate) return t("expenses.startAfterEnd");
     return "";
   }, [startDate, endDate, todayISO, t]);
-
-  const formatUzs = (value) =>
-    String(Number(value || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-
-  const formatAmountDisplay = (value) => {
-    const num = Number(value || 0);
-    if (num >= 1_000_000_000_000) {
-      const compact = (num / 1_000_000_000_000).toFixed(3).replace(/\.?0+$/, "");
-      return `${compact}T`;
-    }
-    if (num >= 1_000_000_000) {
-      const compact = (num / 1_000_000_000).toFixed(1).replace(/\.0$/, "");
-      return `${compact}B`;
-    }
-    return formatUzs(num);
-  };
-
-  const formatAmountInput = (raw) => {
-    const digits = String(raw ?? "")
-      .replace(/\D/g, "")
-      .slice(0, MAX_EXPENSE_AMOUNT_DIGITS);
-    if (!digits) return "";
-    const normalized = digits.replace(/^0+(?=\d)/, "");
-    return normalized.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-  };
 
   const getActionErrorMessage = (e, options = {}) => {
     const rawMessage = String(e?.message || "");
@@ -304,7 +131,7 @@ export default function Expenses() {
         if (selectedDate) {
           return t("expenses.budgetRequiredForMonth", {
             category: tCategory(selectedCategory),
-            month: formatMonthYear(selectedDate),
+            month: _formatMonthYearLocal(selectedDate),
           });
         }
         return t("expenses.budgetRequired", { category: tCategory(selectedCategory) });
@@ -333,7 +160,7 @@ export default function Expenses() {
     };
   }, [search, category, startDate, endDate, sort, page]);
 
-  async function loadExpenses({ initial = false } = {}) {
+  const loadExpenses = useCallback(async ({ initial = false } = {}) => {
     if (initial) {
       setLoading(true);
     } else {
@@ -368,12 +195,12 @@ export default function Expenses() {
       }
       pageNavLockRef.current = false;
     }
-  }
+  }, [queryParams, dateFilterError, t]);
 
   useEffect(() => {
     loadExpenses({ initial: firstLoadRef.current });
     if (firstLoadRef.current) firstLoadRef.current = false;
-  }, [queryParams, dateFilterError]);
+  }, [loadExpenses]);
 
   useEffect(() => {
     const next = new URLSearchParams();
@@ -574,20 +401,14 @@ export default function Expenses() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="container mx-auto px-4 py-8 space-y-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">
-              {t("expenses.title")}
-            </h1>
-            <p className="text-muted-foreground">{t("expenses.subtitle")}</p>
-          </div>
+        <PageHeader title={t("expenses.title")} description={t("expenses.subtitle")}>
           <Button
             className="bg-primary text-primary-foreground hover:bg-primary/90"
             onClick={openAdd}
           >
             <Plus className="mr-2 h-4 w-4" /> {t("expenses.addExpense")}
           </Button>
-        </div>
+        </PageHeader>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
         {actionError && !addOpen && !editOpen && !deleteOpen && (
@@ -693,12 +514,10 @@ export default function Expenses() {
                     <LoadingSpinner className="h-6 w-6" />
                   </div>
                 ) : expenses.length === 0 ? (
-                  <div className="px-4 py-10">
-                    <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
-                      <Inbox className="h-5 w-5" />
-                      <p>{t("expenses.noResults", { defaultValue: "No expenses found." })}</p>
-                    </div>
-                  </div>
+                  <EmptyState
+                    inline
+                    description={t("expenses.noResults", { defaultValue: "No expenses found." })}
+                  />
                 ) : (
                   expenses.map((e) => (
                     <div
@@ -718,7 +537,7 @@ export default function Expenses() {
                       </div>
 
                       <div className="self-center text-center text-sm text-foreground whitespace-nowrap">
-                        {formatDisplayDate(e.date)}
+                        {_formatDisplayDateLocal(e.date)}
                       </div>
 
                       <div className="self-center text-right text-sm font-medium tabular-nums whitespace-nowrap">
@@ -952,50 +771,24 @@ export default function Expenses() {
       </Dialog>
 
       {/* Delete Dialog */}
-      <Dialog
+      <ConfirmDialog
         open={deleteOpen}
         onOpenChange={(open) => {
           setDeleteOpen(open);
           if (!open) setActionError("");
         }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("expenses.deleteDialogTitle")}</DialogTitle>
-            <DialogDescription>
-              {deleteTarget
-                ? t("expenses.deleteDialogDesc", { title: deleteTarget.title })
-                : ""}
-            </DialogDescription>
-          </DialogHeader>
-          {actionError && <p className="text-sm text-red-600">{actionError}</p>}
-          <DialogFooter>
-            <Button variant="outline" disabled={isDeleting} onClick={() => setDeleteOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button
-              variant="destructive"
-              className="relative min-w-24"
-              disabled={isDeleting}
-              onClick={handleDelete}
-            >
-              {isDeleting ? (
-                <>
-                  <span className="invisible">{t("expenses.delete")}</span>
-                  <span className="absolute inset-0 flex items-center justify-center">
-                    <span
-                      aria-label="Loading"
-                      className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
-                    />
-                  </span>
-                </>
-              ) : (
-                t("expenses.delete")
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        title={t("expenses.deleteDialogTitle")}
+        description={
+          deleteTarget
+            ? t("expenses.deleteDialogDesc", { title: deleteTarget.title })
+            : ""
+        }
+        onConfirm={handleDelete}
+        confirmText={t("expenses.delete")}
+        cancelText={t("common.cancel")}
+        isConfirming={isDeleting}
+        error={actionError}
+      />
 
       {/* Description Modal */}
       <Dialog open={descriptionOpen} onOpenChange={setDescriptionOpen}>

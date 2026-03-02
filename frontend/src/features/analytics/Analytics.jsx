@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -14,13 +14,13 @@ import {
 } from "recharts";
 import { differenceInCalendarDays } from "date-fns";
 
-import { Button } from "./components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
-import { Input } from "./components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 
-import { getAnalyticsHistory, getCategoryBreakdown, getDailyTrend } from "./api";
-import { toISODateInTimeZone } from "./lib/date";
-import { localizeApiError } from "./lib/errorMessages";
+import { getAnalyticsHistory, getCategoryBreakdown, getDailyTrend } from "@/lib/api";
+import { toISODateInTimeZone } from "@/lib/date";
+import { localizeApiError } from "@/lib/errorMessages";
 
 const formatCompactUZS = (value) => {
   const num = Number(value || 0);
@@ -168,7 +168,7 @@ export default function Analytics() {
     return "";
   }, [range, t]);
 
-  const validateInputs = (startISO, endISO) => {
+  const validateInputs = useCallback((startISO, endISO) => {
     if (!startISO && !endISO) return { ok: false, message: t("analytics.hintPickBoth") };
     if (!startISO || !endISO) return { ok: false, message: t("analytics.hintProvideBoth") };
     const start = fromISODate(startISO);
@@ -180,9 +180,9 @@ export default function Analytics() {
     const daysInclusive = differenceInCalendarDays(end, start) + 1;
     if (daysInclusive > 366) return { ok: false, message: t("analytics.hintMaxRange") };
     return { ok: true, message: "" };
-  };
+  }, [todayISO, t]);
 
-  const inputsStatus = useMemo(() => validateInputs(startInput, endInput), [startInput, endInput, todayISO, t]);
+  const inputsStatus = useMemo(() => validateInputs(startInput, endInput), [startInput, endInput, validateInputs]);
   const applyPreset = (preset) => { setError(""); setHint(""); setStartInput(""); setEndInput(""); setRange({ mode: "days", days: preset.days }); };
   const applyCustom = () => {
     setError("");
