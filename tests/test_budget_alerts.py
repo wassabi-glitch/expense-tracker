@@ -1,4 +1,3 @@
-from datetime import date
 
 from app import models
 from app.utils import check_budget_alerts

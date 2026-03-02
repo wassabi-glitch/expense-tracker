@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Search, ChevronLeft, ChevronRight, Inbox, Trash2 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
+import { LoadingSpinner } from "./components/ui/loading-spinner";
 
 import { Button } from "./components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 import { Input } from "./components/ui/input";
+import { Textarea } from "./components/ui/textarea";
 import { Badge } from "./components/ui/badge";
 import {
   Dialog,
@@ -15,6 +18,13 @@ import {
   DialogTitle,
 } from "./components/ui/dialog";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./components/ui/select";
+import {
   createExpense,
   deleteExpense,
   getCategories,
@@ -22,11 +32,127 @@ import {
   updateExpense,
 } from "./api";
 import { toISODateInTimeZone } from "./lib/date";
+import { localizeApiError } from "./lib/errorMessages";
+import {
+  expenseFormSchema,
+  expenseUpdateFormSchema,
+  MAX_EXPENSE_AMOUNT,
+} from "./expenses/expenseSchemas.js";
 
 const PAGE_SIZE = 10;
 const MIN_EXPENSE_DATE = "2020-01-01";
+const MAX_EXPENSE_AMOUNT_DIGITS = String(MAX_EXPENSE_AMOUNT).length;
+const ALL_CATEGORIES_SELECT = "__all_categories__";
+
+// const getCategoryBgClass = (category) => {
+//   switch (category) {
+//     case "Food":
+//       return "bg-amber-100 hover:bg-amber-200 dark:bg-amber-600 dark:hover:bg-amber-500";
+
+//     case "Transport":
+//       return "bg-blue-100 hover:bg-blue-200 dark:bg-blue-600 dark:hover:bg-blue-500";
+
+//     case "Utilities":
+//       return "bg-orange-100 hover:bg-orange-200 dark:bg-orange-600 dark:hover:bg-orange-500";
+
+//     case "Entertainment":
+//       return "bg-violet-100 hover:bg-violet-200 dark:bg-violet-600 dark:hover:bg-violet-500";
+
+//     case "Housing":
+//       return "bg-teal-100 hover:bg-teal-200 dark:bg-teal-600 dark:hover:bg-teal-500";
+
+//     case "Other":
+//       return "bg-slate-100 hover:bg-slate-200 dark:bg-slate-600 dark:hover:bg-slate-500";
+
+//     default:
+//       return "";
+//   }
+// };
+
+// const getCategoryBgClass = (category) => {
+//   switch (category) {
+//     case "Food":
+//       return "bg-amber-100 hover:bg-amber-200 border border-amber-200 " +
+//         "dark:bg-amber-500/35 dark:hover:bg-amber-500/45 dark:border-amber-400/35";
+//     case "Transport":
+//       return "bg-blue-100 hover:bg-blue-200 border border-blue-200 " +
+//         "dark:bg-blue-500/35 dark:hover:bg-blue-500/45 dark:border-blue-400/35";
+//     case "Utilities":
+//       return "bg-orange-100 hover:bg-orange-200 border border-orange-200 " +
+//         "dark:bg-orange-500/35 dark:hover:bg-orange-500/45 dark:border-orange-400/35";
+//     case "Entertainment":
+//       return "bg-violet-100 hover:bg-violet-200 border border-violet-200 " +
+//         "dark:bg-violet-500/35 dark:hover:bg-violet-500/45 dark:border-violet-400/35";
+//     case "Housing":
+//       return "bg-teal-100 hover:bg-teal-200 border border-teal-200 " +
+//         "dark:bg-teal-500/35 dark:hover:bg-teal-500/45 dark:border-teal-400/35";
+//     case "Other":
+//       return "bg-slate-100 hover:bg-slate-200 border border-slate-200 " +
+//         "dark:bg-slate-400/30 dark:hover:bg-slate-400/40 dark:border-slate-300/30";
+//     default:
+//       return "";
+//   }
+// };
+
+// const getCategoryBgClass = (category) => {
+//   switch (category) {
+//     case "Food":
+//       return "bg-amber-100 hover:bg-amber-200 dark:bg-amber-900 dark:hover:bg-amber-600";
+
+//     case "Transport":
+//       return "bg-blue-100 hover:bg-blue-200 dark:bg-blue-900 dark:hover:bg-blue-600";
+
+//     case "Utilities":
+//       return "bg-orange-100 hover:bg-orange-200 dark:bg-orange-900 dark:hover:bg-orange-600";
+
+//     case "Entertainment":
+//       return "bg-violet-100 hover:bg-violet-200 dark:bg-violet-900 dark:hover:bg-violet-600";
+
+//     case "Housing":
+//       return "bg-teal-100 hover:bg-teal-200 dark:bg-teal-900 dark:hover:bg-teal-600";
+
+//     case "Other":
+//       return "bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-600";
+
+//     default:
+//       return "";
+//   }
+// };
+
+const getCategoryBgClass = (category) => {
+  switch (category) {
+    case "Food":
+      return `bg-green-100 hover:bg-green-200 border border-green-200 dark:bg-green-500/30 
+      dark:hover:bg-green-500/15 dark:border-green-400/35`;
+    case "Transport":
+      return "bg-blue-100 hover:bg-blue-200 border border-blue-200 " +
+        "dark:bg-blue-500/30 dark:hover:bg-blue-500/15 dark:border-blue-400/35";
+    case "Utilities":
+      return "bg-orange-100 hover:bg-orange-200 border border-orange-200 " +
+        "dark:bg-orange-500/30 dark:hover:bg-orange-500/15 dark:border-orange-400/35";
+    case "Entertainment":
+      return "bg-violet-100 hover:bg-violet-200 border border-violet-200 " +
+        "dark:bg-violet-500/30 dark:hover:bg-violet-500/15 dark:border-violet-400/35";
+    case "Housing":
+      return "bg-teal-100 hover:bg-teal-200 border border-teal-200 " +
+        "dark:bg-teal-500/30 dark:hover:bg-teal-500/15 dark:border-teal-400/35";
+    case "Other":
+      return "bg-slate-100 hover:bg-slate-200 border border-slate-200 " +
+        "dark:bg-slate-500/30 dark:hover:bg-slate-400/15 dark:border-slate-300/30";
+    default:
+      return "";
+  }
+};
+const parsePageParam = (value) => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return 1;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
+};
 
 export default function Expenses() {
+  const { t, i18n } = useTranslation();
+  const translateValidation = (message) => t(message, { defaultValue: message });
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [isFetching, setIsFetching] = useState(false);
@@ -43,10 +169,7 @@ export default function Expenses() {
   const [sort, setSort] = useState(() => searchParams.get("sort") || "newest");
   const todayISO = useMemo(() => toISODateInTimeZone(), []);
 
-  const [page, setPage] = useState(() => {
-    const raw = Number(searchParams.get("page") || "1");
-    return Number.isInteger(raw) && raw > 0 ? raw : 1;
-  });
+  const [page, setPage] = useState(() => parsePageParam(searchParams.get("page")));
   const [hasNext, setHasNext] = useState(false);
 
   const [addOpen, setAddOpen] = useState(false);
@@ -66,25 +189,136 @@ export default function Expenses() {
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [isAdding, setIsAdding] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const [descriptionOpen, setDescriptionOpen] = useState(false);
+  const [descriptionTarget, setDescriptionTarget] = useState(null);
+
   const firstLoadRef = useRef(true);
+  const pageNavLockRef = useRef(false);
+
+  const tCategory = (name) => t(`categories.${name}`, { defaultValue: name });
+  const selectTriggerClass =
+    "w-full bg-white text-black dark:bg-black dark:text-white dark:hover:bg-black";
+  const selectContentClass =
+    "max-h-[190px] overflow-y-auto bg-white text-black dark:bg-black dark:text-white";
+  const appLang = String(i18n.resolvedLanguage || i18n.language || "en").toLowerCase();
+  const dateLocale = appLang.startsWith("uz")
+    ? "uz-UZ"
+    : appLang.startsWith("ru")
+      ? "ru-RU"
+      : "en-US";
+  const dateFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat(dateLocale, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      }),
+    [dateLocale]
+  );
+
+  const fallbackMonths = useMemo(() => {
+    if (appLang.startsWith("uz")) {
+      return ["Yan", "Fev", "Mar", "Apr", "May", "Iyn", "Iyl", "Avg", "Sen", "Okt", "Noy", "Dek"];
+    }
+    if (appLang.startsWith("ru")) {
+      return ["Yanv", "Fev", "Mar", "Apr", "May", "Iyun", "Iyul", "Avg", "Sen", "Okt", "Noy", "Dek"];
+    }
+    return ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  }, [appLang]);
+
+  const formatDisplayDate = (value) => {
+    if (!value) return "-";
+    const [y, m, d] = String(value)
+      .split("-")
+      .map((part) => Number(part));
+    if (!y || !m || !d) return value;
+    const formatted = dateFormatter.format(new Date(Date.UTC(y, m - 1, d)));
+    if (/M\d{2}/.test(formatted)) {
+      return `${fallbackMonths[m - 1]} ${d}, ${y}`;
+    }
+    return formatted;
+  };
+  const formatMonthYear = (value) => {
+    if (!value) return "";
+    const [y, m] = String(value)
+      .split("-")
+      .map((part) => Number(part));
+    if (!y || !m) return "";
+    const formatted = new Intl.DateTimeFormat(dateLocale, { month: "long", year: "numeric" }).format(
+      new Date(Date.UTC(y, m - 1, 1))
+    );
+    if (/M\d{2}/.test(formatted)) {
+      return `${fallbackMonths[m - 1]} ${y}`;
+    }
+    return formatted;
+  };
 
   const dateFilterError = useMemo(() => {
-    if (startDate && startDate > todayISO) return "Start date cannot be in the future.";
-    if (endDate && endDate > todayISO) return "End date cannot be in the future.";
-    if (startDate && endDate && startDate > endDate) return "Start date cannot be after end date.";
+    if (startDate && startDate > todayISO) return t("expenses.startFuture");
+    if (endDate && endDate > todayISO) return t("expenses.endFuture");
+    if (startDate && endDate && startDate > endDate) return t("expenses.startAfterEnd");
     return "";
-  }, [startDate, endDate, todayISO]);
+  }, [startDate, endDate, todayISO, t]);
 
-  const formatUzs = (value) => String(Number(value || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-  const getActionErrorMessage = (e) => {
+  const formatUzs = (value) =>
+    String(Number(value || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+
+  const formatAmountDisplay = (value) => {
+    const num = Number(value || 0);
+    if (num >= 1_000_000_000_000) {
+      const compact = (num / 1_000_000_000_000).toFixed(3).replace(/\.?0+$/, "");
+      return `${compact}T`;
+    }
+    if (num >= 1_000_000_000) {
+      const compact = (num / 1_000_000_000).toFixed(1).replace(/\.0$/, "");
+      return `${compact}B`;
+    }
+    return formatUzs(num);
+  };
+
+  const formatAmountInput = (raw) => {
+    const digits = String(raw ?? "")
+      .replace(/\D/g, "")
+      .slice(0, MAX_EXPENSE_AMOUNT_DIGITS);
+    if (!digits) return "";
+    const normalized = digits.replace(/^0+(?=\d)/, "");
+    return normalized.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  };
+
+  const getActionErrorMessage = (e, options = {}) => {
+    const rawMessage = String(e?.message || "");
+    const msg = rawMessage.toLowerCase();
+    const selectedCategory = options.category || "";
+    const selectedDate = options.date || "";
+
+    if (
+      msg === "expenses.budget_required" ||
+      msg.includes("cannot create an expense for") ||
+      msg.includes("cannot add expense for")
+    ) {
+      if (selectedCategory) {
+        if (selectedDate) {
+          return t("expenses.budgetRequiredForMonth", {
+            category: tCategory(selectedCategory),
+            month: formatMonthYear(selectedDate),
+          });
+        }
+        return t("expenses.budgetRequired", { category: tCategory(selectedCategory) });
+      }
+    }
+
     if (e?.status === 429) {
       const wait = Number(e?.retryAfterSeconds || 0);
       if (Number.isFinite(wait) && wait > 0) {
-        return `Too many requests. Try again in ${wait} seconds.`;
+        return t("expenses.tooManyWait", { seconds: wait });
       }
-      return "Too many requests. Try again soon.";
+      return t("expenses.tooManySoon");
     }
-    return e?.message || "Request failed";
+    return localizeApiError(e?.message, t) || e?.message || t("expenses.requestFailed");
   };
 
   const queryParams = useMemo(() => {
@@ -125,13 +359,14 @@ export default function Expenses() {
       setCategories(categoryList || []);
       setHasNext((expenseRows || []).length === PAGE_SIZE);
     } catch (e) {
-      setError(e.message || "Failed to load expenses");
+      setError(localizeApiError(e?.message, t) || e.message || t("expenses.loadFailed"));
     } finally {
       if (initial) {
         setLoading(false);
       } else {
         setIsFetching(false);
       }
+      pageNavLockRef.current = false;
     }
   }
 
@@ -175,7 +410,7 @@ export default function Expenses() {
     setActionError("");
     setEditExpense(expense);
     setEditTitle(expense.title || "");
-    setEditAmount(String(expense.amount ?? ""));
+    setEditAmount(formatAmountInput(String(expense.amount ?? "")));
     setEditCategory(expense.category || "");
     setEditDescription(expense.description || "");
     setEditDate(expense.date || "");
@@ -188,122 +423,181 @@ export default function Expenses() {
     setDeleteOpen(true);
   };
 
-  const handleAdd = async () => {
-    setActionError("");
+  const openDescription = (expense) => {
+    setDescriptionTarget(expense);
+    setDescriptionOpen(true);
+  };
 
-    if (!addTitle.trim()) {
-      setActionError("Title is required.");
-      return;
-    }
-    if (!addCategory) {
-      setActionError("Please select a category.");
-      return;
-    }
-    const parsedAmount = Number(addAmount);
-    if (!Number.isInteger(parsedAmount) || parsedAmount <= 0) {
-      setActionError("Amount must be a positive whole number.");
-      return;
-    }
-    if (!addDate) {
-      setActionError("Please select a date.");
-      return;
-    }
-    if (addDate < MIN_EXPENSE_DATE) {
-      setActionError("Date cannot be earlier than 2020-01-01.");
-      return;
+  const goPrevPage = () => {
+    if (loading || isFetching || pageNavLockRef.current) return;
+    if (page <= 1) return;
+    pageNavLockRef.current = true;
+    setPage((p) => Math.max(1, p - 1));
+  };
+
+  const goNextPage = () => {
+    if (loading || isFetching || pageNavLockRef.current) return;
+    if (!hasNext) return;
+    pageNavLockRef.current = true;
+    setPage((p) => p + 1);
+  };
+
+  const addExpenseParsed = useMemo(
+    () =>
+      expenseFormSchema.safeParse({
+        title: addTitle,
+        amount: addAmount,
+        category: addCategory,
+        date: addDate,
+        description: addDescription,
+      }),
+    [addTitle, addAmount, addCategory, addDate, addDescription]
+  );
+  const canSubmitAddExpense = addExpenseParsed.success && !isAdding;
+
+  const editExpenseParsed = useMemo(
+    () =>
+      expenseUpdateFormSchema.safeParse({
+        title: editTitle,
+        amount: editAmount,
+        date: editDate,
+        description: editDescription,
+      }),
+    [editTitle, editAmount, editDate, editDescription]
+  );
+  const canSubmitEditExpense = editExpenseParsed.success && !isEditing;
+
+  const handleAdd = async () => {
+    if (isAdding) return;
+    const parsed = expenseFormSchema.safeParse({
+      title: addTitle,
+      amount: addAmount,
+      category: addCategory,
+      date: addDate,
+      description: addDescription,
+    });
+    if (!parsed.success) {
+      const firstIssue = parsed.error.issues[0];
+      return setActionError(translateValidation(firstIssue?.message || t("expenses.requestFailed")));
     }
 
     try {
+      setIsAdding(true);
       await createExpense({
-        title: addTitle.trim(),
-        amount: parsedAmount,
-        category: addCategory,
-        description: addDescription.trim() || null,
-        date: addDate,
+        title: parsed.data.title,
+        amount: parsed.data.amount,
+        category: parsed.data.category,
+        description: parsed.data.description ?? null,
+        date: parsed.data.date,
       });
       setAddOpen(false);
       await loadExpenses();
     } catch (e) {
-      setActionError(getActionErrorMessage(e));
+      setActionError(getActionErrorMessage(e, { category: parsed.data.category, date: parsed.data.date }));
+    } finally {
+      setIsAdding(false);
     }
   };
 
   const handleEdit = async () => {
-    setActionError("");
-
+    if (isEditing) return;
     if (!editExpense) return;
-
-    if (!editTitle.trim()) {
-      setActionError("Title is required.");
-      return;
-    }
-    if (!editCategory) {
-      setActionError("Please select a category.");
-      return;
-    }
-    const parsedAmount = Number(editAmount);
-    if (!Number.isInteger(parsedAmount) || parsedAmount <= 0) {
-      setActionError("Amount must be a positive whole number.");
-      return;
-    }
-    if (!editDate) {
-      setActionError("Please select a date.");
-      return;
-    }
-    if (editDate < MIN_EXPENSE_DATE) {
-      setActionError("Date cannot be earlier than 2020-01-01.");
-      return;
+    const parsed = expenseUpdateFormSchema.safeParse({
+      title: editTitle,
+      amount: editAmount,
+      date: editDate,
+      description: editDescription,
+    });
+    if (!parsed.success) {
+      const firstIssue = parsed.error.issues[0];
+      return setActionError(translateValidation(firstIssue?.message || t("expenses.requestFailed")));
     }
 
     try {
+      setIsEditing(true);
       await updateExpense(editExpense.id, {
-        title: editTitle.trim(),
-        amount: parsedAmount,
-        category: editCategory,
-        description: editDescription.trim() || null,
-        date: editDate,
+        title: parsed.data.title,
+        amount: parsed.data.amount,
+        description: parsed.data.description,
+        date: parsed.data.date,
       });
       setEditOpen(false);
       await loadExpenses();
     } catch (e) {
-      setActionError(getActionErrorMessage(e));
+      setActionError(getActionErrorMessage(e, { category: editCategory, date: parsed.data.date }));
+    } finally {
+      setIsEditing(false);
     }
   };
 
   const handleDelete = async () => {
-    setActionError("");
-
+    if (isDeleting) return;
     if (!deleteTarget) return;
-
     try {
+      setIsDeleting(true);
       await deleteExpense(deleteTarget.id);
       setDeleteOpen(false);
       await loadExpenses();
     } catch (e) {
       setActionError(getActionErrorMessage(e));
+    } finally {
+      setIsDeleting(false);
     }
   };
+
+  const paginationControls = (
+    <div className="flex items-center justify-between">
+      <p className="text-sm text-muted-foreground">
+        {t("expenses.page")} {page}
+      </p>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={page === 1 || loading || isFetching}
+          onClick={goPrevPage}
+        >
+          <ChevronLeft className="mr-1 h-4 w-4" /> {t("expenses.prev")}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!hasNext || loading || isFetching}
+          onClick={goNextPage}
+        >
+          {t("expenses.next")} <ChevronRight className="ml-1 h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="container mx-auto px-4 py-8 space-y-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">Expenses</h1>
-            <p className="text-muted-foreground">Track, filter, and update your spending.</p>
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">
+              {t("expenses.title")}
+            </h1>
+            <p className="text-muted-foreground">{t("expenses.subtitle")}</p>
           </div>
-          <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={openAdd}>
-            <Plus className="mr-2 h-4 w-4" /> Add Expense
+          <Button
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
+            onClick={openAdd}
+          >
+            <Plus className="mr-2 h-4 w-4" /> {t("expenses.addExpense")}
           </Button>
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
-        {actionError && <p className="text-sm text-red-600">{actionError}</p>}
+        {actionError && !addOpen && !editOpen && !deleteOpen && (
+          <p className="text-sm text-red-600">{actionError}</p>
+        )}
 
-        <Card className="border-0 bg-card shadow-sm">
+        <Card className="shadow-sm">
           <CardHeader>
-            <CardTitle>Filters</CardTitle>
-            <CardDescription>Search or narrow down results.</CardDescription>
+            <CardTitle>{t("expenses.filtersTitle")}</CardTitle>
+            <CardDescription>{t("expenses.filtersDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-6">
             <Input
@@ -325,38 +619,46 @@ export default function Expenses() {
                 resetToFirstPage();
               }}
             />
-            <select
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={category}
-              onChange={(e) => {
-                setCategory(e.target.value);
+            <Select
+              value={category || ALL_CATEGORIES_SELECT}
+              onValueChange={(value) => {
+                setCategory(value === ALL_CATEGORIES_SELECT ? "" : value);
                 resetToFirstPage();
               }}
             >
-              <option value="">All categories</option>
-              {categories.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-            <select
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              <SelectTrigger className={selectTriggerClass}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className={selectContentClass} position="popper" side="bottom">
+                <SelectItem value={ALL_CATEGORIES_SELECT}>{t("expenses.allCategories")}</SelectItem>
+                {categories.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {tCategory(c)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
               value={sort}
-              onChange={(e) => {
-                setSort(e.target.value);
+              onValueChange={(value) => {
+                setSort(value);
                 resetToFirstPage();
               }}
             >
-              <option value="newest">Newest</option>
-              <option value="oldest">Oldest</option>
-              <option value="expensive">Highest amount</option>
-              <option value="cheapest">Lowest amount</option>
-            </select>
+              <SelectTrigger className={selectTriggerClass}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className={selectContentClass} position="popper" side="bottom">
+                <SelectItem value="newest">{t("expenses.newest")}</SelectItem>
+                <SelectItem value="oldest">{t("expenses.oldest")}</SelectItem>
+                <SelectItem value="expensive">{t("expenses.highestAmount")}</SelectItem>
+                <SelectItem value="cheapest">{t("expenses.lowestAmount")}</SelectItem>
+              </SelectContent>
+            </Select>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Search"
+                placeholder={t("expenses.search")}
                 className="pl-9"
                 value={search}
                 onChange={(e) => {
@@ -366,142 +668,156 @@ export default function Expenses() {
               />
             </div>
             <Button variant="outline" onClick={resetFilters}>
-              Reset
+              {t("common.reset")}
             </Button>
           </CardContent>
         </Card>
 
-        <Card className="border-0 bg-card shadow-sm">
-          <CardHeader>
-            <CardTitle>Recent expenses</CardTitle>
-            <CardDescription>Latest activity</CardDescription>
-          </CardHeader>
-          <CardContent className="min-h-[320px]">
-            {loading ? (
-              <div className="space-y-3">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="h-10 w-full animate-pulse rounded-md bg-muted" />
-                ))}
+        {/* ✅ Expenses Table */}
+        <Card className="shadow-sm">
+          <CardContent className="min-h-80 py-6">
+            <div className="overflow-x-auto">
+              <div className="min-w-[920px] space-y-0">
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)] items-center gap-x-2 border-b border-border px-3 py-3 text-xs uppercase tracking-wide text-muted-foreground">
+                  <div className="text-left">{t("expenses.titleCol")}</div>
+                  <div className="text-center">{t("expenses.category")}</div>
+                  <div className="text-center">{t("expenses.date")}</div>
+                  <div className="text-right">{t("expenses.amountUzs")}</div>
+                  <div className="text-right">
+                    {t("common.actions", { defaultValue: "Actions" })}
+                  </div>
+                </div>
+
+                {loading ? (
+                  <div className="flex justify-center px-4 py-10">
+                    <LoadingSpinner className="h-6 w-6" />
+                  </div>
+                ) : expenses.length === 0 ? (
+                  <div className="px-4 py-10">
+                    <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
+                      <Inbox className="h-5 w-5" />
+                      <p>{t("expenses.noResults", { defaultValue: "No expenses found." })}</p>
+                    </div>
+                  </div>
+                ) : (
+                  expenses.map((e) => (
+                    <div
+                      key={e.id}
+                      className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)] items-start gap-x-2 border-b border-border px-3 py-3 hover:bg-muted/30"
+                    >
+                      <div className="min-w-0 self-center">
+                        <div className="truncate font-medium text-foreground" title={e.title}>
+                          {e.title}
+                        </div>
+                      </div>
+
+                      <div className="min-w-0 self-center flex justify-center">
+                        <Badge variant="secondary" className={`max-w-full truncate ${getCategoryBgClass(e.category)}`}>
+                          {tCategory(e.category)}
+                        </Badge>
+                      </div>
+
+                      <div className="self-center text-center text-sm text-foreground whitespace-nowrap">
+                        {formatDisplayDate(e.date)}
+                      </div>
+
+                      <div className="self-center text-right text-sm font-medium tabular-nums whitespace-nowrap">
+                        {formatAmountDisplay(e.amount)} UZS
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap justify-end gap-1.5">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-8 max-w-[8.5rem] truncate px-2 text-xs text-muted-foreground hover:bg-muted/40"
+                            onClick={() => openDescription(e)}
+                          >
+                            {t("expenses.viewDescription", {
+                              defaultValue: "View description",
+                            })}
+                          </Button>
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-8 px-2 text-xs"
+                            onClick={() => openEdit(e)}
+                          >
+                            {t("common.edit", { defaultValue: "Edit" })}
+                          </Button>
+
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="h-8 px-2 text-xs text-destructive bg-destructive/10 hover:bg-destructive/20 hover:text-destructive active:bg-destructive/30"
+                            onClick={() => openDelete(e)}
+                          >
+                            <Trash2 className="mr-1 h-3.5 w-3.5" />
+                            {t("common.delete", { defaultValue: "Delete" })}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-180 text-sm">
-                  <thead className="text-left text-muted-foreground">
-                    <tr className="border-b">
-                      <th className="px-3 py-2 font-medium">Date</th>
-                      <th className="px-3 py-2 font-medium">Title</th>
-                      <th className="px-3 py-2 font-medium">Amount</th>
-                      <th className="px-3 py-2 font-medium">Category</th>
-                      <th className="px-3 py-2 font-medium">Description</th>
-                      <th className="px-3 py-2 font-medium text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {expenses.map((expense) => (
-                      <tr key={expense.id} className="border-b last:border-0">
-                        <td className="px-3 py-3 text-muted-foreground">{expense.date}</td>
-                        <td className="px-3 py-3 font-medium text-foreground">{expense.title}</td>
-                        <td className="px-3 py-3 text-foreground">
-                          {formatUzs(expense.amount)} UZS
-                        </td>
-                        <td className="px-3 py-3">
-                          <Badge variant="secondary">{expense.category}</Badge>
-                        </td>
-                        <td className="px-3 py-3 text-muted-foreground">
-                          {expense.description || "___"}
-                        </td>
-                        <td className="px-3 py-3 text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button size="sm" variant="outline" onClick={() => openEdit(expense)}>Edit</Button>
-                            <Button size="sm" variant="destructive" onClick={() => openDelete(expense)}>
-                              Delete
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {expenses.length === 0 && (
-                      <tr>
-                        <td className="px-3 py-6 text-center text-sm text-muted-foreground" colSpan={6}>
-                          No expenses found.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-                {isFetching && null}
-              </div>
-            )}
+            </div>
+            <div className="mt-4">{paginationControls}</div>
           </CardContent>
         </Card>
-
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">Page {page}</p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page === 1 || loading}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              <ChevronLeft className="mr-1 h-4 w-4" /> Prev
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!hasNext || loading}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next <ChevronRight className="ml-1 h-4 w-4" />
-            </Button>
-          </div>
-        </div>
       </div>
 
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add expense</DialogTitle>
-            <DialogDescription>Fill the details and save.</DialogDescription>
+      {/* Add Dialog */}
+      <Dialog
+        open={addOpen}
+        onOpenChange={(open) => {
+          setAddOpen(open);
+          if (!open) setActionError("");
+        }}
+      >
+        <DialogContent className="py-8">
+          <DialogHeader className="space-y-3 pb-2">
+            <DialogTitle className="text-3xl font-bold tracking-tight">{t("expenses.addDialogTitle")}</DialogTitle>
+            <DialogDescription>{t("expenses.addDialogDesc")}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-6">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Title</label>
+              <label className="text-sm font-medium">{t("expenses.titleCol")}</label>
               <Input value={addTitle} onChange={(e) => setAddTitle(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Amount (UZS)</label>
+              <label className="text-sm font-medium">{t("expenses.amountUzs")}</label>
               <Input
-                type="number"
-                min="0"
-                step="1"
+                type="text"
                 inputMode="numeric"
+                maxLength={15}
                 value={addAmount}
-                onChange={(e) => setAddAmount(e.target.value)}
+                onChange={(e) => setAddAmount(formatAmountInput(e.target.value))}
                 onKeyDown={(e) => {
-                  if (e.key === "-" || e.key.toLowerCase() === "e") e.preventDefault();
+                  if (e.key === "-" || e.key === "." || e.key.toLowerCase() === "e") {
+                    e.preventDefault();
+                  }
                 }}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Category</label>
-              <select
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={addCategory}
-                onChange={(e) => setAddCategory(e.target.value)}
-              >
-                <option value="" disabled>
-                  Select category
-                </option>
-                {categories.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+              <label className="text-sm font-medium">{t("expenses.category")}</label>
+              <Select value={addCategory || undefined} onValueChange={setAddCategory}>
+                <SelectTrigger className={selectTriggerClass}>
+                  <SelectValue placeholder={t("expenses.selectCategory")} />
+                </SelectTrigger>
+                <SelectContent className={selectContentClass} position="popper" side="bottom">
+                  {categories.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {tCategory(c)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Date</label>
+              <label className="text-sm font-medium">{t("expenses.date")}</label>
               <Input
                 type="date"
                 min={MIN_EXPENSE_DATE}
@@ -511,64 +827,83 @@ export default function Expenses() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Description</label>
-              <Input value={addDescription} onChange={(e) => setAddDescription(e.target.value)} />
+              <label className="text-sm font-medium">
+                {t("expenses.description")} ({t("common.optional", { defaultValue: "Optional" })})
+              </label>
+              <Textarea
+                className="h-24 min-h-24 resize-none overflow-y-auto"
+                value={addDescription}
+                onChange={(e) => setAddDescription(e.target.value)}
+              />
             </div>
             {actionError && <p className="text-sm text-red-600">{actionError}</p>}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)}>
-              Cancel
+            <Button variant="outline" disabled={isAdding} onClick={() => setAddOpen(false)}>
+              {t("common.cancel")}
             </Button>
-            <Button onClick={handleAdd}>Add</Button>
+            <Button
+              className="relative min-w-[96px] disabled:pointer-events-auto disabled:cursor-not-allowed"
+              disabled={!canSubmitAddExpense}
+              onClick={handleAdd}
+            >
+              {isAdding ? (
+                <>
+                  <span className="invisible">{t("expenses.add")}</span>
+                  <span className="absolute inset-0 flex items-center justify-center">
+                    <span
+                      aria-label="Loading"
+                      className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
+                    />
+                  </span>
+                </>
+              ) : (
+                t("expenses.add")
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit expense</DialogTitle>
-            <DialogDescription>Update the details and save.</DialogDescription>
+      {/* Edit Dialog */}
+      <Dialog
+        open={editOpen}
+        onOpenChange={(open) => {
+          setEditOpen(open);
+          if (!open) setActionError("");
+        }}
+      >
+        <DialogContent className="py-8">
+          <DialogHeader className="space-y-3 pb-2">
+            <DialogTitle className="text-3xl font-bold tracking-tight">{t("expenses.editDialogTitle")}</DialogTitle>
+            <DialogDescription>{t("expenses.editDialogDesc")}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-6">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Title</label>
+              <label className="text-sm font-medium">{t("expenses.titleCol")}</label>
               <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Amount (UZS)</label>
+              <label className="text-sm font-medium">{t("expenses.amountUzs")}</label>
               <Input
-                type="number"
-                min="0"
-                step="1"
+                type="text"
                 inputMode="numeric"
+                maxLength={15}
                 value={editAmount}
-                onChange={(e) => setEditAmount(e.target.value)}
+                onChange={(e) => setEditAmount(formatAmountInput(e.target.value))}
                 onKeyDown={(e) => {
-                  if (e.key === "-" || e.key.toLowerCase() === "e") e.preventDefault();
+                  if (e.key === "-" || e.key === "." || e.key.toLowerCase() === "e") {
+                    e.preventDefault();
+                  }
                 }}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Category</label>
-              <select
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={editCategory}
-                onChange={(e) => setEditCategory(e.target.value)}
-              >
-                <option value="" disabled>
-                  Select category
-                </option>
-                {categories.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+              <label className="text-sm font-medium">{t("expenses.category")}</label>
+              <Input value={tCategory(editCategory) || ""} disabled readOnly />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Date</label>
+              <label className="text-sm font-medium">{t("expenses.date")}</label>
               <Input
                 type="date"
                 min={MIN_EXPENSE_DATE}
@@ -578,35 +913,105 @@ export default function Expenses() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Description</label>
-              <Input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+              <label className="text-sm font-medium">
+                {t("expenses.description")} ({t("common.optional", { defaultValue: "Optional" })})
+              </label>
+              <Textarea
+                className="h-24 min-h-24 resize-none overflow-y-auto"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+              />
             </div>
             {actionError && <p className="text-sm text-red-600">{actionError}</p>}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditOpen(false)}>
-              Cancel
+            <Button variant="outline" disabled={isEditing} onClick={() => setEditOpen(false)}>
+              {t("common.cancel")}
             </Button>
-            <Button onClick={handleEdit}>Save</Button>
+            <Button
+              className="relative min-w-24 disabled:pointer-events-auto disabled:cursor-not-allowed"
+              disabled={!canSubmitEditExpense}
+              onClick={handleEdit}
+            >
+              {isEditing ? (
+                <>
+                  <span className="invisible">{t("common.save")}</span>
+                  <span className="absolute inset-0 flex items-center justify-center">
+                    <span
+                      aria-label="Loading"
+                      className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
+                    />
+                  </span>
+                </>
+              ) : (
+                t("common.save")
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+      {/* Delete Dialog */}
+      <Dialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          setDeleteOpen(open);
+          if (!open) setActionError("");
+        }}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete expense</DialogTitle>
+            <DialogTitle>{t("expenses.deleteDialogTitle")}</DialogTitle>
             <DialogDescription>
-              {deleteTarget ? `This will remove \"${deleteTarget.title}\".` : ""}
+              {deleteTarget
+                ? t("expenses.deleteDialogDesc", { title: deleteTarget.title })
+                : ""}
             </DialogDescription>
           </DialogHeader>
           {actionError && <p className="text-sm text-red-600">{actionError}</p>}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
-              Cancel
+            <Button variant="outline" disabled={isDeleting} onClick={() => setDeleteOpen(false)}>
+              {t("common.cancel")}
             </Button>
-            <Button variant="destructive" onClick={handleDelete}>
-              Delete
+            <Button
+              variant="destructive"
+              className="relative min-w-24"
+              disabled={isDeleting}
+              onClick={handleDelete}
+            >
+              {isDeleting ? (
+                <>
+                  <span className="invisible">{t("expenses.delete")}</span>
+                  <span className="absolute inset-0 flex items-center justify-center">
+                    <span
+                      aria-label="Loading"
+                      className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
+                    />
+                  </span>
+                </>
+              ) : (
+                t("expenses.delete")
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Description Modal */}
+      <Dialog open={descriptionOpen} onOpenChange={setDescriptionOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("expenses.description")}</DialogTitle>
+            <DialogDescription>
+              {descriptionTarget?.title || t("expenses.titleCol")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto whitespace-pre-wrap wrap-break-word rounded-md border border-border bg-muted/30 p-3 text-sm text-foreground">
+            {descriptionTarget?.description || "___"}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDescriptionOpen(false)}>
+              {t("common.cancel")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -614,3 +1019,4 @@ export default function Expenses() {
     </div>
   );
 }
+

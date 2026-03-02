@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import computed_field, SecretStr
 from urllib.parse import quote_plus
+from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -18,6 +19,16 @@ class Settings(BaseSettings):
     trusted_hosts: str = "localhost,127.0.0.1,testserver"
     is_production: bool = False
     default_timezone: str = "UTC"
+    google_client_id: str
+    google_client_secret: SecretStr
+    google_redirect_uri: str
+    frontend_url: str
+    smtp_host: Optional[str] = None
+    smtp_port: int = 587
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[SecretStr] = None
+    smtp_use_tls: bool = True
+    email_from: str = "no-reply@expensetracker.local"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

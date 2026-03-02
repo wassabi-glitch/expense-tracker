@@ -36,6 +36,11 @@ def get_this_month_stats(
         models.Expense.date >= current_month_start,
     )
 
+    if today.month == 12:
+        next_month_start = date(today.year + 1, 1, 1)
+    else:
+        next_month_start = date(today.year, today.month + 1, 1)
+
     category_breakdown_query = db.query(
         models.Budget.category,
         models.Budget.monthly_limit,
@@ -43,12 +48,14 @@ def get_this_month_stats(
         func.count(models.Expense.id).label("count"),
     ).outerjoin(
         models.Expense,
-        (models.Expense.category == models.Budget.category)
-        & (models.Expense.owner_id == models.Budget.owner_id)
-        & (models.Expense.date >= current_month_start),
+        (models.Expense.budget_id == models.Budget.id)
+        & (models.Expense.owner_id == current_user.id)
+        & (models.Expense.date >= current_month_start)
+        & (models.Expense.date < next_month_start),
     ).filter(
         models.Budget.owner_id == current_user.id,
-        models.Budget.is_active == True,
+        models.Budget.budget_year == today.year,
+        models.Budget.budget_month == today.month,
     ).group_by(
         models.Budget.category,
         models.Budget.monthly_limit,
@@ -67,9 +74,11 @@ def get_this_month_stats(
         if percentage_used >= 100:
             budget_status = schemas.BudgetStatus.Over_limit
         elif percentage_used >= 90:
-            budget_status = schemas.BudgetStatus.Critical
+            budget_status = schemas.BudgetStatus.High_risk
+        elif percentage_used >= 70:
+            budget_status = schemas.BudgetStatus.Warning
         else:
-            budget_status = schemas.BudgetStatus.Healthy
+            budget_status = schemas.BudgetStatus.On_track
 
         enhanced_breakdown.append(
             {
@@ -128,40 +137,40 @@ def get_daily_trend(
     if (start_date is None) ^ (end_date is None):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Provide both start_date and end_date, or use days."
+            detail="analytics.range_both_or_days_required"
         )
 
     if start_date and end_date:
         if start_date < MIN_ANALYTICS_DATE or end_date < MIN_ANALYTICS_DATE:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Dates earlier than 2020-01-01 are not allowed."
+                detail="analytics.date_too_early"
             )
         if end_date > today:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="End date cannot be in the future."
+                detail="analytics.end_date_in_future"
             )
         if start_date > end_date:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Start date cannot be after end date."
+                detail="analytics.start_after_end"
             )
         if (end_date - start_date).days + 1 > 366:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Date range too large. Max allowed is 366 days."
+                detail="analytics.range_too_large"
             )
     else:
         if days > 366:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Date range too large. Max allowed is 366 days."
+                detail="analytics.range_too_large"
             )
         if days < 1:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Days must be at least 1."
+                detail="analytics.days_min_1"
             )
         start_date = today - timedelta(days=days - 1)
         end_date = today
@@ -271,35 +280,35 @@ def get_category_breakdown(
     if (start_date is None) ^ (end_date is None):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Provide both start_date and end_date together.",
+            detail="analytics.range_both_required",
         )
 
     if start_date and end_date:
         if start_date < MIN_ANALYTICS_DATE or end_date < MIN_ANALYTICS_DATE:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Dates earlier than 2020-01-01 are not allowed.",
+                detail="analytics.date_too_early",
             )
         if end_date > today:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="End date cannot be in the future.",
+                detail="analytics.end_date_in_future",
             )
         if start_date > end_date:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Start date cannot be after end date.",
+                detail="analytics.start_after_end",
             )
     elif days is not None:
         if days < 1:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Days must be at least 1.",
+                detail="analytics.days_min_1",
             )
         if days > 366:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Date range too large. Max allowed is 366 days.",
+                detail="analytics.range_too_large",
             )
         start_date = today - timedelta(days=days - 1)
         end_date = today

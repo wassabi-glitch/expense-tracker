@@ -23,7 +23,7 @@ def test_export_expenses_basic(client):
     assert res.headers["content-type"].startswith("text/csv")
 
     rows = _parse_csv(res.text)
-    assert rows[0] == ["date", "title", "amount", "category", "description"]
+    assert rows[0] == ["date", "title", "amount", "category", "description", "budget_year", "budget_month"]
     assert rows[1][1] == "Apples"
 
 
@@ -40,7 +40,7 @@ def test_export_expenses_filters(client):
     assert res.status_code == 200
 
     rows = _parse_csv(res.text)
-    assert rows[0] == ["date", "title", "amount", "category", "description"]
+    assert rows[0] == ["date", "title", "amount", "category", "description", "budget_year", "budget_month"]
     assert len(rows) == 2
     assert rows[1][3] == "Food"
 

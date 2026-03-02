@@ -12,10 +12,15 @@ import Analytics from "./Analytics";
 import ExportPage from "./ExportPage";
 import Settings from "./Settings";
 import NotFound from "./NotFound";
+import AuthCallback from "./AuthCallback";
+import ForgotPassword from "./ForgotPassword";
+import ResetPassword from "./ResetPassword";
+import VerifyEmail from "./VerifyEmail";
+import ResendVerification from "./ResendVerification";
 
 export default function App() {
-  const [status, setStatus] = useState("loading...");
-  const [error, setError] = useState("");
+  const [_status, setStatus] = useState("loading...");
+  const [_error, setError] = useState("");
 
   useEffect(() => {
     getHealth()
@@ -31,6 +36,11 @@ export default function App() {
       <Route path="/" element={<Navigate to="/sign-in" replace />} />
       <Route path="/sign-in" element={<Login />} />
       <Route path="/sign-up" element={<Signup />} />
+      <Route path="/auth/callback" element={<AuthCallback />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
+      <Route path="/resend-verification" element={<ResendVerification />} />
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
           <Route path="/dashboard" element={<Dashboard />} />

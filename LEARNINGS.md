@@ -39,7 +39,7 @@
 - `make test` ? run tests.
 
 ## Advice for Future
-- Don’t memorize code; keep templates.
+- Donï¿½t memorize code; keep templates.
 - Always understand the *goal* of each step, not every syntax detail.
 
 ## Auth Testing (Sign-up / Sign-in)
@@ -54,7 +54,7 @@
 
 ## Validation Lessons (Schemas)
 - Username rules enforced in schema:
-  - length 3–32
+  - length 3ï¿½32
   - letters/numbers/dot/underscore only
   - no spaces
   - cannot start/end with `.` or `_`
@@ -62,7 +62,7 @@
   - not only numbers
 - Email is normalized (trim + lowercase) and length-checked.
 - Password rules enforced:
-  - 8–64 chars, no spaces
+  - 8ï¿½64 chars, no spaces
   - must include lowercase, uppercase, number, special character
 
 ## Pytest Fixtures (conftest.py)
@@ -111,7 +111,7 @@
 ## Docker (Purpose + Steps)
 - **Purpose**: Package the app and all its dependencies so it runs the same everywhere (local, server, CI).
 - **Why we use it**:
-  - No “works on my machine” issues.
+  - No ï¿½works on my machineï¿½ issues.
   - Easy to deploy the same image to production.
   - Spin up API + DB + Redis together with one command.
 - **Key concepts**:
@@ -119,7 +119,7 @@
   - **Dockerfile** = recipe to build the image.
   - **docker-compose.yml** = run multiple containers as one app.
 - **Steps we followed (this project)**:
-  1) Install Docker Desktop and ensure it’s running.
+  1) Install Docker Desktop and ensure itï¿½s running.
   2) Build and start containers:
      - `docker-compose up --build`
   3) Check containers are running:
@@ -181,3 +181,149 @@
   4) Add typed backend query arg.
   5) Apply DB filter + validation.
   6) Add/adjust tests for that param and combinations.
+
+## Pinned: Future Feature Ideas (Roadmap)
+
+### 1) Income + Salary Layer
+- Monthly income
+- Salary utilization
+- Savings rate
+
+### 2) Budget Intelligence
+- Budget recommendations
+- Income-based limits
+
+### 3) Behavioral Insights
+- Spending comparisons
+- Category dominance
+- Alerts
+
+### 4) Burn Rate Forecast
+- Safe daily spend
+- Salary runway
+- Projected balance
+
+### 5) Recurring Expenses
+- Subscription tracking
+- Auto budgeting
+
+### 6) User-Type Personalization
+- Student / Employed / Business dashboards
+
+### 7) Business Mode (Optional advanced tier)
+- Profit tracking
+- Business vs personal split
+- Tax export
+
+## Auth System (Production V1) - Pending Work
+- **Refresh tokens**: Add refresh token flow for session continuity (short-lived access token + longer-lived refresh token).
+- **Refresh token storage**: Store refresh token in **HttpOnly cookie** (not localStorage); use `Secure` and `SameSite` appropriately.
+- **Refresh token rotation**: Rotate refresh token on every refresh request (one-time-use refresh tokens).
+- **Revocation / session store**: Persist refresh tokens (or token family/session records) server-side so logout and compromise response can revoke them.
+- **Logout invalidation**: Invalidate refresh token/session server-side on logout (not only delete frontend tokens).
+- **Refresh endpoint**: Add `/auth/refresh` endpoint and frontend auto-refresh flow before/after access token expiry.
+- **Session expiry UX**: Handle refresh failure gracefully (silent retry -> sign-in redirect + user message).
+- **Multi-device sessions**: Decide policy (allow multiple sessions vs limit devices) and add session management UI later if needed.
+- **Security hardening**: Audit CSRF implications for cookie-based refresh flow and add CSRF protection if required by final cookie strategy.
+- **Monitoring/audit**: Log auth security events (login, logout, refresh, reset, verification, failures/rate limits) for observability.
+- **Auth tests (production-level)**: Add tests for refresh success/failure, rotation, revoked tokens, logout invalidation, and expired token edge cases.
+
+## Budget Page UI Polish Roadmap (Planned)
+- **Card hierarchy**: Make category title stronger, month smaller/muted, and amount line more visually prominent.
+- **Progress bar upgrade**: Increase thickness, roundness, add subtle glow, and animate fill on load; use status colors (`0-60%` green, `60-85%` yellow, `85%+` red).
+- **Spacing density**: Increase card internal padding and grid gap for cleaner breathing space.
+- **Destructive action tone**: Soften delete action (ghost/icon/overflow menu) so it doesnï¿½t dominate the card.
+- **Card separation**: Add subtle border + soft shadow for better depth on dark background.
+- **Outcome framing**: Show remaining amount explicitly (ex: `remaining: X UZS`) alongside used/limit.
+- **Hover micro-interactions**: Lift card on hover, increase shadow, and reveal/emphasize controls smoothly.
+- **Controls for scanning**: Add budget sorting/filtering (by month/category/% used/remaining).
+- **History clutter control**: Default to current month budgets, with explicit toggle to show historical budgets.
+- **Category iconography**: Add category icons to improve scan speed.
+- **Status badges**: Add badge states like `On Track`, `Close to Limit`, `Over Budget`.
+- **Motion polish**: Add count-up and progress-fill animations for first render.
+
+## Budget UI Implementation Order (Next Session)
+1. Card hierarchy + spacing + subtle border/shadow.
+2. Progress bar visual/status/animation upgrade.
+3. Delete action redesign (non-dominant destructive UI).
+4. Remaining amount line + status badge.
+5. Hover interactions + motion polish.
+6. Filters/sorting + history toggle.
+7. Category icons and final consistency pass.
+
+## Budgets: Historical Card Stats Gap (Not a Bug, Missing Endpoint)
+- Current behavior: budget cards show `spent/remaining/status` only for the current month.
+- Reason: frontend uses `/analytics/this-month-stats`, which intentionally filters to current year/month.
+- Impact: historical cards (e.g., December 2025 Transport) show `0 used` even if expenses exist.
+- Planned fix (later): add backend endpoint that returns per-budget stats for all budget months, then map in `Budgets.jsx` by `(category, budget_year, budget_month)`.
+## Development Roadmap (Planned - March 2026)
+
+### Step 0: CI/CD Hardening
+- Add PostgreSQL service to CI pipeline
+- Add Alembic migration check before tests
+- Enable branch protection on main (require PR + passing checks)
+- Add linting (ruff for Python, eslint for JS)
+- Harden dependency audits (remove continue-on-error)
+
+### Step 1: Frontend Refactor
+- Refactor frontend pages into reusable components
+- Reduce code duplication across pages
+- Clean up spaghetti before building new features
+
+### Step 2: Auth System Completion
+- Implement refresh token flow (short-lived access + longer-lived refresh)
+- Refresh token storage in HttpOnly cookie
+- Refresh token rotation (one-time-use)
+- Server-side revocation + session store
+- Logout invalidation server-side
+- /auth/refresh endpoint + frontend auto-refresh
+- Comprehensive auth tests
+
+### Step 3: Premium Users + Recurring Expenses
+- Update DB models to include premium user flag (is_premium on User)
+- Build recurring expenses feature (premium only)
+  - Mark expenses as recurring (daily/weekly/monthly)
+  - Auto-create expenses on schedule
+  - Dashboard shows upcoming recurring charges
+- Write tests, pass CI, merge
+
+### Step 4: Budget Rollover (Premium)
+- Add budget rollover toggle in Settings page
+- Only premium users can enable the toggle
+- Free users see the toggle locked with upgrade CTA
+- Backend: carry unused budget to next month when enabled
+- Write tests, pass CI, merge
+
+### Step 5: Advanced Analytics (Premium)
+- Add premium analytics charts to Analytics page
+  - Month-over-month comparison
+  - Category trend over time
+  - Budget utilization report
+  - Top expenses list
+  - Spending velocity
+- Free users see blurred/locked premium charts with upgrade CTA
+- Premium users see full charts
+- Write tests, pass CI, merge
+
+### Step 6: Notification System (All Users)
+- Toast notification system for all users (free + paid)
+- Budget alerts (80% spent, over budget, etc.)
+- Action confirmations
+- Error feedback
+
+### Step 7: Production Deployment
+- Register sarflog.uz domain
+- Set up Uzbek cloud server
+- Configure Nginx + SSL
+- Deploy via CI/CD pipeline
+- Set up UptimeRobot monitoring
+- Set up automated DB backups
+
+### Decisions Made
+- **Rate limiters stay as-is** (prevent abuse, not a premium gate)
+- **No custom categories** (titles + descriptions cover this; categories stay as enums, may add more later)
+- **No unlimited export tier** (rate limits are security, not monetization)
+- **Income Layer + User-Type Personalization merged** into one future feature (students get allowance label, employed get salary label)
+- **Budget rollover gated via Settings toggle**, not page-level
+- **Advanced analytics gated at page level** (blurred charts, not Settings)
+- **Each step: test -> CI -> merge to main before starting next step**

@@ -1,6 +1,5 @@
 from datetime import date, timedelta
-import json
-from tests.helpers import create_expense, create_user_and_token, create_budget
+from tests.helpers import create_user_and_token, create_budget
 
 
 def test_analytics_history(client):

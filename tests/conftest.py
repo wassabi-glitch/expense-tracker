@@ -1,4 +1,6 @@
-﻿import pytest
+﻿import os
+
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -7,16 +9,33 @@ from sqlalchemy.pool import StaticPool
 from app.main import app
 from app.redis_rate_limiter import redis_client
 from app.session import Base, get_db
-from app import models  # important: registers tables
+from app import models  # noqa: F401 — registers SQLAlchemy tables
 
-engine = create_engine(
-    "sqlite://",
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
-TestingSessionLocal = sessionmaker(
-    autocommit=False, autoflush=False, bind=engine
-)
+# ---------------------------------------------------------------------------
+# Database engine — environment-aware
+# ---------------------------------------------------------------------------
+# CI sets DATABASE_URL to a real PostgreSQL instance so tests run against the
+# same engine as production.  Locally, we fall back to an in-memory SQLite
+# database so you can run `pytest` without any external services.
+# ---------------------------------------------------------------------------
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if DATABASE_URL:
+    # CI / PostgreSQL path
+    engine = create_engine(DATABASE_URL)
+    TestingSessionLocal = sessionmaker(
+        autocommit=False, autoflush=False, bind=engine
+    )
+else:
+    # Local dev / SQLite path (unchanged from before)
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    TestingSessionLocal = sessionmaker(
+        autocommit=False, autoflush=False, bind=engine
+    )
 
 
 def override_get_db():
