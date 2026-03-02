@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Button } from "./components/ui/button";
-import { isLoggedIn } from "./api";
+import { Button } from "@/components/ui/button";
+import { isLoggedIn } from "@/lib/api";
 
 export default function NotFound() {
   const { t } = useTranslation();

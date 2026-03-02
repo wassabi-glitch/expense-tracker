@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { toISODateInTimeZone } from "../lib/date";
+import { toISODateInTimeZone } from "@/lib/date";
 
 export const MIN_EXPENSE_DATE_ZOD = "2020-01-01";
 export const MAX_EXPENSE_AMOUNT = 999_999_999_999;

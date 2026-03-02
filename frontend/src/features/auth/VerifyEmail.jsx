@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { CheckCircle2, Loader2, Mail, XCircle } from "lucide-react";
-import { Button } from "./components/ui/button";
-import { Card } from "./components/ui/card";
-import { verifyEmail } from "./api";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { verifyEmail } from "@/lib/api";
 
 export default function VerifyEmail() {
   const { t } = useTranslation();

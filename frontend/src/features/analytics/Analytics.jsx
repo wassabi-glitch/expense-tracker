@@ -14,13 +14,13 @@ import {
 } from "recharts";
 import { differenceInCalendarDays } from "date-fns";
 
-import { Button } from "./components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
-import { Input } from "./components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 
-import { getAnalyticsHistory, getCategoryBreakdown, getDailyTrend } from "./api";
-import { toISODateInTimeZone } from "./lib/date";
-import { localizeApiError } from "./lib/errorMessages";
+import { getAnalyticsHistory, getCategoryBreakdown, getDailyTrend } from "@/lib/api";
+import { toISODateInTimeZone } from "@/lib/date";
+import { localizeApiError } from "@/lib/errorMessages";
 
 const formatCompactUZS = (value) => {
   const num = Number(value || 0);

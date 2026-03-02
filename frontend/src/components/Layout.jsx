@@ -10,7 +10,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "./components/ui/dialog";
+} from "@/components/ui/dialog";
 import {
   LayoutDashboard,
   Receipt,
@@ -26,9 +26,9 @@ import {
   Moon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getCurrentUser, logout } from "./api";
-import { APP_LANGUAGE_KEY } from "./i18n";
-import { LanguageSelect } from "./components/ui/language-select";
+import { getCurrentUser, logout } from "@/lib/api";
+import { APP_LANGUAGE_KEY } from "@/i18n";
+import { LanguageSelect } from "@/components/ui/language-select";
 
 const mainNavItems = [
   { to: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },

@@ -3,14 +3,14 @@ import { Download } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
-import { Button } from "./components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
-import { Input } from "./components/ui/input";
-import { LoadingSpinner } from "./components/ui/loading-spinner";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
-import { exportExpensesCsv, getCategories } from "./api";
-import { toISODateInTimeZone } from "./lib/date";
-import { localizeApiError } from "./lib/errorMessages";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { exportExpensesCsv, getCategories } from "@/lib/api";
+import { toISODateInTimeZone } from "@/lib/date";
+import { localizeApiError } from "@/lib/errorMessages";
 
 const MIN_EXPENSE_DATE = "2020-01-01";
 const ALL_CATEGORIES_SELECT = "__all_categories__";
