@@ -1,5 +1,5 @@
 import csv
-from datetime import date, timedelta
+from datetime import date
 from io import StringIO
 
 from tests.helpers import create_user_and_token, create_budget, create_expense
