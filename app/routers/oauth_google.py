@@ -17,8 +17,8 @@ from config import settings
 
 router = APIRouter(prefix="/auth/google", tags=["Google Auth"])
 STATE_TTL_MIN = 10
-GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"  # nosec B105
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"  # nosec B105
 
 
 def _create_state(nonce: str) -> str:

@@ -22,10 +22,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 RESET_TOKEN_TTL_MINUTES = 30
-FORGOT_PASSWORD_SUCCESS_MESSAGE = (
+FORGOT_PASSWORD_SUCCESS_MESSAGE = (  # nosec B105
     "If the account exists, please check your email inbox for a link to complete the reset."
 )
-VERIFY_EMAIL_SUCCESS_MESSAGE = "If the account exists, please check your email inbox for a verification link."
+VERIFY_EMAIL_SUCCESS_MESSAGE = "If the account exists, please check your email inbox for a verification link."  # nosec B105
 
 
 def _hash_reset_token(raw_token: str) -> str:
