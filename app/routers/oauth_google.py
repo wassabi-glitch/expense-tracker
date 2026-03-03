@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import RedirectResponse
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
@@ -80,7 +80,7 @@ def google_login():
 
 
 @router.get("/callback")
-def google_callback(code: str, state: str, db: Session = Depends(get_db)):
+def google_callback(code: str, state: str, response: Response, db: Session = Depends(get_db)):
     state_payload = _verify_state(state)
     nonce_expected = state_payload["nonce"]
 
@@ -109,6 +109,7 @@ def google_callback(code: str, state: str, db: Session = Depends(get_db)):
         raw_id_token,
         google_requests.Request(),
         settings.google_client_id,
+        clock_skew_in_seconds=10,
     )
 
     # nonce check (important)
@@ -166,8 +167,12 @@ def google_callback(code: str, state: str, db: Session = Depends(get_db)):
 
     app_token = oauth2.create_access_token({"user_id": user.id})
 
-    # frontend will parse token from hash and save it
-    return RedirectResponse(
-        f"{settings.frontend_url}/auth/callback#token={app_token}",
-        status_code=302,
-    )
+    # Create refresh token and set it as HttpOnly cookie
+    refresh_token = oauth2.create_refresh_token(user_id=user.id)
+
+    # Build redirect — access token goes in URL hash, refresh token goes in cookie
+    redirect_url = f"{settings.frontend_url}/auth/callback#token={app_token}"
+    redirect_response = RedirectResponse(redirect_url, status_code=302)
+    oauth2.set_refresh_cookie(redirect_response, refresh_token)
+
+    return redirect_response

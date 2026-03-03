@@ -50,8 +50,8 @@ export default function Settings() {
     loadCurrentUser();
   }, [t]);
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate("/sign-in", { replace: true });
   };
 

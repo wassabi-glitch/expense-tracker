@@ -13,7 +13,11 @@ class Settings(BaseSettings):
 
     secret_key: SecretStr         # Hidden in logs
     algorithm: str
-    access_token_expire_minutes: int
+    access_token_expire_minutes: int = 15
+    refresh_token_expire_days: int = 7
+    cookie_domain: Optional[str] = None     # None = browser auto-sets to current domain
+    cookie_secure: bool = False             # True in production (requires HTTPS)
+    cookie_samesite: str = "lax"            # "lax" prevents CSRF on cross-site requests
     cors_origins: str
     redis_url: str
     trusted_hosts: str = "localhost,127.0.0.1,testserver"

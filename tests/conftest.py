@@ -56,6 +56,13 @@ def clear_rate_limit_state():
         redis_client.delete(key)
     for key in redis_client.scan_iter("tb:*"):
         redis_client.delete(key)
+    # Clean up refresh token keys between tests.
+    for key in redis_client.scan_iter("rt:*"):
+        redis_client.delete(key)
+    for key in redis_client.scan_iter("rt_family:*"):
+        redis_client.delete(key)
+    for key in redis_client.scan_iter("rt_user:*"):
+        redis_client.delete(key)
 
 
 @pytest.fixture()

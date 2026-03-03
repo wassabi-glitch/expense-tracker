@@ -1,10 +1,35 @@
-const API_BASE = "http://localhost:9000"
-const GOOGLE_LOGIN_URL = `${API_BASE}/auth/google/login`
+/**
+ * API Client — handles all communication with the backend.
+ *
+ * KEY CHANGES (Auth System Completion):
+ *
+ * BEFORE: Access token in localStorage, no refresh, frontend-only logout
+ * AFTER:  Access token in memory, auto-refresh on 401, server-side logout
+ *
+ * All fetch calls now include credentials: "include" so cookies are sent.
+ */
+
+const API_BASE = "http://localhost:9000";
+const GOOGLE_LOGIN_URL = `${API_BASE}/auth/google/login`;
 import { getBrowserTimeZone } from "./date";
 
-function getToken() {
-    return localStorage.getItem("access_token");
+// ─── Token Storage (in memory, NOT localStorage) ──────────
+// This variable holds the current access token. Only this module can access it.
+// On page reload it resets to null — we recover via silentRefresh().
+let _accessToken = null;
+
+/**
+ * Set the in-memory access token (called after login, refresh, or OAuth callback).
+ */
+export function setAccessToken(token) {
+    _accessToken = token;
 }
+
+function getToken() {
+    return _accessToken;
+}
+
+// ─── Helpers ──────────────────────────────────────────────
 
 function resetThemeOnSignout() {
     if (typeof document !== "undefined") {
@@ -14,6 +39,7 @@ function resetThemeOnSignout() {
 }
 
 function redirectToSigninOnUnauthorized() {
+    _accessToken = null;
     localStorage.removeItem("token");
     localStorage.removeItem("access_token");
     resetThemeOnSignout();
@@ -38,11 +64,47 @@ function extractErrorMessage(data, fallback) {
     return fallback;
 }
 
-export function logout() {
-    localStorage.removeItem("token");
-    localStorage.removeItem("access_token");
-    resetThemeOnSignout();
+// ─── Refresh Logic ────────────────────────────────────────
+// "Refresh lock" — if multiple API calls fail with 401 at the same time,
+// only ONE refresh request is sent. The others wait for it.
+let _refreshPromise = null;
+
+/**
+ * Try to get a new access token using the HttpOnly cookie.
+ * Returns true if successful, false if not.
+ */
+async function attemptRefresh() {
+    if (_refreshPromise) return _refreshPromise;
+
+    _refreshPromise = (async () => {
+        try {
+            const res = await fetch(`${API_BASE}/auth/refresh`, {
+                method: "POST",
+                credentials: "include",
+                headers: { "X-Timezone": getBrowserTimeZone() },
+            });
+            if (!res.ok) return false;
+            const data = await res.json();
+            _accessToken = data.access_token;
+            return true;
+        } catch {
+            return false;
+        } finally {
+            _refreshPromise = null;
+        }
+    })();
+
+    return _refreshPromise;
 }
+
+/**
+ * Silent refresh — called on app startup to restore session after page reload.
+ */
+export async function silentRefresh() {
+    return attemptRefresh();
+}
+
+// ─── Core Request Function ────────────────────────────────
 
 async function request(path, options = {}) {
     const headers = {
@@ -54,9 +116,22 @@ async function request(path, options = {}) {
     const token = getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
 
-    const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+    const res = await fetch(`${API_BASE}${path}`, {
+        ...options,
+        headers,
+        credentials: "include",
+    });
 
-    // Try to parse JSON if possible
+    // If 401 and we haven't retried yet, attempt refresh then retry
+    if (res.status === 401 && !options._retried) {
+        const refreshed = await attemptRefresh();
+        if (refreshed) {
+            return request(path, { ...options, _retried: true });
+        }
+        redirectToSigninOnUnauthorized();
+        throw new Error("auth.session_expired");
+    }
+
     const text = await res.text();
     const data = text ? JSON.parse(text) : null;
 
@@ -80,6 +155,8 @@ async function request(path, options = {}) {
     return data;
 }
 
+// ─── Auth Functions ───────────────────────────────────────
+
 export async function getHealth() {
     return request("/health", { method: "GET" });
 }
@@ -96,15 +173,13 @@ export async function signin(email, password) {
             "X-Timezone": getBrowserTimeZone(),
         },
         body,
+        credentials: "include",
     });
 
     const text = await res.text();
     const data = text ? JSON.parse(text) : null;
 
     if (!res.ok) {
-        if (res.status === 401) {
-            redirectToSigninOnUnauthorized();
-        }
         const msg = extractErrorMessage(data, `Sign-in failed: ${res.status}`);
         const err = new Error(msg);
         err.status = res.status;
@@ -121,8 +196,11 @@ export async function signin(email, password) {
     const token = data?.access_token;
     if (!token) throw new Error("Sign-in succeeded but no token returned");
 
+    // Store in memory, clean up legacy localStorage
+    _accessToken = token;
     localStorage.removeItem("token");
-    localStorage.setItem("access_token", token);
+    localStorage.removeItem("access_token");
+
     return data;
 }
 
@@ -141,6 +219,7 @@ export async function forgotPassword(email) {
             "X-Timezone": getBrowserTimeZone(),
         },
         body: JSON.stringify({ email }),
+        credentials: "include",
     });
 
     const text = await res.text();
@@ -171,6 +250,7 @@ export async function resendVerification(email) {
             "X-Timezone": getBrowserTimeZone(),
         },
         body: JSON.stringify({ email }),
+        credentials: "include",
     });
 
     const text = await res.text();
@@ -197,9 +277,8 @@ export async function verifyEmail(token) {
     const params = new URLSearchParams({ token });
     const res = await fetch(`${API_BASE}/auth/verify-email?${params.toString()}`, {
         method: "GET",
-        headers: {
-            "X-Timezone": getBrowserTimeZone(),
-        },
+        headers: { "X-Timezone": getBrowserTimeZone() },
+        credentials: "include",
     });
 
     const text = await res.text();
@@ -221,6 +300,7 @@ export async function resetPassword(token, new_password) {
             "X-Timezone": getBrowserTimeZone(),
         },
         body: JSON.stringify({ token, new_password }),
+        credentials: "include",
     });
 
     const text = await res.text();
@@ -243,14 +323,38 @@ export async function resetPassword(token, new_password) {
     return data;
 }
 
+/**
+ * Logout — calls backend to revoke refresh token, then clears local state.
+ */
+export async function logout() {
+    try {
+        await fetch(`${API_BASE}/auth/logout`, {
+            method: "POST",
+            credentials: "include",
+            headers: { "X-Timezone": getBrowserTimeZone() },
+        });
+    } catch {
+        // Network error is OK — token will expire on its own
+    }
 
+    _accessToken = null;
+    localStorage.removeItem("token");
+    localStorage.removeItem("access_token");
+    resetThemeOnSignout();
+}
+
+/**
+ * Check if user is logged in (checks memory, not localStorage).
+ */
 export function isLoggedIn() {
-    return !!localStorage.getItem("access_token");
+    return !!_accessToken;
 }
 
 export function getGoogleLoginUrl() {
     return GOOGLE_LOGIN_URL;
 }
+
+// ─── Data Fetching Functions ──────────────────────────────
 
 export async function getCurrentUser() {
     return request("/users/me", { method: "GET" });
@@ -361,10 +465,30 @@ export async function exportExpensesCsv(params = {}) {
     const res = await fetch(`${API_BASE}/expenses/export${query ? `?${query}` : ""}`, {
         method: "GET",
         headers,
+        credentials: "include",
     });
 
     if (!res.ok) {
         if (res.status === 401) {
+            const refreshed = await attemptRefresh();
+            if (refreshed) {
+                const retryHeaders = {
+                    "X-Timezone": getBrowserTimeZone(),
+                    Authorization: `Bearer ${_accessToken}`,
+                };
+                const retryRes = await fetch(`${API_BASE}/expenses/export${query ? `?${query}` : ""}`, {
+                    method: "GET",
+                    headers: retryHeaders,
+                    credentials: "include",
+                });
+                if (retryRes.ok) {
+                    const blob = await retryRes.blob();
+                    const contentDisposition = retryRes.headers.get("Content-Disposition") || "";
+                    const fileNameMatch = /filename="?([^";]+)"?/i.exec(contentDisposition);
+                    const filename = fileNameMatch?.[1] || "expenses.csv";
+                    return { blob, filename };
+                }
+            }
             redirectToSigninOnUnauthorized();
         }
         const text = await res.text();

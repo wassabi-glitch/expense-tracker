@@ -181,10 +181,14 @@ def login(
 
     ensure_local_identity(db, user)
 
-    # 3. Create the token
+    # 3. Create BOTH tokens
     access_token = oauth2.create_access_token(data={"user_id": user.id})
+    refresh_token = oauth2.create_refresh_token(user_id=user.id)
 
-    # 4. Return the token
+    # 4. Set refresh token as HttpOnly cookie (browser stores it automatically)
+    oauth2.set_refresh_cookie(response, refresh_token)
+
+    # 5. Return access token in the JSON response body
     return {"access_token": access_token, "token_type": "bearer"}  # nosec B105
 
 

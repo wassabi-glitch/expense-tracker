@@ -1,17 +1,15 @@
-// src/components/ProtectedRoute.tsx
+/**
+ * ProtectedRoute — guards authenticated routes.
+ * Checks the in-memory token via isLoggedIn() instead of localStorage.
+ * App.jsx ensures silentRefresh() completes before this runs.
+ */
 import { Navigate, Outlet } from 'react-router-dom';
+import { isLoggedIn } from '@/lib/api';
 
 const ProtectedRoute = () => {
-    // 1. Check if the user is authenticated
-    // (For MVP, we check if a token exists in localStorage)
-    const isAuthenticated = localStorage.getItem('access_token');
-
-    // 2. If no token, redirect to Login
-    if (!isAuthenticated) {
+    if (!isLoggedIn()) {
         return <Navigate to="/sign-in" replace />;
     }
-
-    // 3. If token exists, render the child route (The Dashboard)
     return <Outlet />;
 };
 

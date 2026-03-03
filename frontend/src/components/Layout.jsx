@@ -208,9 +208,9 @@ export default function Layout() {
     loadCurrentUser();
   }, []);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setLogoutOpen(false);
-    logout();
+    await logout();
     // Defensive cleanup in case a dialog lock survives a route transition.
     document.body.style.pointerEvents = "";
     document.body.style.overflow = "";
