@@ -301,7 +301,7 @@ def refresh_token(
     # Step 5: Set the new refresh token cookie (replaces the old one)
     oauth2.set_refresh_cookie(response, new_raw_token)
 
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"access_token": access_token, "token_type": "bearer"}  # nosec B105
 
 
 @router.post("/logout", status_code=status.HTTP_200_OK)

@@ -8,9 +8,11 @@ Covers:
   - Used refresh tokens cannot be reused (rotation security)
   - Password reset revokes all refresh tokens
 """
-import pytest
+from unittest.mock import patch
+
 from app import models, oauth2
 from app.redis_rate_limiter import redis_client
+from app.routers import oauth_google
 
 
 # ───────────────────────────────────────────────────
@@ -238,7 +240,6 @@ def test_login_access_token_works_for_protected_routes(client, session):
 
 def test_expired_refresh_token_rejected(client, session):
     """An explicitly expired refresh token should be rejected with 401."""
-    import time
 
     create_and_login(client, session)
     user = session.query(models.User).filter(models.User.email == "refresh@example.com").first()
@@ -259,9 +260,6 @@ def test_expired_refresh_token_rejected(client, session):
 # ═══════════════════════════════════════════════════
 # Google OAuth Integration
 # ═══════════════════════════════════════════════════
-
-from unittest.mock import patch
-from app.routers import oauth_google
 
 @patch("app.routers.oauth_google.httpx.post")
 @patch("app.routers.oauth_google.id_token.verify_oauth2_token")
