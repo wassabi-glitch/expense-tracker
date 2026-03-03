@@ -202,6 +202,11 @@ class MessageResponse(BaseModel):
     message: str
 
 
+class RefreshResponse(BaseModel):
+    access_token: str
+    token_type: str
+
+
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 

@@ -1,6 +1,14 @@
-﻿import { useEffect, useState } from "react";
+﻿/**
+ * App.jsx — Root component with silent refresh on mount.
+ *
+ * On page reload, the in-memory access token is gone. silentRefresh()
+ * uses the HttpOnly cookie to get a new one. The app shows nothing
+ * until this completes, preventing a flash of the login page.
+ */
+import { useEffect, useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
-import { getHealth } from "@/lib/api";
+import { silentRefresh } from "@/lib/api";
+import { AuthContext } from "@/lib/AuthContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Layout from "@/components/Layout";
 import NotFound from "@/components/NotFound";
@@ -19,39 +27,41 @@ import ExportPage from "@/features/expenses/ExportPage";
 import Settings from "@/features/settings/Settings";
 
 export default function App() {
-  const [_status, setStatus] = useState("loading...");
-  const [_error, setError] = useState("");
+  const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
-    getHealth()
-      .then((data) => setStatus(`${data.status} / ${data.database}`))
-      .catch((e) => {
-        setStatus("error");
-        setError(e.message || "Something went wrong");
-      });
+    silentRefresh().finally(() => {
+      setAuthReady(true);
+      localStorage.removeItem("token");
+      localStorage.removeItem("access_token");
+    });
   }, []);
 
+  if (!authReady) return null;
+
   return (
-    <Routes>
-      <Route path="/" element={<Navigate to="/sign-in" replace />} />
-      <Route path="/sign-in" element={<Login />} />
-      <Route path="/sign-up" element={<Signup />} />
-      <Route path="/auth/callback" element={<AuthCallback />} />
-      <Route path="/forgot-password" element={<ForgotPassword />} />
-      <Route path="/reset-password" element={<ResetPassword />} />
-      <Route path="/verify-email" element={<VerifyEmail />} />
-      <Route path="/resend-verification" element={<ResendVerification />} />
-      <Route element={<ProtectedRoute />}>
-        <Route element={<Layout />}>
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/expenses" element={<Expenses />} />
-          <Route path="/budgets" element={<Budgets />} />
-          <Route path="/analytics" element={<Analytics />} />
-          <Route path="/export" element={<ExportPage />} />
-          <Route path="/settings" element={<Settings />} />
+    <AuthContext.Provider value={{ authReady }}>
+      <Routes>
+        <Route path="/" element={<Navigate to="/sign-in" replace />} />
+        <Route path="/sign-in" element={<Login />} />
+        <Route path="/sign-up" element={<Signup />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route path="/resend-verification" element={<ResendVerification />} />
+        <Route element={<ProtectedRoute />}>
+          <Route element={<Layout />}>
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/expenses" element={<Expenses />} />
+            <Route path="/budgets" element={<Budgets />} />
+            <Route path="/analytics" element={<Analytics />} />
+            <Route path="/export" element={<ExportPage />} />
+            <Route path="/settings" element={<Settings />} />
+          </Route>
         </Route>
-      </Route>
-      <Route path="*" element={<NotFound />} />
-    </Routes>
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </AuthContext.Provider>
   );
 }

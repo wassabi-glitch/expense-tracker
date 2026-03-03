@@ -1,5 +1,11 @@
+/**
+ * AuthCallback — handles redirect from Google OAuth.
+ * Stores the access token from the URL hash into memory (not localStorage).
+ * The refresh token cookie is already set by the backend during the redirect.
+ */
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { setAccessToken } from "@/lib/api";
 
 export default function AuthCallback() {
   const navigate = useNavigate();
@@ -23,13 +29,10 @@ export default function AuthCallback() {
       queryParams.get("access_token");
 
     if (token) {
+      // Store in memory (not localStorage)
+      setAccessToken(token);
       localStorage.removeItem("token");
-      localStorage.setItem("access_token", token);
-      navigate("/dashboard", { replace: true });
-      return;
-    }
-
-    if (localStorage.getItem("access_token")) {
+      localStorage.removeItem("access_token");
       navigate("/dashboard", { replace: true });
       return;
     }

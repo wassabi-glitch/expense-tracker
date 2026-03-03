@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app import models, schemas, utils
+from app import oauth2
 from app.email_service import send_password_reset_email, send_verification_email
 from app.email_verification import (
     build_verify_email_link,
@@ -250,6 +251,70 @@ def reset_password(
     )
 
     db.commit()
+
+    # After password reset, revoke ALL refresh tokens for this user.
+    # This forces them to log in again on every device — critical for security.
+    # Imagine: attacker has your session, you reset your password → their session dies.
+    oauth2.revoke_all_user_tokens(user.id)
+
     return schemas.MessageResponse(
         message="Password reset successful. Please sign in with your new password."
     )
+
+
+@router.post("/refresh", response_model=schemas.RefreshResponse, status_code=status.HTTP_200_OK)
+def refresh_token(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """
+    Exchange a valid refresh token (from HttpOnly cookie) for a new
+    access token + new refresh token.
+
+    This is the endpoint the frontend calls when the access token expires.
+    The browser sends the refresh_token cookie automatically.
+    """
+    # Step 1: Read the refresh token from the cookie
+    raw_token = request.cookies.get(oauth2.REFRESH_COOKIE_NAME)
+    if not raw_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="auth.refresh_token_missing",
+        )
+
+    # Step 2: Rotate — validates old token, deletes it, creates new one
+    new_raw_token, user_id = oauth2.rotate_refresh_token(raw_token)
+
+    # Step 3: Make sure the user still exists in the database
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        oauth2.revoke_refresh_token(new_raw_token)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="auth.refresh_token_invalid",
+        )
+
+    # Step 4: Issue new access token
+    access_token = oauth2.create_access_token(data={"user_id": user.id})
+
+    # Step 5: Set the new refresh token cookie (replaces the old one)
+    oauth2.set_refresh_cookie(response, new_raw_token)
+
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.post("/logout", status_code=status.HTTP_200_OK)
+def logout(
+    request: Request,
+    response: Response,
+):
+    """
+    Logs out: revokes the refresh token in Redis and clears the cookie.
+    """
+    raw_token = request.cookies.get(oauth2.REFRESH_COOKIE_NAME)
+    if raw_token:
+        oauth2.revoke_refresh_token(raw_token)
+
+    oauth2.clear_refresh_cookie(response)
+    return {"message": "Logged out successfully."}

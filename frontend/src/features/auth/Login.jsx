@@ -162,7 +162,7 @@ export default function Login() {
                                 setStatus("");
                                 setFieldErrors((prev) => ({ ...prev, password: "" }));
                             }}
-                            className={`${loginInputClass} pr - 10`}
+                            className={`${loginInputClass} pr-10`}
                             placeholder={t("auth.password")}
                             required
                         />
@@ -184,7 +184,7 @@ export default function Login() {
                     </div>
                     <div className="-mt-2">
                         <Link
-                            to={email ? `/ forgot - password ? email = ${encodeURIComponent(email)} ` : "/forgot-password"}
+                            to={email ? `/forgot-password?email=${encodeURIComponent(email)}` : "/forgot-password"}
                             className="text-xs text-muted-foreground underline hover:text-foreground"
                         >
                             {t("auth.forgotPassword")}
@@ -194,7 +194,7 @@ export default function Login() {
 
                 <Button
                     type="submit"
-                    className={`h - 11 w - full ${disabledLoginButtonCursorClass} `}
+                    className={`h-11 w-full ${disabledLoginButtonCursorClass}`}
                     disabled={!canSignIn}
                 >
                     {isSubmitting ? (
@@ -214,7 +214,7 @@ export default function Login() {
                 {showResendVerification && (
                     <p className="text-sm text-center text-muted-foreground">
                         <Link
-                            to={email ? `/ resend - verification ? email = ${encodeURIComponent(email)} ` : "/resend-verification"}
+                            to={email ? `/resend-verification?email=${encodeURIComponent(email)}` : "/resend-verification"}
                             className="underline font-medium text-foreground hover:text-foreground/80"
                         >
                             {t("auth.resendVerificationAction")}

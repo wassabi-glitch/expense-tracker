@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Car, Gamepad2, Home, Trash2, Utensils, Wrench, Circle } from "lucide-react";
+import { Car, Gamepad2, Home, Trash2, Utensils, Wrench, Circle, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -587,7 +587,8 @@ export default function Budgets() {
               return (
                 <Card
                   key={b.id}
-                  className={`group shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${b.isCurrentMonth ? "opacity-100" : "opacity-85"}`}
+                  className={`group shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md ${b.isCurrentMonth ? "opacity-100" : "opacity-65 hover:opacity-100"}`}
+                // "opacity-45 grayscale-[0.5] hover:opacity-100 hover:grayscale-0"
                 >
                   <CardHeader className="space-y-3 pb-3">
                     <div className="flex items-start justify-between gap-3">
