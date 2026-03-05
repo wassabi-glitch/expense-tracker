@@ -70,7 +70,6 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
     const [editAmount, setEditAmount] = useState("");
     const [editCategory, setEditCategory] = useState("");
     const [editDescription, setEditDescription] = useState("");
-    const [editIsActive, setEditIsActive] = useState(true);
 
     // Description preview
     const [descOpen, setDescOpen] = useState(false);
@@ -153,7 +152,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         loadExpenses();
@@ -185,7 +184,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
         } finally {
             setTogglingId(null);
         }
-    }, [togglingId]);
+    }, [togglingId, t]);
 
     const handleDelete = async () => {
         if (isDeleting || !deleteTarget) return;
@@ -216,7 +215,6 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
         setEditAmount(formatAmountInput(String(e.amount)));
         setEditCategory(e.category);
         setEditDescription(e.description || "");
-        setEditIsActive(e.is_active);
         setEditOpen(true);
     };
 
@@ -304,7 +302,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
 
     const selectTriggerClass = "w-full bg-white text-black dark:bg-black dark:text-white dark:hover:bg-black";
     const selectContentClass = "max-h-[190px] overflow-y-auto bg-white text-black dark:bg-black dark:text-white";
-    const readonlyInputClass = "opacity-50 cursor-not-allowed pointer-events-none select-none";
+
 
     if (!user?.is_premium) {
         return (
