@@ -32,7 +32,7 @@ import {
 import { getExpenses, getMonthToDateTrend, getThisMonthStats, getRecurringExpenses, getCurrentUser } from "@/lib/api";
 import { toISODateInTimeZone } from "@/lib/date";
 import { localizeApiError } from "@/lib/errorMessages";
-import { formatPrettyDate, formatUzs, formatUzsCard, formatCompactUzs, shortMMDD, formatDisplayDate } from "@/lib/format";
+import { formatPrettyDate, formatUzs, formatUzsCard, formatCompactUzs, shortMMDD, formatDisplayDate, formatAmountDisplay } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 
@@ -68,7 +68,8 @@ export default function Dashboard() {
         const [year, month] = endDate.split("-");
         const startDate = `${year}-${month}-01`;
 
-        const [statsRes, expensesRes, recurringRes] = await Promise.all([
+        const [userRes, statsRes, expensesRes] = await Promise.all([
+          getCurrentUser(),
           getThisMonthStats(),
           getExpenses({
             limit: 5,
@@ -76,10 +77,15 @@ export default function Dashboard() {
             sort: "newest",
             start_date: startDate,
             end_date: endDate,
-          }),
-          user?.is_premium ? getRecurringExpenses() : Promise.resolve([])
+          })
         ]);
 
+        let recurringRes = [];
+        if (userRes?.is_premium) {
+          recurringRes = await getRecurringExpenses();
+        }
+
+        setUser(userRes || null);
         setStats(statsRes || null);
         setRecentExpenses(expensesRes?.items || []);
 
