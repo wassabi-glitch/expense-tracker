@@ -40,7 +40,7 @@ def test_list_expenses(client):
     create_expense(client, headers, title="Item B", amount=7, category="Food")
     res = client.get("/expenses/", headers=headers)
     assert res.status_code == 200
-    assert len(res.json()) == 2
+    assert len(res.json()["items"]) == 2
 
 
 def test_create_expense_invalid_title(client):
@@ -257,20 +257,20 @@ def test_list_expenses_filters_and_sort(client):
 
     res_search = client.get("/expenses/?search=coffee", headers=headers)
     assert res_search.status_code == 200
-    assert len(res_search.json()) == 1
+    assert len(res_search.json()["items"]) == 1
 
     res_category = client.get("/expenses/?category=Food", headers=headers)
     assert res_category.status_code == 200
-    assert all(item["category"] == "Food" for item in res_category.json())
+    assert all(item["category"] == "Food" for item in res_category.json()["items"])
 
     res_sort = client.get("/expenses/?sort=expensive", headers=headers)
     assert res_sort.status_code == 200
-    amounts = [item["amount"] for item in res_sort.json()]
+    amounts = [item["amount"] for item in res_sort.json()["items"]]
     assert amounts == sorted(amounts, reverse=True)
 
     res_oldest = client.get("/expenses/?sort=oldest", headers=headers)
     assert res_oldest.status_code == 200
-    dates = [item["date"] for item in res_oldest.json()]
+    dates = [item["date"] for item in res_oldest.json()["items"]]
     assert dates == sorted(dates)
 
 
@@ -298,7 +298,7 @@ def test_list_expenses_newest_uses_expense_date(client):
 
     res = client.get("/expenses/?sort=newest", headers=headers)
     assert res.status_code == 200
-    data = res.json()
+    data = res.json()["items"]
     assert len(data) >= 2
     assert data[0]["date"] >= data[1]["date"]
     assert data[0]["title"] == "Newer by date"
@@ -333,7 +333,7 @@ def test_list_expenses_time_range(client):
 
     res = client.get("/expenses/?time_range=past_month", headers=headers)
     assert res.status_code == 200
-    titles = [item["title"] for item in res.json()]
+    titles = [item["title"] for item in res.json()["items"]]
     assert "Recent" in titles
     assert "Old" not in titles
 

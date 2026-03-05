@@ -1,5 +1,5 @@
-from datetime import date, timedelta
-from app.redis_rate_limiter import redis_client
+from datetime import date
+
 from tests.helpers import create_user_and_token
 from app.main import app
 from app.session import get_db
@@ -129,7 +129,7 @@ def test_delete_recurring_expense(client):
     
     # We can't GET by ID directly since no endpoint exists for /recurring/{id}
     # We check if it is included in the list
-    get_res = client.get(f"/recurring/", headers=headers)
+    get_res = client.get("/recurring/", headers=headers)
     assert get_res.status_code == 200
     assert len(get_res.json()) == 0
 
