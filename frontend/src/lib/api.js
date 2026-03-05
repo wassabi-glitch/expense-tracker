@@ -520,3 +520,36 @@ export async function exportExpensesCsv(params = {}) {
 
     return { blob, filename };
 }
+
+export async function getRecurringExpenses() {
+    return request("/recurring/", { method: "GET" });
+}
+
+export async function createRecurringExpense(payload) {
+    return request("/recurring/", {
+        method: "POST",
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function updateRecurringExpense(id, payload) {
+    return request(`/recurring/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function deleteRecurringExpense(id) {
+    return request(`/recurring/${id}`, { method: "DELETE" });
+}
+
+export async function patchRecurringActive(id, is_active) {
+    return request(`/recurring/${id}/active`, {
+        method: "PATCH",
+        body: JSON.stringify({ is_active }),
+    });
+}
+
+export async function togglePremium() {
+    return request("/users/me/toggle-premium", { method: "POST" });
+}

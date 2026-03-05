@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Select,
   SelectContent,
@@ -34,8 +35,10 @@ import {
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import RecurringExpenses from "./RecurringExpenses";
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 15;
 const MIN_EXPENSE_DATE = "2020-01-01";
 const MAX_EXPENSE_AMOUNT_DIGITS = String(MAX_EXPENSE_AMOUNT).length;
 const ALL_CATEGORIES_SELECT = "__all_categories__";
@@ -56,6 +59,7 @@ export default function Expenses() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [isFetching, setIsFetching] = useState(false);
+  const [total, setTotal] = useState(0);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
 
@@ -72,12 +76,30 @@ export default function Expenses() {
   const [page, setPage] = useState(() => parsePageParam(searchParams.get("page")));
   const [hasNext, setHasNext] = useState(false);
 
+  const [recurringCount, setRecurringCount] = useState(0);
+
   const [addOpen, setAddOpen] = useState(false);
+  const VALID_TABS = ["one-time", "recurring"];
+  const [activeTab, setActiveTabState] = useState(() => {
+    const t = searchParams.get("tab");
+    return VALID_TABS.includes(t) ? t : "one-time";
+  });
+  const setActiveTab = (tab) => {
+    setActiveTabState(tab);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (tab === "one-time") next.delete("tab");
+      else next.set("tab", tab);
+      return next;
+    }, { replace: true });
+  };
+  const recurringAddRef = useRef(null);
   const [addTitle, setAddTitle] = useState("");
   const [addAmount, setAddAmount] = useState("");
   const [addCategory, setAddCategory] = useState("");
   const [addDescription, setAddDescription] = useState("");
   const [addDate, setAddDate] = useState("");
+  const [touchedAdd, setTouchedAdd] = useState({});
 
   const [editOpen, setEditOpen] = useState(false);
   const [editExpense, setEditExpense] = useState(null);
@@ -86,6 +108,7 @@ export default function Expenses() {
   const [editCategory, setEditCategory] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editDate, setEditDate] = useState("");
+  const [touchedEdit, setTouchedEdit] = useState({});
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -177,14 +200,15 @@ export default function Expenses() {
     }
 
     try {
-      const [expenseRows, categoryList] = await Promise.all([
+      const [expenseData, categoryList] = await Promise.all([
         getExpenses(queryParams),
         getCategories(),
       ]);
 
-      setExpenses(expenseRows || []);
+      setExpenses(expenseData?.items || []);
+      setTotal(expenseData?.total || 0);
       setCategories(categoryList || []);
-      setHasNext((expenseRows || []).length === PAGE_SIZE);
+      setHasNext(expenseData?.items?.length === PAGE_SIZE);
     } catch (e) {
       setError(localizeApiError(e?.message, t) || e.message || t("expenses.loadFailed"));
     } finally {
@@ -204,14 +228,23 @@ export default function Expenses() {
 
   useEffect(() => {
     const next = new URLSearchParams();
-    if (search.trim()) next.set("search", search.trim());
-    if (category) next.set("category", category);
-    if (startDate) next.set("start_date", startDate);
-    if (endDate) next.set("end_date", endDate);
-    if (sort && sort !== "newest") next.set("sort", sort);
-    if (page > 1) next.set("page", String(page));
+    if (activeTab === "recurring") {
+      next.set("tab", "recurring");
+      // Preserve recurring tab's own search and page state if present
+      const currentSearch = searchParams.get("r_search");
+      const currentPage = searchParams.get("r_page");
+      if (currentSearch) next.set("r_search", currentSearch);
+      if (currentPage && currentPage !== "1") next.set("r_page", currentPage);
+    } else {
+      if (search.trim()) next.set("search", search.trim());
+      if (category) next.set("category", category);
+      if (startDate) next.set("start_date", startDate);
+      if (endDate) next.set("end_date", endDate);
+      if (sort && sort !== "newest") next.set("sort", sort);
+      if (page > 1) next.set("page", String(page));
+    }
     setSearchParams(next, { replace: true });
-  }, [search, category, startDate, endDate, sort, page, setSearchParams]);
+  }, [search, category, startDate, endDate, sort, page, activeTab, searchParams, setSearchParams]);
 
   const resetToFirstPage = () => setPage(1);
   const resetFilters = () => {
@@ -230,6 +263,7 @@ export default function Expenses() {
     setAddCategory("");
     setAddDescription("");
     setAddDate("");
+    setTouchedAdd({});
     setAddOpen(true);
   };
 
@@ -241,6 +275,7 @@ export default function Expenses() {
     setEditCategory(expense.category || "");
     setEditDescription(expense.description || "");
     setEditDate(expense.date || "");
+    setTouchedEdit({});
     setEditOpen(true);
   };
 
@@ -280,6 +315,19 @@ export default function Expenses() {
       }),
     [addTitle, addAmount, addCategory, addDate, addDescription]
   );
+
+  const addErrors = useMemo(() => {
+    if (addExpenseParsed.success) return {};
+    const errs = {};
+    addExpenseParsed.error.issues.forEach((issue) => {
+      const field = issue.path[0];
+      if (field && !errs[field] && touchedAdd[field]) {
+        errs[field] = t(issue.message, { defaultValue: issue.message });
+      }
+    });
+    return errs;
+  }, [addExpenseParsed, t, touchedAdd]);
+
   const canSubmitAddExpense = addExpenseParsed.success && !isAdding;
 
   const editExpenseParsed = useMemo(
@@ -292,6 +340,19 @@ export default function Expenses() {
       }),
     [editTitle, editAmount, editDate, editDescription]
   );
+
+  const editErrors = useMemo(() => {
+    if (editExpenseParsed.success) return {};
+    const errs = {};
+    editExpenseParsed.error.issues.forEach((issue) => {
+      const field = issue.path[0];
+      if (field && !errs[field] && touchedEdit[field]) {
+        errs[field] = t(issue.message, { defaultValue: issue.message });
+      }
+    });
+    return errs;
+  }, [editExpenseParsed, t, touchedEdit]);
+
   const canSubmitEditExpense = editExpenseParsed.success && !isEditing;
 
   const handleAdd = async () => {
@@ -372,10 +433,12 @@ export default function Expenses() {
     }
   };
 
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+
   const paginationControls = (
     <div className="flex items-center justify-between">
       <p className="text-sm text-muted-foreground">
-        {t("expenses.page")} {page}
+        {t("expenses.page")} {page} / {totalPages || 1}
       </p>
       <div className="flex items-center gap-2">
         <Button
@@ -389,7 +452,7 @@ export default function Expenses() {
         <Button
           variant="outline"
           size="sm"
-          disabled={!hasNext || loading || isFetching}
+          disabled={page >= totalPages || loading || isFetching}
           onClick={goNextPage}
         >
           {t("expenses.next")} <ChevronRight className="ml-1 h-4 w-4" />
@@ -402,12 +465,23 @@ export default function Expenses() {
     <div className="min-h-screen bg-background text-foreground">
       <div className="container mx-auto px-4 py-8 space-y-6">
         <PageHeader title={t("expenses.title")} description={t("expenses.subtitle")}>
-          <Button
-            className="bg-primary text-primary-foreground hover:bg-primary/90"
-            onClick={openAdd}
-          >
-            <Plus className="mr-2 h-4 w-4" /> {t("expenses.addExpense")}
-          </Button>
+          {activeTab === "recurring" ? (
+            <Button
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+              onClick={() => recurringAddRef.current?.()}
+              disabled={recurringCount >= 50}
+              title={recurringCount >= 50 ? t("recurring.maxLimitReached") : undefined}
+            >
+              <Plus className="mr-2 h-4 w-4" /> {t("recurring.addTemplate")}
+            </Button>
+          ) : (
+            <Button
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+              onClick={openAdd}
+            >
+              <Plus className="mr-2 h-4 w-4" /> {t("expenses.addExpense")}
+            </Button>
+          )}
         </PageHeader>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
@@ -415,176 +489,208 @@ export default function Expenses() {
           <p className="text-sm text-red-600">{actionError}</p>
         )}
 
-        <Card className="shadow-sm">
-          <CardHeader>
-            <CardTitle>{t("expenses.filtersTitle")}</CardTitle>
-            <CardDescription>{t("expenses.filtersDesc")}</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-6">
-            <Input
-              type="date"
-              max={todayISO}
-              value={startDate}
-              onChange={(e) => {
-                setStartDate(e.target.value);
-                resetToFirstPage();
-              }}
-            />
-            <Input
-              type="date"
-              max={todayISO}
-              min={startDate || undefined}
-              value={endDate}
-              onChange={(e) => {
-                setEndDate(e.target.value);
-                resetToFirstPage();
-              }}
-            />
-            <Select
-              value={category || ALL_CATEGORIES_SELECT}
-              onValueChange={(value) => {
-                setCategory(value === ALL_CATEGORIES_SELECT ? "" : value);
-                resetToFirstPage();
-              }}
-            >
-              <SelectTrigger className={selectTriggerClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className={selectContentClass} position="popper" side="bottom">
-                <SelectItem value={ALL_CATEGORIES_SELECT}>{t("expenses.allCategories")}</SelectItem>
-                {categories.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {tCategory(c)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={sort}
-              onValueChange={(value) => {
-                setSort(value);
-                resetToFirstPage();
-              }}
-            >
-              <SelectTrigger className={selectTriggerClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className={selectContentClass} position="popper" side="bottom">
-                <SelectItem value="newest">{t("expenses.newest")}</SelectItem>
-                <SelectItem value="oldest">{t("expenses.oldest")}</SelectItem>
-                <SelectItem value="expensive">{t("expenses.highestAmount")}</SelectItem>
-                <SelectItem value="cheapest">{t("expenses.lowestAmount")}</SelectItem>
-              </SelectContent>
-            </Select>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder={t("expenses.search")}
-                className="pl-9"
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  resetToFirstPage();
-                }}
-              />
-            </div>
-            <Button variant="outline" onClick={resetFilters}>
-              {t("common.reset")}
-            </Button>
-          </CardContent>
-        </Card>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-4 shadow-none">
+          <TabsList className="grid w-full h-12 max-w-[400px] grid-cols-2 rounded-xl">
+            <TabsTrigger value="one-time" className="rounded-lg">{t("expenses.oneTime", { defaultValue: "One-Time Expenses" })}</TabsTrigger>
+            <TabsTrigger value="recurring" className="rounded-lg">{t("expenses.recurringTab", { defaultValue: "Recurring" })}</TabsTrigger>
+          </TabsList>
 
-        {/* ✅ Expenses Table */}
-        <Card className="shadow-sm">
-          <CardContent className="min-h-80 py-6">
-            <div className="overflow-x-auto">
-              <div className="min-w-[920px] space-y-0">
-                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)] items-center gap-x-2 border-b border-border px-3 py-3 text-xs uppercase tracking-wide text-muted-foreground">
-                  <div className="text-left">{t("expenses.titleCol")}</div>
-                  <div className="text-center">{t("expenses.category")}</div>
-                  <div className="text-center">{t("expenses.date")}</div>
-                  <div className="text-right">{t("expenses.amountUzs")}</div>
-                  <div className="text-right">
-                    {t("common.actions", { defaultValue: "Actions" })}
-                  </div>
-                </div>
+          <TabsContent value="one-time" className="space-y-6 mt-4">
 
-                {loading ? (
-                  <div className="flex justify-center px-4 py-10">
-                    <LoadingSpinner className="h-6 w-6" />
-                  </div>
-                ) : expenses.length === 0 ? (
-                  <EmptyState
-                    inline
-                    description={t("expenses.noResults", { defaultValue: "No expenses found." })}
+            <Card className="shadow-sm">
+              <CardHeader>
+                <CardTitle>{t("expenses.filtersTitle")}</CardTitle>
+                <CardDescription>{t("expenses.filtersDesc")}</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-6">
+                <Input
+                  type="date"
+                  max={todayISO}
+                  value={startDate}
+                  onChange={(e) => {
+                    setStartDate(e.target.value);
+                    resetToFirstPage();
+                  }}
+                />
+                <Input
+                  type="date"
+                  max={todayISO}
+                  min={startDate || undefined}
+                  value={endDate}
+                  onChange={(e) => {
+                    setEndDate(e.target.value);
+                    resetToFirstPage();
+                  }}
+                />
+                <Select
+                  value={category || ALL_CATEGORIES_SELECT}
+                  onValueChange={(value) => {
+                    setCategory(value === ALL_CATEGORIES_SELECT ? "" : value);
+                    resetToFirstPage();
+                  }}
+                >
+                  <SelectTrigger className={selectTriggerClass}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className={selectContentClass} position="popper" side="bottom">
+                    <SelectItem value={ALL_CATEGORIES_SELECT}>{t("expenses.allCategories")}</SelectItem>
+                    {categories.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {tCategory(c)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={sort}
+                  onValueChange={(value) => {
+                    setSort(value);
+                    resetToFirstPage();
+                  }}
+                >
+                  <SelectTrigger className={selectTriggerClass}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className={selectContentClass} position="popper" side="bottom">
+                    <SelectItem value="newest">{t("expenses.newest")}</SelectItem>
+                    <SelectItem value="oldest">{t("expenses.oldest")}</SelectItem>
+                    <SelectItem value="expensive">{t("expenses.highestAmount")}</SelectItem>
+                    <SelectItem value="cheapest">{t("expenses.lowestAmount")}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder={t("expenses.search")}
+                    className="pl-9"
+                    value={search}
+                    onChange={(e) => {
+                      setSearch(e.target.value);
+                      resetToFirstPage();
+                    }}
                   />
-                ) : (
-                  expenses.map((e) => (
-                    <div
-                      key={e.id}
-                      className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)] items-start gap-x-2 border-b border-border px-3 py-3 hover:bg-muted/30"
-                    >
-                      <div className="min-w-0 self-center">
-                        <div className="truncate font-medium text-foreground" title={e.title}>
-                          {e.title}
-                        </div>
-                      </div>
+                </div>
+                <Button variant="outline" onClick={resetFilters}>
+                  {t("common.reset")}
+                </Button>
+              </CardContent>
+            </Card>
 
-                      <div className="min-w-0 self-center flex justify-center">
-                        <Badge variant="secondary" className={`max-w-full truncate ${getCategoryBgClass(e.category)}`}>
-                          {tCategory(e.category)}
-                        </Badge>
-                      </div>
-
-                      <div className="self-center text-center text-sm text-foreground whitespace-nowrap">
-                        {_formatDisplayDateLocal(e.date)}
-                      </div>
-
-                      <div className="self-center text-right text-sm font-medium tabular-nums whitespace-nowrap">
-                        {formatAmountDisplay(e.amount)} UZS
-                      </div>
-
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap justify-end gap-1.5">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="h-8 max-w-[8.5rem] truncate px-2 text-xs text-muted-foreground hover:bg-muted/40"
-                            onClick={() => openDescription(e)}
-                          >
-                            {t("expenses.viewDescription", {
-                              defaultValue: "View description",
-                            })}
-                          </Button>
-
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="h-8 px-2 text-xs"
-                            onClick={() => openEdit(e)}
-                          >
-                            {t("common.edit", { defaultValue: "Edit" })}
-                          </Button>
-
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="h-8 px-2 text-xs text-destructive bg-destructive/10 hover:bg-destructive/20 hover:text-destructive active:bg-destructive/30"
-                            onClick={() => openDelete(e)}
-                          >
-                            <Trash2 className="mr-1 h-3.5 w-3.5" />
-                            {t("common.delete", { defaultValue: "Delete" })}
-                          </Button>
-                        </div>
+            {/* ✅ Expenses Table */}
+            <Card className="shadow-sm">
+              <CardContent className="min-h-80 py-6">
+                <div className="overflow-x-auto">
+                  <div className="min-w-[920px] space-y-0">
+                    <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)] items-center gap-x-2 border-b border-border px-3 py-3 text-xs uppercase tracking-wide text-muted-foreground">
+                      <div className="text-left">{t("expenses.titleCol")}</div>
+                      <div className="text-center">{t("expenses.category")}</div>
+                      <div className="text-center">{t("expenses.date")}</div>
+                      <div className="text-right">{t("expenses.amountUzs")}</div>
+                      <div className="text-right">
+                        {t("common.actions", { defaultValue: "Actions" })}
                       </div>
                     </div>
-                  ))
+
+                    {loading ? (
+                      <div className="flex justify-center px-4 py-10">
+                        <LoadingSpinner className="h-6 w-6" />
+                      </div>
+                    ) : expenses.length === 0 ? (
+                      <EmptyState
+                        inline
+                        description={t("expenses.noResults", { defaultValue: "No expenses found." })}
+                      />
+                    ) : (
+                      expenses.map((e) => (
+                        <div
+                          key={e.id}
+                          className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)] items-start gap-x-2 border-b border-border px-3 py-3 hover:bg-muted/50 dark:hover:bg-muted/30"
+                        >
+                          <div className="min-w-0 self-center">
+                            <TooltipProvider delayDuration={0}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="max-w-full text-left truncate font-medium text-foreground outline-none focus-visible:underline decoration-muted-foreground underline-offset-4 cursor-pointer"
+                                    onClick={(e) => e.preventDefault()}
+                                  >
+                                    {e.title}
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-[250px] sm:max-w-xs break-words">
+                                  {e.title}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </div>
+
+                          <div className="min-w-0 self-center flex justify-center">
+                            <Badge variant="secondary" className={`max-w-full truncate ${getCategoryBgClass(e.category)}`}>
+                              {tCategory(e.category)}
+                            </Badge>
+                          </div>
+
+                          <div className="self-center text-center text-sm text-foreground whitespace-nowrap">
+                            {_formatDisplayDateLocal(e.date)}
+                          </div>
+
+                          <div className="self-center text-right text-sm font-medium tabular-nums whitespace-nowrap">
+                            {formatAmountDisplay(e.amount)} UZS
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap justify-end gap-1.5">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 max-w-[8.5rem] truncate px-2 text-xs text-muted-foreground hover:bg-muted/40"
+                                onClick={() => openDescription(e)}
+                              >
+                                {t("expenses.viewDescription", {
+                                  defaultValue: "View description",
+                                })}
+                              </Button>
+
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 px-2 text-xs"
+                                onClick={() => openEdit(e)}
+                              >
+                                {t("common.edit", { defaultValue: "Edit" })}
+                              </Button>
+
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                className="h-8 px-2 text-xs text-destructive bg-destructive/10 hover:bg-destructive/20 hover:text-destructive active:bg-destructive/30"
+                                onClick={() => openDelete(e)}
+                              >
+                                <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                {t("common.delete", { defaultValue: "Delete" })}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+                {totalPages > 1 && (
+                  <div className="mt-4">{paginationControls}</div>
                 )}
-              </div>
-            </div>
-            <div className="mt-4">{paginationControls}</div>
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="recurring" className="space-y-6 mt-4">
+            <RecurringExpenses
+              onAddClick={(fn) => { recurringAddRef.current = fn; }}
+              onCountUpdate={setRecurringCount}
+            />
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Add Dialog */}
@@ -603,57 +709,80 @@ export default function Expenses() {
           <div className="space-y-6">
             <div className="space-y-2">
               <label className="text-sm font-medium">{t("expenses.titleCol")}</label>
-              <Input value={addTitle} onChange={(e) => setAddTitle(e.target.value)} />
+              <div>
+                <Input value={addTitle}
+                  onChange={(e) => { setAddTitle(e.target.value); setTouchedAdd(p => ({ ...p, title: true })); }}
+                  onBlur={() => setTouchedAdd(p => ({ ...p, title: true }))}
+                  className={addErrors.title ? "border-red-500 focus-visible:border-red-500" : ""} />
+                {addErrors.title && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.title}</p>}
+              </div>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">{t("expenses.amountUzs")}</label>
-              <Input
-                type="text"
-                inputMode="numeric"
-                maxLength={15}
-                value={addAmount}
-                onChange={(e) => setAddAmount(formatAmountInput(e.target.value))}
-                onKeyDown={(e) => {
-                  if (e.key === "-" || e.key === "." || e.key.toLowerCase() === "e") {
-                    e.preventDefault();
-                  }
-                }}
-              />
+              <div>
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={15}
+                  value={addAmount}
+                  onChange={(e) => { setAddAmount(formatAmountInput(e.target.value)); setTouchedAdd(p => ({ ...p, amount: true })); }}
+                  onBlur={() => setTouchedAdd(p => ({ ...p, amount: true }))}
+                  onKeyDown={(e) => {
+                    if (e.key === "-" || e.key === "." || e.key.toLowerCase() === "e") {
+                      e.preventDefault();
+                    }
+                  }}
+                  className={addErrors.amount ? "border-red-500 focus-visible:border-red-500" : ""}
+                />
+                {addErrors.amount && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.amount}</p>}
+              </div>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">{t("expenses.category")}</label>
-              <Select value={addCategory || undefined} onValueChange={setAddCategory}>
-                <SelectTrigger className={selectTriggerClass}>
-                  <SelectValue placeholder={t("expenses.selectCategory")} />
-                </SelectTrigger>
-                <SelectContent className={selectContentClass} position="popper" side="bottom">
-                  {categories.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {tCategory(c)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div>
+                <Select value={addCategory || undefined} onValueChange={(v) => { setAddCategory(v); setTouchedAdd(p => ({ ...p, category: true })); }}>
+                  <SelectTrigger className={`${selectTriggerClass} ${addErrors.category ? "border-red-500 focus-visible:border-red-500" : ""}`} onBlur={() => setTouchedAdd(p => ({ ...p, category: true }))}>
+                    <SelectValue placeholder={t("expenses.selectCategory")} />
+                  </SelectTrigger>
+                  <SelectContent className={selectContentClass} position="popper" side="bottom">
+                    {categories.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {tCategory(c)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {addErrors.category && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.category}</p>}
+              </div>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">{t("expenses.date")}</label>
-              <Input
-                type="date"
-                min={MIN_EXPENSE_DATE}
-                max={todayISO}
-                value={addDate}
-                onChange={(e) => setAddDate(e.target.value)}
-              />
+              <div>
+                <Input
+                  type="date"
+                  min={MIN_EXPENSE_DATE}
+                  max={todayISO}
+                  value={addDate}
+                  onChange={(e) => { setAddDate(e.target.value); setTouchedAdd(p => ({ ...p, date: true })); }}
+                  onBlur={() => setTouchedAdd(p => ({ ...p, date: true }))}
+                  className={addErrors.date ? "border-red-500 focus-visible:border-red-500" : ""}
+                />
+                {addErrors.date && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.date}</p>}
+              </div>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">
                 {t("expenses.description")} ({t("common.optional", { defaultValue: "Optional" })})
               </label>
-              <Textarea
-                className="h-24 min-h-24 resize-none overflow-y-auto"
-                value={addDescription}
-                onChange={(e) => setAddDescription(e.target.value)}
-              />
+              <div>
+                <Textarea
+                  className={`h-24 min-h-24 resize-none overflow-y-auto ${addErrors.description ? "border-red-500 focus-visible:border-red-500" : ""}`}
+                  value={addDescription}
+                  onChange={(e) => { setAddDescription(e.target.value); setTouchedAdd(p => ({ ...p, description: true })); }}
+                  onBlur={() => setTouchedAdd(p => ({ ...p, description: true }))}
+                />
+                {addErrors.description && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.description}</p>}
+              </div>
             </div>
             {actionError && <p className="text-sm text-red-600">{actionError}</p>}
           </div>
@@ -700,22 +829,33 @@ export default function Expenses() {
           <div className="space-y-6">
             <div className="space-y-2">
               <label className="text-sm font-medium">{t("expenses.titleCol")}</label>
-              <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+              <div>
+                <Input value={editTitle}
+                  onChange={(e) => { setEditTitle(e.target.value); setTouchedEdit(p => ({ ...p, title: true })); }}
+                  onBlur={() => setTouchedEdit(p => ({ ...p, title: true }))}
+                  className={editErrors.title ? "border-red-500 focus-visible:border-red-500" : ""} />
+                {editErrors.title && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.title}</p>}
+              </div>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">{t("expenses.amountUzs")}</label>
-              <Input
-                type="text"
-                inputMode="numeric"
-                maxLength={15}
-                value={editAmount}
-                onChange={(e) => setEditAmount(formatAmountInput(e.target.value))}
-                onKeyDown={(e) => {
-                  if (e.key === "-" || e.key === "." || e.key.toLowerCase() === "e") {
-                    e.preventDefault();
-                  }
-                }}
-              />
+              <div>
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={15}
+                  value={editAmount}
+                  onChange={(e) => { setEditAmount(formatAmountInput(e.target.value)); setTouchedEdit(p => ({ ...p, amount: true })); }}
+                  onBlur={() => setTouchedEdit(p => ({ ...p, amount: true }))}
+                  onKeyDown={(e) => {
+                    if (e.key === "-" || e.key === "." || e.key.toLowerCase() === "e") {
+                      e.preventDefault();
+                    }
+                  }}
+                  className={editErrors.amount ? "border-red-500 focus-visible:border-red-500" : ""}
+                />
+                {editErrors.amount && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.amount}</p>}
+              </div>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">{t("expenses.category")}</label>
@@ -723,23 +863,32 @@ export default function Expenses() {
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">{t("expenses.date")}</label>
-              <Input
-                type="date"
-                min={MIN_EXPENSE_DATE}
-                max={todayISO}
-                value={editDate}
-                onChange={(e) => setEditDate(e.target.value)}
-              />
+              <div>
+                <Input
+                  type="date"
+                  min={MIN_EXPENSE_DATE}
+                  max={todayISO}
+                  value={editDate}
+                  onChange={(e) => { setEditDate(e.target.value); setTouchedEdit(p => ({ ...p, date: true })); }}
+                  onBlur={() => setTouchedEdit(p => ({ ...p, date: true }))}
+                  className={editErrors.date ? "border-red-500 focus-visible:border-red-500" : ""}
+                />
+                {editErrors.date && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.date}</p>}
+              </div>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">
                 {t("expenses.description")} ({t("common.optional", { defaultValue: "Optional" })})
               </label>
-              <Textarea
-                className="h-24 min-h-24 resize-none overflow-y-auto"
-                value={editDescription}
-                onChange={(e) => setEditDescription(e.target.value)}
-              />
+              <div>
+                <Textarea
+                  className={`h-24 min-h-24 resize-none overflow-y-auto ${editErrors.description ? "border-red-500 focus-visible:border-red-500" : ""}`}
+                  value={editDescription}
+                  onChange={(e) => { setEditDescription(e.target.value); setTouchedEdit(p => ({ ...p, description: true })); }}
+                  onBlur={() => setTouchedEdit(p => ({ ...p, description: true }))}
+                />
+                {editErrors.description && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.description}</p>}
+              </div>
             </div>
             {actionError && <p className="text-sm text-red-600">{actionError}</p>}
           </div>

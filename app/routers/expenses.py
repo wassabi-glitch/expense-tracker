@@ -153,7 +153,7 @@ def create_expense(
     return new_expense
 
 
-@router.get("/", response_model=List[schemas.ExpenseOut])
+@router.get("/", response_model=schemas.PaginatedExpensesOut)
 def get_expenses(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
@@ -216,9 +216,10 @@ def get_expenses(
             models.Expense.created_at.desc())
 
     # 6. Pagination and Execution
+    total = expenses_query.count()
     expenses = expenses_query.offset(skip).limit(limit).all()
 
-    return expenses
+    return {"total": total, "items": expenses}
 
 
 @router.get("/export")

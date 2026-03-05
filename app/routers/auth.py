@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app import models, schemas, utils
@@ -16,6 +16,7 @@ from app.email_verification import (
 )
 from app.redis_rate_limiter import check_and_consume
 from app.session import get_db
+from app.timezone import _safe_zoneinfo
 from config import settings
 
 
@@ -267,6 +268,7 @@ def refresh_token(
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
+    x_timezone: str | None = Header(default=None, alias="X-Timezone"),
 ):
     """
     Exchange a valid refresh token (from HttpOnly cookie) for a new
@@ -294,6 +296,12 @@ def refresh_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="auth.refresh_token_invalid",
         )
+
+    # Update timezone from browser on every refresh — keeps it accurate if user travels
+    detected_tz = str(_safe_zoneinfo((x_timezone or "").strip() or None))
+    if detected_tz and user.timezone != detected_tz:
+        user.timezone = detected_tz
+        db.commit()
 
     # Step 4: Issue new access token
     access_token = oauth2.create_access_token(data={"user_id": user.id})

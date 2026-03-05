@@ -68,3 +68,38 @@ export const expenseUpdateFormSchema = z.object({
     descriptionSchema
   ),
 });
+
+export const recurringExpenseFormSchema = z.object({
+  title: titleSchema,
+  amount: coercePositiveInteger,
+  category: categorySchema,
+  frequency: z.enum(["DAILY", "WEEKLY", "MONTHLY", "YEARLY"], {
+    errorMap: () => ({ message: "expenses.frequencyRequired" })
+  }),
+  start_date: z
+    .string()
+    .trim()
+    .refine((v) => v.length > 0, "expenses.dateRequired")
+    .refine((v) => /^\d{4}-\d{2}-\d{2}$/.test(v), "expenses.dateRequired")
+    .refine((v) => v >= MIN_EXPENSE_DATE_ZOD, "expenses.dateTooEarly")
+    .refine((v) => {
+      const parts = toISODateInTimeZone().split("-");
+      const minStart = `${parts[0]}-${parts[1]}-01`;
+      return v >= minStart;
+    }, "recurring.startDateBeforeCurrentMonth"),
+  description: z.preprocess(
+    (value) => (value == null ? "" : value),
+    descriptionSchema
+  ),
+});
+
+export const recurringExpenseUpdateFormSchema = z.object({
+  title: titleSchema,
+  amount: coercePositiveInteger,
+  category: categorySchema,
+  description: z.preprocess(
+    (value) => (value == null ? "" : value),
+    descriptionSchema
+  ),
+});
+

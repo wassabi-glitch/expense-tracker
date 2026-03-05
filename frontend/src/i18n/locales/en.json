@@ -16,7 +16,9 @@
     "language": "Language",
     "networkError": "Network error. Please check your connection.",
     "sessionExpired": "Session expired. Please sign in again.",
-    "forbidden": "You are not allowed to perform this action."
+    "forbidden": "You are not allowed to perform this action.",
+    "actions": "Actions",
+    "close": "Close"
   },
   "nav": {
     "platform": "Platform",
@@ -258,6 +260,9 @@
     "startFuture": "Start date cannot be in the future.",
     "endFuture": "End date cannot be in the future.",
     "startAfterEnd": "Start date cannot be after end date.",
+    "frequencyRequired": "Please select a frequency.",
+    "oneTime": "One-Time Expenses",
+    "recurringTab": "Recurring",
     "tooManyWait": "Too many requests. Try again in {{seconds}} seconds.",
     "tooManySoon": "Too many requests. Try again soon.",
     "requestFailed": "Request failed",
@@ -271,6 +276,51 @@
       "description": {
         "max_length": "Description cannot exceed 500 characters."
       }
+    }
+  },
+  "recurring": {
+    "cardTitle": "Recurring Templates",
+    "cardDesc": "Manage expenses that automatically repeat. (Max limit is 50)",
+    "addDialogTitle": "New Recurring Expense",
+    "addDialogDesc": "Create a template that will automatically generate expenses on a schedule.",
+    "editDialogTitle": "Edit Recurring Expense",
+    "editDialogDesc": "Update the details of this recurring template.",
+    "deleteTitle": "Delete Recurring Expense",
+    "deleteDesc": "Are you sure you want to delete this template? Future expenses will no longer be created automatically.",
+    "templateTitle": "Template Title",
+    "frequency": "Frequency",
+    "selectFrequency": "Select Frequency",
+    "startDate": "Start Date",
+    "nextDue": "Next Due",
+    "active": "Active",
+    "daily": "Daily",
+    "weekly": "Weekly",
+    "monthly": "Monthly",
+    "yearly": "Yearly",
+    "saveChanges": "Save Changes",
+    "maxLimitReached": "You can only have up to 50 active recurring expenses.",
+    "tooManySoon": "Too many requests. Try again soon.",
+    "startDateBeforeCurrentMonth": "Start date cannot be before the current month.",
+    "cancel": "Cancel",
+    "addTemplate": "Add Template",
+    "descriptionLabel": "Description",
+    "viewDescription": "View description",
+    "noDescription": "No description",
+    "premiumTitle": "Premium Feature",
+    "premiumDesc": "Unlock Recurring Expenses and automate your monthly tracking with an active Premium subscription.",
+    "emptyDesc": "No recurring expenses created yet.",
+    "noSearchResults": "No templates match your search.",
+    "loadFailed": "Failed to load recurring expenses",
+    "updateFailed": "Failed to update.",
+    "deleteFailed": "Failed to delete",
+    "toggleFailed": "Failed to update status.",
+    "titleMinLength": "Title must be at least 3 characters.",
+    "amountPositive": "Amount must be a positive number.",
+    "categoryRequired": "Please select a category.",
+    "errors": {
+      "recurring_expenses.premium_required": "This feature requires a Premium subscription.",
+      "recurring_expenses.not_found": "Recurring expense not found.",
+      "recurring_expenses.not_owner": "You do not have permission to modify this template."
     }
   },
   "budgets": {

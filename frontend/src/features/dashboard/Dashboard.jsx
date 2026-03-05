@@ -12,9 +12,9 @@ import {
 } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Progress } from "@/components/ui/progress";
-import { Download, Plus, Wallet, TrendingUp, Layers, Crown, Car, Gamepad2, Home, Utensils, Wrench, Circle } from "lucide-react";
+import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Download, Plus, Wallet, TrendingUp, Layers, Crown, Car, Gamepad2, Home, Utensils, Wrench, Circle, CalendarClock } from "lucide-react";
 import { cn } from "@/lib/utils";
-
 import { categoryIconMap } from "@/lib/category";
 
 import {
@@ -29,10 +29,10 @@ import {
   YAxis,
 } from "recharts";
 
-import { getExpenses, getMonthToDateTrend, getThisMonthStats } from "@/lib/api";
+import { getExpenses, getMonthToDateTrend, getThisMonthStats, getRecurringExpenses, getCurrentUser } from "@/lib/api";
 import { toISODateInTimeZone } from "@/lib/date";
 import { localizeApiError } from "@/lib/errorMessages";
-import { formatPrettyDate, formatUzs, formatUzsCard, formatCompactUzs, shortMMDD } from "@/lib/format";
+import { formatPrettyDate, formatUzs, formatUzsCard, formatCompactUzs, shortMMDD, formatDisplayDate } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 
@@ -46,13 +46,17 @@ const tooltipStyle = {
 
 export default function Dashboard() {
   const { t, i18n } = useTranslation();
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [animateProgress, setAnimateProgress] = useState(false);
   const [error, setError] = useState("");
   const [stats, setStats] = useState(null);
   const [recentExpenses, setRecentExpenses] = useState([]);
+  const [recurringExpenses, setRecurringExpenses] = useState([]);
   const [trendData, setTrendData] = useState([]);
   const [trendLoading, setTrendLoading] = useState(true);
+
+  const appLang = String(i18n.resolvedLanguage || i18n.language || "en").toLowerCase();
 
   useEffect(() => {
     const load = async () => {
@@ -64,7 +68,7 @@ export default function Dashboard() {
         const [year, month] = endDate.split("-");
         const startDate = `${year}-${month}-01`;
 
-        const [statsRes, expensesRes] = await Promise.all([
+        const [statsRes, expensesRes, recurringRes] = await Promise.all([
           getThisMonthStats(),
           getExpenses({
             limit: 5,
@@ -73,10 +77,17 @@ export default function Dashboard() {
             start_date: startDate,
             end_date: endDate,
           }),
+          user?.is_premium ? getRecurringExpenses() : Promise.resolve([])
         ]);
 
         setStats(statsRes || null);
-        setRecentExpenses(expensesRes || []);
+        setRecentExpenses(expensesRes?.items || []);
+
+        const sortedRecurring = (recurringRes || [])
+          .sort((a, b) => new Date(a.next_due_date) - new Date(b.next_due_date))
+          .slice(0, 5);
+        setRecurringExpenses(sortedRecurring);
+
         requestAnimationFrame(() => setAnimateProgress(true));
       } catch (e) {
         setError(localizeApiError(e?.message, t) || t("dashboard.loadError"));
@@ -270,7 +281,7 @@ export default function Dashboard() {
                 const _isNear = progressStatus === "highRisk" || progressStatus === "warning";
 
                 return (
-                  <div key={item.category} className="space-y-3 group hover:bg-muted/30 p-2 -mx-2 rounded-xl transition-all duration-300">
+                  <div key={item.category} className="space-y-3 group hover:bg-muted dark:hover:bg-muted/30 p-2 -mx-2 rounded-xl transition-all duration-300">
                     <div className="flex items-center justify-between text-sm px-1">
                       <div className="flex items-center gap-2.5">
                         {(() => {
@@ -323,15 +334,32 @@ export default function Dashboard() {
               {recentExpenses.map((e) => (
                 <div
                   key={e.id}
-                  className="flex-1 flex items-center justify-between border-b border-border/40 py-2 last:border-0 last:pb-0"
+                  className="flex-1 flex items-center justify-between gap-2 border-b border-border/40 p-2 -mx-2 rounded-xl hover:bg-muted dark:hover:bg-muted/30 transition-all duration-300 last:border-0"
                 >
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold text-foreground/90 leading-none">{e.title}</p>
-                    <p className="text-xs text-muted-foreground/80 font-medium">
+                  <div className="space-y-1 flex-1 min-w-0 pr-8">
+                    <TooltipProvider delayDuration={0}>
+                      <UITooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="max-w-full text-left truncate font-semibold text-foreground/90 leading-none outline-none focus-visible:underline decoration-muted-foreground underline-offset-4 cursor-pointer pb-0.5 block"
+                            onClick={(ev) => ev.preventDefault()}
+                          >
+                            {e.title}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[250px] sm:max-w-xs break-words">
+                          {e.title}
+                        </TooltipContent>
+                      </UITooltip>
+                    </TooltipProvider>
+                    <p className="text-xs text-muted-foreground/80 font-medium truncate">
                       {t(`categories.${e.category}`, { defaultValue: e.category })} • {e.date}
                     </p>
                   </div>
-                  <div className="font-semibold text-sm text-foreground/90">{formatUzs(e.amount)} UZS</div>
+                  <div className="font-semibold text-sm text-foreground/90 shrink-0 whitespace-nowrap">
+                    {Number(e.amount) >= 1_000_000 ? formatCompactUzs(e.amount) : formatUzs(e.amount)} UZS
+                  </div>
                 </div>
               ))}
             </CardContent>
@@ -424,60 +452,114 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle>{t("dashboard.categoryBreakdown")}</CardTitle>
-              <CardDescription>{t("dashboard.currentMonthTotals")}</CardDescription>
-            </CardHeader>
-            <CardContent className="h-[300px]">
-              {loading ? (
-                <div className="h-full w-full animate-pulse rounded-lg bg-muted" />
-              ) : monthCategoryChartData.length === 0 ? (
-                <EmptyState inline description={t("dashboard.noCategoryDataYet")} />
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={monthCategoryChartData} margin={{ top: 8, right: 8, left: 0, bottom: 10 }}>
-                    <CartesianGrid strokeDasharray="4 4" className="stroke-muted" />
-                    <XAxis
-                      dataKey="category"
-                      tickFormatter={(value) =>
-                        t(`categories.${value}`, { defaultValue: value })
-                      }
-                      tick={{ fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                      interval="preserveStartEnd"
-                      minTickGap={24}
-                    />
-                    <YAxis
-                      tickFormatter={(value) => formatCompactUzs(value)}
-                      tick={{ fontSize: 12 }}
-                      axisLine={false}
-                      tickLine={false}
-                      width={60}
-                    />
+          <div className="grid gap-6 md:grid-cols-2">
+            <Card className="shadow-sm">
+              <CardHeader>
+                <CardTitle>{t("dashboard.categoryBreakdown")}</CardTitle>
+                <CardDescription>{t("dashboard.currentMonthTotals")}</CardDescription>
+              </CardHeader>
+              <CardContent className="h-[300px]">
+                {loading ? (
+                  <div className="h-full w-full animate-pulse rounded-lg bg-muted" />
+                ) : monthCategoryChartData.length === 0 ? (
+                  <EmptyState inline description={t("dashboard.noCategoryDataYet")} />
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={monthCategoryChartData} margin={{ top: 8, right: 8, left: 0, bottom: 10 }}>
+                      <CartesianGrid strokeDasharray="4 4" className="stroke-muted" />
+                      <XAxis
+                        dataKey="category"
+                        tickFormatter={(value) =>
+                          t(`categories.${value}`, { defaultValue: value })
+                        }
+                        tick={{ fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                        interval="preserveStartEnd"
+                        minTickGap={24}
+                      />
+                      <YAxis
+                        tickFormatter={(value) => formatCompactUzs(value)}
+                        tick={{ fontSize: 12 }}
+                        axisLine={false}
+                        tickLine={false}
+                        width={60}
+                      />
 
-                    <Tooltip
-                      cursor={false}
-                      contentStyle={tooltipStyle}
-                      labelStyle={{ color: "hsl(var(--foreground))" }}
-                      labelFormatter={(label) =>
-                        t(`categories.${label}`, { defaultValue: label })
-                      }
-                      formatter={(value) => [
-                        <span style={{ color: "hsl(var(--primary))", fontWeight: 600 }}>
-                          {formatUzs(value)} UZS
-                        </span>,
-                        t("dashboard.total"),
-                      ]}
-                    />
+                      <Tooltip
+                        cursor={false}
+                        contentStyle={tooltipStyle}
+                        labelStyle={{ color: "hsl(var(--foreground))" }}
+                        labelFormatter={(label) =>
+                          t(`categories.${label}`, { defaultValue: label })
+                        }
+                        formatter={(value) => [
+                          <span style={{ color: "hsl(var(--primary))", fontWeight: 600 }}>
+                            {formatUzs(value)} UZS
+                          </span>,
+                          t("dashboard.total"),
+                        ]}
+                      />
 
-                    <Bar dataKey="total" fill="hsl(var(--primary))" radius={[6, 6, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </CardContent>
-          </Card>
+                      <Bar dataKey="total" fill="hsl(var(--primary))" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Upcoming Recurring Charges Widget */}
+            <Card className="shadow-sm flex flex-col h-full overflow-hidden">
+              <CardHeader className="pb-4 shrink-0">
+                <div className="flex items-center gap-2">
+                  <CalendarClock className="h-5 w-5 text-primary" />
+                  <CardTitle>Upcoming Recurring</CardTitle>
+                </div>
+                <CardDescription>Predicted charges scheduled for the coming weeks</CardDescription>
+              </CardHeader>
+              <CardContent className="flex-1 flex flex-col pt-0 pb-4">
+                {!user?.is_premium ? (
+                  <div className="flex-1 flex flex-col items-center justify-center text-center space-y-3 py-6">
+                    <div className="p-3 bg-amber-500/10 rounded-full">
+                      <span className="text-2xl">✨</span>
+                    </div>
+                    <h4 className="font-semibold">Premium Feature</h4>
+                    <p className="text-sm text-muted-foreground">Unlock Recurring Expenses to automate your tracking.</p>
+                    <Button asChild variant="outline" size="sm" className="mt-2 text-primary hover:text-primary">
+                      <Link to="/settings">Learn More</Link>
+                    </Button>
+                  </div>
+                ) : loading ? (
+                  <div className="flex-1 flex items-center justify-center">
+                    <LoadingSpinner className="h-6 w-6" />
+                  </div>
+                ) : recurringExpenses.length === 0 ? (
+                  <EmptyState inline description="No upcoming recurring charges." />
+                ) : (
+                  <div className="space-y-4 pt-2">
+                    {recurringExpenses.map((e) => (
+                      <div key={e.id} className="flex justify-between items-center group">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <div className="font-medium leading-none">{e.title}</div>
+                            <Badge variant="secondary" className="text-[10px] h-4 px-1">{e.frequency}</Badge>
+                          </div>
+                          <div className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
+                            <span>Due:</span>
+                            <span className="text-foreground/80">{formatDisplayDate(e.next_due_date, appLang)}</span>
+                          </div>
+                        </div>
+                        <div className="font-semibold text-sm tabular-nums text-right">
+                          {formatAmountDisplay(e.amount)} <span className="text-xs font-normal text-muted-foreground">UZS</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
         </div>
       </div>
     </div>

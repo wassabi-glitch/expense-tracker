@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -9,6 +9,7 @@ from ..session import get_db
 from app.redis_rate_limiter import check_and_consume
 from app.email_service import send_verification_email
 from app.email_verification import build_verify_email_link, issue_email_verification_token
+from app.timezone import _safe_zoneinfo
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -130,6 +131,7 @@ def login(
     request: Request,
     user_credentials: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
+    x_timezone: str | None = Header(default=None, alias="X-Timezone"),
 ):
     username = (user_credentials.username or "").strip().lower()
     client_ip = request.client.host if request.client else "unknown"
@@ -181,6 +183,12 @@ def login(
 
     ensure_local_identity(db, user)
 
+    # Save the browser timezone so the scheduler can use the correct local date per user
+    detected_tz = str(_safe_zoneinfo((x_timezone or "").strip() or None))
+    if detected_tz and user.timezone != detected_tz:
+        user.timezone = detected_tz
+        db.commit()
+
     # 3. Create BOTH tokens
     access_token = oauth2.create_access_token(data={"user_id": user.id})
     refresh_token = oauth2.create_refresh_token(user_id=user.id)
@@ -194,4 +202,13 @@ def login(
 
 @router.get("/me", response_model=schemas.UserOut)
 def get_me(current_user: models.User = Depends(oauth2.get_current_user)):
+    return current_user
+
+@router.post("/me/toggle-premium", response_model=schemas.UserOut)
+def toggle_premium(
+    db: Session = Depends(get_db), current_user: models.User = Depends(oauth2.get_current_user)
+):
+    current_user.is_premium = not current_user.is_premium
+    db.commit()
+    db.refresh(current_user)
     return current_user

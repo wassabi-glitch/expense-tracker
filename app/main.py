@@ -6,18 +6,29 @@ from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.session import get_db
-from .routers import users, expenses, budget, analytics, auth
+from app.routers import users, expenses, budget, analytics, auth, oauth_google, recurring
 from .models import ExpenseCategory
 from config import settings
-from app.routers import oauth_google
 
+from contextlib import asynccontextmanager
+from app.scheduler import start_scheduler
 
 # Tables are managed by Alembic migrations.
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Start the background scheduler
+    scheduler = start_scheduler()
+    yield
+    # Shutdown: Stop the scheduler
+    if scheduler:
+        scheduler.shutdown()
 
 app = FastAPI(
     title="Expense Tracker API",
     description="A professional API to track your spending and manage budgets.",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 origins = settings.cors_origins_list
@@ -92,7 +103,8 @@ def get_categories():
 # Include Routers
 app.include_router(users.router)
 app.include_router(auth.router)
+app.include_router(oauth_google.router)
 app.include_router(expenses.router)
 app.include_router(budget.router)
 app.include_router(analytics.router)
-app.include_router(oauth_google.router)
+app.include_router(recurring.router)

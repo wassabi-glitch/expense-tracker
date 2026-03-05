@@ -15,6 +15,15 @@ export function localizeApiError(message, t) {
   if (msg === "expenses.write_rate_limited") {
     return t("expenses.tooManySoon");
   }
+  if (msg === "recurring_expenses.write_rate_limited") {
+    return t("recurring.tooManySoon");
+  }
+  if (msg === "recurring_expenses.max_limit_reached") {
+    return t("recurring.maxLimitReached");
+  }
+  if (msg === "recurring_expenses.start_date_before_current_month") {
+    return t("recurring.startDateBeforeCurrentMonth");
+  }
   if (msg === "budgets.write_rate_limited") {
     return t("budgets.tooManySoon");
   }

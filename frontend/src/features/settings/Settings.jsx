@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { getCurrentUser, logout } from "@/lib/api";
+import { getCurrentUser, logout, togglePremium } from "@/lib/api";
 import { localizeApiError } from "@/lib/errorMessages";
 
 const CURRENCY_KEY = "settings.currency";
@@ -31,6 +31,8 @@ export default function Settings() {
 
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
+  const [isPremium, setIsPremium] = useState(false);
+  const [isTogglingPremium, setIsTogglingPremium] = useState(false);
 
   const savedCurrency = useMemo(() => getStoredPreference(CURRENCY_KEY, "UZS"), []);
   const savedDateFormat = useMemo(() => getStoredPreference(DATE_FORMAT_KEY, "YYYY-MM-DD"), []);
@@ -43,6 +45,7 @@ export default function Settings() {
         const user = await getCurrentUser();
         setUsername(user?.username || "");
         setEmail(user?.email || "");
+        setIsPremium(user?.is_premium || false);
       } catch (e) {
         setError(localizeApiError(e?.message, t) || e.message || t("settings.failedProfile"));
       }
@@ -108,6 +111,41 @@ export default function Settings() {
           <CardContent className="grid gap-4 md:grid-cols-2">
             <Input value={savedCurrency === "UZS" ? "UZS - so'm" : savedCurrency} readOnly disabled />
             <Input value={savedDateFormat} readOnly disabled />
+          </CardContent>
+        </Card>
+
+        {/* DEV ONLY PANEL */}
+        <Card className="shadow-sm border-dashed border-primary">
+          <CardHeader>
+            <CardTitle>Developer Tools</CardTitle>
+            <CardDescription>Temporary settings strictly for testing features locally</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+              <div>
+                <h4 className="font-medium">Premium Status View</h4>
+                <p className="text-sm text-muted-foreground">Force toggle `is_premium` to unlock or lock Recurring Expenses</p>
+              </div>
+              <Button
+                variant={isPremium ? "default" : "secondary"}
+                disabled={isTogglingPremium}
+                onClick={async () => {
+                  setIsTogglingPremium(true);
+                  try {
+                    const updatedUser = await togglePremium();
+                    setIsPremium(updatedUser.is_premium);
+                    // Force a window reload to update AuthContext state cleanly
+                    window.location.reload();
+                  } catch (e) {
+                    setError("Failed to toggle premium: " + e.message);
+                  } finally {
+                    setIsTogglingPremium(false);
+                  }
+                }}
+              >
+                {isPremium ? "Premium Active (Click to Disable)" : "Free User (Click to Enable)"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
 

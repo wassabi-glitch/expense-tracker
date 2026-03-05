@@ -1,0 +1,89 @@
+# Step 3: Premium Users + Recurring Expenses
+
+## Goal
+Add a premium tier to the application and introduce the first premium-only feature: **Recurring Expenses**.
+
+## Timeline Estimate: 3-4 Hours
+Yes, this feature can be completed end-to-end within 3-4 hours if we strictly limit the scope to a minimal, reliable architecture for recurrences.
+
+## Architecture Decision: Background Scheduler (APScheduler)
+You are completely correct. While Celery is the industry standard for *massive* distributed systems, **APScheduler** is incredibly robust, much simpler to maintain, and can easily scale to thousands of users on a single modern server. It completely removes the need to manage external worker processes and message brokers while still giving us true background cron capabilities.
+
+**Approach:**
+1. User defines a `RecurringExpense` template (e.g., "Netflix, 15000 UZS, Entertainment, Monthly, starts Jan 1st").
+2. The backend runs a lightweight background worker (`AsyncIOScheduler` integrated directly into the FastAPI event loop).
+3. Every day at 00:01 AM, the scheduler runs a job `process_all_due_recurring_expenses`.
+4. It queries the database for all `RecurringExpense` records where `next_due_date <= today`, creates their concrete [Expense](file:///c:/Users/me/Desktop/MyPROJECTS/ExpenseTracker/app/models.py#63-84) records, and advances their `next_due_date`.
+
+## Proposed Changes
+
+### 1. Backend: Database Models & Schemas
+
+#### [models.py](file:///c:/Users/me/Desktop/MyPROJECTS/ExpenseTracker/app/models.py)
+- **[MODIFY] [User](file:///c:/Users/me/Desktop/MyPROJECTS/ExpenseTracker/app/models.py#42-61)**: 
+  - Add `is_premium = Column(Boolean, default=False, nullable=False)`
+  - Add `timezone = Column(String(50), default="UTC", nullable=False)`
+- **[NEW] `RecurringExpense`**:
+  - [id](file:///c:/Users/me/Desktop/MyPROJECTS/ExpenseTracker/app/redis_rate_limiter.py#72-74) (Integer)
+  - `owner_id` (ForeignKey to users)
+  - [title](file:///c:/Users/me/Desktop/MyPROJECTS/ExpenseTracker/app/schemas.py#154-161) (String)
+  - [amount](file:///c:/Users/me/Desktop/MyPROJECTS/ExpenseTracker/app/schemas.py#126-132) (BigInteger)
+  - `category` (Enum)
+  - [description](file:///c:/Users/me/Desktop/MyPROJECTS/ExpenseTracker/app/schemas.py#162-171) (String, nullable)
+  - `frequency` (Enum: `DAILY`, `WEEKLY`, `MONTHLY`, `YEARLY`)
+  - `start_date` (Date)
+  - `next_due_date` (Date) - *The date the next real expense should be created.*
+  - `is_active` (Boolean, default=True)
+
+#### [schemas.py](file:///c:/Users/me/Desktop/MyPROJECTS/ExpenseTracker/app/schemas.py)
+- **[NEW]** `RecurringFrequency` Enum
+- **[NEW]** `RecurringExpenseCreate`, `RecurringExpenseOut`, `RecurringExpenseUpdate`
+- **[MODIFY]** [UserOut](file:///c:/Users/me/Desktop/MyPROJECTS/ExpenseTracker/app/schemas.py#81-86) to include `is_premium` and [timezone](file:///c:/Users/me/Desktop/MyPROJECTS/ExpenseTracker/app/timezone.py#22-27)
+
+### 2. Backend: Database Migration
+- Generate Alembic migration to add `is_premium` and [timezone](file:///c:/Users/me/Desktop/MyPROJECTS/ExpenseTracker/app/timezone.py#22-27) to users, and create the `recurring_expenses` table.
+
+### 3. Backend: API Endpoints (`app/routers/recurring.py` & [app/routers/users.py](file:///c:/Users/me/Desktop/MyPROJECTS/ExpenseTracker/app/routers/users.py))
+
+- **[MODIFY] `/users/me`**: When a user fetches their profile, if the `X-Timezone` header differs from their DB `timezone`, update the DB automatically.
+- **Premium Gate**: Create a dependency `get_current_premium_user` that raises 403 if `is_premium` is False.
+- **POST `/recurring`**: Create a new recurring expense template.
+- **GET `/recurring`**: List user's active/inactive recurring expenses.
+- **PUT `/recurring/{id}`**: Update a recurring expense (change amount, pause it).
+- **DELETE `/recurring/{id}`**: Stop the recurrence.
+
+### 4. Backend: The Engine (APScheduler & Timezones)
+
+- **[NEW] `app/scheduler.py`**:
+  - Setup APScheduler `AsyncIOScheduler` to run hourly.
+  - A scheduled job function `process_due_recurring_expenses()`.
+  - **Timezone Logic**: The engine queries all users who have active recurring expenses. For *each* user, it calculates `today_in_tz(ZoneInfo(user.timezone))`. 
+  - It finds all `RecurringExpense` records where `next_due_date <= user_today` and `is_active == True`.
+  - Creates concrete `Expense` rows.
+  - Calculates and updates the *new* `next_due_date` correctly based on frequency.
+- **[MODIFY] `app/main.py`**:
+  - Start the scheduler on FastAPI `lifespan` startup event and shut it down on shutdown.
+
+### 5. Frontend: UI & State
+
+- **Settings / Profile Page**:
+  - Add a temporary "Toggle Premium Status (Dev Mode)" button so you can easily test both states. 
+- **Expenses Page**:
+  - Add a "Recurring" tab or section.
+  - If user is not premium: Show a blurred/locked UI with "Upgrade to Premium to use Recurring Expenses" CTA.
+  - If user is premium: Show the list of recurring templates.
+  - Add a "New Recurring Expense" modal (similar to standard expense, but with a Frequency dropdown and Start Date).
+- **Dashboard**:
+  - Show a small "Upcoming Recurring Charges" widget (querying `RecurringExpense` where `next_due_date` is in the near future).
+
+## Verification Plan
+
+### Automated Tests
+- Free user gets 403 on `/recurring` routes.
+- Premium user can create, read, update, delete recurring templates.
+- **Engine Test**: Create a monthly recurring expense starting 2 months ago. Run the `process_due_recurring_expenses` logic directly in a test. Verify EXACTLY 3 concrete expenses were created and the `next_due_date` moved to next month.
+
+### Manual Verification
+- Toggle premium status in UI.
+- Verify locked state vs unlocked state.
+- Set the scheduler to run every 1 minute for testing, create a daily expense with yesterday's start date, and watch the logs/dashboard update automatically.

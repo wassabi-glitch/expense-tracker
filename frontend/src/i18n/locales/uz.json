@@ -16,7 +16,9 @@
     "language": "Til",
     "networkError": "Tarmoq xatosi. Internet ulanishini tekshiring.",
     "sessionExpired": "Sessiya muddati tugadi. Qayta kiring.",
-    "forbidden": "Bu amalni bajarishga ruxsatingiz yo'q."
+    "forbidden": "Bu amalni bajarishga ruxsatingiz yo'q.",
+    "actions": "Amallar",
+    "close": "Yopish"
   },
   "nav": {
     "platform": "Platforma",
@@ -258,6 +260,9 @@
     "startFuture": "Boshlanish sanasi kelajakda bo'lishi mumkin emas.",
     "endFuture": "Tugash sanasi kelajakda bo'lishi mumkin emas.",
     "startAfterEnd": "Boshlanish sanasi tugash sanasidan keyin bo'lishi mumkin emas.",
+    "frequencyRequired": "Iltimos, takroriylikni tanlang.",
+    "oneTime": "Bir martalik xarajatlar",
+    "recurringTab": "Takroriy",
     "tooManyWait": "Juda ko'p so'rov. {{seconds}} soniyadan keyin urinib ko'ring.",
     "tooManySoon": "Juda ko'p so'rov. Birozdan keyin urinib ko'ring.",
     "requestFailed": "So'rov xatosi",
@@ -271,6 +276,51 @@
       "description": {
         "max_length": "Tavsif 500 belgidan oshmasligi kerak."
       }
+    }
+  },
+  "recurring": {
+    "cardTitle": "Takroriy shablonlar",
+    "cardDesc": "Avtomatik takrorlanuvchi xarajatlarni boshqaring. (Maksimal cheklov — 50 ta)",
+    "addDialogTitle": "Yangi takroriy xarajat",
+    "addDialogDesc": "Jadval bo'yicha avtomatik xarajat yaratadigan shablon yarating.",
+    "editDialogTitle": "Takroriy xarajatni tahrirlash",
+    "editDialogDesc": "Ushbu takroriy shablonning ma'lumotlarini yangilang.",
+    "deleteTitle": "Takroriy xarajatni o'chirish",
+    "deleteDesc": "Ushbu shablonni o'chirmoqchimisiz? Kelajakda xarajatlar avtomatik yaratilmaydi.",
+    "templateTitle": "Shablon nomi",
+    "frequency": "Takroriylik",
+    "selectFrequency": "Takroriylikni tanlang",
+    "startDate": "Boshlanish sanasi",
+    "nextDue": "Keyingi to'lov sanasi",
+    "active": "Faol",
+    "daily": "Har kuni",
+    "weekly": "Har hafta",
+    "monthly": "Har oy",
+    "yearly": "Har yil",
+    "saveChanges": "O'zgarishlarni saqlash",
+    "maxLimitReached": "Siz ko'pi bilan 50 ta faol takroriy xarajatga ega bo'lishingiz mumkin.",
+    "tooManySoon": "Surovlar juda ko'p. Birozdan so'ng qayta urinib ko'ring.",
+    "startDateBeforeCurrentMonth": "Boshlanish sanasi joriy oydan oldin bo'lmasligi kerak.",
+    "cancel": "Bekor qilish",
+    "addTemplate": "Shablon qo'shish",
+    "descriptionLabel": "Tavsif",
+    "viewDescription": "Tavsifni ko'rish",
+    "noDescription": "Tavsif yo'q",
+    "premiumTitle": "Premium funksiya",
+    "premiumDesc": "Takroriy xarajatlarni faollashtiring va Premium obuna bilan oylik kuzatishni avtomatlashtiring.",
+    "emptyDesc": "Hali takroriy xarajat yo'q.",
+    "noSearchResults": "Qidiruv mos shablonlar topilmadi.",
+    "loadFailed": "Takroriy xarajatlarni yuklab bo'lmadi",
+    "updateFailed": "Yangilab bo'lmadi.",
+    "deleteFailed": "O'chirib bo'lmadi",
+    "toggleFailed": "Holatni yangilab bo'lmadi.",
+    "titleMinLength": "Nomi kamida 3 ta belgidan iborat bo'lishi kerak.",
+    "amountPositive": "Summa musbat son bo'lishi kerak.",
+    "categoryRequired": "Iltimos, toifa tanlang.",
+    "errors": {
+      "recurring_expenses.premium_required": "Bu funksiya Premium obuna talab qiladi.",
+      "recurring_expenses.not_found": "Takroriy xarajat topilmadi.",
+      "recurring_expenses.not_owner": "Ushbu shablonni o'zgartirishga ruxsatingiz yo'q."
     }
   },
   "budgets": {

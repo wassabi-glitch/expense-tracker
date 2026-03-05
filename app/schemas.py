@@ -4,7 +4,7 @@ from datetime import datetime, date
 from enum import Enum
 import re
 
-from .models import ExpenseCategory  # Importing the enum we defined in models.py
+from .models import ExpenseCategory, RecurringFrequency  # Importing enums
 
 MIN_BUDGET_YEAR = 2020
 MAX_BUDGET_YEARS_AHEAD = 5
@@ -81,6 +81,7 @@ class UserCreate(UserBase):
 class UserOut(UserBase):
     id: int
     created_at: datetime
+    is_premium: bool
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -185,6 +186,124 @@ class ExpenseOut(ExpenseBase):
     date: Optional[date]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PaginatedExpensesOut(BaseModel):
+    total: int
+    items: List[ExpenseOut]
+
+
+# --- RECURRING EXPENSE SCHEMAS ---
+
+class RecurringExpenseBase(BaseModel):
+    title: str
+    amount: int = Field(gt=0)
+    category: ExpenseCategory
+    description: Optional[str] = None
+    frequency: RecurringFrequency
+    start_date: date
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, v: str):
+        v = v.strip()
+        if not (3 <= len(v) <= 32):
+            raise ValueError("expenses.validation.title.length")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, v: Optional[str]):
+        if v is None:
+            return v
+        v = v.strip()
+        if len(v) > 500:
+            raise ValueError("expenses.validation.description.max_length")
+        return v
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount_max(cls, v: int):
+        if v > MAX_EXPENSE_AMOUNT:
+            raise ValueError("expenses.amount_too_large")
+        return v
+
+    @field_validator("start_date")
+    @classmethod
+    def validate_start_date(cls, v: date):
+        if v.year < 2020:
+            raise ValueError("expenses.date_too_early")
+        first_of_month = date.today().replace(day=1)
+        if v < first_of_month:
+            raise ValueError("recurring_expenses.start_date_before_current_month")
+        return v
+
+
+class RecurringExpenseCreate(RecurringExpenseBase):
+    pass
+
+
+class RecurringExpenseUpdate(BaseModel):
+    """
+    PATCH-style update schema. Only supply the fields you want to change.
+    Frequency is intentionally NOT editable — changing the cadence mid-stream
+    would desynchronise next_due_date. Delete and recreate instead.
+    """
+    title: Optional[str] = None
+    amount: Optional[int] = Field(default=None, gt=0)
+    category: Optional[ExpenseCategory] = None
+    description: Optional[str] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, v: Optional[str]):
+        if v is None:
+            return v
+        v = v.strip()
+        if not (3 <= len(v) <= 32):
+            raise ValueError("expenses.validation.title.length")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, v: Optional[str]):
+        if v is None:
+            return v
+        v = v.strip()
+        if len(v) > 500:
+            raise ValueError("expenses.validation.description.max_length")
+        return v
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount_max(cls, v: Optional[int]):
+        if v is None:
+            return v
+        if v > MAX_EXPENSE_AMOUNT:
+            raise ValueError("expenses.amount_too_large")
+        return v
+
+
+
+class RecurringExpenseOut(RecurringExpenseBase):
+    id: int
+    owner_id: int
+    next_due_date: date
+    is_active: bool
+    created_at: datetime
+    owner: UserOut
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RecurringActiveToggle(BaseModel):
+    """Payload for PATCH /recurring/{id}/active"""
+    is_active: bool
+
+    model_config = ConfigDict(extra="forbid")
+
 
 # --- TOKEN SCHEMAS (For JWT Auth) ---
 

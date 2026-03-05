@@ -15,6 +15,13 @@ class ExpenseCategory(str, enum.Enum):
     OTHER = "Other"
 
 
+class RecurringFrequency(str, enum.Enum):
+    DAILY = "DAILY"
+    WEEKLY = "WEEKLY"
+    MONTHLY = "MONTHLY"
+    YEARLY = "YEARLY"
+
+
 class UserIdentity(Base):
     __tablename__ = "user_identities"
     __table_args__ = (
@@ -47,11 +54,15 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_verified = Column(Boolean, default=False, nullable=False)
+    is_premium = Column(Boolean, default=False, nullable=False)
+    timezone = Column(String(50), default="UTC", nullable=False)
     identities = relationship(
         "UserIdentity", back_populates="user", cascade="all, delete-orphan")
     # This allows you to do: some_user.expenses to see all their spending
     expenses = relationship(
         "Expense", back_populates="owner", cascade="all, delete")
+    recurring_expenses = relationship(
+        "RecurringExpense", back_populates="owner", cascade="all, delete")
     budgets = relationship(
         "Budget", back_populates="owner", cascade="all, delete")
     reset_tokens = relationship(
@@ -81,6 +92,29 @@ class Expense(Base):
     budget = relationship("Budget", back_populates="expenses")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     date = Column(Date, nullable=False, default=date.today)
+
+
+class RecurringExpense(Base):
+    __tablename__ = "recurring_expenses"
+    __table_args__ = (
+        CheckConstraint(
+            "start_date >= '2020-01-01'",
+            name="ck_recurring_expenses_start_date_min_2020_01_01",
+        ),
+    )
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(32), nullable=False)
+    amount = Column(BigInteger, nullable=False)
+    category = Column(Enum(ExpenseCategory), default=ExpenseCategory.OTHER, nullable=False)
+    description = Column(String, nullable=True)
+    frequency = Column(Enum(RecurringFrequency), nullable=False)
+    start_date = Column(Date, nullable=False)
+    next_due_date = Column(Date, nullable=False, index=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    owner_id = Column(Integer, ForeignKey(
+        "users.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner = relationship("User", back_populates="recurring_expenses")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class Budget(Base):
