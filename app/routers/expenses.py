@@ -2,7 +2,7 @@
 import csv
 from datetime import date, timedelta, tzinfo
 from io import StringIO
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse

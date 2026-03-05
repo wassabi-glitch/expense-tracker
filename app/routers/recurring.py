@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.orm import Session
 from typing import List
-from datetime import date
+
 from zoneinfo import ZoneInfo
 
 from app import models, schemas, oauth2
