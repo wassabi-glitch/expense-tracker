@@ -8,7 +8,6 @@ def test_analytics_history(client, session):
     headers = create_user_and_token(
         client, "analyticsuser", "analyticsuser@example.com", "Password123!"
     )
-    create_budget(client, headers, category="Food", monthly_limit=500)
 
     # Add two expenses directly to avoid budget-lookup coupling in this analytics test.
     user = session.query(models.User).filter(
@@ -17,15 +16,28 @@ def test_analytics_history(client, session):
     assert user is not None
 
     today = date.today()
-    budget = session.query(models.Budget).filter(
-        models.Budget.owner_id == user.id,
-        models.Budget.budget_year == today.year,
-        models.Budget.budget_month == today.month,
-    ).first()
-    assert budget is not None
+    # Resolve a valid DB enum label at runtime to avoid value/name mismatch
+    # across environments (e.g. "Groceries" vs "GROCERIES").
+    category_label = None
+    try:
+        category_label = session.execute(
+            text(
+                """
+                SELECT e.enumlabel
+                FROM pg_type t
+                JOIN pg_enum e ON t.oid = e.enumtypid
+                WHERE t.typname = 'expensecategory'
+                ORDER BY e.enumsortorder
+                LIMIT 1
+                """
+            )
+        ).scalar()
+    except Exception:
+        category_label = None
+    if not category_label:
+        category_label = models.ExpenseCategory.GROCERIES.value
 
-    # Insert with raw SQL so DB enum receives exact value string ("Groceries"),
-    # bypassing SQLAlchemy enum-name binding ("GROCERIES") in CI.
+    # History endpoint only needs expenses by owner; no budget linkage needed.
     session.execute(
         text(
             """
@@ -36,10 +48,10 @@ def test_analytics_history(client, session):
         {
             "title": "Item One",
             "amount": 10,
-            "category": "Groceries",
+            "category": category_label,
             "description": "test",
             "owner_id": user.id,
-            "budget_id": budget.id,
+            "budget_id": None,
             "date": today,
         },
     )
@@ -53,10 +65,10 @@ def test_analytics_history(client, session):
         {
             "title": "Item Two",
             "amount": 20,
-            "category": "Groceries",
+            "category": category_label,
             "description": "test",
             "owner_id": user.id,
-            "budget_id": budget.id,
+            "budget_id": None,
             "date": today,
         },
     )
