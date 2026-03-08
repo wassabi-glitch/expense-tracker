@@ -1,16 +1,48 @@
 from datetime import date, timedelta
 from tests.helpers import create_user_and_token, create_budget, create_expense
+from app import models
 
 
-def test_analytics_history(client):
+def test_analytics_history(client, session):
     headers = create_user_and_token(
         client, "analyticsuser", "analyticsuser@example.com", "Password123!"
     )
     create_budget(client, headers, category="Food", monthly_limit=500)
 
-    # Add two expenses directly (same day = same month as budget, always safe)
-    create_expense(client, headers, title="Item One", amount=10, category="Food")
-    create_expense(client, headers, title="Item Two", amount=20, category="Food")
+    # Add two expenses directly to avoid budget-lookup coupling in this analytics test.
+    user = session.query(models.User).filter(
+        models.User.email == "analyticsuser@example.com"
+    ).first()
+    assert user is not None
+
+    today = date.today()
+    budget = session.query(models.Budget).filter(
+        models.Budget.owner_id == user.id,
+        models.Budget.category == models.ExpenseCategory.GROCERIES,
+        models.Budget.budget_year == today.year,
+        models.Budget.budget_month == today.month,
+    ).first()
+    assert budget is not None
+
+    session.add(models.Expense(
+        owner_id=user.id,
+        title="Item One",
+        amount=10,
+        category=models.ExpenseCategory.GROCERIES,
+        description="test",
+        date=today,
+        budget_id=budget.id,
+    ))
+    session.add(models.Expense(
+        owner_id=user.id,
+        title="Item Two",
+        amount=20,
+        category=models.ExpenseCategory.GROCERIES,
+        description="test",
+        date=today,
+        budget_id=budget.id,
+    ))
+    session.commit()
 
     res = client.get("/analytics/history", headers=headers)
     assert res.status_code == 200
