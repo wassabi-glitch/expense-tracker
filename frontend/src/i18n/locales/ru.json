@@ -191,6 +191,20 @@
     "categoryBreakdown": "Разбивка по категориям",
     "currentMonthTotals": "Итоги по категориям за текущий месяц",
     "noCategoryDataYet": "Данные по категориям пока отсутствуют.",
+    "upcomingRecurringTitle": "Ближайшие регулярные",
+    "upcomingRecurringSubtitle": "Прогнозируемые списания на ближайшие недели",
+    "noUpcomingRecurring": "Нет ближайших регулярных списаний.",
+    "recurringDueRelative": "{{when}}",
+    "relative": {
+      "today": "сегодня",
+      "tomorrow": "завтра",
+      "yesterday": "вчера",
+      "inDays": "через {{count}} дней",
+      "daysAgo": "{{count}} дней назад",
+      "inWeeks": "через {{count}} недель",
+      "weeksAgo": "{{count}} недель назад"
+    },
+    "learnMore": "Подробнее",
     "amount": "Сумма",
     "total": "Итого"
   },
@@ -317,6 +331,7 @@
     "titleMinLength": "Название должно содержать не менее 3 символов.",
     "amountPositive": "Сумма должна быть положительным числом.",
     "categoryRequired": "Пожалуйста, выберите категорию.",
+    "budgetRequiredForStartMonth": "Нельзя создать этот регулярный шаблон для {{category}}, потому что нет бюджета за {{month}}. Сначала создайте бюджет.",
     "errors": {
       "recurring_expenses.premium_required": "Эта функция требует подписки Premium.",
       "recurring_expenses.not_found": "Регулярный расход не найден.",
@@ -468,11 +483,33 @@
     "goToSignIn": "Войти"
   },
   "categories": {
-    "Food": "Еда",
+    "Groceries": "Продукты",
+    "Dining Out": "Питание вне дома",
+    "Housing": "Жилье",
+    "Utilities": "Коммунальные услуги",
+    "Subscriptions": "Подписки",
     "Transport": "Транспорт",
-    "Housing": "Жильё",
+    "Health": "Здоровье",
+    "Education": "Образовние",
+    "Clothing": "Одежда",
+    "Family & Events": "Семья и мероприятия",
     "Entertainment": "Развлечения",
-    "Utilities": "Коммунальные",
-    "Other": "Другое"
+    "Installments & Debt": "Рассрочка и долги",
+    "Business / Work": "Бизнес / работа"
+  },
+  "categories_desc": {
+    "Groceries": "Только сырье и не готовые к употреблению продукты",
+    "Dining Out": "Рестораны, кафе, доставка и готовые блюда",
+    "Housing": "Аренда, ипотека, налоги и содержание дома",
+    "Utilities": "Электричество, вода, газ, интернет и счета за телефон",
+    "Subscriptions": "Стриминг, спортзал и периодические платежи",
+    "Transport": "Топливо, общественный транспорт, такси и автоуслуги",
+    "Health": "Визиты к врачу, аптека, страховка и расходы на фитнес",
+    "Education": "Оплата обучения, курсы, книги и учебные материалы",
+    "Clothing": "Одежда, обувь и аксессуары",
+    "Family & Events": "Подарки, церемонии, благотворительность и помощь близким",
+    "Entertainment": "Кино, хобби, путешествия и отдых",
+    "Installments & Debt": "Выплаты по кредитам, рассрочка и долги",
+    "Business / Work": "Встречи с клиентами, офисные расходы, рабочие сервисы и командировки"
   }
 }

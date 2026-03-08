@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { EmptyState } from "@/components/EmptyState";
 import { getCategoryBgClass } from "@/lib/category";
-import { formatAmountDisplay, formatDisplayDate, formatAmountInput } from "@/lib/format";
+import { formatAmountDisplay, formatDisplayDate, formatAmountInput, formatMonthYear } from "@/lib/format";
 import { getRecurringExpenses, deleteRecurringExpense, createRecurringExpense, updateRecurringExpense, patchRecurringActive, getCategories, getCurrentUser } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -42,7 +42,7 @@ function ActiveToggle({ checked, onChange, disabled }) {
 
 // ── Column layout shared between header and rows ─────────────────────────────
 // Title | Category | Frequency | Next Due | Amount | Active | Actions
-const COL = "grid grid-cols-[minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1fr)_80px_120px] items-center gap-x-2 px-3";
+const COL = "grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1fr)_80px_120px] items-center gap-x-2 px-3";
 
 export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
     const { t, i18n } = useTranslation();
@@ -99,7 +99,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
     const PAGE_SIZE = 15;
 
     const tCategory = (name) => t(`categories.${name}`, { defaultValue: name });
-    const appLang = String(i18n.resolvedLanguage || i18n.language || "en").toLowerCase();
+    const appLang = String(i18n.language || i18n.resolvedLanguage || "en").toLowerCase();
     const todayISO = useMemo(() => toISODateInTimeZone(), []);
     const minStartDate = useMemo(() => {
         const parts = todayISO.split("-");
@@ -111,6 +111,30 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
         if (!q) return expenses;
         return expenses.filter((e) => e.title.toLowerCase().includes(q));
     }, [expenses, searchQuery]);
+
+    const isBudgetRequiredError = (message) => {
+        const msg = String(message || "").toLowerCase();
+        return (
+            msg === "expenses.budget_required" ||
+            msg.includes("cannot create an expense for") ||
+            msg.includes("cannot add expense for")
+        );
+    };
+
+    const getAddActionErrorMessage = (e, options = {}) => {
+        if (isBudgetRequiredError(e?.message)) {
+            const category = options.category ? tCategory(options.category) : t("expenses.category");
+            const monthLabel = options.startDate
+                ? formatMonthYear(options.startDate, appLang)
+                : t("recurring.startDate");
+            return t("recurring.budgetRequiredForStartMonth", {
+                category,
+                month: monthLabel,
+                defaultValue: "Cannot create this recurring template for {{category}} because no budget exists for {{month}}. Create that budget first.",
+            });
+        }
+        return localizeApiError(e?.message, t) || e?.message || t("expenses.requestFailed");
+    };
     const totalPages = Math.max(1, Math.ceil(filteredExpenses.length / PAGE_SIZE));
     const pagedExpenses = useMemo(
         () => filteredExpenses.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
@@ -294,7 +318,10 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
             setAddOpen(false);
             await loadExpenses();
         } catch (e) {
-            setActionError(localizeApiError(e.message, t) || e.message || t("expenses.requestFailed"));
+            setActionError(getAddActionErrorMessage(e, {
+                category: parsed.data.category,
+                startDate: parsed.data.start_date,
+            }));
         } finally {
             setIsAdding(false);
         }
@@ -388,9 +415,21 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
 
                                         {/* Category badge */}
                                         <div className="min-w-0 flex justify-center">
-                                            <Badge variant="secondary" className={`max-w-full truncate ${getCategoryBgClass(e.category)}`}>
-                                                {tCategory(e.category)}
-                                            </Badge>
+                                            <TooltipProvider delayDuration={0}>
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <Badge
+                                                            variant="secondary"
+                                                            className={`max-w-full truncate ${getCategoryBgClass(e.category)}`}
+                                                        >
+                                                            {tCategory(e.category)}
+                                                        </Badge>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent side="top" className="max-w-[250px] sm:max-w-xs break-words">
+                                                        {tCategory(e.category)}
+                                                    </TooltipContent>
+                                                </Tooltip>
+                                            </TooltipProvider>
                                         </div>
 
                                         {/* Frequency */}
@@ -477,7 +516,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
             </Card>
 
             {/* ── Add Dialog ──────────────────────────────────────────────── */}
-            <Dialog open={addOpen} onOpenChange={(open) => { setAddOpen(open); if (!open) setActionError(""); }}>
+            <Dialog open={addOpen} onOpenChange={(open) => { setAddOpen(open); if (!open) { setActionError(""); } }}>
                 <DialogContent className="py-8 border-border">
                     <DialogHeader className="space-y-3 pb-2">
                         <DialogTitle className="text-3xl font-bold tracking-tight">{t("recurring.addDialogTitle")}</DialogTitle>
@@ -553,9 +592,9 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                     onBlur={() => setTouchedAdd(p => ({ ...p, description: true }))}
                                 />
                                 {addErrors.description && <p className="text-[11px] text-red-500 mt-0.5 font-medium ml-0.5">{addErrors.description}</p>}
+                                {actionError && <p className="text-[11px] leading-4 text-red-500 font-medium ml-0.5 mt-1">{t(actionError, { defaultValue: actionError })}</p>}
                             </div>
                         </div>
-                        {actionError && <p className="text-sm text-red-600">{t(actionError, { defaultValue: actionError })}</p>}
                     </div>
                     <DialogFooter>
                         <Button variant="outline" disabled={isAdding} onClick={() => setAddOpen(false)}>{t("common.cancel")}</Button>

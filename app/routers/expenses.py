@@ -10,7 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.redis_rate_limiter import check_and_consume, consume_token_bucket
-from app.timezone import get_request_timezone, now_in_tz, today_in_tz
+from app.timezone import get_effective_user_timezone, now_in_tz, today_in_tz
 from .. import models, oauth2, schemas
 from ..session import get_db
 
@@ -119,7 +119,7 @@ def create_expense(
     response: Response,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
-    user_tz: tzinfo = Depends(get_request_timezone),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
 ):
     local_today = today_in_tz(user_tz)
     if expense.date > local_today:
@@ -157,7 +157,7 @@ def create_expense(
 def get_expenses(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
-    user_tz: tzinfo = Depends(get_request_timezone),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
     limit: int = 10,
     skip: int = 0,
     search: Optional[str] = None,
@@ -358,7 +358,7 @@ def update_expense(
     response: Response,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
-    user_tz: tzinfo = Depends(get_request_timezone),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
 ):
     if expense.date > today_in_tz(user_tz):
         raise HTTPException(

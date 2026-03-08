@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, tzinfo
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 from typing import List
@@ -7,6 +7,7 @@ from .. import oauth2
 from .. import models, schemas
 from ..session import get_db
 from app.redis_rate_limiter import consume_token_bucket
+from app.timezone import get_effective_user_timezone, today_in_tz
 
 
 router = APIRouter(
@@ -41,16 +42,50 @@ def enforce_budget_write_rate_limit(user_id: int) -> dict[str, str]:
     return headers
 
 
+def validate_budget_month_window(
+    budget_year: int,
+    budget_month: int,
+    user_tz: tzinfo,
+) -> None:
+    candidate = date(budget_year, budget_month, 1)
+    min_allowed = date(schemas.MIN_BUDGET_YEAR, 1, 1)
+    today_local = today_in_tz(user_tz)
+    max_allowed = date(
+        today_local.year + schemas.MAX_BUDGET_YEARS_AHEAD,
+        today_local.month,
+        1,
+    )
+
+    if candidate < min_allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="budgets.month_too_early",
+        )
+
+    if candidate > max_allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="budgets.month_too_far_in_future",
+        )
+
+
 @router.post("/", response_model=schemas.BudgetOut, status_code=status.HTTP_201_CREATED)
 def create_budget(
     budget: schemas.BudgetCreate,
     response: Response,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
 ):
     rate_headers = enforce_budget_write_rate_limit(current_user.id)
     for k, v in rate_headers.items():
         response.headers[k] = v
+
+    validate_budget_month_window(
+        budget_year=budget.budget_year,
+        budget_month=budget.budget_month,
+        user_tz=user_tz,
+    )
 
     existing_budget = db.query(models.Budget).filter(
         models.Budget.owner_id == current_user.id,

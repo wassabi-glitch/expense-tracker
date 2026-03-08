@@ -4,6 +4,15 @@ from app import models
 from app.main import app
 from app.session import get_db
 
+TEST_CATEGORY_MAP = {
+    "Food": "Groceries",
+    "Other": "Utilities",
+}
+
+
+def _normalize_test_category(category: str) -> str:
+    return TEST_CATEGORY_MAP.get(category, category)
+
 
 def create_user_and_token(client, username, email, password):
     client.post("/users/sign-up", json={
@@ -37,8 +46,9 @@ def create_user_and_token(client, username, email, password):
     return {"Authorization": f"Bearer {token}"}
 
 
-def create_budget(client, headers, category="Food", monthly_limit=1000, budget_year=None, budget_month=None):
+def create_budget(client, headers, category="Groceries", monthly_limit=1000, budget_year=None, budget_month=None):
     today = date.today()
+    category = _normalize_test_category(category)
     return client.post("/budgets/", json={
         "category": category,
         "monthly_limit": monthly_limit,
@@ -47,7 +57,8 @@ def create_budget(client, headers, category="Food", monthly_limit=1000, budget_y
     }, headers=headers)
 
 
-def create_expense(client, headers, title="Lunch", amount=10, category="Food", description="test", expense_date=None):
+def create_expense(client, headers, title="Lunch", amount=10, category="Groceries", description="test", expense_date=None):
+    category = _normalize_test_category(category)
     return client.post("/expenses/", json={
         "title": title,
         "amount": amount,

@@ -135,7 +135,7 @@ def test_create_expense_invalid_date(client):
     res_future = client.post("/expenses/", json={
         "title": "Future",
         "amount": 10,
-        "category": "Food",
+        "category": "Groceries",
         "description": "test",
         "date": future_date,
     }, headers=headers)
@@ -145,7 +145,7 @@ def test_create_expense_invalid_date(client):
     res_past = client.post("/expenses/", json={
         "title": "Past",
         "amount": 10,
-        "category": "Food",
+        "category": "Groceries",
         "description": "test",
         "date": past_date,
     }, headers=headers)
@@ -169,7 +169,7 @@ def test_create_expense_future_date_uses_request_timezone(client, monkeypatch):
     base_payload = {
         "title": "Lunch",
         "amount": 10,
-        "category": "Food",
+        "category": "Groceries",
         "description": "test",
         "date": "2026-02-02",
     }
@@ -201,7 +201,7 @@ def test_update_expense_future_date_uses_request_timezone(client, monkeypatch):
         json={
             "title": "Lunch",
             "amount": 10,
-            "category": "Food",
+            "category": "Groceries",
             "description": "test",
             "date": "2026-02-01",
         },
@@ -259,9 +259,9 @@ def test_list_expenses_filters_and_sort(client):
     assert res_search.status_code == 200
     assert len(res_search.json()["items"]) == 1
 
-    res_category = client.get("/expenses/?category=Food", headers=headers)
+    res_category = client.get("/expenses/?category=Groceries", headers=headers)
     assert res_category.status_code == 200
-    assert all(item["category"] == "Food" for item in res_category.json()["items"])
+    assert all(item["category"] == "Groceries" for item in res_category.json()["items"])
 
     res_sort = client.get("/expenses/?sort=expensive", headers=headers)
     assert res_sort.status_code == 200
@@ -284,14 +284,14 @@ def test_list_expenses_newest_uses_expense_date(client):
     client.post("/expenses/", json={
         "title": "Older by date",
         "amount": 10,
-        "category": "Food",
+        "category": "Groceries",
         "description": "test",
         "date": "2024-01-01",
     }, headers=headers)
     client.post("/expenses/", json={
         "title": "Newer by date",
         "amount": 10,
-        "category": "Food",
+        "category": "Groceries",
         "description": "test",
         "date": "2025-01-01",
     }, headers=headers)
@@ -319,14 +319,14 @@ def test_list_expenses_time_range(client):
     client.post("/expenses/", json={
         "title": "Old",
         "amount": 10,
-        "category": "Food",
+        "category": "Groceries",
         "description": "test",
         "date": old_date,
     }, headers=headers)
     client.post("/expenses/", json={
         "title": "Recent",
         "amount": 10,
-        "category": "Food",
+        "category": "Groceries",
         "description": "test",
         "date": recent_date,
     }, headers=headers)
@@ -381,7 +381,7 @@ def test_update_expense_allows_optional_description(client):
         headers=headers,
     )
     assert res_update.status_code == 200, res_update.text
-    assert res_update.json()["category"] == "Food"
+    assert res_update.json()["category"] == "Groceries"
     assert res_update.json()["description"] is None
 
 
@@ -453,7 +453,7 @@ def test_expense_write_rate_limit_blocks_burst(client):
         res = client.post("/expenses/", json={
             "title": f"Burst {i}",
             "amount": 10,
-            "category": "Food",
+            "category": "Groceries",
             "description": "test",
             "date": date.today().isoformat(),
         }, headers=headers)

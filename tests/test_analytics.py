@@ -1,16 +1,78 @@
 from datetime import date, timedelta
 from tests.helpers import create_user_and_token, create_budget, create_expense
+from app import models
+from sqlalchemy import text
 
 
-def test_analytics_history(client):
+def test_analytics_history(client, session):
     headers = create_user_and_token(
         client, "analyticsuser", "analyticsuser@example.com", "Password123!"
     )
-    create_budget(client, headers, category="Food", monthly_limit=500)
 
-    # Add two expenses directly (same day = same month as budget, always safe)
-    create_expense(client, headers, title="Item One", amount=10, category="Food")
-    create_expense(client, headers, title="Item Two", amount=20, category="Food")
+    # Add two expenses directly to avoid budget-lookup coupling in this analytics test.
+    user = session.query(models.User).filter(
+        models.User.email == "analyticsuser@example.com"
+    ).first()
+    assert user is not None
+
+    today = date.today()
+    # Resolve a valid DB enum label at runtime to avoid value/name mismatch
+    # across environments (e.g. "Groceries" vs "GROCERIES").
+    category_label = None
+    try:
+        category_label = session.execute(
+            text(
+                """
+                SELECT e.enumlabel
+                FROM pg_type t
+                JOIN pg_enum e ON t.oid = e.enumtypid
+                WHERE t.typname = 'expensecategory'
+                ORDER BY e.enumsortorder
+                LIMIT 1
+                """
+            )
+        ).scalar()
+    except Exception:
+        category_label = None
+    if not category_label:
+        category_label = models.ExpenseCategory.GROCERIES.value
+
+    # History endpoint only needs expenses by owner; no budget linkage needed.
+    session.execute(
+        text(
+            """
+            INSERT INTO expenses (title, amount, category, description, owner_id, budget_id, date)
+            VALUES (:title, :amount, :category, :description, :owner_id, :budget_id, :date)
+            """
+        ),
+        {
+            "title": "Item One",
+            "amount": 10,
+            "category": category_label,
+            "description": "test",
+            "owner_id": user.id,
+            "budget_id": None,
+            "date": today,
+        },
+    )
+    session.execute(
+        text(
+            """
+            INSERT INTO expenses (title, amount, category, description, owner_id, budget_id, date)
+            VALUES (:title, :amount, :category, :description, :owner_id, :budget_id, :date)
+            """
+        ),
+        {
+            "title": "Item Two",
+            "amount": 20,
+            "category": category_label,
+            "description": "test",
+            "owner_id": user.id,
+            "budget_id": None,
+            "date": today,
+        },
+    )
+    session.commit()
 
     res = client.get("/analytics/history", headers=headers)
     assert res.status_code == 200
@@ -47,7 +109,8 @@ def test_daily_trend_days_filter(client):
     create_budget(client, headers, category="Food", monthly_limit=500)
 
     # Create expense for today (always in same month as budget)
-    create_expense(client, headers, title="Today Expense", amount=10, category="Food")
+    create_expense(client, headers, title="Today Expense",
+                   amount=10, category="Food")
 
     # days=2 should return at most 2 entries; our expense should be included
     res = client.get("/analytics/daily-trend?days=2", headers=headers)

@@ -4,6 +4,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+import logging
 
 from app.session import get_db
 from app.routers import users, expenses, budget, analytics, auth, oauth_google, recurring
@@ -11,7 +12,14 @@ from .models import ExpenseCategory
 from config import settings
 
 from contextlib import asynccontextmanager
-from app.scheduler import start_scheduler
+logger = logging.getLogger(__name__)
+try:
+    from app.scheduler import start_scheduler
+except Exception as exc:  # pragma: no cover - defensive fallback
+    logger.warning("Scheduler is disabled: %s", exc)
+
+    def start_scheduler():
+        return None
 
 # Tables are managed by Alembic migrations.
 

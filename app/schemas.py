@@ -233,9 +233,6 @@ class RecurringExpenseBase(BaseModel):
     def validate_start_date(cls, v: date):
         if v.year < 2020:
             raise ValueError("expenses.date_too_early")
-        first_of_month = date.today().replace(day=1)
-        if v < first_of_month:
-            raise ValueError("recurring_expenses.start_date_before_current_month")
         return v
 
 
@@ -291,6 +288,7 @@ class RecurringExpenseOut(RecurringExpenseBase):
     id: int
     owner_id: int
     next_due_date: date
+    days_until_due: int
     is_active: bool
     created_at: datetime
     owner: UserOut
@@ -426,23 +424,6 @@ class BudgetBase(BaseModel):
         if v < 1 or v > 12:
             raise ValueError("budgets.month_invalid")
         return v
-
-    @model_validator(mode="after")
-    def validate_budget_window(self):
-        candidate = date(self.budget_year, self.budget_month, 1)
-        min_allowed = date(MIN_BUDGET_YEAR, 1, 1)
-
-        today = date.today()
-        max_allowed = date(today.year + MAX_BUDGET_YEARS_AHEAD, today.month, 1)
-
-        if candidate < min_allowed:
-            raise ValueError("budgets.month_too_early")
-
-        if candidate > max_allowed:
-            raise ValueError("budgets.month_too_far_in_future")
-
-        return self
-
 
 class BudgetCreate(BudgetBase):
     pass

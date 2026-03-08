@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -22,7 +21,9 @@ import {
   AreaChart,
   Bar,
   BarChart,
+  Cell,
   CartesianGrid,
+  ReferenceDot,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -32,7 +33,7 @@ import {
 import { getExpenses, getMonthToDateTrend, getThisMonthStats, getRecurringExpenses, getCurrentUser } from "@/lib/api";
 import { toISODateInTimeZone } from "@/lib/date";
 import { localizeApiError } from "@/lib/errorMessages";
-import { formatPrettyDate, formatUzs, formatUzsCard, formatCompactUzs, shortMMDD, formatDisplayDate, formatAmountDisplay } from "@/lib/format";
+import { formatPrettyDate, formatUzs, formatUzsCard, formatCompactUzs, shortMMDD, formatAmountDisplay } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 
@@ -55,8 +56,45 @@ export default function Dashboard() {
   const [recurringExpenses, setRecurringExpenses] = useState([]);
   const [trendData, setTrendData] = useState([]);
   const [trendLoading, setTrendLoading] = useState(true);
+  const [activeCategoryBar, setActiveCategoryBar] = useState(null);
+  const [activeTrendPoint, setActiveTrendPoint] = useState(null);
+  const [activeBudgetStatusCategory, setActiveBudgetStatusCategory] = useState(null);
 
-  const appLang = String(i18n.resolvedLanguage || i18n.language || "en").toLowerCase();
+  const formatRelativeDue = (daysUntilDue, dueIso) => {
+    const hasBackendDays = Number.isFinite(Number(daysUntilDue));
+    let diffDays = hasBackendDays ? Number(daysUntilDue) : 0;
+    if (!hasBackendDays && dueIso) {
+      const todayIso = toISODateInTimeZone();
+      const [ty, tm, td] = String(todayIso).split("-").map(Number);
+      const [dy, dm, dd] = String(dueIso).split("-").map(Number);
+      const todayUtc = new Date(Date.UTC(ty, (tm || 1) - 1, td || 1));
+      const dueUtc = new Date(Date.UTC(dy, (dm || 1) - 1, dd || 1));
+      diffDays = Math.round((dueUtc - todayUtc) / 86400000);
+    }
+    const absDays = Math.abs(diffDays);
+    let relativeText;
+
+    if (diffDays === 0) {
+      relativeText = t("dashboard.relative.today");
+    } else if (diffDays === 1) {
+      relativeText = t("dashboard.relative.tomorrow");
+    } else if (diffDays === -1) {
+      relativeText = t("dashboard.relative.yesterday");
+    } else if (absDays >= 14) {
+      const weeks = Math.round(absDays / 7);
+      relativeText =
+        diffDays > 0
+          ? t("dashboard.relative.inWeeks", { count: weeks })
+          : t("dashboard.relative.weeksAgo", { count: weeks });
+    } else {
+      relativeText =
+        diffDays > 0
+          ? t("dashboard.relative.inDays", { count: absDays })
+          : t("dashboard.relative.daysAgo", { count: absDays });
+    }
+
+    return t("dashboard.recurringDueRelative", { when: relativeText });
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -196,11 +234,24 @@ export default function Dashboard() {
   }, [trendData]);
 
   const monthCategoryChartData = useMemo(() => {
-    return (derived.categoryBreakdown || []).map((item) => ({
-      category: item.category,
-      total: Number(item.total || 0),
-    }));
+    return [...(derived.categoryBreakdown || [])]
+      .map((item) => ({
+        category: item.category,
+        total: Number(item.total || 0),
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 6);
   }, [derived.categoryBreakdown]);
+  const topBudgetBreakdown = useMemo(() => {
+    return [...(derived.categoryBreakdown || [])]
+      .sort(
+        (a, b) =>
+          Number(b.percentage_used || 0) - Number(a.percentage_used || 0) ||
+          Number(b.total || 0) - Number(a.total || 0)
+      )
+      .slice(0, 5);
+  }, [derived.categoryBreakdown]);
+  const hiddenBudgetCount = Math.max(0, (derived.categoryBreakdown || []).length - topBudgetBreakdown.length);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -254,7 +305,7 @@ export default function Dashboard() {
               {!loading && derived.categoryBreakdown.length === 0 && (
                 <EmptyState inline description={t("dashboard.noBudgetsYet")} />
               )}
-              {derived.categoryBreakdown.map((item) => {
+              {topBudgetBreakdown.map((item) => {
                 const percent = Number(item.percentage_used || 0);
                 const _percentBadgeText = Math.round(percent) > 999 ? "999%+" : `${Math.round(percent)}%`;
                 const hasHugeBudgetValues =
@@ -287,7 +338,18 @@ export default function Dashboard() {
                 const _isNear = progressStatus === "highRisk" || progressStatus === "warning";
 
                 return (
-                  <div key={item.category} className="space-y-3 group hover:bg-muted dark:hover:bg-muted/30 p-2 -mx-2 rounded-xl transition-all duration-300">
+                  <div
+                    key={item.category}
+                    className={cn(
+                      "space-y-3 group p-2 -mx-2 rounded-xl transition-all duration-300",
+                      "hover:bg-muted dark:hover:bg-muted/30",
+                      activeBudgetStatusCategory === item.category && "bg-muted dark:bg-muted/30"
+                    )}
+                    onMouseEnter={() => setActiveBudgetStatusCategory(item.category)}
+                    onMouseLeave={() => setActiveBudgetStatusCategory(null)}
+                    onTouchStart={() => setActiveBudgetStatusCategory(item.category)}
+                    onClick={() => setActiveBudgetStatusCategory(item.category)}
+                  >
                     <div className="flex items-center justify-between text-sm px-1">
                       <div className="flex items-center gap-2.5">
                         {(() => {
@@ -321,10 +383,21 @@ export default function Dashboard() {
                 );
               })}
             </CardContent>
+            {!loading && topBudgetBreakdown.length > 0 && (
+              <div className="px-5 pb-5 pt-3">
+                <Button asChild variant="ghost" className="w-full text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
+                  <Link to="/budgets">
+                    {hiddenBudgetCount > 0
+                      ? t("dashboard.viewAllBudgetsWithCount", { count: hiddenBudgetCount, defaultValue: `View all budgets (+${hiddenBudgetCount})` })
+                      : t("dashboard.viewAllBudgets", { defaultValue: "View all budgets" })}
+                  </Link>
+                </Button>
+              </div>
+            )}
           </Card>
 
           <Card className="shadow-sm flex flex-col h-full overflow-hidden">
-            <CardHeader className="pb-4 shrink-0">
+            <CardHeader className="pb-3 shrink-0">
               <CardTitle>{t("dashboard.recentActivity")}</CardTitle>
               <CardDescription>{t("dashboard.latestTransactions")}</CardDescription>
             </CardHeader>
@@ -348,7 +421,7 @@ export default function Dashboard() {
                         <TooltipTrigger asChild>
                           <button
                             type="button"
-                            className="max-w-full text-left truncate font-semibold text-foreground/90 leading-none outline-none focus-visible:underline decoration-muted-foreground underline-offset-4 cursor-pointer pb-0.5 block"
+                            className="max-w-full text-left truncate font-semibold text-foreground/90 leading-6 outline-none focus-visible:underline decoration-muted-foreground underline-offset-4 cursor-pointer block"
                             onClick={(ev) => ev.preventDefault()}
                           >
                             {e.title}
@@ -360,6 +433,9 @@ export default function Dashboard() {
                       </UITooltip>
                     </TooltipProvider>
                     <p className="text-xs text-muted-foreground/80 font-medium truncate">
+                      {t(`categories.${e.category}`, { defaultValue: e.category })}
+                    </p>
+                    <p className="hidden text-xs text-muted-foreground/80 font-medium truncate">
                       {t(`categories.${e.category}`, { defaultValue: e.category })} • {e.date}
                     </p>
                   </div>
@@ -398,7 +474,23 @@ export default function Dashboard() {
               ) : (
                 <div className="h-[240px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 10 }}>
+                    <AreaChart
+                      data={chartData}
+                      margin={{ top: 10, right: 16, left: 0, bottom: 10 }}
+                      onMouseMove={(state) => {
+                        const p = state?.activePayload?.[0]?.payload;
+                        if (p) setActiveTrendPoint(p);
+                      }}
+                      onTouchMove={(state) => {
+                        const p = state?.activePayload?.[0]?.payload;
+                        if (p) setActiveTrendPoint(p);
+                      }}
+                      onClick={(state) => {
+                        const p = state?.activePayload?.[0]?.payload;
+                        if (p) setActiveTrendPoint(p);
+                      }}
+                      onMouseLeave={() => setActiveTrendPoint(null)}
+                    >
                       <defs>
                         <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.35} />
@@ -428,6 +520,7 @@ export default function Dashboard() {
                       />
 
                       <Tooltip
+                        cursor={{ stroke: "hsl(var(--primary))", strokeWidth: 1.5, strokeOpacity: 0.35 }}
                         contentStyle={tooltipStyle}
                         labelStyle={{ color: "hsl(var(--foreground))" }}
                         formatter={(value) => [
@@ -449,8 +542,18 @@ export default function Dashboard() {
                         strokeWidth={2}
                         fill="url(#trendFill)"
                         dot={false}
-                        activeDot={{ r: 4 }}
+                        activeDot={{ r: 5, stroke: "hsl(var(--background))", strokeWidth: 2 }}
                       />
+                      {activeTrendPoint && (
+                        <ReferenceDot
+                          x={activeTrendPoint.day}
+                          y={activeTrendPoint.amount}
+                          r={5}
+                          fill="hsl(var(--primary))"
+                          stroke="hsl(var(--background))"
+                          strokeWidth={2}
+                        />
+                      )}
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -459,69 +562,97 @@ export default function Dashboard() {
           </Card>
 
           <div className="grid gap-6 md:grid-cols-2">
-            <Card className="shadow-sm">
-              <CardHeader>
+            <Card className="shadow-sm flex flex-col h-full">
+              <CardHeader className="pb-3">
                 <CardTitle>{t("dashboard.categoryBreakdown")}</CardTitle>
                 <CardDescription>{t("dashboard.currentMonthTotals")}</CardDescription>
               </CardHeader>
-              <CardContent className="h-[300px]">
+              <CardContent className="flex-1 pt-0 pb-4">
                 {loading ? (
                   <div className="h-full w-full animate-pulse rounded-lg bg-muted" />
                 ) : monthCategoryChartData.length === 0 ? (
                   <EmptyState inline description={t("dashboard.noCategoryDataYet")} />
                 ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={monthCategoryChartData} margin={{ top: 8, right: 8, left: 0, bottom: 10 }}>
-                      <CartesianGrid strokeDasharray="4 4" className="stroke-muted" />
-                      <XAxis
-                        dataKey="category"
-                        tickFormatter={(value) =>
-                          t(`categories.${value}`, { defaultValue: value })
-                        }
-                        tick={{ fontSize: 11 }}
-                        axisLine={false}
-                        tickLine={false}
-                        interval="preserveStartEnd"
-                        minTickGap={24}
-                      />
-                      <YAxis
-                        tickFormatter={(value) => formatCompactUzs(value)}
-                        tick={{ fontSize: 12 }}
-                        axisLine={false}
-                        tickLine={false}
-                        width={60}
-                      />
+                  <div className="h-full min-h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={monthCategoryChartData}
+                        layout="vertical"
+                        margin={{ top: 2, right: 8, left: 8, bottom: 8 }}
+                        barCategoryGap="20%"
+                      >
+                        <CartesianGrid strokeDasharray="4 4" className="stroke-muted" />
+                        <XAxis
+                          type="number"
+                          tickFormatter={(value) => formatCompactUzs(value)}
+                          tick={{ fontSize: 12 }}
+                          axisLine={false}
+                          tickLine={false}
+                          width={60}
+                        />
+                        <YAxis
+                          type="category"
+                          dataKey="category"
+                          tickFormatter={(value) =>
+                            t(`categories.${value}`, { defaultValue: value })
+                          }
+                          tick={{ fontSize: 11 }}
+                          axisLine={false}
+                          tickLine={false}
+                          width={120}
+                          interval={0}
+                        />
 
-                      <Tooltip
-                        cursor={false}
-                        contentStyle={tooltipStyle}
-                        labelStyle={{ color: "hsl(var(--foreground))" }}
-                        labelFormatter={(label) =>
-                          t(`categories.${label}`, { defaultValue: label })
-                        }
-                        formatter={(value) => [
-                          <span style={{ color: "hsl(var(--primary))", fontWeight: 600 }}>
-                            {formatUzs(value)} UZS
-                          </span>,
-                          t("dashboard.total"),
-                        ]}
-                      />
+                        <Tooltip
+                          cursor={{ fill: "hsl(var(--primary))", fillOpacity: 0.08 }}
+                          contentStyle={tooltipStyle}
+                          labelStyle={{ color: "hsl(var(--foreground))" }}
+                          labelFormatter={(label) =>
+                            t(`categories.${label}`, { defaultValue: label })
+                          }
+                          formatter={(value) => [
+                            <span style={{ color: "hsl(var(--primary))", fontWeight: 600 }}>
+                              {formatUzs(value)} UZS
+                            </span>,
+                            t("dashboard.total"),
+                          ]}
+                        />
 
-                      <Bar dataKey="total" fill="hsl(var(--primary))" radius={[6, 6, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+                        <Bar
+                          dataKey="total"
+                          fill="hsl(var(--primary))"
+                          radius={[0, 6, 6, 0]}
+                        >
+                          {monthCategoryChartData.map((entry) => {
+                            const isActive = activeCategoryBar === entry.category;
+                            return (
+                              <Cell
+                                key={`cell-${entry.category}`}
+                                stroke={isActive ? "hsl(var(--primary))" : "none"}
+                                strokeWidth={isActive ? 2 : 0}
+                                onMouseEnter={() => setActiveCategoryBar(entry.category)}
+                                onMouseLeave={() => setActiveCategoryBar(null)}
+                                onClick={() => setActiveCategoryBar(entry.category)}
+                                style={{ transition: "opacity 160ms ease" }}
+                              />
+                            );
+                          })}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
                 )}
               </CardContent>
             </Card>
 
             {/* Upcoming Recurring Charges Widget */}
             <Card className="shadow-sm flex flex-col h-full overflow-hidden">
-              <CardHeader className="pb-4 shrink-0">
+              <CardHeader className="pb-3 shrink-0">
                 <div className="flex items-center gap-2">
                   <CalendarClock className="h-5 w-5 text-primary" />
-                  <CardTitle>Upcoming Recurring</CardTitle>
+                  <CardTitle>{t("dashboard.upcomingRecurringTitle")}</CardTitle>
                 </div>
-                <CardDescription>Predicted charges scheduled for the coming weeks</CardDescription>
+                <CardDescription>{t("dashboard.upcomingRecurringSubtitle")}</CardDescription>
               </CardHeader>
               <CardContent className="flex-1 flex flex-col pt-0 pb-4">
                 {!user?.is_premium ? (
@@ -529,10 +660,10 @@ export default function Dashboard() {
                     <div className="p-3 bg-amber-500/10 rounded-full">
                       <span className="text-2xl">✨</span>
                     </div>
-                    <h4 className="font-semibold">Premium Feature</h4>
-                    <p className="text-sm text-muted-foreground">Unlock Recurring Expenses to automate your tracking.</p>
+                    <h4 className="font-semibold">{t("recurring.premiumTitle")}</h4>
+                    <p className="text-sm text-muted-foreground">{t("recurring.premiumDesc")}</p>
                     <Button asChild variant="outline" size="sm" className="mt-2 text-primary hover:text-primary">
-                      <Link to="/settings">Learn More</Link>
+                      <Link to="/settings">{t("dashboard.learnMore")}</Link>
                     </Button>
                   </div>
                 ) : loading ? (
@@ -540,22 +671,21 @@ export default function Dashboard() {
                     <LoadingSpinner className="h-6 w-6" />
                   </div>
                 ) : recurringExpenses.length === 0 ? (
-                  <EmptyState inline description="No upcoming recurring charges." />
+                  <EmptyState inline description={t("dashboard.noUpcomingRecurring")} />
                 ) : (
-                  <div className="space-y-4 pt-2">
+                  <div className="space-y-0 -mt-1">
                     {recurringExpenses.map((e) => (
-                      <div key={e.id} className="flex justify-between items-center group">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <div className="font-medium leading-none">{e.title}</div>
-                            <Badge variant="secondary" className="text-[10px] h-4 px-1">{e.frequency}</Badge>
-                          </div>
-                          <div className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
-                            <span>Due:</span>
-                            <span className="text-foreground/80">{formatDisplayDate(e.next_due_date, appLang)}</span>
+                      <div
+                        key={e.id}
+                        className="flex items-center justify-between gap-2 border-b border-border/40 p-2 -mx-2 rounded-xl hover:bg-muted dark:hover:bg-muted/30 transition-all duration-300 last:border-0"
+                      >
+                        <div className="space-y-1 flex-1 min-w-0 pr-8">
+                          <div className="font-medium leading-6 truncate pb-0.5">{e.title}</div>
+                          <div className="text-xs text-muted-foreground/80 font-medium truncate">
+                            {formatRelativeDue(e.days_until_due, e.next_due_date)}
                           </div>
                         </div>
-                        <div className="font-semibold text-sm tabular-nums text-right">
+                        <div className="font-semibold text-sm tabular-nums text-right shrink-0 whitespace-nowrap">
                           {formatAmountDisplay(e.amount)} <span className="text-xs font-normal text-muted-foreground">UZS</span>
                         </div>
                       </div>

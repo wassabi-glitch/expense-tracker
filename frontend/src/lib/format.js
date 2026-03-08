@@ -103,8 +103,13 @@ export const formatMonthYear = (yearOrValue, monthFallback, appLangFallback) => 
     }
 
     if (!y || !m) return "";
-    const dateLocale = getDateLocale(appLang);
+    // For Uzbek/Russian, prefer explicit month lists to avoid English fallbacks across platforms.
+    if (appLang.startsWith("uz") || appLang.startsWith("ru")) {
+        const fallbackMonths = getFallbackMonthsLong(appLang);
+        return `${fallbackMonths[m - 1]} ${y}`;
+    }
 
+    const dateLocale = getDateLocale(appLang);
     const formatted = new Intl.DateTimeFormat(dateLocale, { month: "long", year: "numeric" }).format(
         new Date(Date.UTC(y, m - 1, 1))
     );

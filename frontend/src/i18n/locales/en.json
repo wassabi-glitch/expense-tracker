@@ -185,12 +185,28 @@
     "latestTransactions": "Latest transactions",
     "noExpensesYet": "No expenses yet.",
     "viewAllTransactions": "View All Transactions",
+    "viewAllBudgets": "View all budgets",
+    "viewAllBudgetsWithCount": "View all budgets (+{{count}})",
     "spendingTrends": "Spending Trends",
     "dailyTrendThisMonth": "Daily trend from the 1st of this month to today",
     "noTrendDataYet": "No trend data yet.",
     "categoryBreakdown": "Category Breakdown",
     "currentMonthTotals": "Current month totals by category",
     "noCategoryDataYet": "No category data yet.",
+    "upcomingRecurringTitle": "Upcoming Recurring",
+    "upcomingRecurringSubtitle": "Predicted charges scheduled for the coming weeks",
+    "noUpcomingRecurring": "No upcoming recurring charges.",
+    "recurringDueRelative": "Due {{when}}",
+    "relative": {
+      "today": "today",
+      "tomorrow": "tomorrow",
+      "yesterday": "yesterday",
+      "inDays": "in {{count}} days",
+      "daysAgo": "{{count}} days ago",
+      "inWeeks": "in {{count}} weeks",
+      "weeksAgo": "{{count}} weeks ago"
+    },
+    "learnMore": "Learn more",
     "amount": "Amount",
     "total": "Total"
   },
@@ -317,6 +333,7 @@
     "titleMinLength": "Title must be at least 3 characters.",
     "amountPositive": "Amount must be a positive number.",
     "categoryRequired": "Please select a category.",
+    "budgetRequiredForStartMonth": "Cannot create this recurring template for {{category}} because no budget exists for {{month}}. Create that budget first.",
     "errors": {
       "recurring_expenses.premium_required": "This feature requires a Premium subscription.",
       "recurring_expenses.not_found": "Recurring expense not found.",
@@ -471,11 +488,33 @@
     "goToSignIn": "Go to sign in"
   },
   "categories": {
-    "Food": "Food",
-    "Transport": "Transport",
+    "Groceries": "Groceries",
+    "Dining Out": "Dining Out",
     "Housing": "Housing",
-    "Entertainment": "Entertainment",
     "Utilities": "Utilities",
-    "Other": "Other"
+    "Subscriptions": "Subscriptions",
+    "Transport": "Transport",
+    "Health": "Health",
+    "Education": "Education",
+    "Clothing": "Clothing",
+    "Family & Events": "Family & Events",
+    "Entertainment": "Entertainment",
+    "Installments & Debt": "Installments & Debt",
+    "Business / Work": "Business / Work"
+  },
+  "categories_desc": {
+    "Groceries": "Only raw materials and unprepared food (not ready-to-eat)",
+    "Dining Out": "Restaurants, cafes, food delivery, and ready-to-eat meals",
+    "Housing": "Rent, mortgage, property taxes, and home maintenance",
+    "Utilities": "Electricity, water, gas, internet, and phone bills",
+    "Subscriptions": "Streaming services, gym, and recurring software fees",
+    "Transport": "Fuel, public transit, taxi, parking, and car maintenance",
+    "Health": "Doctor visits, pharmacy, insurance, and fitness related costs",
+    "Education": "Tuition fees, courses, books, and development materials",
+    "Clothing": "Apparel, footwear, and accessories",
+    "Family & Events": "Gifts, ceremonies, charity, and supporting relatives",
+    "Entertainment": "Cinema, hobbies, travel, and leisure activities",
+    "Installments & Debt": "Loan repayments, installments, and credit card debt",
+    "Business / Work": "Client meetings, office supplies, software tools, and work travel"
   }
 }

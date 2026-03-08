@@ -11,7 +11,7 @@ def test_create_budget_success(client):
     res = create_budget(client, headers, category="Food", monthly_limit=500)
     assert res.status_code == 201
     data = res.json()
-    assert data["category"] == "Food"
+    assert data["category"] == "Groceries"
     assert data["monthly_limit"] == 500
     assert "spent" in data
     assert "budget_year" in data
@@ -41,7 +41,7 @@ def test_get_budgets_list(client):
         json={
             "title": "Burger",
             "amount": 50,
-            "category": "Food",
+            "category": "Groceries",
             "date": today.isoformat(),
         },
         headers=headers,
@@ -52,7 +52,7 @@ def test_get_budgets_list(client):
     data = res.json()
     assert len(data) == 2
     
-    food_budget = next(b for b in data if b["category"] == "Food")
+    food_budget = next(b for b in data if b["category"] == "Groceries")
     transport_budget = next(b for b in data if b["category"] == "Transport")
     
     assert food_budget["spent"] == 50
@@ -65,10 +65,10 @@ def test_get_budget_by_category(client):
     )
     today = date.today()
     create_budget(client, headers, category="Food", monthly_limit=300, budget_year=today.year, budget_month=today.month)
-    res = client.get(f"/budgets/{today.year}/{today.month}/Food", headers=headers)
+    res = client.get(f"/budgets/{today.year}/{today.month}/Groceries", headers=headers)
     assert res.status_code == 200
     data = res.json()
-    assert data["category"] == "Food"
+    assert data["category"] == "Groceries"
     assert "spent" in data
 
 
@@ -78,7 +78,7 @@ def test_update_budget(client):
     )
     today = date.today()
     create_budget(client, headers, category="Food", monthly_limit=300, budget_year=today.year, budget_month=today.month)
-    res = client.patch(f"/budgets/{today.year}/{today.month}/Food", json={"monthly_limit": 800}, headers=headers)
+    res = client.patch(f"/budgets/{today.year}/{today.month}/Groceries", json={"monthly_limit": 800}, headers=headers)
     assert res.status_code == 200
     data = res.json()
     assert data["monthly_limit"] == 800
@@ -91,7 +91,7 @@ def test_delete_budget(client):
     )
     today = date.today()
     create_budget(client, headers, category="Food", monthly_limit=300, budget_year=today.year, budget_month=today.month)
-    res = client.delete(f"/budgets/{today.year}/{today.month}/Food", headers=headers)
+    res = client.delete(f"/budgets/{today.year}/{today.month}/Groceries", headers=headers)
     assert res.status_code == 204
     res_list = client.get("/budgets/", headers=headers)
     assert res_list.status_code == 200
@@ -116,7 +116,7 @@ def test_delete_budget_blocks_when_linked_expenses_exist(client):
         json={
             "title": "Linked expense",
             "amount": 10,
-            "category": "Food",
+            "category": "Groceries",
             "description": "test",
             "date": today.isoformat(),
         },
@@ -124,11 +124,11 @@ def test_delete_budget_blocks_when_linked_expenses_exist(client):
     )
     assert expense_res.status_code == 201, expense_res.text
 
-    res = client.delete(f"/budgets/{today.year}/{today.month}/Food", headers=headers)
+    res = client.delete(f"/budgets/{today.year}/{today.month}/Groceries", headers=headers)
     assert res.status_code == 409
     assert res.json()["detail"] == "budgets.has_linked_expenses"
 
-    still_exists = client.get(f"/budgets/{today.year}/{today.month}/Food", headers=headers)
+    still_exists = client.get(f"/budgets/{today.year}/{today.month}/Groceries", headers=headers)
     assert still_exists.status_code == 200
 
 
@@ -145,7 +145,7 @@ def test_budget_write_rate_limit_blocks_burst(client):
     for i in range(15):
         res = client.post(
             "/budgets/",
-            json={"category": "Food", "monthly_limit": 500 + i, "budget_year": 2026, "budget_month": i % 12 + 1},
+            json={"category": "Groceries", "monthly_limit": 500 + i, "budget_year": 2026, "budget_month": i % 12 + 1},
             headers=headers
         )
         if res.status_code == 429:

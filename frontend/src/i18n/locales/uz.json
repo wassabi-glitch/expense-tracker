@@ -185,12 +185,28 @@
     "latestTransactions": "So'nggi tranzaksiyalar",
     "noExpensesYet": "Hali xarajatlar yo'q.",
     "viewAllTransactions": "Barcha tranzaksiyalarni ko'rish",
+    "viewAllBudgets": "Barcha byudjetlarni ko'rish",
+    "viewAllBudgetsWithCount": "Barcha byudjetlarni ko'rish (+{{count}})",
     "spendingTrends": "Sarf trendlari",
     "dailyTrendThisMonth": "Ushbu oy 1-kunidan bugungacha kundalik trend",
     "noTrendDataYet": "Hali trend ma'lumotlari yo'q.",
     "categoryBreakdown": "Toifalar kesimi",
     "currentMonthTotals": "Joriy oy bo'yicha toifa jami summalari",
     "noCategoryDataYet": "Hali toifa ma'lumotlari yo'q.",
+    "upcomingRecurringTitle": "Kelgusi takroriy to'lovlar",
+    "upcomingRecurringSubtitle": "Yaqin haftalar uchun rejalashtirilgan to'lovlar",
+    "noUpcomingRecurring": "Kelgusi takroriy to'lovlar yo'q.",
+    "recurringDueRelative": "{{when}}",
+    "relative": {
+      "today": "bugun",
+      "tomorrow": "ertaga",
+      "yesterday": "kecha",
+      "inDays": "{{count}} kundan keyin",
+      "daysAgo": "{{count}} kun oldin",
+      "inWeeks": "{{count}} haftadan keyin",
+      "weeksAgo": "{{count}} hafta oldin"
+    },
+    "learnMore": "Batafsil",
     "amount": "Summa",
     "total": "Jami"
   },
@@ -317,6 +333,7 @@
     "titleMinLength": "Nomi kamida 3 ta belgidan iborat bo'lishi kerak.",
     "amountPositive": "Summa musbat son bo'lishi kerak.",
     "categoryRequired": "Iltimos, toifa tanlang.",
+    "budgetRequiredForStartMonth": "{{month}} oyi uchun {{category}} toifasida takroriy shablon yaratib bo'lmaydi. Avval shu oy uchun byudjet yarating.",
     "errors": {
       "recurring_expenses.premium_required": "Bu funksiya Premium obuna talab qiladi.",
       "recurring_expenses.not_found": "Takroriy xarajat topilmadi.",
@@ -471,11 +488,33 @@
     "goToSignIn": "Kirish sahifasiga o'tish"
   },
   "categories": {
-    "Food": "Oziq-ovqat",
+    "Groceries": "Oziq-ovqat mahsulotlari",
+    "Dining Out": "Ko'chada ovqatlanish",
+    "Housing": "Turar joy",
+    "Utilities": "Kommunal xizmatlar",
+    "Subscriptions": "Obunalar",
     "Transport": "Transport",
-    "Housing": "Uy-joy",
+    "Health": "Sog'liqni saqlash",
+    "Education": "Ta'lim",
+    "Clothing": "Kiyim-kechak",
+    "Family & Events": "Oila & marosimlar",
     "Entertainment": "Ko'ngilochar",
-    "Utilities": "Kommunal",
-    "Other": "Boshqa"
+    "Installments & Debt": "Muddatli to'lov / qarzlar",
+    "Business / Work": "Biznes / ish"
+  },
+  "categories_desc": {
+    "Groceries": "Faqat xomashyo va tayyor bo'lmagan oziq-ovqat mahsulotlari",
+    "Dining Out": "Restoran, kafe, yetkazib berish va tayyor taomlar",
+    "Housing": "Ijara, ipoteka, soliqlar va uy xarajatlari",
+    "Utilities": "Elektr, suv, gaz, internet va telefon to'lovlari",
+    "Subscriptions": "Striming, sport zal va davriy xizmat to'lovlari",
+    "Transport": "Yoqilg'i, jamoat transporti, taksi va avto xizmat",
+    "Health": "Shifokor, dorixona, sug'urta va sog'lom turmush tarzi xarajatlari",
+    "Education": "O'quv to'lovlari, kurslar, kitoblar va rivojlanish materiallari",
+    "Clothing": "Kiyimlar, poyabzal va aksessuarlar",
+    "Family & Events": "Sovg'alar, marosimlar, xayriya va yaqinlarga yordam",
+    "Entertainment": "Kino, hobbi, sayohat va dam olish tadbirlari",
+    "Installments & Debt": "Kredit to'lovlari, bo'lib to'lash / qarzlar",
+    "Business / Work": "Mijoz uchrashuvlari, ofis jihozlari, dasturiy vositalar va ish safarlari"
   }
 }
