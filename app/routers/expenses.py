@@ -92,11 +92,12 @@ def resolve_budget_for_expense_month(
     category: models.ExpenseCategory,
     expense_date: date,
 ) -> models.Budget:
+    category_value = category.value if hasattr(category, "value") else category
     budget = (
         db.query(models.Budget)
         .filter(
             models.Budget.owner_id == user_id,
-            models.Budget.category == category,
+            models.Budget.category == category_value,
             models.Budget.budget_year == expense_date.year,
             models.Budget.budget_month == expense_date.month,
         )
