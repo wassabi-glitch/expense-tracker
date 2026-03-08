@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 from tests.helpers import create_user_and_token, create_budget, create_expense
 from app import models
+from sqlalchemy import text
 
 
 def test_analytics_history(client, session):
@@ -18,30 +19,47 @@ def test_analytics_history(client, session):
     today = date.today()
     budget = session.query(models.Budget).filter(
         models.Budget.owner_id == user.id,
-        models.Budget.category == models.ExpenseCategory.GROCERIES.value,
         models.Budget.budget_year == today.year,
         models.Budget.budget_month == today.month,
     ).first()
     assert budget is not None
 
-    session.add(models.Expense(
-        owner_id=user.id,
-        title="Item One",
-        amount=10,
-        category=models.ExpenseCategory.GROCERIES.value,
-        description="test",
-        date=today,
-        budget_id=budget.id,
-    ))
-    session.add(models.Expense(
-        owner_id=user.id,
-        title="Item Two",
-        amount=20,
-        category=models.ExpenseCategory.GROCERIES.value,
-        description="test",
-        date=today,
-        budget_id=budget.id,
-    ))
+    # Insert with raw SQL so DB enum receives exact value string ("Groceries"),
+    # bypassing SQLAlchemy enum-name binding ("GROCERIES") in CI.
+    session.execute(
+        text(
+            """
+            INSERT INTO expenses (title, amount, category, description, owner_id, budget_id, date)
+            VALUES (:title, :amount, :category, :description, :owner_id, :budget_id, :date)
+            """
+        ),
+        {
+            "title": "Item One",
+            "amount": 10,
+            "category": "Groceries",
+            "description": "test",
+            "owner_id": user.id,
+            "budget_id": budget.id,
+            "date": today,
+        },
+    )
+    session.execute(
+        text(
+            """
+            INSERT INTO expenses (title, amount, category, description, owner_id, budget_id, date)
+            VALUES (:title, :amount, :category, :description, :owner_id, :budget_id, :date)
+            """
+        ),
+        {
+            "title": "Item Two",
+            "amount": 20,
+            "category": "Groceries",
+            "description": "test",
+            "owner_id": user.id,
+            "budget_id": budget.id,
+            "date": today,
+        },
+    )
     session.commit()
 
     res = client.get("/analytics/history", headers=headers)
