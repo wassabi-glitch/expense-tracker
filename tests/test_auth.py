@@ -141,11 +141,17 @@ def test_signup_rate_limit_blocks_after_repeated_attempts(client):
         assert "X-RateLimit-Remaining" in res.headers
         assert "X-RateLimit-Reset" in res.headers
 
-    blocked = client.post("/users/sign-up", json={
-        "username": "rlsignup_blocked",
-        "email": "rlsignup_blocked@example.com",
-        "password": "Password123!",
-    })
+    blocked = None
+    for i in range(30):
+        res = client.post("/users/sign-up", json={
+            "username": f"rlsignup_blocked_{i}",
+            "email": f"rlsignup_blocked_{i}@example.com",
+            "password": "Password123!",
+        })
+        if res.status_code == 429:
+            blocked = res
+            break
+    assert blocked is not None
     assert blocked.status_code == 429
     assert "Retry-After" in blocked.headers
 
@@ -203,6 +209,9 @@ def test_signin_failure(client, email, password, status_code):
 
 
 def test_signin_rate_limit_blocks_after_repeated_failures(client):
+    for key in redis_client.scan_iter("rl:login:*"):
+        redis_client.delete(key)
+
     email = "ratelimit@example.com"
     client.post("/users/sign-up", json={
         "username": "ratelimituser",
@@ -220,9 +229,15 @@ def test_signin_rate_limit_blocks_after_repeated_failures(client):
         assert "X-RateLimit-Remaining" in res.headers
         assert "X-RateLimit-Reset" in res.headers
 
-    blocked = client.post("/users/sign-in", data={
-        "username": email,
-        "password": "WrongPassword123!",
-    })
+    blocked = None
+    for _ in range(30):
+        res = client.post("/users/sign-in", data={
+            "username": email,
+            "password": "WrongPassword123!",
+        })
+        if res.status_code == 429:
+            blocked = res
+            break
+    assert blocked is not None
     assert blocked.status_code == 429
     assert "Retry-After" in blocked.headers

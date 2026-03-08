@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Car, Gamepad2, Home, Trash2, Utensils, Wrench, Circle, Plus } from "lucide-react";
+import { Trash2, Circle, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,7 @@ import {
 } from "@/lib/api";
 import { budgetCreateFormSchema, budgetDeleteFormSchema, budgetUpdateFormSchema, MAX_BUDGET_AMOUNT } from "./budgetSchemas";
 import { localizeApiError } from "@/lib/errorMessages";
-import { categoryIconMap } from "@/lib/category";
+import { categoryIconMap, CATEGORIES } from "@/lib/category";
 import { formatUzs, formatCompactUzs, formatAmountInput, formatMonthYear, getFallbackMonthsLong, getDateLocale } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
@@ -272,10 +272,12 @@ export default function Budgets() {
         return true;
       });
   }, [showHistory, sortedBudgets, visibleBudgets, formatBudgetMonth]);
-  const localizedCategoryOptions = useMemo(
-    () => [...categories].sort((a, b) => compareLocalizedCategory(a, b)),
-    [categories, compareLocalizedCategory]
-  );
+  const orderedCategoryOptions = useMemo(() => {
+    const set = new Set(categories || []);
+    const inOrder = CATEGORIES.filter((c) => set.has(c));
+    const extras = [...set].filter((c) => !CATEGORIES.includes(c));
+    return [...inOrder, ...extras];
+  }, [categories]);
   const filteredBudgets = useMemo(() => {
     let rows = budgetsWithDerived;
     if (filterCategory !== "all") {
@@ -471,7 +473,7 @@ export default function Budgets() {
                   </SelectTrigger>
                   <SelectContent className={selectContentClass} position="popper" side="bottom">
                     <SelectItem value="all">{t("budgets.filterCategoryAll")}</SelectItem>
-                    {localizedCategoryOptions.map((c) => (
+                    {orderedCategoryOptions.map((c) => (
                       <SelectItem key={c} value={c}>
                         {tCategory(c)}
                       </SelectItem>
@@ -727,11 +729,22 @@ export default function Budgets() {
                   position="popper"
                   side="bottom"
                 >
-                  {localizedCategoryOptions.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {tCategory(c)}
-                    </SelectItem>
-                  ))}
+                  {orderedCategoryOptions.map((c) => {
+                    const Icon = categoryIconMap[c] || Circle;
+                    return (
+                      <SelectItem key={c} value={c}>
+                        <div className="flex flex-col gap-1 py-1">
+                          <div className="flex items-center gap-2 font-medium">
+                            <Icon className="h-4 w-4 text-muted-foreground" />
+                            <span>{tCategory(c)}</span>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground leading-tight">
+                            {t(`categories_desc.${c}`)}
+                          </span>
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>

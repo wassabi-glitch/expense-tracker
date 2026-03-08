@@ -36,13 +36,13 @@ def test_export_expenses_filters(client):
     create_expense(client, headers, title="Food Item", amount=5, category="Food")
     create_expense(client, headers, title="Taxi Ride", amount=15, category="Transport")
 
-    res = client.get("/expenses/export?category=Food", headers=headers)
+    res = client.get("/expenses/export?category=Groceries", headers=headers)
     assert res.status_code == 200
 
     rows = _parse_csv(res.text)
     assert rows[0] == ["\ufeffdate", "title", "amount", "category", "description"]
     assert len(rows) == 2
-    assert rows[1][3] == "Food"
+    assert rows[1][3] == "Groceries"
 
 
 def test_export_expenses_sorted_by_date_desc(client):
@@ -116,7 +116,7 @@ def test_export_escapes_formula_like_cells(client):
         json={
             "title": "=SUM(1,2)",
             "amount": 10,
-            "category": "Food",
+            "category": "Groceries",
             "description": "+cmd|' /C calc'!A0",
             "date": date.today().isoformat(),
         },

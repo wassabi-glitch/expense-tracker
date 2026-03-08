@@ -7,12 +7,19 @@ from datetime import date
 
 
 class ExpenseCategory(str, enum.Enum):
-    FOOD = "Food"
-    TRANSPORT = "Transport"
+    GROCERIES = "Groceries"
+    DINING_OUT = "Dining Out"
     HOUSING = "Housing"
-    ENTERTAINMENT = "Entertainment"
     UTILITIES = "Utilities"
-    OTHER = "Other"
+    SUBSCRIPTIONS = "Subscriptions"
+    TRANSPORT = "Transport"
+    HEALTH = "Health"
+    EDUCATION = "Education"
+    CLOTHING = "Clothing"
+    FAMILY_EVENTS = "Family & Events"
+    ENTERTAINMENT = "Entertainment"
+    INSTALLMENTS_DEBT = "Installments & Debt"
+    BUSINESS_WORK = "Business / Work"
 
 
 class RecurringFrequency(str, enum.Enum):
@@ -82,7 +89,7 @@ class Expense(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(32), nullable=False)
     amount = Column(BigInteger, nullable=False)
-    category = Column(Enum(ExpenseCategory), default=ExpenseCategory.OTHER, nullable=False)
+    category = Column(Enum(ExpenseCategory), nullable=False)  # No default
     description = Column(String, nullable=True)
     owner_id = Column(Integer, ForeignKey(
         "users.id", ondelete="CASCADE"), nullable=False)
@@ -105,7 +112,7 @@ class RecurringExpense(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(32), nullable=False)
     amount = Column(BigInteger, nullable=False)
-    category = Column(Enum(ExpenseCategory), default=ExpenseCategory.OTHER, nullable=False)
+    category = Column(Enum(ExpenseCategory), nullable=False)
     description = Column(String, nullable=True)
     frequency = Column(Enum(RecurringFrequency), nullable=False)
     start_date = Column(Date, nullable=False)
@@ -138,6 +145,7 @@ class Budget(Base):
 
     budget_year = Column(Integer, nullable=False)
     budget_month = Column(Integer, nullable=False)
+    auto_created = Column(Boolean, default=False, nullable=False)
 
     owner_id = Column(Integer, ForeignKey(
         "users.id", ondelete="CASCADE"), nullable=False)

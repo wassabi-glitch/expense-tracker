@@ -1,6 +1,11 @@
 import logging
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.interval import IntervalTrigger
+try:  # pyright: ignore[reportMissingImports]
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    # pyright: ignore[reportMissingImports]
+    from apscheduler.triggers.interval import IntervalTrigger
+except Exception:  # pragma: no cover - optional local dependency
+    AsyncIOScheduler = None
+    IntervalTrigger = None
 from sqlalchemy.orm import Session
 from datetime import timedelta
 from zoneinfo import ZoneInfo
@@ -10,6 +15,7 @@ from app import models
 from app.timezone import today_in_tz
 
 logger = logging.getLogger(__name__)
+AUTO_CREATED_BUDGET_DEFAULT_LIMIT = 50_000
 
 
 def calculate_next_due_date(current_due_date, frequency: models.RecurringFrequency):
@@ -35,11 +41,10 @@ def calculate_next_due_date(current_due_date, frequency: models.RecurringFrequen
             return current_due_date + timedelta(days=365)
 
 # Helper to get or create a budget for a given month/category
+
+
 def get_or_create_budget(db: Session, owner_id: int, category: models.ExpenseCategory, year: int, month: int) -> models.Budget:
-    """Return existing budget or create a new one.
-    If a budget for the given month does not exist, attempt to copy the most recent previous month's budget.
-    If none exists, create a budget with a monthly_limit of 0.
-    """
+    """Return existing month budget, previous-month copy, or fallback default."""
     # Try exact month
     budget = (
         db.query(models.Budget)
@@ -76,17 +81,19 @@ def get_or_create_budget(db: Session, owner_id: int, category: models.ExpenseCat
             monthly_limit=prev_budget.monthly_limit,
             budget_year=year,
             budget_month=month,
+            auto_created=True,
         )
         db.add(new_budget)
         db.flush()
         return new_budget
-    # No previous budget, create with zero limit
+
     new_budget = models.Budget(
         owner_id=owner_id,
         category=category,
-        monthly_limit=0,
+        monthly_limit=AUTO_CREATED_BUDGET_DEFAULT_LIMIT,
         budget_year=year,
         budget_month=month,
+        auto_created=True,
     )
     db.add(new_budget)
     db.flush()
@@ -125,7 +132,8 @@ def process_due_recurring_expenses(db: Session = None):
             if rec.next_due_date > today_for_user:
                 continue  # Not due yet in user's local timezone
 
-            logger.info(f"Backfilling template {rec.id}: {rec.title} (freq={rec.frequency}, tz={user_tz_str}, today={today_for_user})")
+            logger.info(
+                f"Backfilling template {rec.id}: {rec.title} (freq={rec.frequency}, tz={user_tz_str}, today={today_for_user})")
 
             current_due = rec.next_due_date
             created = 0
@@ -146,11 +154,13 @@ def process_due_recurring_expenses(db: Session = None):
                     ).id,
                 )
                 db_session.add(new_expense)
-                current_due = calculate_next_due_date(current_due, rec.frequency)
+                current_due = calculate_next_due_date(
+                    current_due, rec.frequency)
                 created += 1
 
             rec.next_due_date = current_due
-            logger.info(f"  → Created {created} expense(s); next_due_date={rec.next_due_date}")
+            logger.info(
+                f"  → Created {created} expense(s); next_due_date={rec.next_due_date}")
             processed += 1
 
         db_session.commit()
@@ -164,8 +174,13 @@ def process_due_recurring_expenses(db: Session = None):
             db_session.close()
 
 
-
 def start_scheduler():
+    if AsyncIOScheduler is None or IntervalTrigger is None:
+        logger.warning(
+            "APScheduler is not installed. Recurring background scheduler is disabled."
+        )
+        return None
+
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         process_due_recurring_expenses,
@@ -173,9 +188,10 @@ def start_scheduler():
         id="process_recurring_expenses",
         name="Hourly check for recurring expenses",
         replace_existing=True,
-        next_run_time=__import__("datetime").datetime.now(),  # Fire immediately on startup
+        # Fire immediately on startup
+        next_run_time=__import__("datetime").datetime.now(),
     )
     scheduler.start()
-    logger.info("APScheduler started: Recurring expenses check scheduled hourly (+ immediate first run).")
+    logger.info(
+        "APScheduler started: Recurring expenses check scheduled hourly (+ immediate first run).")
     return scheduler
-

@@ -43,7 +43,8 @@ const MIN_EXPENSE_DATE = "2020-01-01";
 const MAX_EXPENSE_AMOUNT_DIGITS = String(MAX_EXPENSE_AMOUNT).length;
 const ALL_CATEGORIES_SELECT = "__all_categories__";
 
-import { getCategoryBgClass } from "@/lib/category";
+import { getCategoryBgClass, categoryIconMap, CATEGORIES } from "@/lib/category";
+import { Circle } from "lucide-react";
 import { formatAmountDisplay, formatAmountInput, formatDisplayDate, formatMonthYear } from "@/lib/format";
 
 const parsePageParam = (value) => {
@@ -123,14 +124,20 @@ export default function Expenses() {
   const pageNavLockRef = useRef(false);
 
   const tCategory = (name) => t(`categories.${name}`, { defaultValue: name });
+  const orderedCategories = useMemo(() => {
+    const set = new Set(categories || []);
+    const inOrder = CATEGORIES.filter((c) => set.has(c));
+    const extras = [...set].filter((c) => !CATEGORIES.includes(c));
+    return [...inOrder, ...extras];
+  }, [categories]);
   const selectTriggerClass =
     "w-full bg-white text-black dark:bg-black dark:text-white dark:hover:bg-black";
   const selectContentClass =
     "max-h-[190px] overflow-y-auto bg-white text-black dark:bg-black dark:text-white";
-  const appLang = String(i18n.resolvedLanguage || i18n.language || "en").toLowerCase();
+  const appLang = String(i18n.language || i18n.resolvedLanguage || "en").toLowerCase();
 
   const _formatDisplayDateLocal = (value) => formatDisplayDate(value, appLang);
-  const _formatMonthYearLocal = (value) => formatMonthYear(value, undefined, appLang);
+  const _formatMonthYearLocal = (value) => formatMonthYear(value, appLang);
 
   const dateFilterError = useMemo(() => {
     if (startDate && startDate > todayISO) return t("expenses.startFuture");
@@ -485,10 +492,6 @@ export default function Expenses() {
         </PageHeader>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
-        {actionError && !addOpen && !editOpen && !deleteOpen && (
-          <p className="text-sm text-red-600">{actionError}</p>
-        )}
-
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-4 shadow-none">
           <TabsList className="grid w-full h-12 max-w-[400px] grid-cols-2 rounded-xl">
             <TabsTrigger value="one-time" className="rounded-lg">{t("expenses.oneTime", { defaultValue: "One-Time Expenses" })}</TabsTrigger>
@@ -534,11 +537,17 @@ export default function Expenses() {
                   </SelectTrigger>
                   <SelectContent className={selectContentClass} position="popper" side="bottom">
                     <SelectItem value={ALL_CATEGORIES_SELECT}>{t("expenses.allCategories")}</SelectItem>
-                    {categories.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {tCategory(c)}
-                      </SelectItem>
-                    ))}
+                    {orderedCategories.map((c) => {
+                      const Icon = categoryIconMap[c] || Circle;
+                      return (
+                        <SelectItem key={c} value={c}>
+                          <div className="flex items-center gap-2">
+                            <Icon className="h-4 w-4 text-muted-foreground" />
+                            <span>{tCategory(c)}</span>
+                          </div>
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
                 <Select
@@ -745,11 +754,22 @@ export default function Expenses() {
                     <SelectValue placeholder={t("expenses.selectCategory")} />
                   </SelectTrigger>
                   <SelectContent className={selectContentClass} position="popper" side="bottom">
-                    {categories.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {tCategory(c)}
-                      </SelectItem>
-                    ))}
+                    {orderedCategories.map((c) => {
+                      const Icon = categoryIconMap[c] || Circle;
+                      return (
+                        <SelectItem key={c} value={c}>
+                          <div className="flex flex-col gap-1 py-1">
+                            <div className="flex items-center gap-2 font-medium">
+                              <Icon className="h-4 w-4 text-muted-foreground" />
+                              <span>{tCategory(c)}</span>
+                            </div>
+                            <span className="text-[10px] text-muted-foreground leading-tight">
+                              {t(`categories_desc.${c}`)}
+                            </span>
+                          </div>
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
                 {addErrors.category && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.category}</p>}
@@ -782,9 +802,9 @@ export default function Expenses() {
                   onBlur={() => setTouchedAdd(p => ({ ...p, description: true }))}
                 />
                 {addErrors.description && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.description}</p>}
+                {actionError && <p className="text-[11px] leading-4 text-red-500 font-medium ml-0.5 mt-1">{actionError}</p>}
               </div>
             </div>
-            {actionError && <p className="text-sm text-red-600">{actionError}</p>}
           </div>
           <DialogFooter>
             <Button variant="outline" disabled={isAdding} onClick={() => setAddOpen(false)}>
