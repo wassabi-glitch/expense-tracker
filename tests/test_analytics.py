@@ -18,7 +18,7 @@ def test_analytics_history(client, session):
     today = date.today()
     budget = session.query(models.Budget).filter(
         models.Budget.owner_id == user.id,
-        models.Budget.category == models.ExpenseCategory.GROCERIES,
+        models.Budget.category == models.ExpenseCategory.GROCERIES.value,
         models.Budget.budget_year == today.year,
         models.Budget.budget_month == today.month,
     ).first()
@@ -28,7 +28,7 @@ def test_analytics_history(client, session):
         owner_id=user.id,
         title="Item One",
         amount=10,
-        category=models.ExpenseCategory.GROCERIES,
+        category=models.ExpenseCategory.GROCERIES.value,
         description="test",
         date=today,
         budget_id=budget.id,
@@ -37,7 +37,7 @@ def test_analytics_history(client, session):
         owner_id=user.id,
         title="Item Two",
         amount=20,
-        category=models.ExpenseCategory.GROCERIES,
+        category=models.ExpenseCategory.GROCERIES.value,
         description="test",
         date=today,
         budget_id=budget.id,
@@ -79,7 +79,8 @@ def test_daily_trend_days_filter(client):
     create_budget(client, headers, category="Food", monthly_limit=500)
 
     # Create expense for today (always in same month as budget)
-    create_expense(client, headers, title="Today Expense", amount=10, category="Food")
+    create_expense(client, headers, title="Today Expense",
+                   amount=10, category="Food")
 
     # days=2 should return at most 2 entries; our expense should be included
     res = client.get("/analytics/daily-trend?days=2", headers=headers)
