@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Plus, Trash2, Pencil, MessageSquare, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Plus, Trash2, Pencil, MessageSquare, Search, ChevronLeft, ChevronRight, Circle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,9 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { EmptyState } from "@/components/EmptyState";
-import { getCategoryBgClass } from "@/lib/category";
+import { categoryIconMap, getCategoryBgClass } from "@/lib/category";
 import { formatAmountDisplay, formatDisplayDate, formatAmountInput, formatMonthYear } from "@/lib/format";
-import { getRecurringExpenses, deleteRecurringExpense, createRecurringExpense, updateRecurringExpense, patchRecurringActive, getCategories, getCurrentUser } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -19,6 +19,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { recurringExpenseFormSchema, recurringExpenseUpdateFormSchema, MIN_EXPENSE_DATE_ZOD } from "./expenseSchemas";
 import { toISODateInTimeZone } from "@/lib/date";
 import { localizeApiError } from "@/lib/errorMessages";
+import { useRecurringDataQuery } from "./hooks/useRecurringDataQuery";
+import { useRecurringCategoriesQuery } from "./hooks/useRecurringCategoriesQuery";
+import {
+    useCreateRecurringMutation,
+    useDeleteRecurringMutation,
+    useToggleRecurringMutation,
+    useUpdateRecurringMutation,
+} from "./hooks/useRecurringMutations";
 
 // Reusable pill toggle
 function ActiveToggle({ checked, onChange, disabled }) {
@@ -43,28 +51,24 @@ function ActiveToggle({ checked, onChange, disabled }) {
 // ── Column layout shared between header and rows ─────────────────────────────
 // Title | Category | Frequency | Next Due | Amount | Active | Actions
 const COL = "grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1fr)_80px_120px] items-center gap-x-2 px-3";
+const EMPTY_ARRAY = [];
 
 export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
     const { t, i18n } = useTranslation();
-    const [user, setUser] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [expenses, setExpenses] = useState([]);
+    const queryClient = useQueryClient();
     const [error, setError] = useState("");
 
     // Delete
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState(null);
-    const [isDeleting, setIsDeleting] = useState(false);
 
     // Add
     const [addOpen, setAddOpen] = useState(false);
-    const [isAdding, setIsAdding] = useState(false);
     const [actionError, setActionError] = useState("");
 
     // Edit
     const [editOpen, setEditOpen] = useState(false);
     const [editTarget, setEditTarget] = useState(null);
-    const [isEditing, setIsEditing] = useState(false);
     const [editError, setEditError] = useState("");
     const [editTitle, setEditTitle] = useState("");
     const [editAmount, setEditAmount] = useState("");
@@ -86,7 +90,6 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
     const [addStartDate, setAddStartDate] = useState("");
     const [addDescription, setAddDescription] = useState("");
 
-    const [categories, setCategories] = useState([]);
     const [touchedAdd, setTouchedAdd] = useState({});
     const [touchedEdit, setTouchedEdit] = useState({});
 
@@ -106,6 +109,15 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
         if (parts.length < 2) return MIN_EXPENSE_DATE_ZOD;
         return `${parts[0]}-${parts[1]}-01`;
     }, [todayISO]);
+    const { userQuery, recurringQuery, isPremium } = useRecurringDataQuery();
+    const categoriesQuery = useRecurringCategoriesQuery(isPremium);
+    const loading = userQuery.isLoading || (isPremium && (recurringQuery.isLoading || categoriesQuery.isLoading));
+    const expenses = recurringQuery.data || EMPTY_ARRAY;
+    const categories = categoriesQuery.data || EMPTY_ARRAY;
+    const fetchError = userQuery.error || recurringQuery.error || categoriesQuery.error;
+    const displayError = error || (fetchError
+        ? localizeApiError(fetchError?.message, t) || fetchError?.message || t("recurring.loadFailed")
+        : "");
     const filteredExpenses = useMemo(() => {
         const q = searchQuery.trim().toLowerCase();
         if (!q) return expenses;
@@ -155,33 +167,6 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
         setPage(p => p !== 1 ? 1 : p);
     }, [searchQuery]);
 
-    const loadExpenses = useCallback(async () => {
-        setLoading(true);
-        setError("");
-        try {
-            const userRes = await getCurrentUser();
-            setUser(userRes);
-            if (!userRes?.is_premium) {
-                setLoading(false);
-                return;
-            }
-            const [data, catData] = await Promise.all([
-                getRecurringExpenses(),
-                getCategories()
-            ]);
-            setExpenses(data || []);
-            setCategories(catData || []);
-        } catch (e) {
-            setError(e.message || t("recurring.loadFailed"));
-        } finally {
-            setLoading(false);
-        }
-    }, [t]);
-
-    useEffect(() => {
-        loadExpenses();
-    }, [loadExpenses]);
-
     // Register the openAdd fn with the parent so the top-bar button can trigger it
     useEffect(() => {
         if (onAddClick) onAddClick(openAdd);
@@ -193,34 +178,41 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
         if (onCountUpdate) onCountUpdate(expenses.length);
     }, [expenses.length, onCountUpdate]);
 
+    const addRecurringMutation = useCreateRecurringMutation();
+    const editRecurringMutation = useUpdateRecurringMutation();
+    const deleteRecurringMutation = useDeleteRecurringMutation();
+    const toggleRecurringMutation = useToggleRecurringMutation();
+
+    const isAdding = addRecurringMutation.isPending;
+    const isEditing = editRecurringMutation.isPending;
+    const isDeleting = deleteRecurringMutation.isPending;
+
     // Inline toggle — dedicated PATCH endpoint, no dialog needed
     const handleInlineToggle = useCallback(async (e, newValue) => {
         if (togglingId) return;
         setTogglingId(e.id);
-        // Optimistic update
-        setExpenses((prev) => prev.map((r) => r.id === e.id ? { ...r, is_active: newValue } : r));
+        const previous = queryClient.getQueryData(["recurring", "list"]) || EMPTY_ARRAY;
+        queryClient.setQueryData(
+            ["recurring", "list"],
+            previous.map((r) => (r.id === e.id ? { ...r, is_active: newValue } : r)),
+        );
         try {
-            await patchRecurringActive(e.id, newValue);
+            await toggleRecurringMutation.mutateAsync({ id: e.id, is_active: newValue });
         } catch (err) {
-            // Rollback on failure
-            setExpenses((prev) => prev.map((r) => r.id === e.id ? { ...r, is_active: e.is_active } : r));
-            setError(err.message || t("recurring.toggleFailed"));
+            queryClient.setQueryData(["recurring", "list"], previous);
+            setError(localizeApiError(err?.message, t) || err?.message || t("recurring.toggleFailed"));
         } finally {
             setTogglingId(null);
         }
-    }, [togglingId, t]);
+    }, [togglingId, queryClient, toggleRecurringMutation, t]);
 
     const handleDelete = async () => {
         if (isDeleting || !deleteTarget) return;
         try {
-            setIsDeleting(true);
-            await deleteRecurringExpense(deleteTarget.id);
+            await deleteRecurringMutation.mutateAsync(deleteTarget.id);
             setDeleteOpen(false);
-            await loadExpenses();
         } catch (e) {
-            setError(e.message || t("recurring.deleteFailed"));
-        } finally {
-            setIsDeleting(false);
+            setError(localizeApiError(e?.message, t) || e?.message || t("recurring.deleteFailed"));
         }
     };
 
@@ -268,19 +260,18 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
         if (!parsed.success)
             return setEditError(parsed.error.issues[0]?.message || t("recurring.updateFailed"));
         try {
-            setIsEditing(true);
-            await updateRecurringExpense(editTarget.id, {
-                title: parsed.data.title,
-                amount: parsed.data.amount,
-                category: parsed.data.category,
-                description: parsed.data.description ?? null,
+            await editRecurringMutation.mutateAsync({
+                id: editTarget.id,
+                payload: {
+                    title: parsed.data.title,
+                    amount: parsed.data.amount,
+                    category: parsed.data.category,
+                    description: parsed.data.description ?? null,
+                },
             });
             setEditOpen(false);
-            await loadExpenses();
         } catch (e) {
             setEditError(localizeApiError(e.message, t) || e.message || t("recurring.updateFailed"));
-        } finally {
-            setIsEditing(false);
         }
     };
 
@@ -309,21 +300,17 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
         if (!parsed.success)
             return setActionError(parsed.error.issues[0]?.message || t("expenses.requestFailed"));
         try {
-            setIsAdding(true);
-            await createRecurringExpense({
+            await addRecurringMutation.mutateAsync({
                 title: parsed.data.title, amount: parsed.data.amount,
                 category: parsed.data.category, frequency: parsed.data.frequency,
                 start_date: parsed.data.start_date, description: parsed.data.description ?? null,
             });
             setAddOpen(false);
-            await loadExpenses();
         } catch (e) {
             setActionError(getAddActionErrorMessage(e, {
                 category: parsed.data.category,
                 startDate: parsed.data.start_date,
             }));
-        } finally {
-            setIsAdding(false);
         }
     };
 
@@ -331,7 +318,17 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
     const selectContentClass = "max-h-[190px] overflow-y-auto bg-white text-black dark:bg-black dark:text-white";
 
 
-    if (!user?.is_premium) {
+    if (userQuery.isLoading) {
+        return (
+            <Card className="shadow-sm">
+                <CardContent className="min-h-80 flex items-center justify-center p-6">
+                    <LoadingSpinner className="h-6 w-6" />
+                </CardContent>
+            </Card>
+        );
+    }
+
+    if (!isPremium) {
         return (
             <Card className="shadow-sm">
                 <CardContent className="min-h-80 flex flex-col items-center justify-center p-6 text-center space-y-4">
@@ -355,7 +352,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                     </div>
                 </CardHeader>
                 <CardContent className="min-h-80 pb-6">
-                    {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
+                    {displayError && <p className="text-sm text-red-600 mb-4">{displayError}</p>}
                     {/* Search bar — only shown once data is loaded and there are templates */}
                     {!loading && expenses.length > 0 && (
                         <div className="relative mb-4 max-w-xs">
@@ -448,6 +445,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                             <ActiveToggle
                                                 checked={e.is_active}
                                                 onChange={(val) => handleInlineToggle(e, val)}
+                                                disabled={togglingId === e.id}
                                             />
                                         </div>
 
@@ -553,7 +551,17 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                             <SelectValue placeholder={t("expenses.selectCategory")} />
                                         </SelectTrigger>
                                         <SelectContent className={selectContentClass} position="popper" side="bottom">
-                                            {categories.map((c) => <SelectItem key={c} value={c}>{tCategory(c)}</SelectItem>)}
+                                            {categories.map((c) => {
+                                                const CategoryIcon = categoryIconMap[c] || Circle;
+                                                return (
+                                                    <SelectItem key={c} value={c}>
+                                                        <span className="flex items-center gap-2">
+                                                            <CategoryIcon className="h-4 w-4 text-muted-foreground" />
+                                                            <span>{tCategory(c)}</span>
+                                                        </span>
+                                                    </SelectItem>
+                                                );
+                                            })}
                                         </SelectContent>
                                     </Select>
                                     {addErrors.category && <p className="text-[11px] text-red-500 mt-0.5 font-medium ml-0.5">{addErrors.category}</p>}

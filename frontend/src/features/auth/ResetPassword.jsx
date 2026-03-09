@@ -5,9 +5,9 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { resetPassword } from "@/lib/api";
 import { evaluatePasswordRules, resetPasswordSchema } from "./authSchemas.js";
 import { AuthFormCard } from "@/components/AuthFormCard";
+import { useResetPasswordMutation } from "./hooks/useAuthMutations";
 
 export default function ResetPassword() {
   const { t } = useTranslation();
@@ -25,8 +25,9 @@ export default function ResetPassword() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({});
+  const resetPasswordMutation = useResetPasswordMutation();
+  const isSubmitting = resetPasswordMutation.isPending;
   const resetInputClass = "h-11 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-emerald-500";
   const disabledResetButtonCursorClass = "disabled:pointer-events-auto disabled:cursor-not-allowed";
   const resetParsed = useMemo(
@@ -71,6 +72,8 @@ export default function ResetPassword() {
     { id: "hasSpecial", text: t("auth.passwordRuleSpecial"), ok: passwordRules.hasSpecial },
     { id: "noSpaces", text: t("auth.passwordRuleNoSpaces"), ok: passwordRules.noSpaces },
   ];
+  const newPasswordHasError = !!fieldErrors.new_password;
+  const confirmPasswordHasError = !!fieldErrors.confirm_password;
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -98,9 +101,8 @@ export default function ResetPassword() {
       return;
     }
 
-    setIsSubmitting(true);
     try {
-      const data = await resetPassword(token, password);
+      const data = await resetPasswordMutation.mutateAsync({ token, newPassword: password });
       const message = String(data?.message || "");
       if (message.toLowerCase().includes("password reset successful") || message.toLowerCase().includes("sign in")) {
         setStatus(t("auth.resetPasswordSuccessRedirect"));
@@ -110,8 +112,6 @@ export default function ResetPassword() {
       setTimeout(() => navigate("/sign-in", { replace: true }), 3000);
     } catch (err) {
       setError(mapResetError(err.message));
-    } finally {
-      setIsSubmitting(false);
     }
   }
 
@@ -134,7 +134,7 @@ export default function ResetPassword() {
                 setError("");
                 setFieldErrors((prev) => ({ ...prev, new_password: "" }));
               }}
-              className={`${resetInputClass} pr-10`}
+              className={`${resetInputClass} pr-10 ${newPasswordHasError ? "border-red-500 focus-visible:border-red-500" : ""}`}
               placeholder={t("auth.newPassword")}
               required
             />
@@ -181,7 +181,7 @@ export default function ResetPassword() {
                 setError("");
                 setFieldErrors((prev) => ({ ...prev, confirm_password: "" }));
               }}
-              className={`${resetInputClass} pr-10`}
+              className={`${resetInputClass} pr-10 ${confirmPasswordHasError ? "border-red-500 focus-visible:border-red-500" : ""}`}
               placeholder={t("auth.confirmNewPassword")}
               required
             />

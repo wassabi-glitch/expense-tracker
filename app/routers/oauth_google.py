@@ -19,6 +19,8 @@ router = APIRouter(prefix="/auth/google", tags=["Google Auth"])
 STATE_TTL_MIN = 10
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"  # nosec B105
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"  # nosec B105
+GOOGLE_TOKEN_TIMEOUT_SECONDS = 20.0
+GOOGLE_TOKEN_MAX_RETRIES = 2
 
 
 def _create_state(nonce: str) -> str:
@@ -84,19 +86,31 @@ def google_callback(code: str, state: str, response: Response, db: Session = Dep
     state_payload = _verify_state(state)
     nonce_expected = state_payload["nonce"]
 
-    token_resp = httpx.post(
-        GOOGLE_TOKEN_URL,
-        data={
-            "code": code,
-            "client_id": settings.google_client_id,
-            "client_secret": settings.google_client_secret.get_secret_value(),
-            "redirect_uri": settings.google_redirect_uri,
-            "grant_type": "authorization_code",
-        },
-        timeout=15.0,
-    )
+    token_resp = None
+    token_request_data = {
+        "code": code,
+        "client_id": settings.google_client_id,
+        "client_secret": settings.google_client_secret.get_secret_value(),
+        "redirect_uri": settings.google_redirect_uri,
+        "grant_type": "authorization_code",
+    }
 
-    if token_resp.status_code != 200:
+    for attempt in range(GOOGLE_TOKEN_MAX_RETRIES + 1):
+        try:
+            token_resp = httpx.post(
+                GOOGLE_TOKEN_URL,
+                data=token_request_data,
+                timeout=GOOGLE_TOKEN_TIMEOUT_SECONDS,
+            )
+            break
+        except httpx.TimeoutException:
+            if attempt == GOOGLE_TOKEN_MAX_RETRIES:
+                raise HTTPException(status_code=502, detail="auth.google_token_exchange_timeout")
+        except httpx.RequestError:
+            if attempt == GOOGLE_TOKEN_MAX_RETRIES:
+                raise HTTPException(status_code=502, detail="auth.google_token_exchange_unreachable")
+
+    if token_resp is None or token_resp.status_code != 200:
         raise HTTPException(
             status_code=400, detail="auth.google_token_exchange_failed")
 

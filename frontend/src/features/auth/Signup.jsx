@@ -6,9 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Link, useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
-import { getGoogleLoginUrl, signup } from "@/lib/api";
+import { getGoogleLoginUrl } from "@/lib/api";
 import { evaluatePasswordRules, signinSchema, signupSchema } from "./authSchemas.js";
 import { AuthFormCard } from "@/components/AuthFormCard";
+import { useSignupMutation } from "./hooks/useAuthMutations";
 
 const usernameRegex = /^[A-Za-z0-9._]+$/;
 const signupStepOneSchema = z.object({
@@ -69,8 +70,9 @@ export default function Signup() {
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
     const [status, setStatus] = useState("");
-    const [isSubmitting, setIsSubmitting] = useState(false);
     const [fieldErrors, setFieldErrors] = useState({});
+    const signupMutation = useSignupMutation();
+    const isSubmitting = signupMutation.isPending;
     const stepBackTimerRef = useRef(null);
     const signupInputClass = "h-11 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-emerald-500";
     const disabledSignupButtonCursorClass = "disabled:pointer-events-auto disabled:cursor-not-allowed";
@@ -116,6 +118,9 @@ export default function Signup() {
 
     const canContinue = stepOneParsed.success;
     const canCreateAccount = fullSignupParsed.success && !isSubmitting;
+    const stepOneEmailHasError = !!((email.trim().length > 0 && stepOneIssuesByField.email) || fieldErrors.email);
+    const stepOneUsernameHasError = !!((username.trim().length > 0 && stepOneIssuesByField.username) || fieldErrors.username);
+    const stepTwoPasswordHasError = !!fieldErrors.password;
 
     useEffect(() => {
         return () => {
@@ -170,9 +175,12 @@ export default function Signup() {
             return;
         }
 
-        setIsSubmitting(true);
         try {
-            await signup(parsed.data.username, parsed.data.email, parsed.data.password);
+            await signupMutation.mutateAsync({
+                username: parsed.data.username,
+                email: parsed.data.email,
+                password: parsed.data.password,
+            });
             navigate(`/resend-verification?signup=1&email=${encodeURIComponent(parsed.data.email)}`);
         } catch (err) {
             const msg = String(err?.message || "");
@@ -192,8 +200,6 @@ export default function Signup() {
             } else {
                 setStatus(t(msg, { defaultValue: msg || t("auth.signupFailed") }));
             }
-        } finally {
-            setIsSubmitting(false);
         }
     }
 
@@ -247,7 +253,7 @@ export default function Signup() {
                                 setFieldErrors((prev) => ({ ...prev, email: "" }));
                             }}
                             placeholder={t("auth.email")}
-                            className={signupInputClass}
+                            className={`${signupInputClass} ${stepOneEmailHasError ? "border-red-500 focus-visible:border-red-500" : ""}`}
                             required
                         />
                         <div className="min-h-2.5">
@@ -268,7 +274,7 @@ export default function Signup() {
                                 setStatus("");
                                 setFieldErrors((prev) => ({ ...prev, username: "" }));
                             }}
-                            className={signupInputClass}
+                            className={`${signupInputClass} ${stepOneUsernameHasError ? "border-red-500 focus-visible:border-red-500" : ""}`}
                             placeholder={t("auth.username")}
                             required
                         />
@@ -306,7 +312,7 @@ export default function Signup() {
                                     setStatus("");
                                     setFieldErrors((prev) => ({ ...prev, password: "" }));
                                 }}
-                                className={`${signupInputClass} pr-10`}
+                                className={`${signupInputClass} pr-10 ${stepTwoPasswordHasError ? "border-red-500 focus-visible:border-red-500" : ""}`}
                                 placeholder={t("auth.createNewPasswordPlaceholder")}
                                 required
                             />

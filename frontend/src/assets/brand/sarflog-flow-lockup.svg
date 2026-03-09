@@ -1,0 +1,10 @@
+<svg width="360" height="64" viewBox="0 0 360 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(0 64) scale(0.62 -0.62)">
+    <path d="M26 38L40 24H99L85 38H26Z" fill="#21C45D"/>
+    <path d="M85 38L67 62H45L59 48H78L85 38Z" fill="#16A34A"/>
+    <path d="M45 62H67L53 76H35L45 62Z" fill="#21C45D"/>
+    <path d="M35 76H93L79 90H21L35 76Z" fill="#21C45D"/>
+    <path d="M79 90L93 76L107 90H79Z" fill="#16A34A"/>
+  </g>
+  <text x="74" y="32" dominant-baseline="middle" fill="#111827" font-family="Inter" font-size="50" font-weight="600" letter-spacing="-0.2">Sarflog</text>
+</svg>

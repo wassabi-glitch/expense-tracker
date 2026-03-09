@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Trash2, Circle, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -22,14 +22,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useBudgetCategoriesQuery } from "./hooks/useBudgetCategoriesQuery";
+import { useBudgetsDataQuery } from "./hooks/useBudgetsDataQuery";
 import {
-  createBudget,
-  deleteBudget,
-  getBudgets,
-  getThisMonthStats,
-  updateBudget,
-  getCategories,
-} from "@/lib/api";
+  useCreateBudgetMutation,
+  useDeleteBudgetMutation,
+  useUpdateBudgetMutation,
+} from "./hooks/useBudgetMutations";
 import { budgetCreateFormSchema, budgetDeleteFormSchema, budgetUpdateFormSchema, MAX_BUDGET_AMOUNT } from "./budgetSchemas";
 import { localizeApiError } from "@/lib/errorMessages";
 import { categoryIconMap, CATEGORIES } from "@/lib/category";
@@ -37,26 +36,18 @@ import { formatUzs, formatCompactUzs, formatAmountInput, formatMonthYear, getFal
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+const EMPTY_ARRAY = [];
 
 export default function Budgets() {
   const { t, i18n } = useTranslation();
   const today = new Date();
   const currentYear = today.getFullYear();
   const currentMonth = today.getMonth() + 1;
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
-
-  const [budgets, setBudgets] = useState([]);
-  const [categories, setCategories] = useState([]);
 
   const [addOpen, setAddOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [isAddingBudget, setIsAddingBudget] = useState(false);
-  const [isUpdatingBudget, setIsUpdatingBudget] = useState(false);
-  const [isDeletingBudget, setIsDeletingBudget] = useState(false);
-  const [animateProgress, setAnimateProgress] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const showHistory = searchParams.get("history") === "true";
@@ -113,55 +104,48 @@ export default function Budgets() {
     tCategory(leftCategory).localeCompare(tCategory(rightCategory), categorySortLocale, { sensitivity: "base" }),
     [tCategory, categorySortLocale]
   );
-  const loadBudgetsPage = useCallback(async ({ showSpinner = true } = {}) => {
-    if (showSpinner) setLoading(true);
-    setAnimateProgress(false);
-    setError("");
-    try {
-      const [budgetRows, stats, categoryList] = await Promise.all([
-        getBudgets(),
-        getThisMonthStats(),
-        getCategories(),
-      ]);
+  const { budgetsQuery, statsQuery } = useBudgetsDataQuery();
+  const categoriesQuery = useBudgetCategoriesQuery();
 
-      setCategories(categoryList || []);
-      const currentMonthStatusByCategory = new Map(
-        (stats?.category_breakdown || []).map((item) => [
-          item.category,
-          {
-            total: Number(item.total || 0),
-            remaining: Number(item.remaining || 0),
-            percentageUsed: Number(item.percentage_used || 0),
-            budgetStatus: String(item.budget_status || ""),
-          },
-        ])
-      );
-      const merged = (budgetRows || []).map((b) => ({
-        isCurrentMonth: Number(b.budget_year) === currentYear && Number(b.budget_month) === currentMonth,
-        id: b.id,
-        category: b.category,
-        budgetYear: Number(b.budget_year),
-        budgetMonth: Number(b.budget_month),
-        limit: Number(b.monthly_limit || 0),
-        spent: Number(b.spent || 0),
-        remaining: Math.max(0, Number(b.monthly_limit || 0) - Number(b.spent || 0)),
-        backendStatus:
-          Number(b.budget_year) === currentYear && Number(b.budget_month) === currentMonth
-            ? (currentMonthStatusByCategory.get(b.category)?.budgetStatus ?? "")
-            : "",
-      }));
-      setBudgets(merged);
-      requestAnimationFrame(() => setAnimateProgress(true));
-    } catch (e) {
-      setError(localizeApiError(e?.message, t) || t("budgets.loadFailed"));
-    } finally {
-      if (showSpinner) setLoading(false);
-    }
-  }, [currentYear, currentMonth, t]);
+  const loading = budgetsQuery.isLoading || statsQuery.isLoading || categoriesQuery.isLoading;
+  const error = (budgetsQuery.error || statsQuery.error || categoriesQuery.error)
+    ? localizeApiError(
+      budgetsQuery.error?.message || statsQuery.error?.message || categoriesQuery.error?.message,
+      t,
+    ) || t("budgets.loadFailed")
+    : "";
 
-  useEffect(() => {
-    loadBudgetsPage();
-  }, [loadBudgetsPage]);
+  const categories = categoriesQuery.data || EMPTY_ARRAY;
+  const budgets = useMemo(() => {
+    const budgetRows = budgetsQuery.data || [];
+    const stats = statsQuery.data;
+    const currentMonthStatusByCategory = new Map(
+      (stats?.category_breakdown || []).map((item) => [
+        item.category,
+        {
+          total: Number(item.total || 0),
+          remaining: Number(item.remaining || 0),
+          percentageUsed: Number(item.percentage_used || 0),
+          budgetStatus: String(item.budget_status || ""),
+        },
+      ]),
+    );
+
+    return budgetRows.map((b) => ({
+      isCurrentMonth: Number(b.budget_year) === currentYear && Number(b.budget_month) === currentMonth,
+      id: b.id,
+      category: b.category,
+      budgetYear: Number(b.budget_year),
+      budgetMonth: Number(b.budget_month),
+      limit: Number(b.monthly_limit || 0),
+      spent: Number(b.spent || 0),
+      remaining: Math.max(0, Number(b.monthly_limit || 0) - Number(b.spent || 0)),
+      backendStatus:
+        Number(b.budget_year) === currentYear && Number(b.budget_month) === currentMonth
+          ? (currentMonthStatusByCategory.get(b.category)?.budgetStatus ?? "")
+          : "",
+    }));
+  }, [budgetsQuery.data, statsQuery.data, currentYear, currentMonth]);
 
   const sortedBudgets = useMemo(
     () =>
@@ -332,6 +316,13 @@ export default function Budgets() {
       budget_month_value: budgetMonthValue,
     });
   }, [addBudgetYear, addBudgetMonth, addCategory, addLimit]);
+  const addBudgetMutation = useCreateBudgetMutation();
+  const updateBudgetMutation = useUpdateBudgetMutation();
+  const deleteBudgetMutation = useDeleteBudgetMutation();
+
+  const isAddingBudget = addBudgetMutation.isPending;
+  const isUpdatingBudget = updateBudgetMutation.isPending;
+  const isDeletingBudget = deleteBudgetMutation.isPending;
   const canSubmitAddBudget = addBudgetFormParsed.success && !isAddingBudget;
 
 
@@ -385,14 +376,15 @@ export default function Budgets() {
     const budgetYear = Number(yearStr);
     const budgetMonth = Number(monthStr);
     try {
-      setIsAddingBudget(true);
-      await createBudget(parsedForm.data.category, parsedForm.data.monthly_limit, budgetYear, budgetMonth);
+      await addBudgetMutation.mutateAsync({
+        category: parsedForm.data.category,
+        monthlyLimit: parsedForm.data.monthly_limit,
+        budgetYear,
+        budgetMonth,
+      });
       setAddOpen(false);
-      await loadBudgetsPage({ showSpinner: false });
     } catch (e) {
       setActionError(getBudgetActionErrorMessage(e));
-    } finally {
-      setIsAddingBudget(false);
     }
   }
 
@@ -409,19 +401,15 @@ export default function Budgets() {
       return setActionError(tZodError(parsedForm));
     }
     try {
-      setIsUpdatingBudget(true);
-      await updateBudget(
-        parsedForm.data.category,
-        parsedForm.data.monthly_limit,
-        parsedForm.data.budgetYear,
-        parsedForm.data.budgetMonth
-      );
+      await updateBudgetMutation.mutateAsync({
+        category: parsedForm.data.category,
+        monthlyLimit: parsedForm.data.monthly_limit,
+        budgetYear: parsedForm.data.budgetYear,
+        budgetMonth: parsedForm.data.budgetMonth,
+      });
       setUpdateOpen(false);
-      await loadBudgetsPage({ showSpinner: false });
     } catch (e) {
       setActionError(getBudgetActionErrorMessage(e));
-    } finally {
-      setIsUpdatingBudget(false);
     }
   }
 
@@ -437,14 +425,14 @@ export default function Budgets() {
       return setActionError(tZodError(parsedForm));
     }
     try {
-      setIsDeletingBudget(true);
-      await deleteBudget(parsedForm.data.category, parsedForm.data.budgetYear, parsedForm.data.budgetMonth);
+      await deleteBudgetMutation.mutateAsync({
+        category: parsedForm.data.category,
+        budgetYear: parsedForm.data.budgetYear,
+        budgetMonth: parsedForm.data.budgetMonth,
+      });
       setDeleteOpen(false);
-      await loadBudgetsPage({ showSpinner: false });
     } catch (e) {
       setActionError(getBudgetActionErrorMessage(e));
-    } finally {
-      setIsDeletingBudget(false);
     }
   }
 
@@ -471,15 +459,21 @@ export default function Budgets() {
                   <SelectTrigger className={selectTriggerClass}>
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className={selectContentClass} position="popper" side="bottom">
-                    <SelectItem value="all">{t("budgets.filterCategoryAll")}</SelectItem>
-                    {orderedCategoryOptions.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {tCategory(c)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                    <SelectContent className={selectContentClass} position="popper" side="bottom">
+                      <SelectItem value="all">{t("budgets.filterCategoryAll")}</SelectItem>
+                      {orderedCategoryOptions.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          <span className="flex items-center gap-2">
+                            {(() => {
+                              const CategoryIcon = categoryIconMap[c] || Circle;
+                              return <CategoryIcon className="h-4 w-4 text-muted-foreground" />;
+                            })()}
+                            <span>{tCategory(c)}</span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 <Select value={filterStatus} onValueChange={setFilterStatus}>
                   <SelectTrigger className={selectTriggerClass}>
                     <SelectValue />
@@ -627,7 +621,7 @@ export default function Budgets() {
                       </span>
                     </div>
                     <Progress
-                      value={animateProgress ? percent : 0}
+                      value={loading ? 0 : percent}
                       className="h-2"
                       trackClassName={progressTrackClass}
                       indicatorClassName={progressIndicatorClass}

@@ -4,9 +4,9 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { forgotPassword } from "@/lib/api";
 import { signinSchema } from "./authSchemas.js";
 import { AuthFormCard } from "@/components/AuthFormCard";
+import { useForgotPasswordMutation } from "./hooks/useAuthMutations";
 
 export default function ForgotPassword() {
   const { t } = useTranslation();
@@ -20,7 +20,8 @@ export default function ForgotPassword() {
   const [email, setEmail] = useState(initialEmail);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const forgotPasswordMutation = useForgotPasswordMutation();
+  const isSubmitting = forgotPasswordMutation.isPending;
   const forgotInputClass = "h-11 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-emerald-500";
   const disabledForgotButtonCursorClass = "disabled:pointer-events-auto disabled:cursor-not-allowed";
   const emailParsed = useMemo(() => signinSchema.shape.email.safeParse(email), [email]);
@@ -28,6 +29,7 @@ export default function ForgotPassword() {
     if (emailParsed.success || email.trim().length === 0) return "";
     return translateValidation(emailParsed.error.issues[0]?.message || "");
   }, [emailParsed, email, translateValidation]);
+  const emailHasError = !!(emailLiveError || error);
   const canSubmit = emailParsed.success && !isSubmitting && !status;
   const mapForgotError = (message) => {
     const msg = String(message || "");
@@ -50,9 +52,8 @@ export default function ForgotPassword() {
       setError(translateValidation(parsed.error.issues[0]?.message || "auth.validation.email.invalid"));
       return;
     }
-    setIsSubmitting(true);
     try {
-      const data = await forgotPassword(parsed.data);
+      const data = await forgotPasswordMutation.mutateAsync(parsed.data);
       const message = String(data?.message || "");
       if (
         message.toLowerCase().includes("if the account exists") ||
@@ -64,8 +65,6 @@ export default function ForgotPassword() {
       }
     } catch (err) {
       setError(mapForgotError(err.message));
-    } finally {
-      setIsSubmitting(false);
     }
   }
 
@@ -87,7 +86,7 @@ export default function ForgotPassword() {
               setError("");
             }}
             placeholder={t("auth.email")}
-            className={forgotInputClass}
+            className={`${forgotInputClass} ${emailHasError ? "border-red-500 focus-visible:border-red-500" : ""}`}
             required
           />
           <div className="min-h-2.5">

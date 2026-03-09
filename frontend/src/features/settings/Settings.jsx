@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
@@ -13,8 +13,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { getCurrentUser, logout, togglePremium } from "@/lib/api";
 import { localizeApiError } from "@/lib/errorMessages";
+import { useSettingsDataQuery } from "./hooks/useSettingsDataQuery";
+import { useLogoutMutation, useTogglePremiumMutation } from "./hooks/useSettingsMutations";
 
 const CURRENCY_KEY = "settings.currency";
 const DATE_FORMAT_KEY = "settings.date_format";
@@ -29,32 +30,24 @@ export default function Settings() {
   const navigate = useNavigate();
   const [error, setError] = useState("");
 
-  const [username, setUsername] = useState("");
-  const [email, setEmail] = useState("");
-  const [isPremium, setIsPremium] = useState(false);
-  const [isTogglingPremium, setIsTogglingPremium] = useState(false);
-
   const savedCurrency = useMemo(() => getStoredPreference(CURRENCY_KEY, "UZS"), []);
   const savedDateFormat = useMemo(() => getStoredPreference(DATE_FORMAT_KEY, "YYYY-MM-DD"), []);
 
   const [logoutOpen, setLogoutOpen] = useState(false);
-
-  useEffect(() => {
-    const loadCurrentUser = async () => {
-      try {
-        const user = await getCurrentUser();
-        setUsername(user?.username || "");
-        setEmail(user?.email || "");
-        setIsPremium(user?.is_premium || false);
-      } catch (e) {
-        setError(localizeApiError(e?.message, t) || e.message || t("settings.failedProfile"));
-      }
-    };
-    loadCurrentUser();
-  }, [t]);
+  const userQuery = useSettingsDataQuery();
+  const logoutMutation = useLogoutMutation();
+  const togglePremiumMutation = useTogglePremiumMutation();
+  const isTogglingPremium = togglePremiumMutation.isPending;
+  const username = userQuery.data?.username || "";
+  const email = userQuery.data?.email || "";
+  const isPremium = !!userQuery.data?.is_premium;
+  const profileError = userQuery.error
+    ? localizeApiError(userQuery.error?.message, t) || userQuery.error?.message || t("settings.failedProfile")
+    : "";
+  const displayError = error || profileError;
 
   const handleLogout = async () => {
-    await logout();
+    await logoutMutation.mutateAsync();
     navigate("/sign-in", { replace: true });
   };
 
@@ -66,7 +59,7 @@ export default function Settings() {
           <p className="text-muted-foreground">{t("settings.subtitle")}</p>
         </div>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {displayError && <p className="text-sm text-red-600">{displayError}</p>}
 
         <Card className="shadow-sm">
           <CardHeader>
@@ -130,16 +123,11 @@ export default function Settings() {
                 variant={isPremium ? "default" : "secondary"}
                 disabled={isTogglingPremium}
                 onClick={async () => {
-                  setIsTogglingPremium(true);
+                  setError("");
                   try {
-                    const updatedUser = await togglePremium();
-                    setIsPremium(updatedUser.is_premium);
-                    // Force a window reload to update AuthContext state cleanly
-                    window.location.reload();
+                    await togglePremiumMutation.mutateAsync();
                   } catch (e) {
-                    setError("Failed to toggle premium: " + e.message);
-                  } finally {
-                    setIsTogglingPremium(false);
+                    setError(localizeApiError(e?.message, t) || `Failed to toggle premium: ${e?.message || ""}`.trim());
                   }
                 }}
               >
