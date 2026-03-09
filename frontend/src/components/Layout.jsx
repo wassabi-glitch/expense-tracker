@@ -1,4 +1,5 @@
 import React from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,6 @@ import {
   Download,
   Settings,
   Menu,
-  CreditCard,
   LogOut,
   User,
   Sun,
@@ -29,6 +29,8 @@ import { cn } from "@/lib/utils";
 import { getCurrentUser, logout } from "@/lib/api";
 import { APP_LANGUAGE_KEY } from "@/i18n";
 import { LanguageSelect } from "@/components/ui/language-select";
+import flowLockup from "@/assets/brand/sarflog-flow-lockup.svg";
+import flowLockupDark from "@/assets/brand/sarflog-flow-lockup-dark.svg";
 
 const mainNavItems = [
   { to: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
@@ -193,24 +195,29 @@ export default function Layout() {
   });
   const { isDark, toggle } = useDarkMode();
   const navigate = useNavigate();
+  const userQuery = useQuery({
+    queryKey: ["users", "me"],
+    queryFn: getCurrentUser,
+  });
+  const logoutMutation = useMutation({
+    mutationFn: logout,
+  });
 
   React.useEffect(() => {
-    const loadCurrentUser = async () => {
-      try {
-        const user = await getCurrentUser();
-        setUsername(user?.username || "");
-        setEmail(user?.email || "");
-      } catch {
-        setUsername("");
-        setEmail("");
-      }
-    };
-    loadCurrentUser();
-  }, []);
+    if (userQuery.data) {
+      setUsername(userQuery.data?.username || "");
+      setEmail(userQuery.data?.email || "");
+      return;
+    }
+    if (userQuery.error) {
+      setUsername("");
+      setEmail("");
+    }
+  }, [userQuery.data, userQuery.error]);
 
   const handleLogout = async () => {
     setLogoutOpen(false);
-    await logout();
+    await logoutMutation.mutateAsync();
     // Defensive cleanup in case a dialog lock survives a route transition.
     document.body.style.pointerEvents = "";
     document.body.style.overflow = "";
@@ -246,11 +253,12 @@ export default function Layout() {
             </SheetContent>
           </Sheet>
 
-          <div className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-              <CreditCard className="h-4 w-4" />
-            </div>
-            <span className="font-semibold tracking-tight">{t("appName")}</span>
+          <div className="flex items-center gap-1.5 lg:-ml-2">
+            <img
+              src={isDark ? flowLockupDark : flowLockup}
+              alt="Sarflog logo"
+              className="h-9 w-auto object-contain"
+            />
           </div>
         </div>
 

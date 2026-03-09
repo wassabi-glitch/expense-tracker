@@ -5,9 +5,9 @@ import { CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { resendVerification } from "@/lib/api";
 import { signinSchema } from "./authSchemas.js";
 import { AuthFormCard } from "@/components/AuthFormCard";
+import { useResendVerificationMutation } from "./hooks/useAuthMutations";
 
 export default function ResendVerification() {
   const INITIAL_SIGNUP_COOLDOWN_SECONDS = 20;
@@ -27,7 +27,8 @@ export default function ResendVerification() {
   const [email, setEmail] = useState(initialEmail);
   const [status, setStatus] = useState(fromSignup ? t("auth.signupCheckEmail") : "");
   const [error, setError] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const resendMutation = useResendVerificationMutation();
+  const isSubmitting = resendMutation.isPending;
   const [cooldownSeconds, setCooldownSeconds] = useState(
     fromSignup && initialEmail ? INITIAL_SIGNUP_COOLDOWN_SECONDS : 0
   );
@@ -38,6 +39,7 @@ export default function ResendVerification() {
     if (emailParsed.success || email.trim().length === 0) return "";
     return translateValidation(emailParsed.error.issues[0]?.message || "");
   }, [emailParsed, email, translateValidation]);
+  const emailHasError = !!(emailLiveError || error);
   const canSubmit = emailParsed.success && !isSubmitting && cooldownSeconds === 0;
 
   useEffect(() => {
@@ -69,9 +71,8 @@ export default function ResendVerification() {
       setError(translateValidation(parsed.error.issues[0]?.message || "auth.validation.email.invalid"));
       return;
     }
-    setIsSubmitting(true);
     try {
-      const data = await resendVerification(parsed.data);
+      const data = await resendMutation.mutateAsync(parsed.data);
       const message = String(data?.message || "");
       if (message.toLowerCase().includes("verification link") || message.toLowerCase().includes("email inbox")) {
         setStatus(t("auth.resendVerificationSuccess"));
@@ -81,8 +82,6 @@ export default function ResendVerification() {
       setCooldownSeconds(INITIAL_SIGNUP_COOLDOWN_SECONDS);
     } catch (err) {
       setError(mapResendError(err));
-    } finally {
-      setIsSubmitting(false);
     }
   }
 
@@ -104,7 +103,7 @@ export default function ResendVerification() {
               setError("");
             }}
             placeholder={t("auth.email")}
-            className={resendInputClass}
+            className={`${resendInputClass} ${emailHasError ? "border-red-500 focus-visible:border-red-500" : ""}`}
             required
           />
           <div className="min-h-2.5">

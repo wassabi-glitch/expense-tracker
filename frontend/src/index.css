@@ -1,4 +1,6 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
 @import "tailwindcss";
+@config "./tailwind.config.js";
 
 /* @plugin "tailwindcss-animate"; */
 
@@ -116,7 +118,7 @@
 
   body {
     /* Use the variable colors */
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
     /* Make font smoother (fixes "ugly bold" look) */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;

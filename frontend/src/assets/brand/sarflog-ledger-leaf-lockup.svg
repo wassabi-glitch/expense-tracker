@@ -1,0 +1,8 @@
+<svg width="420" height="128" viewBox="0 0 420 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="12" y="12" width="104" height="104" rx="26" fill="#090B12"/>
+  <path d="M42 43H86" stroke="#21C45D" stroke-width="8" stroke-linecap="round"/>
+  <path d="M42 64H78" stroke="#21C45D" stroke-width="8" stroke-linecap="round"/>
+  <path d="M42 85H86" stroke="#21C45D" stroke-width="8" stroke-linecap="round"/>
+  <path d="M76 26C86 26 94 34 94 44C84 44 76 36 76 26Z" fill="#21C45D"/>
+  <text x="140" y="78" fill="#E7EAF0" font-family="Manrope, Sora, Arial, sans-serif" font-size="48" font-weight="700" letter-spacing="0.2">Sarflog</text>
+</svg>

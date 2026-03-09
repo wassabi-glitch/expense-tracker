@@ -1,5 +1,5 @@
 {
-  "appName": "ExpenseTracker",
+  "appName": "Sarflog",
   "common": {
     "back": "Orqaga",
     "cancel": "Bekor qilish",
@@ -73,7 +73,7 @@
     "verifyEmailInvalidToken": "Tasdiqlash havolasi yaroqsiz yoki muddati tugagan.",
     "verifyEmailFailed": "Emailni tasdiqlab bo'lmadi",
     "verifyEmailSuccess": "Email muvaffaqiyatli tasdiqlandi. Endi tizimga kirishingiz mumkin.",
-    "welcomeToExpenseTracker": "Expense Tracker'ga xush kelibsiz",
+    "welcomeToExpenseTracker": "Sarflog'ga xush kelibsiz",
     "signupEmailStepDesc": "Davom etish uchun emailingizdan boshlang.",
     "signupCredentialsStepDesc": "Foydalanuvchi nomi va parol yarating.",
     "createNewPasswordPlaceholder": "Yangi parol yarating",

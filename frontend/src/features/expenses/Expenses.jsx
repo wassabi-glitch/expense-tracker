@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Search, ChevronLeft, ChevronRight, Inbox, Trash2 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -19,12 +19,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  createExpense,
-  deleteExpense,
-  getCategories,
-  getExpenses,
-  updateExpense,
-} from "@/lib/api";
+  useCreateExpenseMutation,
+  useDeleteExpenseMutation,
+  useUpdateExpenseMutation,
+} from "./hooks/useExpenseMutations";
+import { useExpenseCategoriesQuery } from "./hooks/useExpenseCategoriesQuery";
+import { useExpensesQuery } from "./hooks/useExpensesQuery";
 import { toISODateInTimeZone } from "@/lib/date";
 import { localizeApiError } from "@/lib/errorMessages";
 import {
@@ -42,6 +42,7 @@ const PAGE_SIZE = 15;
 const MIN_EXPENSE_DATE = "2020-01-01";
 const MAX_EXPENSE_AMOUNT_DIGITS = String(MAX_EXPENSE_AMOUNT).length;
 const ALL_CATEGORIES_SELECT = "__all_categories__";
+const EMPTY_ARRAY = [];
 
 import { getCategoryBgClass, categoryIconMap, CATEGORIES } from "@/lib/category";
 import { Circle } from "lucide-react";
@@ -58,14 +59,7 @@ export default function Expenses() {
   const { t, i18n } = useTranslation();
   const translateValidation = (message) => t(message, { defaultValue: message });
   const [searchParams, setSearchParams] = useSearchParams();
-  const [loading, setLoading] = useState(true);
-  const [isFetching, setIsFetching] = useState(false);
-  const [total, setTotal] = useState(0);
-  const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
-
-  const [expenses, setExpenses] = useState([]);
-  const [categories, setCategories] = useState([]);
 
   const [search, setSearch] = useState(() => searchParams.get("search") || "");
   const [category, setCategory] = useState(() => searchParams.get("category") || "");
@@ -75,7 +69,6 @@ export default function Expenses() {
   const todayISO = useMemo(() => toISODateInTimeZone(), []);
 
   const [page, setPage] = useState(() => parsePageParam(searchParams.get("page")));
-  const [hasNext, setHasNext] = useState(false);
 
   const [recurringCount, setRecurringCount] = useState(0);
 
@@ -113,23 +106,11 @@ export default function Expenses() {
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [isAdding, setIsAdding] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
 
   const [descriptionOpen, setDescriptionOpen] = useState(false);
   const [descriptionTarget, setDescriptionTarget] = useState(null);
 
-  const firstLoadRef = useRef(true);
-  const pageNavLockRef = useRef(false);
-
   const tCategory = (name) => t(`categories.${name}`, { defaultValue: name });
-  const orderedCategories = useMemo(() => {
-    const set = new Set(categories || []);
-    const inOrder = CATEGORIES.filter((c) => set.has(c));
-    const extras = [...set].filter((c) => !CATEGORIES.includes(c));
-    return [...inOrder, ...extras];
-  }, [categories]);
   const selectTriggerClass =
     "w-full bg-white text-black dark:bg-black dark:text-white dark:hover:bg-black";
   const selectContentClass =
@@ -139,12 +120,49 @@ export default function Expenses() {
   const _formatDisplayDateLocal = (value) => formatDisplayDate(value, appLang);
   const _formatMonthYearLocal = (value) => formatMonthYear(value, appLang);
 
+  const queryParams = useMemo(() => {
+    return {
+      limit: PAGE_SIZE,
+      skip: (page - 1) * PAGE_SIZE,
+      search: search.trim() || undefined,
+      category: category || undefined,
+      start_date: startDate || undefined,
+      end_date: endDate || undefined,
+      sort,
+    };
+  }, [search, category, startDate, endDate, sort, page]);
+
   const dateFilterError = useMemo(() => {
     if (startDate && startDate > todayISO) return t("expenses.startFuture");
     if (endDate && endDate > todayISO) return t("expenses.endFuture");
     if (startDate && endDate && startDate > endDate) return t("expenses.startAfterEnd");
     return "";
   }, [startDate, endDate, todayISO, t]);
+
+  const expensesQuery = useExpensesQuery(queryParams, activeTab === "one-time" && !dateFilterError);
+  const categoriesQuery = useExpenseCategoriesQuery(activeTab === "one-time");
+
+  const categories = categoriesQuery.data || EMPTY_ARRAY;
+  const expenses = expensesQuery.data?.items || EMPTY_ARRAY;
+  const total = Number(expensesQuery.data?.total || 0);
+  const hasNext = expenses.length === PAGE_SIZE;
+  const loading = expensesQuery.isLoading || categoriesQuery.isLoading;
+  const isFetching = expensesQuery.isFetching || categoriesQuery.isFetching;
+  const error = dateFilterError
+    ? dateFilterError
+    : (expensesQuery.error || categoriesQuery.error)
+      ? localizeApiError(expensesQuery.error?.message || categoriesQuery.error?.message, t) ||
+      expensesQuery.error?.message ||
+      categoriesQuery.error?.message ||
+      t("expenses.loadFailed")
+      : "";
+
+  const orderedCategories = useMemo(() => {
+    const set = new Set(categories);
+    const inOrder = CATEGORIES.filter((c) => set.has(c));
+    const extras = [...set].filter((c) => !CATEGORIES.includes(c));
+    return [...inOrder, ...extras];
+  }, [categories]);
 
   const getActionErrorMessage = (e, options = {}) => {
     const rawMessage = String(e?.message || "");
@@ -177,61 +195,6 @@ export default function Expenses() {
     }
     return localizeApiError(e?.message, t) || e?.message || t("expenses.requestFailed");
   };
-
-  const queryParams = useMemo(() => {
-    return {
-      limit: PAGE_SIZE,
-      skip: (page - 1) * PAGE_SIZE,
-      search: search.trim() || undefined,
-      category: category || undefined,
-      start_date: startDate || undefined,
-      end_date: endDate || undefined,
-      sort,
-    };
-  }, [search, category, startDate, endDate, sort, page]);
-
-  const loadExpenses = useCallback(async ({ initial = false } = {}) => {
-    if (initial) {
-      setLoading(true);
-    } else {
-      setIsFetching(true);
-    }
-    setError("");
-    setActionError("");
-
-    if (dateFilterError) {
-      setError(dateFilterError);
-      if (initial) setLoading(false);
-      setIsFetching(false);
-      return;
-    }
-
-    try {
-      const [expenseData, categoryList] = await Promise.all([
-        getExpenses(queryParams),
-        getCategories(),
-      ]);
-
-      setExpenses(expenseData?.items || []);
-      setTotal(expenseData?.total || 0);
-      setCategories(categoryList || []);
-      setHasNext(expenseData?.items?.length === PAGE_SIZE);
-    } catch (e) {
-      setError(localizeApiError(e?.message, t) || e.message || t("expenses.loadFailed"));
-    } finally {
-      if (initial) {
-        setLoading(false);
-      } else {
-        setIsFetching(false);
-      }
-      pageNavLockRef.current = false;
-    }
-  }, [queryParams, dateFilterError, t]);
-
-  useEffect(() => {
-    loadExpenses({ initial: firstLoadRef.current });
-    if (firstLoadRef.current) firstLoadRef.current = false;
-  }, [loadExpenses]);
 
   useEffect(() => {
     const next = new URLSearchParams();
@@ -298,16 +261,14 @@ export default function Expenses() {
   };
 
   const goPrevPage = () => {
-    if (loading || isFetching || pageNavLockRef.current) return;
+    if (loading || isFetching) return;
     if (page <= 1) return;
-    pageNavLockRef.current = true;
     setPage((p) => Math.max(1, p - 1));
   };
 
   const goNextPage = () => {
-    if (loading || isFetching || pageNavLockRef.current) return;
+    if (loading || isFetching) return;
     if (!hasNext) return;
-    pageNavLockRef.current = true;
     setPage((p) => p + 1);
   };
 
@@ -335,6 +296,13 @@ export default function Expenses() {
     return errs;
   }, [addExpenseParsed, t, touchedAdd]);
 
+  const addExpenseMutation = useCreateExpenseMutation();
+  const editExpenseMutation = useUpdateExpenseMutation();
+  const deleteExpenseMutation = useDeleteExpenseMutation();
+
+  const isAdding = addExpenseMutation.isPending;
+  const isEditing = editExpenseMutation.isPending;
+  const isDeleting = deleteExpenseMutation.isPending;
   const canSubmitAddExpense = addExpenseParsed.success && !isAdding;
 
   const editExpenseParsed = useMemo(
@@ -377,8 +345,7 @@ export default function Expenses() {
     }
 
     try {
-      setIsAdding(true);
-      await createExpense({
+      await addExpenseMutation.mutateAsync({
         title: parsed.data.title,
         amount: parsed.data.amount,
         category: parsed.data.category,
@@ -386,11 +353,8 @@ export default function Expenses() {
         date: parsed.data.date,
       });
       setAddOpen(false);
-      await loadExpenses();
     } catch (e) {
       setActionError(getActionErrorMessage(e, { category: parsed.data.category, date: parsed.data.date }));
-    } finally {
-      setIsAdding(false);
     }
   };
 
@@ -409,19 +373,18 @@ export default function Expenses() {
     }
 
     try {
-      setIsEditing(true);
-      await updateExpense(editExpense.id, {
-        title: parsed.data.title,
-        amount: parsed.data.amount,
-        description: parsed.data.description,
-        date: parsed.data.date,
+      await editExpenseMutation.mutateAsync({
+        id: editExpense.id,
+        payload: {
+          title: parsed.data.title,
+          amount: parsed.data.amount,
+          description: parsed.data.description,
+          date: parsed.data.date,
+        },
       });
       setEditOpen(false);
-      await loadExpenses();
     } catch (e) {
       setActionError(getActionErrorMessage(e, { category: editCategory, date: parsed.data.date }));
-    } finally {
-      setIsEditing(false);
     }
   };
 
@@ -429,14 +392,10 @@ export default function Expenses() {
     if (isDeleting) return;
     if (!deleteTarget) return;
     try {
-      setIsDeleting(true);
-      await deleteExpense(deleteTarget.id);
+      await deleteExpenseMutation.mutateAsync(deleteTarget.id);
       setDeleteOpen(false);
-      await loadExpenses();
     } catch (e) {
       setActionError(getActionErrorMessage(e));
-    } finally {
-      setIsDeleting(false);
     }
   };
 

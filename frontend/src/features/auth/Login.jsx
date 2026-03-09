@@ -5,9 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Link, useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
-import { getGoogleLoginUrl, signin } from "@/lib/api";
+import { getGoogleLoginUrl } from "@/lib/api";
 import { signinSchema } from "./authSchemas.js";
 import { AuthFormCard } from "@/components/AuthFormCard";
+import { useSigninMutation } from "./hooks/useAuthMutations";
 
 function GoogleIcon() {
     return (
@@ -45,8 +46,9 @@ export default function Login() {
     const [showPassword, setShowPassword] = useState(false);
     const [status, setStatus] = useState("");
     const [fieldErrors, setFieldErrors] = useState({});
-    const [isSubmitting, setIsSubmitting] = useState(false);
     const [showResendVerification, setShowResendVerification] = useState(false);
+    const signinMutation = useSigninMutation();
+    const isSubmitting = signinMutation.isPending;
     const navigate = useNavigate();
     const loginInputClass = "h-11 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-emerald-500";
     const disabledLoginButtonCursorClass = "disabled:pointer-events-auto disabled:cursor-not-allowed";
@@ -61,6 +63,8 @@ export default function Login() {
         });
         return next;
     }, [signinParsed, translateValidation]);
+    const emailHasError = !!((email.trim().length > 0 && liveSigninIssuesByField.email) || fieldErrors.email);
+    const passwordHasError = !!((password.length > 0 && liveSigninIssuesByField.password) || fieldErrors.password);
 
     useEffect(() => {
         // Clean up a stray empty hash so URL stays /sign-in instead of /sign-in#
@@ -86,9 +90,11 @@ export default function Login() {
             return;
         }
 
-        setIsSubmitting(true);
         try {
-            await signin(parsed.data.email, parsed.data.password);
+            await signinMutation.mutateAsync({
+                email: parsed.data.email,
+                password: parsed.data.password,
+            });
             navigate("/dashboard");
         } catch (err) {
             const msg = String(err?.message || "");
@@ -103,8 +109,6 @@ export default function Login() {
             } else {
                 setStatus(t(msg, { defaultValue: msg || t("auth.loginFailed") }));
             }
-        } finally {
-            setIsSubmitting(false);
         }
     }
 
@@ -139,7 +143,7 @@ export default function Login() {
                             setStatus("");
                             setFieldErrors((prev) => ({ ...prev, email: "" }));
                         }}
-                        className={loginInputClass}
+                        className={`${loginInputClass} ${emailHasError ? "border-red-500 focus-visible:border-red-500" : ""}`}
                         required
                     />
                     <div className="min-h-2.5">
@@ -162,7 +166,7 @@ export default function Login() {
                                 setStatus("");
                                 setFieldErrors((prev) => ({ ...prev, password: "" }));
                             }}
-                            className={`${loginInputClass} pr-10`}
+                            className={`${loginInputClass} pr-10 ${passwordHasError ? "border-red-500 focus-visible:border-red-500" : ""}`}
                             placeholder={t("auth.password")}
                             required
                         />
@@ -175,17 +179,15 @@ export default function Login() {
                             {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                         </button>
                     </div>
-                    <div className="min-h-2.5">
-                        {((password.length > 0 && liveSigninIssuesByField.password) || fieldErrors.password) && (
-                            <p className="text-xs text-red-500">
-                                {(password.length > 0 && liveSigninIssuesByField.password) || fieldErrors.password}
-                            </p>
-                        )}
-                    </div>
-                    <div className="-mt-2">
+                    {((password.length > 0 && liveSigninIssuesByField.password) || fieldErrors.password) && (
+                        <p className="mt-1 text-xs text-red-500">
+                            {(password.length > 0 && liveSigninIssuesByField.password) || fieldErrors.password}
+                        </p>
+                    )}
+                    <div className="mt-0.5">
                         <Link
                             to={email ? `/forgot-password?email=${encodeURIComponent(email)}` : "/forgot-password"}
-                            className="text-xs text-muted-foreground underline hover:text-foreground"
+                            className="text-[13px] text-gray-400 hover:underline active:underline focus-visible:underline"
                         >
                             {t("auth.forgotPassword")}
                         </Link>

@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { CheckCircle2, Loader2, Mail, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { verifyEmail } from "@/lib/api";
+import { useVerifyEmailMutation } from "./hooks/useAuthMutations";
 
 export default function VerifyEmail() {
   const { t } = useTranslation();
@@ -16,9 +16,10 @@ export default function VerifyEmail() {
 
   const [verifyStatus, setVerifyStatus] = useState("");
   const [verifyError, setVerifyError] = useState("");
-  const [isVerifying, setIsVerifying] = useState(false);
   const didAutoVerifyRef = useRef(false);
   const disabledVerifyButtonCursorClass = "disabled:pointer-events-auto disabled:cursor-not-allowed";
+  const verifyMutation = useVerifyEmailMutation();
+  const isVerifying = verifyMutation.isPending;
 
   const mapVerifyError = (message) => {
     const msg = String(message || "");
@@ -39,9 +40,8 @@ export default function VerifyEmail() {
       setVerifyError(t("auth.verifyEmailMissingToken"));
       return;
     }
-    setIsVerifying(true);
     try {
-      const data = await verifyEmail(token);
+      const data = await verifyMutation.mutateAsync(token);
       const message = String(data?.message || "");
       if (message.toLowerCase().includes("verified")) {
         setVerifyStatus(t("auth.verifyEmailSuccess"));
@@ -50,8 +50,6 @@ export default function VerifyEmail() {
       }
     } catch (err) {
       setVerifyError(mapVerifyError(err.message));
-    } finally {
-      setIsVerifying(false);
     }
   }
 

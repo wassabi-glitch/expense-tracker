@@ -1,5 +1,5 @@
 {
-  "appName": "ExpenseTracker",
+  "appName": "Sarflog",
   "common": {
     "back": "Назад",
     "cancel": "Отмена",
@@ -73,7 +73,7 @@
     "verifyEmailInvalidToken": "Недействительная или просроченная ссылка подтверждения.",
     "verifyEmailFailed": "Не удалось подтвердить email",
     "verifyEmailSuccess": "Email успешно подтвержден. Теперь вы можете войти.",
-    "welcomeToExpenseTracker": "Добро пожаловать в Expense Tracker",
+    "welcomeToExpenseTracker": "Добро пожаловать в Sarflog",
     "signupEmailStepDesc": "Введите ваш email, чтобы продолжить.",
     "signupCredentialsStepDesc": "Выберите имя пользователя и пароль.",
     "createNewPasswordPlaceholder": "Создайте новый пароль",

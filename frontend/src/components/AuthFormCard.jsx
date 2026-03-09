@@ -1,6 +1,8 @@
 import React from "react";
 import { Card } from "@/components/ui/card";
 import { useTranslation } from "react-i18next";
+import flowIcon from "@/assets/brand/sarflog-flow-icon.svg";
+import flowLockup from "@/assets/brand/sarflog-flow-lockup.svg";
 
 export function AuthFormCard({ title, description, backButton, children }) {
     const { t } = useTranslation();
@@ -22,11 +24,13 @@ export function AuthFormCard({ title, description, backButton, children }) {
 
                 {/* --- 2. TOP CONTENT (Branding) --- */}
                 <div className="relative z-10 flex items-center gap-3">
-                    <div className="h-8 w-8 bg-white rounded-sm flex items-center justify-center">
-                        <span className="text-zinc-950 font-bold font-mono">/</span>
-                    </div>
+                    <img
+                        src={flowIcon}
+                        alt="Sarflog logo"
+                        className="h-11 w-11 object-contain"
+                    />
                     <span className="font-mono text-sm tracking-widest uppercase text-zinc-400">
-                        ExpenseTracker_v1.0
+                        Sarflog v1.0.0
                     </span>
                 </div>
 
@@ -59,11 +63,8 @@ export function AuthFormCard({ title, description, backButton, children }) {
                         <div className="mb-6 h-5" />
 
                         <div className="mb-6 text-center">
-                            <div className="mb-5 flex items-center justify-center gap-2.5">
-                                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-foreground text-background">
-                                    <span className="font-bold font-mono text-sm">/</span>
-                                </div>
-                                <span className="text-2xl font-semibold tracking-tight text-foreground">ExpenseTracker</span>
+                            <div className="mb-5 flex items-center justify-center ml-15">
+                                <img src={flowLockup} alt="Sarflog logo" className="h-10 w-auto object-contain" />
                             </div>
                             <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
                             {description && <p className="mt-2 text-sm text-muted-foreground">{description}</p>}

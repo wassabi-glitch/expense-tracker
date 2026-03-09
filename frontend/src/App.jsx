@@ -5,7 +5,8 @@
  * uses the HttpOnly cookie to get a new one. The app shows nothing
  * until this completes, preventing a flash of the login page.
  */
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { silentRefresh } from "@/lib/api";
 import { AuthContext } from "@/lib/AuthContext";
@@ -27,16 +28,22 @@ import ExportPage from "@/features/expenses/ExportPage";
 import Settings from "@/features/settings/Settings";
 
 export default function App() {
-  const [authReady, setAuthReady] = useState(false);
+  const authBootstrapQuery = useQuery({
+    queryKey: ["auth", "silent-refresh"],
+    queryFn: silentRefresh,
+    retry: false,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
 
   useEffect(() => {
-    silentRefresh().finally(() => {
-      setAuthReady(true);
+    if (!authBootstrapQuery.isPending) {
       localStorage.removeItem("token");
       localStorage.removeItem("access_token");
-    });
-  }, []);
+    }
+  }, [authBootstrapQuery.isPending]);
 
+  const authReady = !authBootstrapQuery.isPending;
   if (!authReady) return null;
 
   return (

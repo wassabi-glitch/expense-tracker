@@ -18,9 +18,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
-import { getAnalyticsHistory, getCategoryBreakdown, getDailyTrend } from "@/lib/api";
 import { toISODateInTimeZone } from "@/lib/date";
 import { localizeApiError } from "@/lib/errorMessages";
+import { useAnalyticsChartsQuery, useAnalyticsSummaryQuery } from "./hooks/useAnalyticsDataQueries";
+const EMPTY_ARRAY = [];
 
 const formatCompactUZS = (value) => {
   const num = Number(value || 0);
@@ -87,13 +88,7 @@ export default function Analytics() {
       ? "uz-UZ"
       : "en-US";
   const [searchParams, setSearchParams] = useSearchParams();
-  const [loadingSummary, setLoadingSummary] = useState(true);
-  const [loadingCharts, setLoadingCharts] = useState(true);
-  const [error, setError] = useState("");
   const [hint, setHint] = useState("");
-  const [history, setHistory] = useState(null);
-  const [trendData, setTrendData] = useState([]);
-  const [categoryBreakdown, setCategoryBreakdown] = useState([]);
 
   const [range, setRange] = useState(() => {
     const start = searchParams.get("start_date");
@@ -109,39 +104,22 @@ export default function Analytics() {
   const [endInput, setEndInput] = useState(() => searchParams.get("end_date") || "");
   const todayISO = useMemo(() => toISODateInTimeZone(), []);
 
-  useEffect(() => {
-    const loadSummary = async () => {
-      setLoadingSummary(true);
-      setError("");
-      try {
-        const res = await getAnalyticsHistory();
-        setHistory(res || null);
-      } catch (e) {
-        setError(localizeApiError(e?.message, t) || t("analytics.summaryLoadFailed"));
-      } finally {
-        setLoadingSummary(false);
-      }
-    };
-    loadSummary();
-  }, [t]);
+  const summaryQuery = useAnalyticsSummaryQuery();
 
-  useEffect(() => {
-    const loadCharts = async () => {
-      setLoadingCharts(true);
-      setError("");
-      try {
-        const params = buildQueryParams(range);
-        const [trendRes, categoryRes] = await Promise.all([getDailyTrend(params), getCategoryBreakdown(params)]);
-        setTrendData(trendRes || []);
-        setCategoryBreakdown(categoryRes || []);
-      } catch (e) {
-        setError(localizeApiError(e?.message, t) || t("analytics.chartsLoadFailed"));
-      } finally {
-        setLoadingCharts(false);
-      }
-    };
-    loadCharts();
-  }, [range, t]);
+  const chartParams = useMemo(() => buildQueryParams(range), [range]);
+  const chartsQuery = useAnalyticsChartsQuery(chartParams);
+
+  const history = summaryQuery.data || null;
+  const trendData = chartsQuery.data?.trendData || EMPTY_ARRAY;
+  const categoryBreakdown = chartsQuery.data?.categoryBreakdown || EMPTY_ARRAY;
+  const loadingSummary = summaryQuery.isLoading;
+  const loadingCharts = chartsQuery.isLoading || chartsQuery.isFetching;
+  const error = (summaryQuery.error || chartsQuery.error)
+    ? localizeApiError(summaryQuery.error?.message || chartsQuery.error?.message, t) ||
+    summaryQuery.error?.message ||
+    chartsQuery.error?.message ||
+    t("analytics.chartsLoadFailed")
+    : "";
 
   useEffect(() => {
     const next = new URLSearchParams();
@@ -183,15 +161,14 @@ export default function Analytics() {
   }, [todayISO, t]);
 
   const inputsStatus = useMemo(() => validateInputs(startInput, endInput), [startInput, endInput, validateInputs]);
-  const applyPreset = (preset) => { setError(""); setHint(""); setStartInput(""); setEndInput(""); setRange({ mode: "days", days: preset.days }); };
+  const applyPreset = (preset) => { setHint(""); setStartInput(""); setEndInput(""); setRange({ mode: "days", days: preset.days }); };
   const applyCustom = () => {
-    setError("");
     const check = validateInputs(startInput, endInput);
     if (!check.ok) return setHint(check.message);
     setHint("");
     setRange({ mode: "custom", startDate: startInput, endDate: endInput });
   };
-  const resetAll = () => { setError(""); setHint(""); setStartInput(""); setEndInput(""); setRange({ mode: "days", days: 30 }); };
+  const resetAll = () => { setHint(""); setStartInput(""); setEndInput(""); setRange({ mode: "days", days: 30 }); };
   const isPresetActive = (preset) => range.mode === "days" && range.days === preset.days;
 
   return (

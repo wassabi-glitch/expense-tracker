@@ -8,21 +8,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { exportExpensesCsv, getCategories } from "@/lib/api";
 import { toISODateInTimeZone } from "@/lib/date";
 import { localizeApiError } from "@/lib/errorMessages";
+import { useExportCategoriesQuery } from "./hooks/useExportCategoriesQuery";
+import { useExportMutation } from "./hooks/useExportMutation";
 
 const MIN_EXPENSE_DATE = "2020-01-01";
 const ALL_CATEGORIES_SELECT = "__all_categories__";
+const EMPTY_ARRAY = [];
 
 export default function ExportPage() {
   const { t, i18n } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [loading, setLoading] = useState(true);
-  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
 
-  const [categories, setCategories] = useState([]);
   const [startDate, setStartDate] = useState(() => searchParams.get("start_date") || "");
   const [endDate, setEndDate] = useState(() => searchParams.get("end_date") || "");
   const [category, setCategory] = useState(() => searchParams.get("category") || "");
@@ -36,6 +35,12 @@ export default function ExportPage() {
   const selectContentClass =
     "max-h-[190px] overflow-y-auto bg-white text-black dark:bg-black dark:text-white";
 
+  const categoriesQuery = useExportCategoriesQuery();
+  const categories = categoriesQuery.data || EMPTY_ARRAY;
+  const loading = categoriesQuery.isLoading;
+  const exportMutation = useExportMutation();
+  const exporting = exportMutation.isPending;
+
   useEffect(() => {
     if (retrySeconds <= 0) return;
     const interval = setInterval(() => {
@@ -44,27 +49,11 @@ export default function ExportPage() {
     return () => clearInterval(interval);
   }, [retrySeconds]);
 
-  useEffect(() => {
-    if (retrySeconds === 0 && error === t("export.too_many_requests")) {
-      setError("");
-    }
-  }, [retrySeconds, error, t]);
-
-  useEffect(() => {
-    const loadMeta = async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const list = await getCategories();
-        setCategories(list || []);
-      } catch (e) {
-        setError(localizeApiError(e?.message, t) || e.message || t("export.loadFailed"));
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadMeta();
-  }, [t]);
+  const metaError = categoriesQuery.error
+    ? localizeApiError(categoriesQuery.error?.message, t) || categoriesQuery.error?.message || t("export.loadFailed")
+    : "";
+  const visibleActionError = retrySeconds === 0 && error === t("export.too_many_requests") ? "" : error;
+  const displayError = visibleActionError || metaError;
 
   useEffect(() => {
     const next = new URLSearchParams();
@@ -85,9 +74,8 @@ export default function ExportPage() {
   const handleExport = async () => {
     setError("");
     if (filterError) return setError(filterError);
-    setExporting(true);
     try {
-      const { blob, filename } = await exportExpensesCsv({
+      const { blob, filename } = await exportMutation.mutateAsync({
         start_date: startDate || undefined,
         end_date: endDate || undefined,
         category: category || undefined,
@@ -110,8 +98,6 @@ export default function ExportPage() {
       } else {
         setError(localizeApiError(e?.message, t) || e.message || t("export.exportFailed"));
       }
-    } finally {
-      setExporting(false);
     }
   };
 
@@ -131,7 +117,7 @@ export default function ExportPage() {
           <p className="text-muted-foreground">{t("export.subtitle")}</p>
         </div>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {displayError && <p className="text-sm text-red-600">{displayError}</p>}
 
         <Card className="shadow-sm">
           <CardHeader>

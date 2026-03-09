@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -30,12 +30,12 @@ import {
   YAxis,
 } from "recharts";
 
-import { getExpenses, getMonthToDateTrend, getThisMonthStats, getRecurringExpenses, getCurrentUser } from "@/lib/api";
 import { toISODateInTimeZone } from "@/lib/date";
 import { localizeApiError } from "@/lib/errorMessages";
 import { formatPrettyDate, formatUzs, formatUzsCard, formatCompactUzs, shortMMDD, formatAmountDisplay } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
+import { useDashboardDataQuery } from "./hooks/useDashboardDataQuery";
 
 const tooltipStyle = {
   borderRadius: 10,
@@ -44,21 +44,16 @@ const tooltipStyle = {
   color: "hsl(var(--foreground))",
   boxShadow: "0 10px 30px rgba(0,0,0,0.12)",
 };
+const EMPTY_ARRAY = [];
 
 export default function Dashboard() {
   const { t, i18n } = useTranslation();
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [animateProgress, setAnimateProgress] = useState(false);
-  const [error, setError] = useState("");
-  const [stats, setStats] = useState(null);
-  const [recentExpenses, setRecentExpenses] = useState([]);
-  const [recurringExpenses, setRecurringExpenses] = useState([]);
-  const [trendData, setTrendData] = useState([]);
-  const [trendLoading, setTrendLoading] = useState(true);
   const [activeCategoryBar, setActiveCategoryBar] = useState(null);
   const [activeTrendPoint, setActiveTrendPoint] = useState(null);
   const [activeBudgetStatusCategory, setActiveBudgetStatusCategory] = useState(null);
+  const todayIso = toISODateInTimeZone();
+  const [year, month] = todayIso.split("-");
+  const monthStartIso = `${year}-${month}-01`;
 
   const formatRelativeDue = (daysUntilDue, dueIso) => {
     const hasBackendDays = Number.isFinite(Number(daysUntilDue));
@@ -96,66 +91,37 @@ export default function Dashboard() {
     return t("dashboard.recurringDueRelative", { when: relativeText });
   };
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      setAnimateProgress(false);
-      setError("");
-      try {
-        const endDate = toISODateInTimeZone();
-        const [year, month] = endDate.split("-");
-        const startDate = `${year}-${month}-01`;
+  const {
+    userQuery,
+    statsQuery,
+    recentExpensesQuery,
+    recurringExpensesQuery,
+    trendQuery,
+  } = useDashboardDataQuery({ monthStartIso, todayIso });
 
-        const [userRes, statsRes, expensesRes] = await Promise.all([
-          getCurrentUser(),
-          getThisMonthStats(),
-          getExpenses({
-            limit: 5,
-            skip: 0,
-            sort: "newest",
-            start_date: startDate,
-            end_date: endDate,
-          })
-        ]);
-
-        let recurringRes = [];
-        if (userRes?.is_premium) {
-          recurringRes = await getRecurringExpenses();
-        }
-
-        setUser(userRes || null);
-        setStats(statsRes || null);
-        setRecentExpenses(expensesRes?.items || []);
-
-        const sortedRecurring = (recurringRes || [])
-          .sort((a, b) => new Date(a.next_due_date) - new Date(b.next_due_date))
-          .slice(0, 5);
-        setRecurringExpenses(sortedRecurring);
-
-        requestAnimationFrame(() => setAnimateProgress(true));
-      } catch (e) {
-        setError(localizeApiError(e?.message, t) || t("dashboard.loadError"));
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, [t]);
-
-  useEffect(() => {
-    const loadTrend = async () => {
-      setTrendLoading(true);
-      try {
-        const res = await getMonthToDateTrend();
-        setTrendData(res || []);
-      } catch (e) {
-        setError(localizeApiError(e?.message, t) || t("dashboard.trendError"));
-      } finally {
-        setTrendLoading(false);
-      }
-    };
-    loadTrend();
-  }, [t]);
+  const user = userQuery.data || null;
+  const stats = statsQuery.data || null;
+  const recentExpenses = recentExpensesQuery.data?.items || [];
+  const recurringExpenses = useMemo(() => {
+    const items = recurringExpensesQuery.data || EMPTY_ARRAY;
+    return [...items]
+      .sort((a, b) => new Date(a.next_due_date) - new Date(b.next_due_date))
+      .slice(0, 5);
+  }, [recurringExpensesQuery.data]);
+  const trendData = trendQuery.data || EMPTY_ARRAY;
+  const loading =
+    userQuery.isLoading ||
+    statsQuery.isLoading ||
+    recentExpensesQuery.isLoading ||
+    recurringExpensesQuery.isLoading;
+  const trendLoading = trendQuery.isLoading;
+  const firstError =
+    userQuery.error ||
+    statsQuery.error ||
+    recentExpensesQuery.error ||
+    recurringExpensesQuery.error ||
+    trendQuery.error;
+  const error = firstError ? localizeApiError(firstError?.message, t) || t("dashboard.loadError") : "";
 
   const derived = useMemo(() => {
     const categoryBreakdown = stats?.category_breakdown || [];
@@ -374,7 +340,7 @@ export default function Dashboard() {
                       </div>
                     </div>
                     <Progress
-                      value={animateProgress ? percent : 0}
+                      value={loading ? 0 : percent}
                       className="h-2.5"
                       trackClassName={progressTrackClass}
                       indicatorClassName={progressIndicatorClass}

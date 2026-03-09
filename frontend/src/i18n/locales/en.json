@@ -1,5 +1,5 @@
 {
-  "appName": "ExpenseTracker",
+  "appName": "Sarflog",
   "common": {
     "back": "Back",
     "cancel": "Cancel",
@@ -73,7 +73,7 @@
     "verifyEmailInvalidToken": "Invalid or expired verification link.",
     "verifyEmailFailed": "Failed to verify email",
     "verifyEmailSuccess": "Email verified successfully. You can now sign in.",
-    "welcomeToExpenseTracker": "Welcome to Expense Tracker",
+    "welcomeToExpenseTracker": "Welcome to Sarflog",
     "signupEmailStepDesc": "Start with your email to continue.",
     "signupCredentialsStepDesc": "Create your username and password.",
     "createNewPasswordPlaceholder": "Create a new password",
