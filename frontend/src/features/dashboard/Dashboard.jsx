@@ -12,7 +12,7 @@ import {
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Download, Plus, Wallet, TrendingUp, Layers, Crown, Car, Gamepad2, Home, Utensils, Wrench, Circle, CalendarClock } from "lucide-react";
+import { Download, Plus, Wallet, TrendingUp, Layers, Circle, CalendarClock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { categoryIconMap } from "@/lib/category";
 
@@ -93,6 +93,7 @@ export default function Dashboard() {
 
   const {
     userQuery,
+    summaryQuery,
     statsQuery,
     recentExpensesQuery,
     recurringExpensesQuery,
@@ -109,14 +110,23 @@ export default function Dashboard() {
       .slice(0, 5);
   }, [recurringExpensesQuery.data]);
   const trendData = trendQuery.data || EMPTY_ARRAY;
+  const summary = summaryQuery.data || {
+    income: 0,
+    spent: 0,
+    remaining: 0,
+    daily_average: 0,
+  };
+  const showZeroIncomeHint = !summaryQuery.isLoading && summary.income === 0;
   const loading =
     userQuery.isLoading ||
+    summaryQuery.isLoading ||
     statsQuery.isLoading ||
     recentExpensesQuery.isLoading ||
     recurringExpensesQuery.isLoading;
   const trendLoading = trendQuery.isLoading;
   const firstError =
     userQuery.error ||
+    summaryQuery.error ||
     statsQuery.error ||
     recentExpensesQuery.error ||
     recurringExpensesQuery.error ||
@@ -152,23 +162,24 @@ export default function Dashboard() {
 
   const statCards = [
     {
-      label: t("dashboard.totalSpentMonth"),
-      value: `${formatUzsCard(derived.totalSpent)} UZS`,
+      label: t("dashboard.income"),
+      value: `${formatUzsCard(summary.income)} UZS`,
       icon: Wallet,
     },
     {
-      label: t("dashboard.remainingBudget"),
-      value: `${formatUzsCard(derived.remainingBudget)} UZS`,
+      label: t("dashboard.spent"),
+      value: `${formatUzsCard(summary.spent)} UZS`,
       icon: TrendingUp,
     },
     {
-      label: t("dashboard.biggestCategory"),
-      value: t(`categories.${derived.biggestCategory}`, { defaultValue: derived.biggestCategory }),
-      icon: Crown,
+      label: t("dashboard.remaining"),
+      value: `${summary.remaining >= 0 ? "+" : "-"}${formatUzsCard(Math.abs(summary.remaining))} UZS`,
+      valueClassName: summary.remaining >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400",
+      icon: summary.remaining >= 0 ? TrendingUp : Wallet,
     },
     {
-      label: t("dashboard.avgDailySpend"),
-      value: `${formatUzsCard(derived.avgDaily)} UZS`,
+      label: t("dashboard.dailyAverage"),
+      value: `${formatUzsCard(summary.daily_average)} UZS`,
       icon: Layers,
     },
   ];
@@ -249,12 +260,15 @@ export default function Dashboard() {
                   <Icon className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent className="pt-0">
-                  <div className="text-2xl font-bold">{s.value}</div>
+                  <div className={cn("text-2xl font-bold", s.valueClassName)}>{s.value}</div>
                 </CardContent>
               </Card>
             );
           })}
         </div>
+        {showZeroIncomeHint && (
+          <p className="text-sm text-muted-foreground">{t("dashboard.zeroIncomeHint")}</p>
+        )}
 
         <div className="grid gap-6 lg:grid-cols-3">
           <Card className="shadow-sm lg:col-span-2">

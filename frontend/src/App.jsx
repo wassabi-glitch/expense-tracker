@@ -11,6 +11,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { silentRefresh } from "@/lib/api";
 import { AuthContext } from "@/lib/AuthContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import OnboardingGate from "@/components/OnboardingGate";
 import Layout from "@/components/Layout";
 import NotFound from "@/components/NotFound";
 import Login from "@/features/auth/Login";
@@ -26,6 +27,7 @@ import Budgets from "@/features/budgets/Budgets";
 import Analytics from "@/features/analytics/Analytics";
 import ExportPage from "@/features/expenses/ExportPage";
 import Settings from "@/features/settings/Settings";
+import Onboarding from "@/features/onboarding/Onboarding";
 
 export default function App() {
   const authBootstrapQuery = useQuery({
@@ -58,13 +60,16 @@ export default function App() {
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/resend-verification" element={<ResendVerification />} />
         <Route element={<ProtectedRoute />}>
-          <Route element={<Layout />}>
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/expenses" element={<Expenses />} />
-            <Route path="/budgets" element={<Budgets />} />
-            <Route path="/analytics" element={<Analytics />} />
-            <Route path="/export" element={<ExportPage />} />
-            <Route path="/settings" element={<Settings />} />
+          <Route element={<OnboardingGate />}>
+            <Route path="/onboarding" element={<Onboarding />} />
+            <Route element={<Layout />}>
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/expenses" element={<Expenses />} />
+              <Route path="/budgets" element={<Budgets />} />
+              <Route path="/analytics" element={<Analytics />} />
+              <Route path="/export" element={<ExportPage />} />
+              <Route path="/settings" element={<Settings />} />
+            </Route>
           </Route>
         </Route>
         <Route path="*" element={<NotFound />} />

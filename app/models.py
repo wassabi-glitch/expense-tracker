@@ -29,6 +29,14 @@ class RecurringFrequency(str, enum.Enum):
     YEARLY = "YEARLY"
 
 
+class LifeStatus(str, enum.Enum):
+    STUDENT = "student"
+    EMPLOYED = "employed"
+    SELF_EMPLOYED = "self_employed"
+    BUSINESS_OWNER = "business_owner"
+    UNEMPLOYED = "unemployed"
+
+
 class UserIdentity(Base):
     __tablename__ = "user_identities"
     __table_args__ = (
@@ -63,6 +71,12 @@ class User(Base):
     is_verified = Column(Boolean, default=False, nullable=False)
     is_premium = Column(Boolean, default=False, nullable=False)
     timezone = Column(String(50), default="UTC", nullable=False)
+    profile = relationship(
+        "UserProfile",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
     identities = relationship(
         "UserIdentity", back_populates="user", cascade="all, delete-orphan")
     # This allows you to do: some_user.expenses to see all their spending
@@ -99,6 +113,37 @@ class Expense(Base):
     budget = relationship("Budget", back_populates="expenses")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     date = Column(Date, nullable=False, default=date.today)
+
+
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_user_profiles_user_id"),
+        CheckConstraint(
+            "monthly_income_amount >= 0",
+            name="ck_user_profiles_monthly_income_amount_non_negative",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    life_status = Column(Enum(LifeStatus), nullable=False)
+    monthly_income_amount = Column(BigInteger, nullable=False)
+    onboarding_completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user = relationship("User", back_populates="profile")
 
 
 class RecurringExpense(Base):

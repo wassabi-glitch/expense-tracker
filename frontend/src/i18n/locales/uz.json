@@ -167,9 +167,55 @@
       }
     }
   },
+  "onboarding": {
+    "title": "Sozlashni yakunlang",
+    "description": "Tajribangizni moslashtirish uchun holatingiz haqida qisqacha ma'lumot bering.",
+    "step1": {
+      "question": "Holatingizni qaysi variant eng yaxshi ifodalaydi?"
+    },
+    "step2": {
+      "question": "Taxminiy oylik daromadingiz qancha?",
+      "currencyHint": "Miqdor UZSda"
+    },
+    "selectedStatus": "Tanlangan holat: {{status}}",
+    "submitAction": "Sozlashni yakunlash",
+    "submitFailed": "Onboarding ma'lumotlarini saqlab bo'lmadi.",
+    "retryHint": "Akkaunt profilingizni yuklab bo'lmadi. Qayta urinib ko'ring.",
+    "retryAction": "Qayta urinish",
+    "lifeStatus": {
+      "student": "Talaba",
+      "employed": "Ishli",
+      "selfEmployed": "O'zini o'zi band qilgan",
+      "businessOwner": "Biznes egasi",
+      "unemployed": "Ishsiz"
+    },
+    "placeholder": {
+      "employed": "Maoshingizni kiriting",
+      "student": "Oylik stipendiya yoki daromadingizni kiriting",
+      "selfEmployed": "O'rtacha oylik daromadingizni kiriting",
+      "businessOwner": "Biznesdan oylik daromadingizni kiriting",
+      "unemployed": "Kutilayotgan oylik daromadingizni kiriting",
+      "default": "Oylik daromadingizni kiriting"
+    },
+    "validation": {
+      "lifeStatus": {
+        "required": "Iltimos, joriy holatingizni tanlang."
+      },
+      "income": {
+        "required": "Iltimos, oylik daromadingizni kiriting.",
+        "invalid": "Daromad butun son bo'lishi kerak.",
+        "max": "Miqdor 999 999 999 999 dan oshmasligi kerak."
+      }
+    }
+  },
   "dashboard": {
     "title": "Boshqaruv paneli",
     "subtitle": "Ushbu oy uchun moliyaviy ko'rinishingiz.",
+    "income": "Daromad",
+    "spent": "Sarf",
+    "remaining": "Qoldiq",
+    "dailyAverage": "Kunlik o'rtacha",
+    "zeroIncomeHint": "Oylik daromadingiz 0 UZS qilib belgilangan, shuning uchun qoldiq shu qiymat asosida hisoblanadi.",
     "export": "Eksport",
     "addExpense": "Xarajat qo'shish",
     "loadError": "Panelni yuklab bo'lmadi",
@@ -518,3 +564,4 @@
     "Business / Work": "Mijoz uchrashuvlari, ofis jihozlari, dasturiy vositalar va ish safarlari"
   }
 }
+

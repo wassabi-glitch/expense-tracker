@@ -231,3 +231,61 @@ def test_category_breakdown_rejects_dates_before_2020(client):
     )
     assert res.status_code == 400
     assert "date_too_early" in res.text
+
+
+def test_dashboard_summary_positive_remaining(client):
+    headers = create_user_and_token(
+        client, "summarypos", "summarypos@example.com", "Password123!"
+    )
+
+    onboard = client.post(
+        "/users/me/onboarding",
+        json={
+            "life_status": "employed",
+            "monthly_income_amount": 1_000_000,
+        },
+        headers=headers,
+    )
+    assert onboard.status_code == 200
+
+    create_budget(client, headers, category="Food", monthly_limit=2_000_000)
+    created = create_expense(client, headers, title="Food", amount=250_000, category="Food")
+    assert created.status_code == 201
+
+    res = client.get("/analytics/dashboard-summary", headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+
+    assert data["income"] == 1_000_000
+    assert data["spent"] == 250_000
+    assert data["remaining"] == 750_000
+    assert data["daily_average"] == round(250_000 / max(1, date.today().day))
+
+
+def test_dashboard_summary_negative_remaining(client):
+    headers = create_user_and_token(
+        client, "summaryneg", "summaryneg@example.com", "Password123!"
+    )
+
+    onboard = client.post(
+        "/users/me/onboarding",
+        json={
+            "life_status": "self_employed",
+            "monthly_income_amount": 100_000,
+        },
+        headers=headers,
+    )
+    assert onboard.status_code == 200
+
+    create_budget(client, headers, category="Food", monthly_limit=2_000_000)
+    created = create_expense(client, headers, title="Food", amount=360_000, category="Food")
+    assert created.status_code == 201
+
+    res = client.get("/analytics/dashboard-summary", headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+
+    assert data["income"] == 100_000
+    assert data["spent"] == 360_000
+    assert data["remaining"] == -260_000
+    assert data["daily_average"] == round(360_000 / max(1, date.today().day))

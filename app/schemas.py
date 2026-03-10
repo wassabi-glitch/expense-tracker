@@ -4,10 +4,11 @@ from datetime import datetime, date
 from enum import Enum
 import re
 
-from .models import ExpenseCategory, RecurringFrequency  # Importing enums
+from .models import ExpenseCategory, LifeStatus, RecurringFrequency  # Importing enums
 
 MIN_BUDGET_YEAR = 2020
 MAX_BUDGET_YEARS_AHEAD = 5
+MAX_INCOME_AMOUNT = 999_999_999_999
 
 
 # --- USER SCHEMAS ---
@@ -78,10 +79,36 @@ class UserCreate(UserBase):
         return self
 
 
+class UserOnboardingUpsert(BaseModel):
+    life_status: LifeStatus
+    monthly_income_amount: int = Field(ge=0)
+
+    @field_validator("monthly_income_amount")
+    @classmethod
+    def validate_monthly_income_amount_max(cls, v: int):
+        if v > MAX_INCOME_AMOUNT:
+            raise ValueError("income.amount_too_large")
+        return v
+
+
+class UserProfileOut(BaseModel):
+    id: int
+    user_id: int
+    life_status: LifeStatus
+    monthly_income_amount: int
+    onboarding_completed_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class UserOut(UserBase):
     id: int
     created_at: datetime
     is_premium: bool
+    needs_onboarding: bool = True
+    profile: Optional[UserProfileOut] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -283,7 +310,6 @@ class RecurringExpenseUpdate(BaseModel):
         return v
 
 
-
 class RecurringExpenseOut(RecurringExpenseBase):
     id: int
     owner_id: int
@@ -425,6 +451,7 @@ class BudgetBase(BaseModel):
             raise ValueError("budgets.month_invalid")
         return v
 
+
 class BudgetCreate(BudgetBase):
     pass
 
@@ -463,3 +490,10 @@ class CategoryBreakdownItem(BaseModel):
     category: str
     total: int
     count: int
+
+
+class DashboardSummary(BaseModel):
+    income: int
+    spent: int
+    remaining: int
+    daily_average: int

@@ -11,6 +11,11 @@ export async function getThisMonthStats() {
     return response.data;
 }
 
+export async function getDashboardSummary() {
+    const response = await apiClient.get("/analytics/dashboard-summary");
+    return response.data;
+}
+
 export async function getDailyTrend(params = {}) {
     const response = await apiClient.get("/analytics/daily-trend", { params: compactParams(params) });
     return response.data;

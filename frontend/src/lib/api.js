@@ -12,9 +12,9 @@ export {
 } from "./api/auth";
 
 export { getHealth } from "./api/health";
-export { getCurrentUser, togglePremium } from "./api/users";
+export { getCurrentUser, togglePremium, upsertOnboardingProfile } from "./api/users";
 export { getCategories } from "./api/meta";
 export { getBudgets, createBudget, updateBudget, deleteBudget } from "./api/budgets";
 export { getExpenses, deleteExpense, createExpense, updateExpense, exportExpensesCsv } from "./api/expenses";
 export { getRecurringExpenses, createRecurringExpense, updateRecurringExpense, deleteRecurringExpense, patchRecurringActive } from "./api/recurring";
-export { getThisMonthStats, getDailyTrend, getAnalyticsHistory, getMonthToDateTrend, getCategoryBreakdown } from "./api/analytics";
+export { getThisMonthStats, getDashboardSummary, getDailyTrend, getAnalyticsHistory, getMonthToDateTrend, getCategoryBreakdown } from "./api/analytics";

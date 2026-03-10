@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -21,6 +22,26 @@ router = APIRouter(
 
 # Used to reduce login timing differences between "user not found" and "bad password".
 DUMMY_PASSWORD_HASH = utils.hash_password("dummy-password-not-used")
+
+
+def build_user_out(user: models.User) -> schemas.UserOut:
+    profile_out = None
+    needs_onboarding = True
+    if user.profile is not None:
+        profile_out = schemas.UserProfileOut.model_validate(user.profile)
+        needs_onboarding = user.profile.onboarding_completed_at is None
+
+    return schemas.UserOut(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        created_at=user.created_at,
+        is_premium=user.is_premium,
+        needs_onboarding=needs_onboarding,
+        profile=profile_out,
+    )
+
+
 def ensure_local_identity(db: Session, user: models.User) -> None:
     identity = (
         db.query(models.UserIdentity)
@@ -122,7 +143,7 @@ def create_user(
         sent = send_verification_email(new_user.email, verify_link)
         if not sent and not settings.is_production:
             logger.info("Email verification link fallback for %s: %s", new_user.email, verify_link)
-    return new_user
+    return build_user_out(new_user)
 
 
 @router.post('/sign-in')
@@ -202,7 +223,38 @@ def login(
 
 @router.get("/me", response_model=schemas.UserOut)
 def get_me(current_user: models.User = Depends(oauth2.get_current_user)):
-    return current_user
+    return build_user_out(current_user)
+
+
+@router.post("/me/onboarding", response_model=schemas.UserOut, status_code=status.HTTP_200_OK)
+def upsert_onboarding_profile(
+    payload: schemas.UserOnboardingUpsert,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+):
+    profile = (
+        db.query(models.UserProfile)
+        .filter(models.UserProfile.user_id == current_user.id)
+        .first()
+    )
+
+    if profile is None:
+        profile = models.UserProfile(
+            user_id=current_user.id,
+            life_status=payload.life_status,
+            monthly_income_amount=payload.monthly_income_amount,
+            onboarding_completed_at=datetime.now(timezone.utc),
+        )
+        db.add(profile)
+    else:
+        profile.life_status = payload.life_status
+        profile.monthly_income_amount = payload.monthly_income_amount
+        profile.onboarding_completed_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(current_user)
+    return build_user_out(current_user)
+
 
 @router.post("/me/toggle-premium", response_model=schemas.UserOut)
 def toggle_premium(
@@ -211,4 +263,4 @@ def toggle_premium(
     current_user.is_premium = not current_user.is_premium
     db.commit()
     db.refresh(current_user)
-    return current_user
+    return build_user_out(current_user)

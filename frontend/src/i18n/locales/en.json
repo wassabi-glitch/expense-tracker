@@ -167,9 +167,55 @@
       }
     }
   },
+  "onboarding": {
+    "title": "Finish setup",
+    "description": "Tell us a bit about your situation so we can personalize your experience.",
+    "step1": {
+      "question": "What best describes your situation?"
+    },
+    "step2": {
+      "question": "What is your approximate monthly income?",
+      "currencyHint": "Amount in UZS"
+    },
+    "selectedStatus": "Selected: {{status}}",
+    "submitAction": "Finish setup",
+    "submitFailed": "Failed to save onboarding data.",
+    "retryHint": "We could not load your account profile. Please retry.",
+    "retryAction": "Retry",
+    "lifeStatus": {
+      "student": "Student",
+      "employed": "Employed",
+      "selfEmployed": "Self-employed",
+      "businessOwner": "Business owner",
+      "unemployed": "Unemployed"
+    },
+    "placeholder": {
+      "employed": "Enter your salary",
+      "student": "Enter your monthly allowance or income",
+      "selfEmployed": "Enter your average monthly income",
+      "businessOwner": "Enter your monthly business income",
+      "unemployed": "Enter your expected monthly income",
+      "default": "Enter your monthly income"
+    },
+    "validation": {
+      "lifeStatus": {
+        "required": "Please select your current situation."
+      },
+      "income": {
+        "required": "Please enter your monthly income.",
+        "invalid": "Income must be a whole number.",
+        "max": "Amount cannot exceed 999,999,999,999."
+      }
+    }
+  },
   "dashboard": {
     "title": "Dashboard",
     "subtitle": "Your financial overview for this month.",
+    "income": "Income",
+    "spent": "Spent",
+    "remaining": "Remaining",
+    "dailyAverage": "Daily Average",
+    "zeroIncomeHint": "Your monthly income is set to 0 UZS, so remaining balance is based on that value.",
     "export": "Export",
     "addExpense": "Add Expense",
     "loadError": "Failed to load dashboard",
@@ -518,3 +564,4 @@
     "Business / Work": "Client meetings, office supplies, software tools, and work travel"
   }
 }
+
