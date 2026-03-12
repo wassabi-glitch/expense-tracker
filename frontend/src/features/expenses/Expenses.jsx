@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Search, ChevronLeft, ChevronRight, Inbox, Trash2 } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Plus, Search, ChevronLeft, ChevronRight, Inbox, Trash2, MoreHorizontal, Pencil, FileText } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,6 +44,7 @@ const MIN_EXPENSE_DATE = "2020-01-01";
 const MAX_EXPENSE_AMOUNT_DIGITS = String(MAX_EXPENSE_AMOUNT).length;
 const ALL_CATEGORIES_SELECT = "__all_categories__";
 const EMPTY_ARRAY = [];
+const MAX_EXPENSES_PER_MONTH = 1000;
 
 import { getCategoryBgClass, categoryIconMap, CATEGORIES } from "@/lib/category";
 import { Circle } from "lucide-react";
@@ -109,6 +111,8 @@ export default function Expenses() {
 
   const [descriptionOpen, setDescriptionOpen] = useState(false);
   const [descriptionTarget, setDescriptionTarget] = useState(null);
+  const [expenseMenuForId, setExpenseMenuForId] = useState(null);
+  const [expenseMenuPosition, setExpenseMenuPosition] = useState(null);
 
   const tCategory = (name) => t(`categories.${name}`, { defaultValue: name });
   const selectTriggerClass =
@@ -132,6 +136,14 @@ export default function Expenses() {
     };
   }, [search, category, startDate, endDate, sort, page]);
 
+  const currentMonthCountParams = useMemo(() => ({
+    limit: 1,
+    skip: 0,
+    start_date: `${todayISO.slice(0, 7)}-01`,
+    end_date: todayISO,
+    sort: "newest",
+  }), [todayISO]);
+
   const dateFilterError = useMemo(() => {
     if (startDate && startDate > todayISO) return t("expenses.startFuture");
     if (endDate && endDate > todayISO) return t("expenses.endFuture");
@@ -140,11 +152,14 @@ export default function Expenses() {
   }, [startDate, endDate, todayISO, t]);
 
   const expensesQuery = useExpensesQuery(queryParams, activeTab === "one-time" && !dateFilterError);
+  const currentMonthCountQuery = useExpensesQuery(currentMonthCountParams, activeTab === "one-time");
   const categoriesQuery = useExpenseCategoriesQuery(activeTab === "one-time");
 
   const categories = categoriesQuery.data || EMPTY_ARRAY;
   const expenses = expensesQuery.data?.items || EMPTY_ARRAY;
   const total = Number(expensesQuery.data?.total || 0);
+  const currentMonthExpenseCount = Number(currentMonthCountQuery.data?.total || 0);
+  const expenseMonthLimitReached = currentMonthExpenseCount >= MAX_EXPENSES_PER_MONTH;
   const hasNext = expenses.length === PAGE_SIZE;
   const loading = expensesQuery.isLoading || categoriesQuery.isLoading;
   const isFetching = expensesQuery.isFetching || categoriesQuery.isFetching;
@@ -260,6 +275,42 @@ export default function Expenses() {
     setDescriptionOpen(true);
   };
 
+  useEffect(() => {
+    const onPointerDown = (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.closest("[data-action-popover]")) return;
+      setExpenseMenuForId(null);
+      setExpenseMenuPosition(null);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, []);
+
+  const openExpenseActions = (event, expense) => {
+    setActionError("");
+    const button = event.currentTarget;
+    const rect = button instanceof HTMLElement ? button.getBoundingClientRect() : null;
+    const menuWidth = 176;
+    const menuHeight = 120;
+    const viewportPadding = 8;
+    setExpenseMenuForId((prev) => {
+      if (prev === expense.id) {
+        setExpenseMenuPosition(null);
+        return null;
+      }
+      if (!rect) return null;
+      const fitsBelow = rect.bottom + 6 + menuHeight <= window.innerHeight - viewportPadding;
+      const top = fitsBelow ? rect.bottom + 6 : rect.top - 6 - menuHeight;
+      const left = Math.max(
+        viewportPadding,
+        Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - viewportPadding)
+      );
+      setExpenseMenuPosition({ top, left });
+      return expense.id;
+    });
+  };
+
   const goPrevPage = () => {
     if (loading || isFetching) return;
     if (page <= 1) return;
@@ -303,7 +354,7 @@ export default function Expenses() {
   const isAdding = addExpenseMutation.isPending;
   const isEditing = editExpenseMutation.isPending;
   const isDeleting = deleteExpenseMutation.isPending;
-  const canSubmitAddExpense = addExpenseParsed.success && !isAdding;
+  const canSubmitAddExpense = addExpenseParsed.success && !isAdding && !expenseMonthLimitReached;
 
   const editExpenseParsed = useMemo(
     () =>
@@ -444,6 +495,8 @@ export default function Expenses() {
             <Button
               className="bg-primary text-primary-foreground hover:bg-primary/90"
               onClick={openAdd}
+              disabled={expenseMonthLimitReached}
+              title={expenseMonthLimitReached ? t("expenses.monthLimitReached") : undefined}
             >
               <Plus className="mr-2 h-4 w-4" /> {t("expenses.addExpense")}
             </Button>
@@ -549,14 +602,12 @@ export default function Expenses() {
               <CardContent className="min-h-80 py-6">
                 <div className="overflow-x-auto">
                   <div className="min-w-[920px] space-y-0">
-                    <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)] items-center gap-x-2 border-b border-border px-3 py-3 text-xs uppercase tracking-wide text-muted-foreground">
+                    <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,0.4fr)] items-center gap-x-2 border-b border-border px-3 py-3 text-xs uppercase tracking-wide text-muted-foreground">
                       <div className="text-left">{t("expenses.titleCol")}</div>
                       <div className="text-center">{t("expenses.category")}</div>
                       <div className="text-center">{t("expenses.date")}</div>
                       <div className="text-right">{t("expenses.amountUzs")}</div>
-                      <div className="text-right">
-                        {t("common.actions", { defaultValue: "Actions" })}
-                      </div>
+                      <div className="text-right" />
                     </div>
 
                     {loading ? (
@@ -572,7 +623,7 @@ export default function Expenses() {
                       expenses.map((e) => (
                         <div
                           key={e.id}
-                          className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)] items-start gap-x-2 border-b border-border px-3 py-3 hover:bg-muted/50 dark:hover:bg-muted/30"
+                          className="grid grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,0.4fr)] items-start gap-x-2 border-b border-border px-3 py-3 hover:bg-muted/50 dark:hover:bg-muted/30"
                         >
                           <div className="min-w-0 self-center">
                             <TooltipProvider delayDuration={0}>
@@ -608,35 +659,15 @@ export default function Expenses() {
                           </div>
 
                           <div className="min-w-0">
-                            <div className="flex flex-wrap justify-end gap-1.5">
+                            <div className="flex justify-end" data-action-popover>
                               <Button
                                 type="button"
-                                variant="outline"
-                                className="h-8 max-w-[8.5rem] truncate px-2 text-xs text-muted-foreground hover:bg-muted/40"
-                                onClick={() => openDescription(e)}
-                              >
-                                {t("expenses.viewDescription", {
-                                  defaultValue: "View description",
-                                })}
-                              </Button>
-
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="h-8 px-2 text-xs"
-                                onClick={() => openEdit(e)}
-                              >
-                                {t("common.edit", { defaultValue: "Edit" })}
-                              </Button>
-
-                              <Button
-                                type="button"
+                                size="icon"
                                 variant="ghost"
-                                className="h-8 px-2 text-xs text-destructive bg-destructive/10 hover:bg-destructive/20 hover:text-destructive active:bg-destructive/30"
-                                onClick={() => openDelete(e)}
+                                className="h-8 w-8"
+                                onClick={(event) => openExpenseActions(event, e)}
                               >
-                                <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                {t("common.delete", { defaultValue: "Delete" })}
+                                <MoreHorizontal className="h-4 w-4" />
                               </Button>
                             </div>
                           </div>
@@ -660,6 +691,57 @@ export default function Expenses() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {expenseMenuForId && expenseMenuPosition
+        ? createPortal(
+          <div
+            data-action-popover
+            className="fixed z-50 w-44 rounded-md border border-border bg-popover p-1 shadow-lg"
+            style={{ top: `${expenseMenuPosition.top}px`, left: `${expenseMenuPosition.left}px` }}
+          >
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted"
+              onClick={() => {
+                const expense = expenses.find((item) => item.id === expenseMenuForId);
+                setExpenseMenuForId(null);
+                setExpenseMenuPosition(null);
+                if (expense) openDescription(expense);
+              }}
+            >
+              <FileText className="h-4 w-4" />
+              {t("expenses.viewDescription", { defaultValue: "View description" })}
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted"
+              onClick={() => {
+                const expense = expenses.find((item) => item.id === expenseMenuForId);
+                setExpenseMenuForId(null);
+                setExpenseMenuPosition(null);
+                if (expense) openEdit(expense);
+              }}
+            >
+              <Pencil className="h-4 w-4" />
+              {t("common.edit", { defaultValue: "Edit" })}
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10"
+              onClick={() => {
+                const expense = expenses.find((item) => item.id === expenseMenuForId);
+                setExpenseMenuForId(null);
+                setExpenseMenuPosition(null);
+                if (expense) openDelete(expense);
+              }}
+            >
+              <Trash2 className="h-4 w-4" />
+              {t("common.delete", { defaultValue: "Delete" })}
+            </button>
+          </div>,
+          document.body
+        )
+        : null}
 
       {/* Add Dialog */}
       <Dialog

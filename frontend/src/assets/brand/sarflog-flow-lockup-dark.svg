@@ -6,5 +6,5 @@
     <path d="M35 76H93L79 90H21L35 76Z" fill="#21C45D"/>
     <path d="M79 90L93 76L107 90H79Z" fill="#16A34A"/>
   </g>
-  <text x="74" y="32" dominant-baseline="middle" fill="#F9FAFB" font-family="Inter" font-size="50" font-weight="600" letter-spacing="-0.2">Sarflog</text>
+  <text x="66" y="32" dominant-baseline="middle" fill="#F9FAFB" font-family="Inter, Arial, sans-serif" font-size="50" font-weight="600" letter-spacing="-2">Sarflog</text>
 </svg>

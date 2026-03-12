@@ -19,7 +19,7 @@ def test_me_requires_onboarding_until_profile_completed(client):
         "/users/me/onboarding",
         json={
             "life_status": "employed",
-            "monthly_income_amount": 5000000,
+            "initial_balance": 5000000,
         },
         headers=headers,
     )
@@ -27,7 +27,8 @@ def test_me_requires_onboarding_until_profile_completed(client):
     onboard_data = onboard_res.json()
     assert onboard_data["needs_onboarding"] is False
     assert onboard_data["profile"]["life_status"] == "employed"
-    assert onboard_data["profile"]["monthly_income_amount"] == 5000000
+    assert onboard_data["profile"]["initial_balance"] == 5000000
+    assert onboard_data["profile"]["monthly_income_amount"] == 0
     assert onboard_data["profile"]["onboarding_completed_at"] is not None
 
     me_after = client.get("/users/me", headers=headers)
@@ -48,7 +49,7 @@ def test_onboarding_upsert_updates_existing_profile(client, session):
         "/users/me/onboarding",
         json={
             "life_status": "student",
-            "monthly_income_amount": 100000,
+            "initial_balance": 100000,
         },
         headers=headers,
     )
@@ -58,20 +59,52 @@ def test_onboarding_upsert_updates_existing_profile(client, session):
         "/users/me/onboarding",
         json={
             "life_status": "self_employed",
-            "monthly_income_amount": 200000,
+            "initial_balance": 200000,
         },
         headers=headers,
     )
     assert second.status_code == 200
     second_data = second.json()
     assert second_data["profile"]["life_status"] == "self_employed"
-    assert second_data["profile"]["monthly_income_amount"] == 200000
+    assert second_data["profile"]["initial_balance"] == 200000
 
     profiles = session.query(models.UserProfile).all()
     assert len(profiles) == 1
+    entries = session.query(models.IncomeEntry).all()
+    assert len(entries) == 0
 
 
-def test_onboarding_rejects_too_large_income_amount(client):
+def test_onboarding_creates_status_based_income_sources_without_entries(client):
+    headers = create_user_and_token(
+        client,
+        "onboarduser4",
+        "onboarduser4@example.com",
+        "Password123!",
+    )
+
+    onboard = client.post(
+        "/users/me/onboarding",
+        json={
+            "life_status": "student",
+            "initial_balance": 2500000,
+        },
+        headers=headers,
+    )
+    assert onboard.status_code == 200
+
+    sources = client.get("/income/sources?include_inactive=true", headers=headers)
+    assert sources.status_code == 200
+    sources_data = sources.json()
+    source_names = {s["name"] for s in sources_data}
+    assert {"Allowance", "Scholarship", "Part-time work"}.issubset(source_names)
+
+    entries = client.get("/income/entries", headers=headers)
+    assert entries.status_code == 200
+    entries_data = entries.json()
+    assert entries_data["total"] == 0
+
+
+def test_onboarding_rejects_too_large_initial_balance(client):
     headers = create_user_and_token(
         client,
         "onboarduser3",
@@ -83,7 +116,7 @@ def test_onboarding_rejects_too_large_income_amount(client):
         "/users/me/onboarding",
         json={
             "life_status": "business_owner",
-            "monthly_income_amount": 1_000_000_000_000,
+            "initial_balance": 1_000_000_000_000,
         },
         headers=headers,
     )

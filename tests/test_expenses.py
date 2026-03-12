@@ -466,6 +466,55 @@ def test_expense_write_rate_limit_blocks_burst(client):
     assert "Retry-After" in blocked.headers
 
 
+def test_expense_month_limit_blocks_1001st_expense(client, session, monkeypatch):
+    headers = create_user_and_token(
+        client, "expuser19", "expuser19@example.com", "Password123!"
+    )
+
+    target_today = date(2026, 3, 12)
+
+    monkeypatch.setattr(expenses_router, "today_in_tz", lambda _tz: target_today)
+
+    budget_res = create_budget(
+        client,
+        headers,
+        category="Food",
+        monthly_limit=5_000_000,
+        budget_year=2026,
+        budget_month=3,
+    )
+    assert budget_res.status_code == 201
+    budget_id = budget_res.json()["id"]
+
+    user = session.query(models.User).filter(models.User.email == "expuser19@example.com").first()
+    assert user is not None
+
+    session.add_all([
+        models.Expense(
+            owner_id=user.id,
+            title=f"Expense {i}",
+            amount=1000 + i,
+            category=models.ExpenseCategory.GROCERIES,
+            description="seeded",
+            date=date(2026, 3, (i % 12) + 1),
+            budget_id=budget_id,
+        )
+        for i in range(1000)
+    ])
+    session.commit()
+
+    res = client.post("/expenses/", json={
+        "title": "Overflow expense",
+        "amount": 10,
+        "category": "Groceries",
+        "description": "test",
+        "date": "2026-03-12",
+    }, headers=headers)
+
+    assert res.status_code == 400
+    assert res.json()["detail"] == "expenses.month_limit_reached"
+
+
 def test_create_expense_sets_budget_id_for_matching_month_budget(client, session):
     headers = create_user_and_token(
         client, "expbudgetfk1", "expbudgetfk1@example.com", "Password123!"

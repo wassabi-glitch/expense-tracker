@@ -1,4 +1,4 @@
-{
+﻿{
   "appName": "Sarflog",
   "common": {
     "back": "Orqaga",
@@ -25,6 +25,7 @@
     "tools": "Asboblar",
     "dashboard": "Boshqaruv paneli",
     "expenses": "Xarajatlar",
+    "income": "Daromad",
     "budgets": "Byudjetlar",
     "analytics": "Tahlil",
     "exportData": "Eksport",
@@ -169,15 +170,16 @@
   },
   "onboarding": {
     "title": "Sozlashni yakunlang",
-    "description": "Tajribangizni moslashtirish uchun holatingiz haqida qisqacha ma'lumot bering.",
+    "description": "Tajribangizni moslashtirish uchun holatingiz haqida ikkita qisqa bosqichda ma'lumot bering.",
     "step1": {
       "question": "Holatingizni qaysi variant eng yaxshi ifodalaydi?"
     },
     "step2": {
-      "question": "Taxminiy oylik daromadingiz qancha?",
-      "currencyHint": "Miqdor UZSda"
+      "question": "Joriy oy daromadini hisobga olmagan holda, hozirgi balansingiz qancha (UZS)?",
+      "description": "Iltimos, bu oy olgan yoki hali oladigan daromadingizni bu summaga kiritmang."
     },
     "selectedStatus": "Tanlangan holat: {{status}}",
+    "progressLabel": "{{total}} dan {{current}}-qadam",
     "submitAction": "Sozlashni yakunlash",
     "submitFailed": "Onboarding ma'lumotlarini saqlab bo'lmadi.",
     "retryHint": "Akkaunt profilingizni yuklab bo'lmadi. Qayta urinib ko'ring.",
@@ -190,20 +192,15 @@
       "unemployed": "Ishsiz"
     },
     "placeholder": {
-      "employed": "Maoshingizni kiriting",
-      "student": "Oylik stipendiya yoki daromadingizni kiriting",
-      "selfEmployed": "O'rtacha oylik daromadingizni kiriting",
-      "businessOwner": "Biznesdan oylik daromadingizni kiriting",
-      "unemployed": "Kutilayotgan oylik daromadingizni kiriting",
-      "default": "Oylik daromadingizni kiriting"
+      "initialBalance": "Boshlang'ich balans"
     },
     "validation": {
       "lifeStatus": {
         "required": "Iltimos, joriy holatingizni tanlang."
       },
-      "income": {
-        "required": "Iltimos, oylik daromadingizni kiriting.",
-        "invalid": "Daromad butun son bo'lishi kerak.",
+      "initialBalance": {
+        "required": "Iltimos, hozirgi balansingizni kiriting.",
+        "invalid": "Balans butun son bo'lishi kerak.",
         "max": "Miqdor 999 999 999 999 dan oshmasligi kerak."
       }
     }
@@ -211,6 +208,10 @@
   "dashboard": {
     "title": "Boshqaruv paneli",
     "subtitle": "Ushbu oy uchun moliyaviy ko'rinishingiz.",
+    "totalBalance": "Umumiy balans",
+    "incomeThisMonth": "Shu oydagi daromad",
+    "spentThisMonth": "Shu oydagi sarf",
+    "remainingThisMonth": "Shu oy qoldig'i",
     "income": "Daromad",
     "spent": "Sarf",
     "remaining": "Qoldiq",
@@ -293,8 +294,8 @@
     "titleCol": "Nomi",
     "amount": "Summa",
     "category": "Toifa",
-    "description": "Tavsif",
-    "viewDescription": "Tavsifni ko'rish",
+    "description": "Izoh",
+    "viewDescription": "Izoh",
     "actions": "Amallar",
     "emptyDesc": "Xarajat topilmadi.",
     "page": "Sahifa",
@@ -327,6 +328,7 @@
     "recurringTab": "Takroriy",
     "tooManyWait": "Juda ko'p so'rov. {{seconds}} soniyadan keyin urinib ko'ring.",
     "tooManySoon": "Juda ko'p so'rov. Birozdan keyin urinib ko'ring.",
+    "monthLimitReached": "Joriy oyda ko'pi bilan 1000 ta xarajat qo'shishingiz mumkin.",
     "requestFailed": "So'rov xatosi",
     "loadFailed": "Xarajatlarni yuklab bo'lmadi",
     "budgetRequired": "{{category}} toifasi uchun xarajat qo'shib bo'lmaydi. Avval shu toifa uchun byudjet yarating.",
@@ -336,7 +338,7 @@
         "length": "Nomi 3 dan 32 tagacha belgidan iborat bo'lishi kerak."
       },
       "description": {
-        "max_length": "Tavsif 500 belgidan oshmasligi kerak."
+        "max_length": "Izoh 500 belgidan oshmasligi kerak."
       }
     }
   },
@@ -365,9 +367,9 @@
     "startDateBeforeCurrentMonth": "Boshlanish sanasi joriy oydan oldin bo'lmasligi kerak.",
     "cancel": "Bekor qilish",
     "addTemplate": "Shablon qo'shish",
-    "descriptionLabel": "Tavsif",
-    "viewDescription": "Tavsifni ko'rish",
-    "noDescription": "Tavsif yo'q",
+    "descriptionLabel": "Izoh",
+    "viewDescription": "Izoh",
+    "noDescription": "Izoh yo'q",
     "premiumTitle": "Premium funksiya",
     "premiumDesc": "Takroriy xarajatlarni faollashtiring va Premium obuna bilan oylik kuzatishni avtomatlashtiring.",
     "emptyDesc": "Hali takroriy xarajat yo'q.",
@@ -468,6 +470,92 @@
       }
     }
   },
+  "income": {
+    "title": "Daromad jurnali",
+    "subtitle": "Daromad manbalari va tushumlarni bir joyda boshqaring.",
+    "addSource": "Manba qo'shish",
+    "addEntry": "Daromad qo'shish",
+    "filtersTitle": "Filtrlar",
+    "filtersDesc": "Daromadlarni manba va sana oralig'i bo'yicha filtrlang.",
+    "allSources": "Barcha manbalar",
+    "filtersBothDates": "Boshlanish va tugash sanalarini kiriting.",
+    "filtersStartAfterEnd": "Boshlanish sanasi tugash sanasidan katta bo'lmasin.",
+    "thisMonthTotal": "Shu oydagi daromad",
+    "thisMonthTotalDesc": "Joriy oy bo'yicha barcha daromadlar yig'indisi.",
+    "sourcesTitle": "Daromad manbalari",
+    "sourcesDesc": "Daromad yozuvlari uchun qayta ishlatiladigan manbalar.",
+    "noSources": "Hali daromad manbalari yo'q.",
+    "active": "Faol",
+    "inactive": "Nofaol",
+    "entriesTitle": "Daromad yozuvlari",
+    "entriesDesc": "Kiritilgan daromad tranzaksiyalaringiz.",
+    "noEntries": "Daromad yozuvlari topilmadi.",
+    "date": "Sana",
+    "source": "Manba",
+    "sourceDeleted": "Manba o'chirilgan",
+    "noSource": "Manbasiz",
+    "note": "Izoh",
+    "amount": "Summa",
+    "amountUzs": "Summa (UZS)",
+    "addSourceTitle": "Daromad manbasi qo'shish",
+    "addSourceDesc": "Daromad yozuvlarini tasniflash uchun manba nomi yarating.",
+    "editSourceTitle": "Daromad manbasini tahrirlash",
+    "editSourceDesc": "Ushbu manba nomini yangilang.",
+    "sourceName": "Manba nomi",
+    "sourceNamePlaceholder": "Masalan: Oylik, Frilans",
+    "defaultSources": {
+      "allowance": "Cho'ntak puli",
+      "scholarship": "Stipendiya",
+      "partTimeWork": "Yarim stavkali ish",
+      "salary": "Oylik",
+      "bonus": "Bonus",
+      "sideIncome": "Qo'shimcha daromad",
+      "clientPayment": "Mijoz to'lovi",
+      "freelanceWork": "Frilans",
+      "projectIncome": "Loyiha daromadi",
+      "businessIncome": "Biznes daromadi",
+      "otherRevenue": "Boshqa tushum",
+      "support": "Yordam",
+      "temporaryIncome": "Vaqtinchalik daromad",
+      "otherIncome": "Boshqa daromad"
+    },
+    "addEntryTitle": "Daromad yozuvi qo'shish",
+    "addEntryDesc": "Yangi daromad tranzaksiyasini kiriting.",
+    "editEntryTitle": "Daromad yozuvini tahrirlash",
+    "editEntryDesc": "Ushbu daromad tranzaksiyasini yangilang.",
+    "deleteEntryTitle": "Daromad yozuvini o'chirish",
+    "deleteEntryDesc": "Bu daromad yozuvi o'chiriladi.",
+    "notePlaceholder": "Ixtiyoriy izoh",
+    "sourceNameRequired": "Manba nomini kiriting.",
+    "sourceNameTooLong": "Manba nomi juda uzun (maksimal 32).",
+    "amountRequired": "Summani kiriting.",
+    "amountInvalid": "Summa musbat butun son bo'lishi kerak.",
+    "amountTooLarge": "Summa 999 999 999 999 dan oshmasin.",
+    "dateRequired": "Sanani tanlang.",
+    "dateTooEarly": "Sana 2020-01-01 dan oldin bo'lmasin.",
+    "dateCurrentMonthOnly": "Sana joriy oy ichida bo'lishi kerak.",
+    "dateFuture": "Sana kelajakda bo'lmasin.",
+    "noteTooLong": "Izoh juda uzun (maksimal 200).",
+    "requestFailed": "Daromad so'rovi bajarilmadi.",
+    "sourceExists": "Bu manba allaqachon mavjud.",
+    "sourceLimitReached": "Siz ko'pi bilan 20 ta daromad manbasiga ega bo'lishingiz mumkin.",
+    "sourcesTooManySoon": "Daromad manbalari bo'yicha so'rovlar juda ko'p. Birozdan keyin urinib ko'ring.",
+    "sourceNotFound": "Daromad manbasi topilmadi.",
+    "sourceInactive": "Tanlangan manba nofaol.",
+    "entryNotFound": "Daromad yozuvi topilmadi.",
+    "entryMonthLimitReached": "Joriy oyda ko'pi bilan 300 ta daromad yozuvi qo'shishingiz mumkin.",
+    "entriesTooManySoon": "Daromad yozuvlari bo'yicha so'rovlar juda ko'p. Birozdan keyin urinib ko'ring.",
+    "dateRangeBothRequired": "Boshlanish va tugash sanalarini birga kiriting.",
+    "startAfterEnd": "Boshlanish sanasi tugash sanasidan katta bo'lmasin.",
+    "toggleSource": "Manba holatini almashtirish",
+    "deleteSourceTitle": "Daromad manbasini o'chirish",
+    "deleteSourceDesc": "\"{{source}}\" manbasi butunlay o'chiriladi.",
+    "entryActionsTitle": "Yozuv amallari",
+    "entryActionsDesc": "Ushbu daromad yozuvi uchun amalni tanlang.",
+    "viewNote": "Izohni ko'rish",
+    "noteTitle": "Daromad izohi",
+    "noNote": "Izoh kiritilmagan."
+  },
   "analytics": {
     "title": "Tahlil",
     "subtitle": "Sarf trendlarini tushuning.",
@@ -536,11 +624,13 @@
   "categories": {
     "Groceries": "Oziq-ovqat mahsulotlari",
     "Dining Out": "Ko'chada ovqatlanish",
+    "Electronics": "Elektronika",
     "Housing": "Turar joy",
     "Utilities": "Kommunal xizmatlar",
     "Subscriptions": "Obunalar",
     "Transport": "Transport",
     "Health": "Sog'liqni saqlash",
+    "Personal care": "Shaxsiy parvarish",
     "Education": "Ta'lim",
     "Clothing": "Kiyim-kechak",
     "Family & Events": "Oila & marosimlar",
@@ -551,11 +641,13 @@
   "categories_desc": {
     "Groceries": "Faqat xomashyo va tayyor bo'lmagan oziq-ovqat mahsulotlari",
     "Dining Out": "Restoran, kafe, yetkazib berish va tayyor taomlar",
+    "Electronics": "Telefonlar, gadjetlar, aksessuarlar, ta'mirlash va texnika xaridlari",
     "Housing": "Ijara, ipoteka, soliqlar va uy xarajatlari",
     "Utilities": "Elektr, suv, gaz, internet va telefon to'lovlari",
     "Subscriptions": "Striming, sport zal va davriy xizmat to'lovlari",
     "Transport": "Yoqilg'i, jamoat transporti, taksi va avto xizmat",
     "Health": "Shifokor, dorixona, sug'urta va sog'lom turmush tarzi xarajatlari",
+    "Personal care": "Teri parvarishi, gigiyena vositalari, kosmetika, soch oldirish va shaxsiy parvarish xarajatlari",
     "Education": "O'quv to'lovlari, kurslar, kitoblar va rivojlanish materiallari",
     "Clothing": "Kiyimlar, poyabzal va aksessuarlar",
     "Family & Events": "Sovg'alar, marosimlar, xayriya va yaqinlarga yordam",

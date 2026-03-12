@@ -121,9 +121,34 @@ def get_dashboard_summary(
         .scalar()
     ) or 0
 
-    income = int(current_user.profile.monthly_income_amount) if current_user.profile else 0
+    month_income_total, _month_income_count = (
+        db.query(
+            func.coalesce(func.sum(models.IncomeEntry.amount), 0),
+            func.count(models.IncomeEntry.id),
+        )
+        .filter(
+            models.IncomeEntry.owner_id == current_user.id,
+            models.IncomeEntry.date >= current_month_start,
+            models.IncomeEntry.date <= today,
+        )
+        .first()
+    )
+    income = int(month_income_total or 0)
     spent_int = int(spent)
     remaining = income - spent_int
+
+    overall_income_total = (
+        db.query(func.coalesce(func.sum(models.IncomeEntry.amount), 0))
+        .filter(models.IncomeEntry.owner_id == current_user.id)
+        .scalar()
+    ) or 0
+    overall_spent_total = (
+        db.query(func.coalesce(func.sum(models.Expense.amount), 0))
+        .filter(models.Expense.owner_id == current_user.id)
+        .scalar()
+    ) or 0
+    initial_balance = int(getattr(current_user.profile, "initial_balance", 0) or 0)
+    overall_balance = initial_balance + int(overall_income_total) - int(overall_spent_total)
 
     elapsed_days = max(today.day, 1)
     daily_average = round(spent_int / elapsed_days) if elapsed_days else 0
@@ -133,6 +158,7 @@ def get_dashboard_summary(
         "spent": spent_int,
         "remaining": int(remaining),
         "daily_average": int(daily_average),
+        "overall_balance": int(overall_balance),
     }
 
 

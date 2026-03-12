@@ -10,10 +10,10 @@ export async function togglePremium() {
     return response.data;
 }
 
-export async function upsertOnboardingProfile({ life_status, monthly_income_amount }) {
+export async function upsertOnboardingProfile({ life_status, initial_balance }) {
     const response = await apiClient.post("/users/me/onboarding", {
         life_status,
-        monthly_income_amount,
+        initial_balance,
     });
     return response.data;
 }

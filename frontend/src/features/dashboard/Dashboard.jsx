@@ -115,6 +115,7 @@ export default function Dashboard() {
     spent: 0,
     remaining: 0,
     daily_average: 0,
+    overall_balance: 0,
   };
   const showZeroIncomeHint = !summaryQuery.isLoading && summary.income === 0;
   const loading =
@@ -162,25 +163,31 @@ export default function Dashboard() {
 
   const statCards = [
     {
-      label: t("dashboard.income"),
+      label: t("dashboard.totalBalance", { defaultValue: "Total Balance" }),
+      value: `${summary.overall_balance >= 0 ? "+" : "-"}${formatUzsCard(Math.abs(summary.overall_balance))} UZS`,
+      valueClassName: summary.overall_balance >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300",
+      cardClassName: summary.overall_balance >= 0
+        ? "border-emerald-400/70 bg-emerald-50/75 shadow-[0_0_16px_rgba(5,150,105,0.14)] dark:border-emerald-400/45 dark:bg-emerald-950/30 dark:shadow-[0_0_16px_rgba(52,211,153,0.12)]"
+        : "border-red-400/70 bg-red-50/75 shadow-[0_0_16px_rgba(220,38,38,0.14)] dark:border-red-400/45 dark:bg-red-950/25 dark:shadow-[0_0_16px_rgba(248,113,113,0.12)]",
+      titleClassName: summary.overall_balance >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300",
+      iconClassName: summary.overall_balance >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300",
+      icon: Wallet,
+    },
+    {
+      label: t("dashboard.incomeThisMonth", { defaultValue: "Income This Month" }),
       value: `${formatUzsCard(summary.income)} UZS`,
       icon: Wallet,
     },
     {
-      label: t("dashboard.spent"),
+      label: t("dashboard.spentThisMonth", { defaultValue: "Spent This Month" }),
       value: `${formatUzsCard(summary.spent)} UZS`,
       icon: TrendingUp,
     },
     {
-      label: t("dashboard.remaining"),
+      label: t("dashboard.remainingThisMonth", { defaultValue: "Remaining This Month" }),
       value: `${summary.remaining >= 0 ? "+" : "-"}${formatUzsCard(Math.abs(summary.remaining))} UZS`,
-      valueClassName: summary.remaining >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400",
-      icon: summary.remaining >= 0 ? TrendingUp : Wallet,
-    },
-    {
-      label: t("dashboard.dailyAverage"),
-      value: `${formatUzsCard(summary.daily_average)} UZS`,
-      icon: Layers,
+      valueClassName: summary.remaining >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300",
+      icon: summary.remaining >= 0 ? Layers : Wallet,
     },
   ];
 
@@ -252,12 +259,12 @@ export default function Dashboard() {
           {statCards.map((s, i) => {
             const Icon = s.icon;
             return (
-              <Card key={i} className="shadow-sm">
+              <Card key={i} className={cn("shadow-sm", s.cardClassName)}>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">
+                  <CardTitle className={cn("text-sm font-medium text-muted-foreground", s.titleClassName)}>
                     {s.label}
                   </CardTitle>
-                  <Icon className="h-4 w-4 text-muted-foreground" />
+                  <Icon className={cn("h-4 w-4 text-muted-foreground", s.iconClassName)} />
                 </CardHeader>
                 <CardContent className="pt-0">
                   <div className={cn("text-2xl font-bold", s.valueClassName)}>{s.value}</div>

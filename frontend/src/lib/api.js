@@ -18,3 +18,14 @@ export { getBudgets, createBudget, updateBudget, deleteBudget } from "./api/budg
 export { getExpenses, deleteExpense, createExpense, updateExpense, exportExpensesCsv } from "./api/expenses";
 export { getRecurringExpenses, createRecurringExpense, updateRecurringExpense, deleteRecurringExpense, patchRecurringActive } from "./api/recurring";
 export { getThisMonthStats, getDashboardSummary, getDailyTrend, getAnalyticsHistory, getMonthToDateTrend, getCategoryBreakdown } from "./api/analytics";
+export {
+    getIncomeSources,
+    createIncomeSource,
+    updateIncomeSource,
+    updateIncomeSourceActive,
+    deleteIncomeSource,
+    getIncomeEntries,
+    createIncomeEntry,
+    updateIncomeEntry,
+    deleteIncomeEntry,
+} from "./api/income";

@@ -1,5 +1,5 @@
 <svg width="420" height="128" viewBox="0 0 420 128" fill="none" xmlns="http://www.w3.org/2000/svg">
   <circle cx="64" cy="64" r="44" stroke="#21C45D" stroke-width="8"/>
   <path d="M40 73C40 85 50 94 62 94H69C78 94 86 86 86 77C86 68 78 60 69 60H59C50 60 42 52 42 43C42 34 50 26 59 26H72" stroke="#21C45D" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="140" y="78" fill="#E7EAF0" font-family="Manrope, Sora, Arial, sans-serif" font-size="48" font-weight="700" letter-spacing="0.2">Sarflog</text>
+  <text x="140" y="78" fill="#E7EAF0" font-family="Inter, Arial, sans-serif" font-size="48" font-weight="700" letter-spacing="0.2">Sarflog</text>
 </svg>

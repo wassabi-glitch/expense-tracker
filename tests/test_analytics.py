@@ -242,7 +242,7 @@ def test_dashboard_summary_positive_remaining(client):
         "/users/me/onboarding",
         json={
             "life_status": "employed",
-            "monthly_income_amount": 1_000_000,
+            "initial_balance": 1_000_000,
         },
         headers=headers,
     )
@@ -256,9 +256,10 @@ def test_dashboard_summary_positive_remaining(client):
     assert res.status_code == 200
     data = res.json()
 
-    assert data["income"] == 1_000_000
+    assert data["income"] == 0
     assert data["spent"] == 250_000
-    assert data["remaining"] == 750_000
+    assert data["remaining"] == -250_000
+    assert data["overall_balance"] == 750_000
     assert data["daily_average"] == round(250_000 / max(1, date.today().day))
 
 
@@ -271,7 +272,7 @@ def test_dashboard_summary_negative_remaining(client):
         "/users/me/onboarding",
         json={
             "life_status": "self_employed",
-            "monthly_income_amount": 100_000,
+            "initial_balance": 100_000,
         },
         headers=headers,
     )
@@ -285,7 +286,8 @@ def test_dashboard_summary_negative_remaining(client):
     assert res.status_code == 200
     data = res.json()
 
-    assert data["income"] == 100_000
+    assert data["income"] == 0
     assert data["spent"] == 360_000
-    assert data["remaining"] == -260_000
+    assert data["remaining"] == -360_000
+    assert data["overall_balance"] == -260_000
     assert data["daily_average"] == round(360_000 / max(1, date.today().day))

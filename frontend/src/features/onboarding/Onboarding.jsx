@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AuthFormCard } from "@/components/AuthFormCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { getCurrentUser } from "@/lib/api";
 import { formatAmountInput } from "@/lib/format";
 import {
@@ -25,25 +26,17 @@ const LIFE_STATUS_CONFIG = [
     { value: "unemployed", labelKey: "onboarding.lifeStatus.unemployed", fallback: "Unemployed" },
 ];
 
-const INCOME_PLACEHOLDERS = {
-    employed: "onboarding.placeholder.employed",
-    student: "onboarding.placeholder.student",
-    self_employed: "onboarding.placeholder.selfEmployed",
-    business_owner: "onboarding.placeholder.businessOwner",
-    unemployed: "onboarding.placeholder.unemployed",
-    default: "onboarding.placeholder.default",
-};
-
 const STEP_QUESTION_CLASS = "text-sm font-medium text-foreground";
 const ONBOARDING_INPUT_CLASS = "h-11 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-emerald-500";
 const DISABLED_BUTTON_CURSOR_CLASS = "disabled:pointer-events-auto disabled:cursor-not-allowed";
+const TOTAL_STEPS = 2;
 
 export default function Onboarding() {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const [step, setStep] = useState(1);
     const [lifeStatus, setLifeStatus] = useState("");
-    const [incomeInput, setIncomeInput] = useState("");
+    const [initialBalanceInput, setInitialBalanceInput] = useState("");
     const [status, setStatus] = useState("");
     const [fieldErrors, setFieldErrors] = useState({});
 
@@ -60,12 +53,16 @@ export default function Onboarding() {
         [lifeStatus]
     );
     const stepTwoParsed = useMemo(
-        () => onboardingStepTwoSchema.safeParse({ monthly_income_amount: incomeInput }),
-        [incomeInput]
+        () => onboardingStepTwoSchema.safeParse({ initial_balance: initialBalanceInput }),
+        [initialBalanceInput]
     );
     const fullParsed = useMemo(
-        () => onboardingSchema.safeParse({ life_status: lifeStatus, monthly_income_amount: incomeInput }),
-        [lifeStatus, incomeInput]
+        () =>
+            onboardingSchema.safeParse({
+                life_status: lifeStatus,
+                initial_balance: initialBalanceInput,
+            }),
+        [lifeStatus, initialBalanceInput]
     );
 
     const stepOneIssue = useMemo(() => {
@@ -76,14 +73,14 @@ export default function Onboarding() {
 
     const stepTwoIssue = useMemo(() => {
         if (stepTwoParsed.success) return "";
-        const issue = stepTwoParsed.error.issues.find((item) => item.path?.[0] === "monthly_income_amount");
+        const issue = stepTwoParsed.error.issues.find((item) => item.path?.[0] === "initial_balance");
         return issue ? translateValidation(issue.message) : "";
     }, [stepTwoParsed, translateValidation]);
 
-    const selectedPlaceholderKey = INCOME_PLACEHOLDERS[lifeStatus] || INCOME_PLACEHOLDERS.default;
-    const canContinue = stepOneParsed.success;
+    const canContinueStepOne = stepOneParsed.success;
     const canSubmit = fullParsed.success && !isSubmitting;
     const selectedLifeStatusLabel = LIFE_STATUS_CONFIG.find((item) => item.value === lifeStatus);
+    const progressValue = (step / TOTAL_STEPS) * 100;
 
     if (userQuery.isPending) return null;
 
@@ -100,13 +97,17 @@ export default function Onboarding() {
         );
     }
 
-    function handleContinue(e) {
+    function handleStepOneContinue(e) {
         e.preventDefault();
         setStatus("");
         setFieldErrors({});
 
         if (!stepOneParsed.success) {
-            setFieldErrors({ life_status: stepOneIssue || t("onboarding.validation.lifeStatus.required", { defaultValue: "Please select your current situation." }) });
+            setFieldErrors({
+                life_status: stepOneIssue || t("onboarding.validation.lifeStatus.required", {
+                    defaultValue: "Please select your current situation.",
+                }),
+            });
             return;
         }
         setStep(2);
@@ -119,7 +120,7 @@ export default function Onboarding() {
 
         const parsed = onboardingSchema.safeParse({
             life_status: lifeStatus,
-            monthly_income_amount: incomeInput,
+            initial_balance: initialBalanceInput,
         });
 
         if (!parsed.success) {
@@ -137,14 +138,14 @@ export default function Onboarding() {
         try {
             await onboardingMutation.mutateAsync({
                 life_status: parsed.data.life_status,
-                monthly_income_amount: parsed.data.monthly_income_amount,
+                initial_balance: parsed.data.initial_balance,
             });
             navigate("/dashboard", { replace: true });
         } catch (err) {
             const msg = String(err?.message || "");
-            if (msg === "income.amount_too_large") {
+            if (msg === "income.amount_too_large" || msg === "profile.initial_balance_too_large") {
                 setFieldErrors({
-                    monthly_income_amount: t("onboarding.validation.income.max", {
+                    initial_balance: t("onboarding.validation.initialBalance.max", {
                         defaultValue: "Amount cannot exceed 999,999,999,999.",
                     }),
                 });
@@ -159,11 +160,11 @@ export default function Onboarding() {
             title={t("onboarding.title", { defaultValue: "Complete your onboarding" })}
             description={t("onboarding.description", { defaultValue: "Two quick steps to personalize your experience." })}
             backButton={
-                step === 2 ? (
+                step > 1 ? (
                     <button
                         type="button"
                         onClick={() => {
-                            setStep(1);
+                            setStep((currentStep) => Math.max(1, currentStep - 1));
                             setStatus("");
                             setFieldErrors({});
                         }}
@@ -175,8 +176,21 @@ export default function Onboarding() {
                 ) : null
             }
         >
+            <div className="mb-5 space-y-2">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>
+                        {t("onboarding.progressLabel", {
+                            defaultValue: "Step {{current}} of {{total}}",
+                            current: step,
+                            total: TOTAL_STEPS,
+                        })}
+                    </span>
+                    <span>{Math.round(progressValue)}%</span>
+                </div>
+                <Progress value={progressValue} className="h-2" />
+            </div>
             {step === 1 ? (
-                <form onSubmit={handleContinue} className="space-y-3">
+                <form onSubmit={handleStepOneContinue} className="space-y-3">
                     <p className={STEP_QUESTION_CLASS}>
                         {t("onboarding.step1.question", { defaultValue: "What best describes your situation?" })}
                     </p>
@@ -213,7 +227,7 @@ export default function Onboarding() {
                     <Button
                         className={`h-11 w-full ${DISABLED_BUTTON_CURSOR_CLASS}`}
                         type="submit"
-                        disabled={!canContinue}
+                        disabled={!canContinueStepOne}
                     >
                         {t("auth.continue")}
                     </Button>
@@ -225,10 +239,14 @@ export default function Onboarding() {
             ) : (
                 <form onSubmit={handleSubmit} className="space-y-3">
                     <p className={STEP_QUESTION_CLASS}>
-                        {t("onboarding.step2.question", { defaultValue: "What is your approximate monthly income?" })}
+                        {t("onboarding.step2.question", {
+                            defaultValue: "What is your current balance in UZS?",
+                        })}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                        {t("onboarding.step2.currencyHint", { defaultValue: "Amount in UZS" })}
+                        {t("onboarding.step2.description", {
+                            defaultValue: "This helps us show a more accurate starting view and better recommendations from day one.",
+                        })}
                     </p>
 
                     {selectedLifeStatusLabel && (
@@ -242,15 +260,15 @@ export default function Onboarding() {
 
                     <div className="space-y-0.5">
                         <Input
-                            id="monthly-income-amount"
+                            id="initial-balance"
                             type="text"
                             inputMode="numeric"
                             maxLength={15}
-                            value={incomeInput}
+                            value={initialBalanceInput}
                             onChange={(e) => {
-                                setIncomeInput(formatAmountInput(e.target.value, MAX_INCOME_AMOUNT_DIGITS));
+                                setInitialBalanceInput(formatAmountInput(e.target.value, MAX_INCOME_AMOUNT_DIGITS));
                                 setStatus("");
-                                setFieldErrors((prev) => ({ ...prev, monthly_income_amount: "" }));
+                                setFieldErrors((prev) => ({ ...prev, initial_balance: "" }));
                             }}
                             onKeyDown={(e) => {
                                 if (
@@ -262,14 +280,16 @@ export default function Onboarding() {
                                     e.preventDefault();
                                 }
                             }}
-                            className={`${ONBOARDING_INPUT_CLASS} ${fieldErrors.monthly_income_amount || (incomeInput.trim().length > 0 && stepTwoIssue) ? "border-red-500 focus-visible:border-red-500" : ""}`}
-                            placeholder={t(selectedPlaceholderKey, { defaultValue: "Enter your monthly income" })}
+                            className={`${ONBOARDING_INPUT_CLASS} ${fieldErrors.initial_balance || (initialBalanceInput.trim().length > 0 && stepTwoIssue) ? "border-red-500 focus-visible:border-red-500" : ""}`}
+                            placeholder={t("onboarding.placeholder.initialBalance", {
+                                defaultValue: "Initial balance",
+                            })}
                             required
                         />
                         <div className="min-h-2.5">
-                            {!!(fieldErrors.monthly_income_amount || (incomeInput.trim().length > 0 && stepTwoIssue)) && (
+                            {!!(fieldErrors.initial_balance || (initialBalanceInput.trim().length > 0 && stepTwoIssue)) && (
                                 <p className="text-xs text-red-500">
-                                    {fieldErrors.monthly_income_amount || stepTwoIssue}
+                                    {fieldErrors.initial_balance || stepTwoIssue}
                                 </p>
                             )}
                         </div>

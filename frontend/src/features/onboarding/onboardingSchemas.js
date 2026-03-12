@@ -19,23 +19,21 @@ export const onboardingStepOneSchema = z.object({
 });
 
 export const onboardingStepTwoSchema = z.object({
-  monthly_income_amount: z.preprocess(
+  initial_balance: z.preprocess(
     (value) => String(value ?? "").trim().replace(/\s+/g, ""),
     z
       .string()
-      .refine((v) => v.length > 0, "onboarding.validation.income.required")
-      .refine((v) => /^\d+$/.test(v), "onboarding.validation.income.invalid")
+      .refine((v) => v.length > 0, "onboarding.validation.initialBalance.required")
+      .refine((v) => /^\d+$/.test(v), "onboarding.validation.initialBalance.invalid")
       .refine(
         (v) =>
           v.length < MAX_INCOME_AMOUNT_STR.length ||
           (v.length === MAX_INCOME_AMOUNT_STR.length && v <= MAX_INCOME_AMOUNT_STR),
-        "onboarding.validation.income.max"
+        "onboarding.validation.initialBalance.max"
       )
       .transform((v) => Number(v))
-      .refine((v) => Number.isSafeInteger(v) && v >= 0, "onboarding.validation.income.invalid")
+      .refine((v) => Number.isSafeInteger(v) && v >= 0, "onboarding.validation.initialBalance.invalid")
   ),
 });
 
-export const onboardingSchema = onboardingStepOneSchema.extend(
-  onboardingStepTwoSchema.shape
-);
+export const onboardingSchema = onboardingStepOneSchema.extend(onboardingStepTwoSchema.shape);

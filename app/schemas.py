@@ -81,11 +81,11 @@ class UserCreate(UserBase):
 
 class UserOnboardingUpsert(BaseModel):
     life_status: LifeStatus
-    monthly_income_amount: int = Field(ge=0)
+    initial_balance: int = Field(ge=0)
 
-    @field_validator("monthly_income_amount")
+    @field_validator("initial_balance")
     @classmethod
-    def validate_monthly_income_amount_max(cls, v: int):
+    def validate_initial_balance_max(cls, v: int):
         if v > MAX_INCOME_AMOUNT:
             raise ValueError("income.amount_too_large")
         return v
@@ -96,6 +96,7 @@ class UserProfileOut(BaseModel):
     user_id: int
     life_status: LifeStatus
     monthly_income_amount: int
+    initial_balance: int
     onboarding_completed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
@@ -111,6 +112,95 @@ class UserOut(UserBase):
     profile: Optional[UserProfileOut] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class IncomeSourceBase(BaseModel):
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str):
+        value = v.strip()
+        if not (1 <= len(value) <= 32):
+            raise ValueError("income.source_name_length")
+        return value
+
+
+class IncomeSourceCreate(IncomeSourceBase):
+    pass
+
+
+class IncomeSourceUpdate(IncomeSourceBase):
+    pass
+
+
+class IncomeSourceStatusUpdate(BaseModel):
+    is_active: bool
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class IncomeSourceOut(IncomeSourceBase):
+    id: int
+    owner_id: int
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class IncomeEntryBase(BaseModel):
+    amount: int = Field(gt=0)
+    date: date
+    note: Optional[str] = None
+    source_id: Optional[int] = None
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount_max(cls, v: int):
+        if v > MAX_INCOME_AMOUNT:
+            raise ValueError("income.amount_too_large")
+        return v
+
+    @field_validator("date")
+    @classmethod
+    def validate_date(cls, v: date):
+        if v.year < 2020:
+            raise ValueError("income.date_too_early")
+        return v
+
+    @field_validator("note")
+    @classmethod
+    def validate_note(cls, v: Optional[str]):
+        if v is None:
+            return v
+        value = v.strip()
+        if len(value) > 200:
+            raise ValueError("income.note_too_long")
+        return value
+
+
+class IncomeEntryCreate(IncomeEntryBase):
+    pass
+
+
+class IncomeEntryUpdate(IncomeEntryBase):
+    model_config = ConfigDict(extra="forbid")
+
+
+class IncomeEntryOut(IncomeEntryBase):
+    id: int
+    owner_id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PaginatedIncomeEntriesOut(BaseModel):
+    total: int
+    items: List[IncomeEntryOut]
 
 
 # --- EXPENSE SCHEMAS ---
@@ -497,3 +587,4 @@ class DashboardSummary(BaseModel):
     spent: int
     remaining: int
     daily_average: int
+    overall_balance: int

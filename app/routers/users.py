@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func
 from .. import oauth2
 from .. import models, schemas, utils
 from ..session import get_db
@@ -22,6 +23,36 @@ router = APIRouter(
 
 # Used to reduce login timing differences between "user not found" and "bad password".
 DUMMY_PASSWORD_HASH = utils.hash_password("dummy-password-not-used")
+
+
+def _default_income_sources_for_status(life_status: models.LifeStatus) -> list[str]:
+    mapping = {
+        models.LifeStatus.STUDENT: [
+            "Allowance",
+            "Scholarship",
+            "Part-time work",
+        ],
+        models.LifeStatus.EMPLOYED: [
+            "Salary",
+            "Bonus",
+            "Side income",
+        ],
+        models.LifeStatus.SELF_EMPLOYED: [
+            "Client payment",
+            "Freelance work",
+            "Project income",
+        ],
+        models.LifeStatus.BUSINESS_OWNER: [
+            "Business income",
+            "Other revenue",
+        ],
+        models.LifeStatus.UNEMPLOYED: [
+            "Support",
+            "Temporary income",
+            "Other income",
+        ],
+    }
+    return mapping.get(life_status, ["Other income"])
 
 
 def build_user_out(user: models.User) -> schemas.UserOut:
@@ -242,14 +273,35 @@ def upsert_onboarding_profile(
         profile = models.UserProfile(
             user_id=current_user.id,
             life_status=payload.life_status,
-            monthly_income_amount=payload.monthly_income_amount,
+            monthly_income_amount=0,
+            initial_balance=payload.initial_balance,
             onboarding_completed_at=datetime.now(timezone.utc),
         )
         db.add(profile)
     else:
         profile.life_status = payload.life_status
-        profile.monthly_income_amount = payload.monthly_income_amount
+        profile.initial_balance = payload.initial_balance
         profile.onboarding_completed_at = datetime.now(timezone.utc)
+
+    existing_sources = (
+        db.query(models.IncomeSource)
+        .filter(models.IncomeSource.owner_id == current_user.id)
+        .all()
+    )
+    existing_by_name = {source.name.lower(): source for source in existing_sources}
+
+    for source_name in _default_income_sources_for_status(payload.life_status):
+        existing_source = existing_by_name.get(source_name.lower())
+        if existing_source is None:
+            db.add(
+                models.IncomeSource(
+                    owner_id=current_user.id,
+                    name=source_name,
+                    is_active=True,
+                )
+            )
+        elif not existing_source.is_active:
+            existing_source.is_active = True
 
     db.commit()
     db.refresh(current_user)

@@ -25,6 +25,7 @@
     "tools": "Tools",
     "dashboard": "Dashboard",
     "expenses": "Expenses",
+    "income": "Income",
     "budgets": "Budgets",
     "analytics": "Analytics",
     "exportData": "Export Data",
@@ -169,15 +170,16 @@
   },
   "onboarding": {
     "title": "Finish setup",
-    "description": "Tell us a bit about your situation so we can personalize your experience.",
+    "description": "Tell us a bit about your situation so we can personalize your experience in two quick steps.",
     "step1": {
       "question": "What best describes your situation?"
     },
     "step2": {
-      "question": "What is your approximate monthly income?",
-      "currencyHint": "Amount in UZS"
+      "question": "What is your current balance excluding this month's income, in UZS?",
+      "description": "Please do not include any income you already received or expect to receive this month."
     },
     "selectedStatus": "Selected: {{status}}",
+    "progressLabel": "Step {{current}} of {{total}}",
     "submitAction": "Finish setup",
     "submitFailed": "Failed to save onboarding data.",
     "retryHint": "We could not load your account profile. Please retry.",
@@ -190,20 +192,15 @@
       "unemployed": "Unemployed"
     },
     "placeholder": {
-      "employed": "Enter your salary",
-      "student": "Enter your monthly allowance or income",
-      "selfEmployed": "Enter your average monthly income",
-      "businessOwner": "Enter your monthly business income",
-      "unemployed": "Enter your expected monthly income",
-      "default": "Enter your monthly income"
+      "initialBalance": "Initial balance"
     },
     "validation": {
       "lifeStatus": {
         "required": "Please select your current situation."
       },
-      "income": {
-        "required": "Please enter your monthly income.",
-        "invalid": "Income must be a whole number.",
+      "initialBalance": {
+        "required": "Please enter your current balance.",
+        "invalid": "Balance must be a whole number.",
         "max": "Amount cannot exceed 999,999,999,999."
       }
     }
@@ -211,6 +208,10 @@
   "dashboard": {
     "title": "Dashboard",
     "subtitle": "Your financial overview for this month.",
+    "totalBalance": "Total Balance",
+    "incomeThisMonth": "Income This Month",
+    "spentThisMonth": "Spent This Month",
+    "remainingThisMonth": "Remaining This Month",
     "income": "Income",
     "spent": "Spent",
     "remaining": "Remaining",
@@ -293,8 +294,8 @@
     "titleCol": "Title",
     "amount": "Amount",
     "category": "Category",
-    "description": "Description",
-    "viewDescription": "View description",
+    "description": "Note",
+    "viewDescription": "Note",
     "actions": "Actions",
     "emptyDesc": "No expenses found.",
     "page": "Page",
@@ -327,6 +328,7 @@
     "recurringTab": "Recurring",
     "tooManyWait": "Too many requests. Try again in {{seconds}} seconds.",
     "tooManySoon": "Too many requests. Try again soon.",
+    "monthLimitReached": "You can only add up to 1000 expenses in the current month.",
     "requestFailed": "Request failed",
     "loadFailed": "Failed to load expenses",
     "budgetRequired": "You cannot add an expense for {{category}}. Please create a budget first.",
@@ -336,7 +338,7 @@
         "length": "Title must be between 3 and 32 characters."
       },
       "description": {
-        "max_length": "Description cannot exceed 500 characters."
+        "max_length": "Note cannot exceed 500 characters."
       }
     }
   },
@@ -365,9 +367,9 @@
     "startDateBeforeCurrentMonth": "Start date cannot be before the current month.",
     "cancel": "Cancel",
     "addTemplate": "Add Template",
-    "descriptionLabel": "Description",
-    "viewDescription": "View description",
-    "noDescription": "No description",
+    "descriptionLabel": "Note",
+    "viewDescription": "Note",
+    "noDescription": "No note",
     "premiumTitle": "Premium Feature",
     "premiumDesc": "Unlock Recurring Expenses and automate your monthly tracking with an active Premium subscription.",
     "emptyDesc": "No recurring expenses created yet.",
@@ -468,6 +470,92 @@
       }
     }
   },
+  "income": {
+    "title": "Income Ledger",
+    "subtitle": "Track your income entries and sources in one place.",
+    "addSource": "Add Source",
+    "addEntry": "Add Income",
+    "filtersTitle": "Filters",
+    "filtersDesc": "Filter income entries by source and date range.",
+    "allSources": "All sources",
+    "filtersBothDates": "Please select both start and end date.",
+    "filtersStartAfterEnd": "Start date cannot be after end date.",
+    "thisMonthTotal": "This Month Income",
+    "thisMonthTotalDesc": "Sum of income entries in the current month.",
+    "sourcesTitle": "Income Sources",
+    "sourcesDesc": "Reusable source labels for your entries.",
+    "noSources": "No income sources yet.",
+    "active": "Active",
+    "inactive": "Inactive",
+    "entriesTitle": "Income Entries",
+    "entriesDesc": "Your recorded income transactions.",
+    "noEntries": "No income entries found.",
+    "date": "Date",
+    "source": "Source",
+    "sourceDeleted": "Source removed",
+    "noSource": "No source",
+    "note": "Note",
+    "amount": "Amount",
+    "amountUzs": "Amount (UZS)",
+    "addSourceTitle": "Add income source",
+    "addSourceDesc": "Create a source name to classify income entries.",
+    "editSourceTitle": "Edit income source",
+    "editSourceDesc": "Rename this source.",
+    "sourceName": "Source name",
+    "sourceNamePlaceholder": "e.g. Salary, Freelance",
+    "defaultSources": {
+      "allowance": "Allowance",
+      "scholarship": "Scholarship",
+      "partTimeWork": "Part-time work",
+      "salary": "Salary",
+      "bonus": "Bonus",
+      "sideIncome": "Side income",
+      "clientPayment": "Client payment",
+      "freelanceWork": "Freelance work",
+      "projectIncome": "Project income",
+      "businessIncome": "Business income",
+      "otherRevenue": "Other revenue",
+      "support": "Support",
+      "temporaryIncome": "Temporary income",
+      "otherIncome": "Other income"
+    },
+    "addEntryTitle": "Add income entry",
+    "addEntryDesc": "Record a new income transaction.",
+    "editEntryTitle": "Edit income entry",
+    "editEntryDesc": "Update this income transaction.",
+    "deleteEntryTitle": "Delete income entry",
+    "deleteEntryDesc": "This income entry will be removed.",
+    "notePlaceholder": "Optional note",
+    "sourceNameRequired": "Please enter source name.",
+    "sourceNameTooLong": "Source name is too long (max 32).",
+    "amountRequired": "Please enter an amount.",
+    "amountInvalid": "Amount must be a positive whole number.",
+    "amountTooLarge": "Amount cannot exceed 999 999 999 999.",
+    "dateRequired": "Please select a date.",
+    "dateTooEarly": "Date cannot be earlier than 2020-01-01.",
+    "dateCurrentMonthOnly": "Date must be within the current month.",
+    "dateFuture": "Date cannot be in the future.",
+    "noteTooLong": "Note is too long (max 200).",
+    "requestFailed": "Income request failed.",
+    "sourceExists": "This source already exists.",
+    "sourceLimitReached": "You can only have up to 20 income sources.",
+    "sourcesTooManySoon": "Too many income source requests. Try again soon.",
+    "sourceNotFound": "Income source not found.",
+    "sourceInactive": "Selected source is inactive.",
+    "entryNotFound": "Income entry not found.",
+    "entryMonthLimitReached": "You can only add up to 300 income entries in the current month.",
+    "entriesTooManySoon": "Too many income entry requests. Try again soon.",
+    "dateRangeBothRequired": "Please provide both start and end date.",
+    "startAfterEnd": "Start date cannot be after end date.",
+    "toggleSource": "Toggle source active state",
+    "deleteSourceTitle": "Delete income source",
+    "deleteSourceDesc": "Source \"{{source}}\" will be permanently deleted.",
+    "entryActionsTitle": "Entry actions",
+    "entryActionsDesc": "Choose what you want to do with this income entry.",
+    "viewNote": "View note",
+    "noteTitle": "Income note",
+    "noNote": "No note provided."
+  },
   "analytics": {
     "title": "Analytics",
     "subtitle": "Understand your spending trends.",
@@ -536,11 +624,13 @@
   "categories": {
     "Groceries": "Groceries",
     "Dining Out": "Dining Out",
+    "Electronics": "Electronics",
     "Housing": "Housing",
     "Utilities": "Utilities",
     "Subscriptions": "Subscriptions",
     "Transport": "Transport",
     "Health": "Health",
+    "Personal care": "Personal care",
     "Education": "Education",
     "Clothing": "Clothing",
     "Family & Events": "Family & Events",
@@ -551,11 +641,13 @@
   "categories_desc": {
     "Groceries": "Only raw materials and unprepared food (not ready-to-eat)",
     "Dining Out": "Restaurants, cafes, food delivery, and ready-to-eat meals",
+    "Electronics": "Phones, gadgets, accessories, repairs, and device purchases",
     "Housing": "Rent, mortgage, property taxes, and home maintenance",
     "Utilities": "Electricity, water, gas, internet, and phone bills",
     "Subscriptions": "Streaming services, gym, and recurring software fees",
     "Transport": "Fuel, public transit, taxi, parking, and car maintenance",
     "Health": "Doctor visits, pharmacy, insurance, and fitness related costs",
+    "Personal care": "Skincare, toiletries, cosmetics, haircuts, and self-care essentials",
     "Education": "Tuition fees, courses, books, and development materials",
     "Clothing": "Apparel, footwear, and accessories",
     "Family & Events": "Gifts, ceremonies, charity, and supporting relatives",
