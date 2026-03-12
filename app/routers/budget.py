@@ -1,5 +1,6 @@
 from datetime import date, tzinfo
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -117,36 +118,84 @@ def get_budgets(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
 ):
-    from sqlalchemy import func
-    
-    # We join Budget and Expense on budget_id. 
-    # This computes total expenses linked to each budget.
-    results = (
+    # Compute spent grouped by budget_id once, then apply rollover projection in memory.
+    spent_rows = (
         db.query(
-            models.Budget,
-            func.coalesce(func.sum(models.Expense.amount), 0).label("spent")
+            models.Expense.budget_id,
+            func.coalesce(func.sum(models.Expense.amount), 0).label("spent"),
         )
-        .outerjoin(
-            models.Expense,
-            (models.Budget.id == models.Expense.budget_id)
-        )
+        .join(models.Budget, models.Budget.id == models.Expense.budget_id)
         .filter(models.Budget.owner_id == current_user.id)
-        .group_by(models.Budget.id)
+        .group_by(models.Expense.budget_id)
+        .all()
+    )
+    spent_by_budget_id = {int(row.budget_id): int(row.spent or 0) for row in spent_rows}
+
+    budgets = (
+        db.query(models.Budget)
+        .filter(models.Budget.owner_id == current_user.id)
         .order_by(
-            models.Budget.budget_year.desc(),
-            models.Budget.budget_month.desc(),
             models.Budget.category.asc(),
+            models.Budget.budget_year.asc(),
+            models.Budget.budget_month.asc(),
         )
         .all()
     )
-    
-    budgets_out = []
-    for b, spent in results:
-        # We need to explicitly set spent because models.Budget doesn't have it natively
-        b_out = schemas.BudgetOut.model_validate(b)
-        b_out.spent = int(spent)
-        budgets_out.append(b_out)
-        
+
+    if not budgets:
+        return []
+
+    budgets_out: list[schemas.BudgetOut] = []
+    by_category: dict[str, list[models.Budget]] = {}
+    for budget in budgets:
+        by_category.setdefault(str(budget.category), []).append(budget)
+
+    is_rollover_enabled = bool(
+        current_user.is_premium
+        and current_user.profile is not None
+        and current_user.profile.budget_rollover_enabled
+    )
+
+    for _category, items in by_category.items():
+        # Items are already ordered by year/month asc from query.
+        rollover_for_month = 0
+        prev_year = None
+        prev_month = None
+
+        for budget in items:
+            spent = int(spent_by_budget_id.get(int(budget.id), 0))
+            base_limit = int(budget.monthly_limit or 0)
+
+            if is_rollover_enabled and prev_year is not None and prev_month is not None:
+                expected_next_year = prev_year + 1 if prev_month == 12 else prev_year
+                expected_next_month = 1 if prev_month == 12 else prev_month + 1
+                # If there is a gap in configured budget months, restart the rollover chain.
+                if budget.budget_year != expected_next_year or budget.budget_month != expected_next_month:
+                    rollover_for_month = 0
+            else:
+                rollover_for_month = 0
+
+            effective_limit = base_limit + rollover_for_month
+
+            budget_out = schemas.BudgetOut.model_validate(budget)
+            budget_out.spent = spent
+            budget_out.rollover_amount = rollover_for_month if is_rollover_enabled else 0
+            budget_out.effective_monthly_limit = effective_limit if is_rollover_enabled else base_limit
+            budgets_out.append(budget_out)
+
+            unused_positive = max(effective_limit - spent, 0)
+            rollover_for_month = unused_positive if is_rollover_enabled else 0
+            prev_year = int(budget.budget_year)
+            prev_month = int(budget.budget_month)
+
+    budgets_out.sort(
+        key=lambda b: (
+            int(b.budget_year),
+            int(b.budget_month),
+            str(b.category),
+        ),
+        reverse=True,
+    )
     return budgets_out
 
 

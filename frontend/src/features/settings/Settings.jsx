@@ -15,7 +15,11 @@ import {
 } from "@/components/ui/dialog";
 import { localizeApiError } from "@/lib/errorMessages";
 import { useSettingsDataQuery } from "./hooks/useSettingsDataQuery";
-import { useLogoutMutation, useTogglePremiumMutation } from "./hooks/useSettingsMutations";
+import {
+  useLogoutMutation,
+  useTogglePremiumMutation,
+  useUpdateBudgetRolloverPreferenceMutation,
+} from "./hooks/useSettingsMutations";
 
 const CURRENCY_KEY = "settings.currency";
 const DATE_FORMAT_KEY = "settings.date_format";
@@ -37,10 +41,13 @@ export default function Settings() {
   const userQuery = useSettingsDataQuery();
   const logoutMutation = useLogoutMutation();
   const togglePremiumMutation = useTogglePremiumMutation();
+  const updateBudgetRolloverPreferenceMutation = useUpdateBudgetRolloverPreferenceMutation();
   const isTogglingPremium = togglePremiumMutation.isPending;
+  const isUpdatingRollover = updateBudgetRolloverPreferenceMutation.isPending;
   const username = userQuery.data?.username || "";
   const email = userQuery.data?.email || "";
   const isPremium = !!userQuery.data?.is_premium;
+  const rolloverEnabled = userQuery.data?.profile?.budget_rollover_enabled !== false;
   const profileError = userQuery.error
     ? localizeApiError(userQuery.error?.message, t) || userQuery.error?.message || t("settings.failedProfile")
     : "";
@@ -104,6 +111,37 @@ export default function Settings() {
           <CardContent className="grid gap-4 md:grid-cols-2">
             <Input value={savedCurrency === "UZS" ? "UZS - so'm" : savedCurrency} readOnly disabled />
             <Input value={savedDateFormat} readOnly disabled />
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-sm">
+          <CardHeader>
+            <CardTitle>{t("settings.budgetRolloverTitle")}</CardTitle>
+            <CardDescription>{t("settings.budgetRolloverDesc")}</CardDescription>
+          </CardHeader>
+          <CardContent className="flex items-center justify-between gap-4">
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">
+                {isPremium ? t("settings.budgetRolloverPremiumHint") : t("settings.budgetRolloverPremiumOnly")}
+              </p>
+              <p className="text-sm font-medium">
+                {rolloverEnabled ? t("settings.budgetRolloverOn") : t("settings.budgetRolloverOff")}
+              </p>
+            </div>
+            <Button
+              variant={rolloverEnabled ? "default" : "secondary"}
+              disabled={!isPremium || isUpdatingRollover}
+              onClick={async () => {
+                setError("");
+                try {
+                  await updateBudgetRolloverPreferenceMutation.mutateAsync(!rolloverEnabled);
+                } catch (e) {
+                  setError(localizeApiError(e?.message, t) || t("settings.budgetRolloverUpdateFailed"));
+                }
+              }}
+            >
+              {rolloverEnabled ? t("settings.turnOff") : t("settings.turnOn")}
+            </Button>
           </CardContent>
         </Card>
 

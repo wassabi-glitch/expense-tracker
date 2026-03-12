@@ -256,6 +256,35 @@ def get_me(current_user: models.User = Depends(oauth2.get_current_user)):
     return build_user_out(current_user)
 
 
+@router.patch("/me/preferences/budget-rollover", response_model=schemas.UserOut)
+def update_budget_rollover_preference(
+    payload: schemas.UserBudgetRolloverPreferenceUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+):
+    if not current_user.is_premium:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="users.premium_required",
+        )
+
+    profile = (
+        db.query(models.UserProfile)
+        .filter(models.UserProfile.user_id == current_user.id)
+        .first()
+    )
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="users.profile_required",
+        )
+
+    profile.budget_rollover_enabled = payload.budget_rollover_enabled
+    db.commit()
+    db.refresh(current_user)
+    return build_user_out(current_user)
+
+
 @router.post("/me/onboarding", response_model=schemas.UserOut, status_code=status.HTTP_200_OK)
 def upsert_onboarding_profile(
     payload: schemas.UserOnboardingUpsert,
@@ -274,6 +303,7 @@ def upsert_onboarding_profile(
             life_status=payload.life_status,
             monthly_income_amount=0,
             initial_balance=payload.initial_balance,
+            budget_rollover_enabled=True,
             onboarding_completed_at=datetime.now(timezone.utc),
         )
         db.add(profile)

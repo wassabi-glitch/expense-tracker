@@ -1,7 +1,23 @@
 from datetime import date
 
+from app import models
 from app.redis_rate_limiter import redis_client
 from tests.helpers import create_user_and_token, create_budget
+
+
+def _make_user_premium(session, email: str):
+    user = session.query(models.User).filter(models.User.email == email).first()
+    assert user is not None
+    user.is_premium = True
+    session.commit()
+
+
+def _set_rollover_enabled(session, email: str, enabled: bool):
+    user = session.query(models.User).filter(models.User.email == email).first()
+    assert user is not None
+    assert user.profile is not None
+    user.profile.budget_rollover_enabled = enabled
+    session.commit()
 
 
 def test_create_budget_success(client):
@@ -57,6 +73,95 @@ def test_get_budgets_list(client):
     
     assert food_budget["spent"] == 50
     assert transport_budget["spent"] == 0
+
+
+def test_get_budgets_computes_premium_rollover(client, session):
+    email = "rolloverbudget@example.com"
+    headers = create_user_and_token(
+        client, "rolloverbudget", email, "Password123!"
+    )
+    _make_user_premium(session, email)
+    onboard = client.post(
+        "/users/me/onboarding",
+        json={"life_status": "employed", "initial_balance": 100000},
+        headers=headers,
+    )
+    assert onboard.status_code == 200, onboard.text
+
+    create_budget(client, headers, category="Food", monthly_limit=300, budget_year=2026, budget_month=1)
+    create_budget(client, headers, category="Food", monthly_limit=300, budget_year=2026, budget_month=2)
+
+    jan_expense = client.post(
+        "/expenses/",
+        json={
+            "title": "Jan food",
+            "amount": 200,
+            "category": "Groceries",
+            "date": "2026-01-10",
+        },
+        headers=headers,
+    )
+    assert jan_expense.status_code == 201, jan_expense.text
+
+    res = client.get("/budgets/", headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+
+    jan = next(b for b in data if b["category"] == "Groceries" and b["budget_year"] == 2026 and b["budget_month"] == 1)
+    feb = next(b for b in data if b["category"] == "Groceries" and b["budget_year"] == 2026 and b["budget_month"] == 2)
+
+    assert jan["monthly_limit"] == 300
+    assert jan["rollover_amount"] == 0
+    assert jan["effective_monthly_limit"] == 300
+    assert jan["spent"] == 200
+
+    assert feb["monthly_limit"] == 300
+    assert feb["rollover_amount"] == 100
+    assert feb["effective_monthly_limit"] == 400
+
+
+def test_get_budgets_disables_rollover_when_preference_off(client, session):
+    email = "rolloveroff@example.com"
+    headers = create_user_and_token(
+        client, "rolloveroff", email, "Password123!"
+    )
+    _make_user_premium(session, email)
+
+    onboard = client.post(
+        "/users/me/onboarding",
+        json={"life_status": "employed", "initial_balance": 100000},
+        headers=headers,
+    )
+    assert onboard.status_code == 200, onboard.text
+
+    _set_rollover_enabled(session, email, False)
+
+    create_budget(client, headers, category="Food", monthly_limit=300, budget_year=2026, budget_month=1)
+    create_budget(client, headers, category="Food", monthly_limit=300, budget_year=2026, budget_month=2)
+
+    jan_expense = client.post(
+        "/expenses/",
+        json={
+            "title": "Jan food",
+            "amount": 200,
+            "category": "Groceries",
+            "date": "2026-01-10",
+        },
+        headers=headers,
+    )
+    assert jan_expense.status_code == 201, jan_expense.text
+
+    res = client.get("/budgets/", headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+
+    jan = next(b for b in data if b["category"] == "Groceries" and b["budget_year"] == 2026 and b["budget_month"] == 1)
+    feb = next(b for b in data if b["category"] == "Groceries" and b["budget_year"] == 2026 and b["budget_month"] == 2)
+
+    assert jan["rollover_amount"] == 0
+    assert jan["effective_monthly_limit"] == 300
+    assert feb["rollover_amount"] == 0
+    assert feb["effective_monthly_limit"] == 300
 
 
 def test_get_budget_by_category(client):

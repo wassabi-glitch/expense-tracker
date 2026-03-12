@@ -165,12 +165,12 @@ export default function Dashboard() {
     {
       label: t("dashboard.totalBalance", { defaultValue: "Total Balance" }),
       value: `${summary.overall_balance >= 0 ? "+" : "-"}${formatUzsCard(Math.abs(summary.overall_balance))} UZS`,
-      valueClassName: summary.overall_balance >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300",
       cardClassName: summary.overall_balance >= 0
-        ? "border-emerald-400/70 bg-emerald-50/75 shadow-[0_0_16px_rgba(5,150,105,0.14)] dark:border-emerald-400/45 dark:bg-emerald-950/30 dark:shadow-[0_0_16px_rgba(52,211,153,0.12)]"
-        : "border-red-400/70 bg-red-50/75 shadow-[0_0_16px_rgba(220,38,38,0.14)] dark:border-red-400/45 dark:bg-red-950/25 dark:shadow-[0_0_16px_rgba(248,113,113,0.12)]",
-      titleClassName: summary.overall_balance >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300",
-      iconClassName: summary.overall_balance >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300",
+        ? "border-primary/45 bg-primary/10 shadow-[0_0_16px_rgba(34,197,94,0.16)] dark:border-primary/35 dark:bg-primary/10 dark:shadow-[0_0_16px_rgba(34,197,94,0.12)]"
+        : "border-destructive/30 bg-destructive/15 shadow-[0_0_16px_rgba(239,68,68,0.18)] dark:shadow-[0_0_16px_rgba(248,113,113,0.14)]",
+      titleClassName: summary.overall_balance >= 0 ? "text-primary" : "text-destructive dark:text-red-400",
+      iconClassName: summary.overall_balance >= 0 ? "text-primary" : "text-destructive dark:text-red-400",
+      valueClassName: summary.overall_balance >= 0 ? "text-primary" : "text-destructive dark:text-red-400",
       icon: Wallet,
     },
     {
@@ -186,7 +186,12 @@ export default function Dashboard() {
     {
       label: t("dashboard.remainingThisMonth", { defaultValue: "Remaining This Month" }),
       value: `${summary.remaining >= 0 ? "+" : "-"}${formatUzsCard(Math.abs(summary.remaining))} UZS`,
-      valueClassName: summary.remaining >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300",
+      cardClassName: summary.remaining >= 0
+        ? "border-primary/30 bg-primary/5"
+        : "border-destructive/30 bg-destructive/15",
+      valueClassName: summary.remaining >= 0 ? "text-primary" : "text-destructive dark:text-red-400",
+      titleClassName: summary.remaining >= 0 ? "text-primary" : "text-destructive dark:text-red-400",
+      iconClassName: summary.remaining >= 0 ? "text-primary" : "text-destructive dark:text-red-400",
       icon: summary.remaining >= 0 ? Layers : Wallet,
     },
   ];
@@ -400,7 +405,7 @@ export default function Dashboard() {
               {recentExpenses.map((e) => (
                 <div
                   key={e.id}
-                  className="flex-1 flex items-center justify-between gap-2 border-b border-border/40 p-2 -mx-2 rounded-xl hover:bg-muted dark:hover:bg-muted/30 transition-all duration-300 last:border-0"
+                  className="flex items-center justify-between gap-2 border-b border-border/40 p-2 -mx-2 rounded-xl hover:bg-muted dark:hover:bg-muted/30 transition-all duration-300 last:border-0"
                 >
                   <div className="space-y-1 flex-1 min-w-0 pr-8">
                     <TooltipProvider delayDuration={0}>

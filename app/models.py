@@ -145,6 +145,7 @@ class UserProfile(Base):
     life_status = Column(Enum(LifeStatus), nullable=False)
     monthly_income_amount = Column(BigInteger, nullable=False)
     initial_balance = Column(BigInteger, nullable=False, default=0)
+    budget_rollover_enabled = Column(Boolean, nullable=False, default=True)
     onboarding_completed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(

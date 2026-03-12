@@ -117,6 +117,12 @@ export function localizeApiError(message, t) {
   if (msg === "income.amount_too_large") {
     return t("income.amountTooLarge");
   }
+  if (msg === "users.premium_required") {
+    return t("settings.budgetRolloverPremiumOnly");
+  }
+  if (msg === "users.profile_required") {
+    return t("settings.failedProfile");
+  }
 
   if (
     msg === "expenses.budget_required" ||
