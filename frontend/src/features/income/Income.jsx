@@ -787,7 +787,7 @@ export default function Income() {
                         {entry.source_id ? sourceNameById.get(entry.source_id) || t("income.sourceDeleted") : t("income.noSource")}
                       </div>
                       <div className="text-sm">{formatDisplayDate(entry.date, appLang)}</div>
-                      <div className="flex items-center justify-end gap-1.5 text-right font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                      <div className="flex items-center justify-end gap-1.5 text-right font-semibold tabular-nums text-primary">
                         <ArrowUpRight className="h-4 w-4 shrink-0" />
                         <span>{formatAmountDisplay(entry.amount)} UZS</span>
                       </div>

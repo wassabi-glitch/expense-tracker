@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useBudgetCategoriesQuery } from "./hooks/useBudgetCategoriesQuery";
 import { useBudgetsDataQuery } from "./hooks/useBudgetsDataQuery";
 import {
@@ -137,9 +138,16 @@ export default function Budgets() {
       category: b.category,
       budgetYear: Number(b.budget_year),
       budgetMonth: Number(b.budget_month),
-      limit: Number(b.monthly_limit || 0),
+      baseLimit: Number(b.monthly_limit || 0),
+      rolloverAmount: Number(b.rollover_amount || 0),
+      effectiveLimit: Number(b.effective_monthly_limit || b.monthly_limit || 0),
+      // Keep `limit` for existing sorting/filtering code paths.
+      limit: Number(b.effective_monthly_limit || b.monthly_limit || 0),
       spent: Number(b.spent || 0),
-      remaining: Math.max(0, Number(b.monthly_limit || 0) - Number(b.spent || 0)),
+      remaining: Math.max(
+        0,
+        Number(b.effective_monthly_limit || b.monthly_limit || 0) - Number(b.spent || 0)
+      ),
       backendStatus:
         Number(b.budget_year) === currentYear && Number(b.budget_month) === currentMonth
           ? (currentMonthStatusByCategory.get(b.category)?.budgetStatus ?? "")
@@ -341,7 +349,7 @@ export default function Budgets() {
   const openUpdate = (budget) => {
     setActionError("");
     setSelectedBudget(budget);
-    setNewLimit(formatBudgetAmountInput(String(budget.limit)));
+    setNewLimit(formatBudgetAmountInput(String(budget.baseLimit)));
     setUpdateOpen(true);
   };
 
@@ -575,11 +583,13 @@ export default function Budgets() {
                     : progressStatus === "warning"
                       ? t("budgets.status.closeToLimit")
                       : t("budgets.status.onTrack");
-              const deltaAmount = Math.max(0, b.spent - b.limit);
-              const useCompactAmounts = Math.max(b.spent, b.limit) >= 1_000_000_000;
+              const deltaAmount = Math.max(0, b.spent - b.effectiveLimit);
+              const useCompactAmounts = Math.max(b.spent, b.effectiveLimit) >= 1_000_000_000;
               const spentLabel = useCompactAmounts ? formatCompactUzs(b.spent) : formatUzs(b.spent);
-              const limitLabel = useCompactAmounts ? formatCompactUzs(b.limit) : formatUzs(b.limit);
+              const limitLabel = useCompactAmounts ? formatCompactUzs(b.effectiveLimit) : formatUzs(b.effectiveLimit);
               const usedOfLabel = t("budgets.usedOf", { spent: spentLabel, limit: limitLabel });
+              const baseLabel = useCompactAmounts ? formatCompactUzs(b.baseLimit) : formatUzs(b.baseLimit);
+              const rolloverLabel = useCompactAmounts ? formatCompactUzs(b.rolloverAmount) : formatUzs(b.rolloverAmount);
               return (
                 <Card
                   key={b.id}
@@ -588,15 +598,33 @@ export default function Budgets() {
                 >
                   <CardHeader className="space-y-3 pb-3">
                     <div className="flex items-start justify-between gap-3">
-                      <CardTitle className="flex items-center gap-2 text-lg font-semibold">
+                      <CardTitle className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden pr-2 text-lg font-semibold">
                         {(() => {
                           const CategoryIcon = categoryIconMap[b.category] || Circle;
                           return <CategoryIcon className="h-4 w-4 text-muted-foreground" aria-hidden="true" />;
                         })()}
-                        <span>{tCategory(b.category)}</span>
+                        <TooltipProvider delayDuration={0}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                className="block w-full min-w-0 max-w-full truncate text-left outline-none focus-visible:underline decoration-muted-foreground underline-offset-4 cursor-pointer"
+                                title={tCategory(b.category)}
+                              >
+                                {(() => {
+                                  const full = tCategory(b.category);
+                                  return full.length > 12 ? `${full.slice(0, 12)}...` : full;
+                                })()}
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-[250px] sm:max-w-xs break-words">
+                              {tCategory(b.category)}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       </CardTitle>
                       <span
-                        className={`inline-flex min-h-8 min-w-[86px] max-w-[96px] items-center justify-center rounded-full px-2 py-1 text-center text-[11px] font-medium leading-tight whitespace-normal sm:text-xs ${statusBadgeClass}`}
+                        className={`inline-flex shrink-0 min-h-8 min-w-[86px] max-w-[96px] items-center justify-center rounded-full px-2 py-1 text-center text-[11px] font-medium leading-tight whitespace-normal sm:text-xs ${statusBadgeClass}`}
                       >
                         {statusLabel}
                       </span>
@@ -609,14 +637,25 @@ export default function Budgets() {
                       >
                         {usedOfLabel}
                       </span>
+                      <div className="space-y-1 text-xs tabular-nums">
+                        <div className="flex items-center justify-between gap-3 text-muted-foreground">
+                          <span>{t("budgets.baseLimit")}</span>
+                          <span>{baseLabel} UZS</span>
+                        </div>
+                        <div className="h-px w-full bg-border/60" aria-hidden="true" />
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground">{t("budgets.rolloverAmount")}</span>
+                          <span className="font-semibold text-primary">+{rolloverLabel} UZS</span>
+                        </div>
+                      </div>
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-5 pt-1">
                     <div className="flex items-center justify-between text-sm text-muted-foreground tabular-nums">
                       <span>{t("budgets.percentUsed", { percent })}</span>
-                      <span>
+                      <span className={b.spent > b.limit ? "whitespace-nowrap font-semibold text-destructive" : "whitespace-nowrap"}>
                         {b.spent > b.limit
-                          ? t("budgets.overBy", { amount: formatUzs(deltaAmount) })
+                          ? `-${formatUzs(deltaAmount)} UZS`
                           : t("budgets.remaining", { amount: formatUzs(b.remaining) })}
                       </span>
                     </div>

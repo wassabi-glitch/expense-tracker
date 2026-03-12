@@ -29,6 +29,7 @@ def test_me_requires_onboarding_until_profile_completed(client):
     assert onboard_data["profile"]["life_status"] == "employed"
     assert onboard_data["profile"]["initial_balance"] == 5000000
     assert onboard_data["profile"]["monthly_income_amount"] == 0
+    assert onboard_data["profile"]["budget_rollover_enabled"] is True
     assert onboard_data["profile"]["onboarding_completed_at"] is not None
 
     me_after = client.get("/users/me", headers=headers)
@@ -122,3 +123,56 @@ def test_onboarding_rejects_too_large_initial_balance(client):
     )
 
     assert res.status_code == 422
+
+
+def test_budget_rollover_preference_update_for_premium_user(client, session):
+    headers = create_user_and_token(
+        client,
+        "rolloverpref1",
+        "rolloverpref1@example.com",
+        "Password123!",
+    )
+
+    onboard = client.post(
+        "/users/me/onboarding",
+        json={"life_status": "employed", "initial_balance": 100000},
+        headers=headers,
+    )
+    assert onboard.status_code == 200
+
+    user = session.query(models.User).filter(models.User.email == "rolloverpref1@example.com").first()
+    assert user is not None
+    user.is_premium = True
+    session.commit()
+
+    res = client.patch(
+        "/users/me/preferences/budget-rollover",
+        json={"budget_rollover_enabled": False},
+        headers=headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["profile"]["budget_rollover_enabled"] is False
+
+
+def test_budget_rollover_preference_requires_premium(client):
+    headers = create_user_and_token(
+        client,
+        "rolloverpref2",
+        "rolloverpref2@example.com",
+        "Password123!",
+    )
+
+    onboard = client.post(
+        "/users/me/onboarding",
+        json={"life_status": "employed", "initial_balance": 100000},
+        headers=headers,
+    )
+    assert onboard.status_code == 200
+
+    res = client.patch(
+        "/users/me/preferences/budget-rollover",
+        json={"budget_rollover_enabled": False},
+        headers=headers,
+    )
+    assert res.status_code == 403
+    assert res.json()["detail"] == "users.premium_required"
