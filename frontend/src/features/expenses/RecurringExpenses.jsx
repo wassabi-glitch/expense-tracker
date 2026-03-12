@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, Pencil, MessageSquare, Search, ChevronLeft, ChevronRight, Circle } from "lucide-react";
+import { Plus, Trash2, Pencil, MessageSquare, Search, ChevronLeft, ChevronRight, Circle, MoreHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,7 +51,7 @@ function ActiveToggle({ checked, onChange, disabled }) {
 
 // ── Column layout shared between header and rows ─────────────────────────────
 // Title | Category | Frequency | Next Due | Amount | Active | Actions
-const COL = "grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1fr)_80px_120px] items-center gap-x-2 px-3";
+const COL = "grid grid-cols-[minmax(0,1.75fr)_minmax(0,1.25fr)_minmax(0,1.05fr)_minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,0.6fr)_minmax(0,0.25fr)] items-center gap-x-2 px-3";
 const EMPTY_ARRAY = [];
 
 export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
@@ -78,6 +79,8 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
     // Description preview
     const [descOpen, setDescOpen] = useState(false);
     const [descTarget, setDescTarget] = useState(null);
+    const [recurringMenuForId, setRecurringMenuForId] = useState(null);
+    const [recurringMenuPosition, setRecurringMenuPosition] = useState(null);
 
     // Inline toggle saving
     const [togglingId, setTogglingId] = useState(null);
@@ -236,6 +239,41 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
 
     const openDesc = (e) => { setDescTarget(e); setDescOpen(true); };
 
+    useEffect(() => {
+        const onPointerDown = (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+            if (target.closest("[data-action-popover]")) return;
+            setRecurringMenuForId(null);
+            setRecurringMenuPosition(null);
+        };
+        document.addEventListener("pointerdown", onPointerDown);
+        return () => document.removeEventListener("pointerdown", onPointerDown);
+    }, []);
+
+    const openRecurringActions = (event, recurringExpense) => {
+        const button = event.currentTarget;
+        const rect = button instanceof HTMLElement ? button.getBoundingClientRect() : null;
+        const menuWidth = 176;
+        const menuHeight = 120;
+        const viewportPadding = 8;
+        setRecurringMenuForId((prev) => {
+            if (prev === recurringExpense.id) {
+                setRecurringMenuPosition(null);
+                return null;
+            }
+            if (!rect) return null;
+            const fitsBelow = rect.bottom + 6 + menuHeight <= window.innerHeight - viewportPadding;
+            const top = fitsBelow ? rect.bottom + 6 : rect.top - 6 - menuHeight;
+            const left = Math.max(
+                viewportPadding,
+                Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - viewportPadding)
+            );
+            setRecurringMenuPosition({ top, left });
+            return recurringExpense.id;
+        });
+    };
+
     const editExpenseParsed = useMemo(() => recurringExpenseUpdateFormSchema.safeParse({
         title: editTitle, amount: editAmount, category: editCategory, description: editDescription,
     }), [editTitle, editAmount, editCategory, editDescription]);
@@ -376,7 +414,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                 <div className="text-center">{t("recurring.nextDue")}</div>
                                 <div className="text-right">{t("expenses.amountUzs")}</div>
                                 <div className="text-center">{t("recurring.active")}</div>
-                                <div className="text-right">{t("common.actions", { defaultValue: "Actions" })}</div>
+                                <div className="text-right" />
                             </div>
 
                             {loading ? (
@@ -450,35 +488,15 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                         </div>
 
                                         {/* Actions */}
-                                        <div className="flex justify-end gap-1">
-                                            {/* Description button: always visible, dimmed when no description */}
+                                        <div className="flex justify-end" data-action-popover>
                                             <Button
                                                 type="button"
+                                                size="icon"
                                                 variant="ghost"
-                                                title={e.description ? t("recurring.viewDescription") : t("recurring.noDescription")}
-                                                disabled={!e.description}
-                                                className={`h-8 px-2 text-xs hover:bg-muted/50 ${e.description ? "text-muted-foreground" : "text-muted-foreground/30"}`}
-                                                onClick={() => openDesc(e)}
+                                                className="h-8 w-8"
+                                                onClick={(event) => openRecurringActions(event, e)}
                                             >
-                                                <MessageSquare className="h-3.5 w-3.5" />
-                                            </Button>
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                title={t("common.edit")}
-                                                className="h-8 px-2 text-xs text-muted-foreground hover:bg-muted/50"
-                                                onClick={() => openEdit(e)}
-                                            >
-                                                <Pencil className="h-3.5 w-3.5" />
-                                            </Button>
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                title={t("common.delete")}
-                                                className="h-8 px-2 text-xs text-destructive bg-destructive/10 hover:bg-destructive/20 hover:text-destructive"
-                                                onClick={() => openDelete(e)}
-                                            >
-                                                <Trash2 className="h-3.5 w-3.5" />
+                                                <MoreHorizontal className="h-4 w-4" />
                                             </Button>
                                         </div>
                                     </div>
@@ -514,6 +532,58 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
             </Card>
 
             {/* ── Add Dialog ──────────────────────────────────────────────── */}
+            {recurringMenuForId && recurringMenuPosition
+                ? createPortal(
+                    <div
+                        data-action-popover
+                        className="fixed z-50 w-44 rounded-md border border-border bg-popover p-1 shadow-lg"
+                        style={{ top: `${recurringMenuPosition.top}px`, left: `${recurringMenuPosition.left}px` }}
+                    >
+                        <button
+                            type="button"
+                            className={`flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm ${expenses.find((item) => item.id === recurringMenuForId)?.description ? "hover:bg-muted" : "cursor-not-allowed text-muted-foreground/40"}`}
+                            disabled={!expenses.find((item) => item.id === recurringMenuForId)?.description}
+                            onClick={() => {
+                                const recurringExpense = expenses.find((item) => item.id === recurringMenuForId);
+                                setRecurringMenuForId(null);
+                                setRecurringMenuPosition(null);
+                                if (recurringExpense?.description) openDesc(recurringExpense);
+                            }}
+                        >
+                            <MessageSquare className="h-4 w-4" />
+                            {t("expenses.viewDescription", { defaultValue: "View description" })}
+                        </button>
+                        <button
+                            type="button"
+                            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted"
+                            onClick={() => {
+                                const recurringExpense = expenses.find((item) => item.id === recurringMenuForId);
+                                setRecurringMenuForId(null);
+                                setRecurringMenuPosition(null);
+                                if (recurringExpense) openEdit(recurringExpense);
+                            }}
+                        >
+                            <Pencil className="h-4 w-4" />
+                            {t("common.edit", { defaultValue: "Edit" })}
+                        </button>
+                        <button
+                            type="button"
+                            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10"
+                            onClick={() => {
+                                const recurringExpense = expenses.find((item) => item.id === recurringMenuForId);
+                                setRecurringMenuForId(null);
+                                setRecurringMenuPosition(null);
+                                if (recurringExpense) openDelete(recurringExpense);
+                            }}
+                        >
+                            <Trash2 className="h-4 w-4" />
+                            {t("common.delete", { defaultValue: "Delete" })}
+                        </button>
+                    </div>,
+                    document.body
+                )
+                : null}
+
             <Dialog open={addOpen} onOpenChange={(open) => { setAddOpen(open); if (!open) { setActionError(""); } }}>
                 <DialogContent className="py-8 border-border">
                     <DialogHeader className="space-y-3 pb-2">

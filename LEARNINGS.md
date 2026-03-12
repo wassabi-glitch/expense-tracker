@@ -336,3 +336,38 @@
 5. CI runs automatically (all 5 jobs must pass)
 6. Merge when green ✅
 7. git checkout main && git pull
+
+
+
+# 1) Check current changes
+git status
+
+# 2) Create a feature branch (change name if needed)
+$BRANCH = "feat/auth-ui-logo-and-category-icons"
+git checkout -b $BRANCH
+
+# 3) Stage and commit
+git add .
+git commit -m "Refine auth branding and validation UX; add category icons in recurring/budget filters"
+
+# 4) Push branch
+git push -u origin $BRANCH
+
+# 5) Open PR to main (requires GitHub CLI: gh)
+gh pr create `
+  --base main `
+  --head $BRANCH `
+  --title "Refine auth branding + category icon dropdowns" `
+  --body "## Summary
+- Updated auth branding/logo presentation
+- Improved auth validation UX (error border behavior and forgot-password placement)
+- Added icon + category text in recurring template modal category select
+- Added icon + category text in budgets category filter
+
+## Validation
+- npm.cmd run lint passes
+"
+
+# 6) Watch CI status
+gh pr checks --watch
+

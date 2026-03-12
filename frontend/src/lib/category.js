@@ -6,6 +6,8 @@ import {
     CalendarClock,
     Car,
     HeartPulse,
+    Smartphone,
+    Sparkles,
     GraduationCap,
     Shirt,
     Users,
@@ -18,11 +20,13 @@ import {
 export const CATEGORIES = [
     "Groceries",
     "Dining Out",
+    "Electronics",
     "Housing",
     "Utilities",
     "Subscriptions",
     "Transport",
     "Health",
+    "Personal care",
     "Education",
     "Clothing",
     "Family & Events",
@@ -34,11 +38,13 @@ export const CATEGORIES = [
 export const categoryIconMap = {
     Groceries: ShoppingCart,
     "Dining Out": Utensils,
+    Electronics: Smartphone,
     Housing: Home,
     Utilities: Wrench,
     Subscriptions: CalendarClock,
     Transport: Car,
     Health: HeartPulse,
+    "Personal care": Sparkles,
     Education: GraduationCap,
     Clothing: Shirt,
     "Family & Events": Users,
@@ -54,6 +60,8 @@ export const getCategoryBgClass = (category) => {
             return "bg-emerald-100 hover:bg-emerald-200 border border-emerald-200 dark:bg-emerald-500/30 dark:hover:bg-emerald-500/15 dark:border-emerald-400/35";
         case "Dining Out":
             return "bg-orange-100 hover:bg-orange-200 border border-orange-200 dark:bg-orange-500/30 dark:hover:bg-orange-500/15 dark:border-orange-400/35";
+        case "Electronics":
+            return "bg-cyan-100 hover:bg-cyan-200 border border-cyan-200 dark:bg-cyan-500/30 dark:hover:bg-cyan-500/15 dark:border-cyan-400/35";
         case "Housing":
             return "bg-blue-100 hover:bg-blue-200 border border-blue-200 dark:bg-blue-500/30 dark:hover:bg-blue-500/15 dark:border-blue-400/35";
         case "Utilities":
@@ -64,6 +72,8 @@ export const getCategoryBgClass = (category) => {
             return "bg-sky-100 hover:bg-sky-200 border border-sky-200 dark:bg-sky-500/30 dark:hover:bg-sky-500/15 dark:border-sky-400/35";
         case "Health":
             return "bg-red-100 hover:bg-red-200 border border-red-200 dark:bg-red-500/30 dark:hover:bg-red-500/15 dark:border-red-400/35";
+        case "Personal care":
+            return "bg-indigo-100 hover:bg-indigo-200 border border-indigo-200 dark:bg-indigo-500/30 dark:hover:bg-indigo-500/15 dark:border-indigo-400/35";
         case "Education":
             return "bg-amber-100 hover:bg-amber-200 border border-amber-200 dark:bg-amber-500/30 dark:hover:bg-amber-500/15 dark:border-amber-400/35";
         case "Clothing":

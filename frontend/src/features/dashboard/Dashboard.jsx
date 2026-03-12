@@ -12,7 +12,7 @@ import {
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Download, Plus, Wallet, TrendingUp, Layers, Crown, Car, Gamepad2, Home, Utensils, Wrench, Circle, CalendarClock } from "lucide-react";
+import { Download, Plus, Wallet, TrendingUp, Layers, Circle, CalendarClock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { categoryIconMap } from "@/lib/category";
 
@@ -93,6 +93,7 @@ export default function Dashboard() {
 
   const {
     userQuery,
+    summaryQuery,
     statsQuery,
     recentExpensesQuery,
     recurringExpensesQuery,
@@ -109,14 +110,24 @@ export default function Dashboard() {
       .slice(0, 5);
   }, [recurringExpensesQuery.data]);
   const trendData = trendQuery.data || EMPTY_ARRAY;
+  const summary = summaryQuery.data || {
+    income: 0,
+    spent: 0,
+    remaining: 0,
+    daily_average: 0,
+    overall_balance: 0,
+  };
+  const showZeroIncomeHint = !summaryQuery.isLoading && summary.income === 0;
   const loading =
     userQuery.isLoading ||
+    summaryQuery.isLoading ||
     statsQuery.isLoading ||
     recentExpensesQuery.isLoading ||
     recurringExpensesQuery.isLoading;
   const trendLoading = trendQuery.isLoading;
   const firstError =
     userQuery.error ||
+    summaryQuery.error ||
     statsQuery.error ||
     recentExpensesQuery.error ||
     recurringExpensesQuery.error ||
@@ -152,24 +163,31 @@ export default function Dashboard() {
 
   const statCards = [
     {
-      label: t("dashboard.totalSpentMonth"),
-      value: `${formatUzsCard(derived.totalSpent)} UZS`,
+      label: t("dashboard.totalBalance", { defaultValue: "Total Balance" }),
+      value: `${summary.overall_balance >= 0 ? "+" : "-"}${formatUzsCard(Math.abs(summary.overall_balance))} UZS`,
+      valueClassName: summary.overall_balance >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300",
+      cardClassName: summary.overall_balance >= 0
+        ? "border-emerald-400/70 bg-emerald-50/75 shadow-[0_0_16px_rgba(5,150,105,0.14)] dark:border-emerald-400/45 dark:bg-emerald-950/30 dark:shadow-[0_0_16px_rgba(52,211,153,0.12)]"
+        : "border-red-400/70 bg-red-50/75 shadow-[0_0_16px_rgba(220,38,38,0.14)] dark:border-red-400/45 dark:bg-red-950/25 dark:shadow-[0_0_16px_rgba(248,113,113,0.12)]",
+      titleClassName: summary.overall_balance >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300",
+      iconClassName: summary.overall_balance >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300",
       icon: Wallet,
     },
     {
-      label: t("dashboard.remainingBudget"),
-      value: `${formatUzsCard(derived.remainingBudget)} UZS`,
+      label: t("dashboard.incomeThisMonth", { defaultValue: "Income This Month" }),
+      value: `${formatUzsCard(summary.income)} UZS`,
+      icon: Wallet,
+    },
+    {
+      label: t("dashboard.spentThisMonth", { defaultValue: "Spent This Month" }),
+      value: `${formatUzsCard(summary.spent)} UZS`,
       icon: TrendingUp,
     },
     {
-      label: t("dashboard.biggestCategory"),
-      value: t(`categories.${derived.biggestCategory}`, { defaultValue: derived.biggestCategory }),
-      icon: Crown,
-    },
-    {
-      label: t("dashboard.avgDailySpend"),
-      value: `${formatUzsCard(derived.avgDaily)} UZS`,
-      icon: Layers,
+      label: t("dashboard.remainingThisMonth", { defaultValue: "Remaining This Month" }),
+      value: `${summary.remaining >= 0 ? "+" : "-"}${formatUzsCard(Math.abs(summary.remaining))} UZS`,
+      valueClassName: summary.remaining >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300",
+      icon: summary.remaining >= 0 ? Layers : Wallet,
     },
   ];
 
@@ -241,20 +259,23 @@ export default function Dashboard() {
           {statCards.map((s, i) => {
             const Icon = s.icon;
             return (
-              <Card key={i} className="shadow-sm">
+              <Card key={i} className={cn("shadow-sm", s.cardClassName)}>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">
+                  <CardTitle className={cn("text-sm font-medium text-muted-foreground", s.titleClassName)}>
                     {s.label}
                   </CardTitle>
-                  <Icon className="h-4 w-4 text-muted-foreground" />
+                  <Icon className={cn("h-4 w-4 text-muted-foreground", s.iconClassName)} />
                 </CardHeader>
                 <CardContent className="pt-0">
-                  <div className="text-2xl font-bold">{s.value}</div>
+                  <div className={cn("text-2xl font-bold", s.valueClassName)}>{s.value}</div>
                 </CardContent>
               </Card>
             );
           })}
         </div>
+        {showZeroIncomeHint && (
+          <p className="text-sm text-muted-foreground">{t("dashboard.zeroIncomeHint")}</p>
+        )}
 
         <div className="grid gap-6 lg:grid-cols-3">
           <Card className="shadow-sm lg:col-span-2">

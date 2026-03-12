@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
     getCurrentUser,
+    getDashboardSummary,
     getExpenses,
     getMonthToDateTrend,
     getRecurringExpenses,
@@ -16,6 +17,11 @@ export function useDashboardDataQuery({ monthStartIso, todayIso }) {
     const statsQuery = useQuery({
         queryKey: ["dashboard", "stats", monthStartIso, todayIso],
         queryFn: getThisMonthStats,
+    });
+
+    const summaryQuery = useQuery({
+        queryKey: ["dashboard", "summary", monthStartIso, todayIso],
+        queryFn: getDashboardSummary,
     });
 
     const recentExpensesQuery = useQuery({
@@ -43,6 +49,7 @@ export function useDashboardDataQuery({ monthStartIso, todayIso }) {
 
     return {
         userQuery,
+        summaryQuery,
         statsQuery,
         recentExpensesQuery,
         recurringExpensesQuery,

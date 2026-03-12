@@ -4,5 +4,5 @@
   <path d="M42 64H78" stroke="#21C45D" stroke-width="8" stroke-linecap="round"/>
   <path d="M42 85H86" stroke="#21C45D" stroke-width="8" stroke-linecap="round"/>
   <path d="M76 26C86 26 94 34 94 44C84 44 76 36 76 26Z" fill="#21C45D"/>
-  <text x="140" y="78" fill="#E7EAF0" font-family="Manrope, Sora, Arial, sans-serif" font-size="48" font-weight="700" letter-spacing="0.2">Sarflog</text>
+  <text x="140" y="78" fill="#E7EAF0" font-family="Inter, Arial, sans-serif" font-size="48" font-weight="700" letter-spacing="0.2">Sarflog</text>
 </svg>

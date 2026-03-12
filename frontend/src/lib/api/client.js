@@ -11,7 +11,10 @@ function resetThemeOnSignout() {
     if (typeof document !== "undefined") {
         document.documentElement.classList.remove("dark", "theme-switching");
     }
-    localStorage.removeItem("theme");
+    if (typeof localStorage !== "undefined") {
+        localStorage.removeItem("theme");
+        localStorage.removeItem("settings.theme");
+    }
 }
 
 function clearLegacyStoredTokens() {

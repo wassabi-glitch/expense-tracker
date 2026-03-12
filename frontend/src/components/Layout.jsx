@@ -15,6 +15,7 @@ import {
 import {
   LayoutDashboard,
   Receipt,
+  Landmark,
   PiggyBank,
   LineChart,
   Download,
@@ -35,6 +36,7 @@ import flowLockupDark from "@/assets/brand/sarflog-flow-lockup-dark.svg";
 const mainNavItems = [
   { to: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
   { to: "/expenses", labelKey: "nav.expenses", icon: Receipt },
+  { to: "/income", labelKey: "nav.income", icon: Landmark },
   { to: "/budgets", labelKey: "nav.budgets", icon: PiggyBank },
   { to: "/analytics", labelKey: "nav.analytics", icon: LineChart },
 ];

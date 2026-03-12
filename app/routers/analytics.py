@@ -102,6 +102,66 @@ def get_this_month_stats(
     }
 
 
+@router.get("/dashboard-summary", response_model=schemas.DashboardSummary)
+def get_dashboard_summary(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
+):
+    today = today_in_tz(user_tz)
+    current_month_start = today.replace(day=1)
+
+    spent = (
+        db.query(func.coalesce(func.sum(models.Expense.amount), 0))
+        .filter(
+            models.Expense.owner_id == current_user.id,
+            models.Expense.date >= current_month_start,
+            models.Expense.date <= today,
+        )
+        .scalar()
+    ) or 0
+
+    month_income_total, _month_income_count = (
+        db.query(
+            func.coalesce(func.sum(models.IncomeEntry.amount), 0),
+            func.count(models.IncomeEntry.id),
+        )
+        .filter(
+            models.IncomeEntry.owner_id == current_user.id,
+            models.IncomeEntry.date >= current_month_start,
+            models.IncomeEntry.date <= today,
+        )
+        .first()
+    )
+    income = int(month_income_total or 0)
+    spent_int = int(spent)
+    remaining = income - spent_int
+
+    overall_income_total = (
+        db.query(func.coalesce(func.sum(models.IncomeEntry.amount), 0))
+        .filter(models.IncomeEntry.owner_id == current_user.id)
+        .scalar()
+    ) or 0
+    overall_spent_total = (
+        db.query(func.coalesce(func.sum(models.Expense.amount), 0))
+        .filter(models.Expense.owner_id == current_user.id)
+        .scalar()
+    ) or 0
+    initial_balance = int(getattr(current_user.profile, "initial_balance", 0) or 0)
+    overall_balance = initial_balance + int(overall_income_total) - int(overall_spent_total)
+
+    elapsed_days = max(today.day, 1)
+    daily_average = round(spent_int / elapsed_days) if elapsed_days else 0
+
+    return {
+        "income": income,
+        "spent": spent_int,
+        "remaining": int(remaining),
+        "daily_average": int(daily_average),
+        "overall_balance": int(overall_balance),
+    }
+
+
 @router.get("/history", response_model=schemas.AnalyticsHistory)
 def get_historical_stats(
     db: Session = Depends(get_db),

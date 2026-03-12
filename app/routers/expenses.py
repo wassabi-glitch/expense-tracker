@@ -34,6 +34,7 @@ def sanitize_csv_cell(value: str) -> str:
 EXPENSE_WRITE_BUCKET_CAPACITY = 10
 # ~0.1667 tokens/sec => 10 write ops/min sustained
 EXPENSE_WRITE_REFILL_RATE = 10 / 60
+EXPENSE_MONTH_LIMIT = 1000
 
 
 def enforce_expense_write_rate_limit(user_id: int) -> dict[str, str]:
@@ -131,6 +132,22 @@ def create_expense(
     rate_headers = enforce_expense_write_rate_limit(current_user.id)
     for k, v in rate_headers.items():
         response.headers[k] = v
+
+    current_month_start = local_today.replace(day=1)
+    month_expense_count = (
+        db.query(func.count(models.Expense.id))
+        .filter(
+            models.Expense.owner_id == current_user.id,
+            models.Expense.date >= current_month_start,
+            models.Expense.date <= local_today,
+        )
+        .scalar()
+    ) or 0
+    if int(month_expense_count) >= EXPENSE_MONTH_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="expenses.month_limit_reached",
+        )
 
     # Month-aware budget lookup (blocks if missing for expense month/category)
     budget = resolve_budget_for_expense_month(
@@ -240,7 +257,9 @@ def export_csv_expense(response: Response, db: Session = Depends(get_db), curren
                 "Food": "Oziq-ovqat",
                 "Transport": "Transport",
                 "Housing": "Uy-joy",
+                "Electronics": "Elektronika",
                 "Entertainment": "Ko'ngilochar",
+                "Personal care": "Shaxsiy parvarish",
                 "Utilities": "Kommunal",
                 "Other": "Boshqa"
             },

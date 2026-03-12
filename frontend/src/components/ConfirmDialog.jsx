@@ -18,6 +18,7 @@ export function ConfirmDialog({
     confirmText,
     cancelText,
     isConfirming = false,
+    confirmDisabled = false,
     error = "",
 }) {
     return (
@@ -41,7 +42,7 @@ export function ConfirmDialog({
                         type="button"
                         variant="destructive"
                         onClick={onConfirm}
-                        disabled={isConfirming}
+                        disabled={isConfirming || confirmDisabled}
                     >
                         {isConfirming ? (
                             <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />

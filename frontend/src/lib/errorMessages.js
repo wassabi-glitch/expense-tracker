@@ -15,6 +15,9 @@ export function localizeApiError(message, t) {
   if (msg === "expenses.write_rate_limited") {
     return t("expenses.tooManySoon");
   }
+  if (msg === "expenses.month_limit_reached") {
+    return t("expenses.monthLimitReached");
+  }
   if (msg === "recurring_expenses.write_rate_limited") {
     return t("recurring.tooManySoon");
   }
@@ -68,6 +71,51 @@ export function localizeApiError(message, t) {
   }
   if (msg === "analytics.days_min_1") {
     return t("analytics.hintInvalidDate");
+  }
+  if (msg === "income.source_exists") {
+    return t("income.sourceExists");
+  }
+  if (msg === "income.source_limit_reached") {
+    return t("income.sourceLimitReached");
+  }
+  if (msg === "income.sources_write_rate_limited") {
+    return t("income.sourcesTooManySoon");
+  }
+  if (msg === "income.source_not_found") {
+    return t("income.sourceNotFound");
+  }
+  if (msg === "income.source_inactive") {
+    return t("income.sourceInactive");
+  }
+  if (msg === "income.entry_not_found") {
+    return t("income.entryNotFound");
+  }
+  if (msg === "income.entry_month_limit_reached") {
+    return t("income.entryMonthLimitReached");
+  }
+  if (msg === "income.entries_write_rate_limited") {
+    return t("income.entriesTooManySoon");
+  }
+  if (msg === "income.date_range_both_required") {
+    return t("income.dateRangeBothRequired");
+  }
+  if (msg === "income.start_after_end") {
+    return t("income.startAfterEnd");
+  }
+  if (msg === "income.source_name_length") {
+    return t("income.sourceNameTooLong");
+  }
+  if (msg === "income.note_too_long") {
+    return t("income.noteTooLong");
+  }
+  if (msg === "income.date_too_early") {
+    return t("income.dateTooEarly");
+  }
+  if (msg === "income.date_outside_current_month") {
+    return t("income.dateCurrentMonthOnly");
+  }
+  if (msg === "income.amount_too_large") {
+    return t("income.amountTooLarge");
   }
 
   if (
