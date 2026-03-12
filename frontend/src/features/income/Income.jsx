@@ -408,7 +408,7 @@ export default function Income() {
     if (!addSourceParsed.success) {
       setTouchedAddSource({ name: true });
       const firstIssue = addSourceParsed.error.issues[0];
-      if (firstIssue?.message) setActionError(t(firstIssue.message, { defaultValue: firstIssue.message }));
+      if (firstIssue?.message) setSourceActionError(t(firstIssue.message, { defaultValue: firstIssue.message }));
       return;
     }
     try {
@@ -426,7 +426,7 @@ export default function Income() {
     if (!editSourceParsed.success) {
       setTouchedEditSource({ name: true });
       const firstIssue = editSourceParsed.error.issues[0];
-      if (firstIssue?.message) setActionError(t(firstIssue.message, { defaultValue: firstIssue.message }));
+      if (firstIssue?.message) setSourceActionError(t(firstIssue.message, { defaultValue: firstIssue.message }));
       return;
     }
     try {
@@ -479,7 +479,7 @@ export default function Income() {
     if (!entryParsed.success) {
       setTouchedAddEntry({ amount: true, date: true, note: true });
       const firstIssue = entryParsed.error.issues[0];
-      if (firstIssue?.message) setActionError(t(firstIssue.message, { defaultValue: firstIssue.message }));
+      if (firstIssue?.message) setEntryActionError(t(firstIssue.message, { defaultValue: firstIssue.message }));
       return;
     }
     try {
@@ -497,7 +497,7 @@ export default function Income() {
     if (!entryParsed.success) {
       setTouchedEditEntry({ amount: true, date: true, note: true });
       const firstIssue = entryParsed.error.issues[0];
-      if (firstIssue?.message) setActionError(t(firstIssue.message, { defaultValue: firstIssue.message }));
+      if (firstIssue?.message) setEntryActionError(t(firstIssue.message, { defaultValue: firstIssue.message }));
       return;
     }
     try {
