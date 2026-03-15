@@ -9,13 +9,13 @@ import {
 
 const CURRENCY_LABEL_CLASS = "text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70";
 
-export function getFormattedAmount(value, format = "full") {
+function getFormattedAmount(value, format = "full") {
   if (format === "compact") return formatCompactUzs(value);
   if (format === "display") return formatAmountDisplay(value);
   return formatUzs(value);
 }
 
-export function usesCompactAmount(value, format = "full") {
+function usesCompactAmount(value, format = "full") {
   if (format === "compact") return isCompactUzsValue(value);
   if (format === "display") return isCompactAmountDisplayValue(value);
   return false;

@@ -1,5 +1,12 @@
 # Learning Notes (ExpenseTracker)
 
+git status
+git branch --show-current
+git add .
+git commit -m "Finish savings and goals lifecycle polish"
+git push origin $(git branch --show-current)
+
+
 ## Alembic (Migrations)
 - **Mental model**: Models define schema. Alembic stores *versioned changes* (migrations). You apply migrations to sync DB.
 - **Setup steps**
