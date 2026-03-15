@@ -39,6 +39,22 @@ class LifeStatus(str, enum.Enum):
     UNEMPLOYED = "unemployed"
 
 
+class SavingsTransactionType(str, enum.Enum):
+    DEPOSIT = "DEPOSIT"
+    WITHDRAWAL = "WITHDRAWAL"
+
+
+class GoalStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"
+    COMPLETED = "COMPLETED"
+    ARCHIVED = "ARCHIVED"
+
+
+class GoalContributionType(str, enum.Enum):
+    ALLOCATE = "ALLOCATE"
+    RETURN = "RETURN"
+
+
 class UserIdentity(Base):
     __tablename__ = "user_identities"
     __table_args__ = (
@@ -92,6 +108,12 @@ class User(Base):
         "IncomeEntry", back_populates="owner", cascade="all, delete")
     budgets = relationship(
         "Budget", back_populates="owner", cascade="all, delete")
+    savings_transactions = relationship(
+        "SavingsTransactions", back_populates="owner", cascade="all, delete")
+    goals = relationship(
+        "Goals", back_populates="owner", cascade="all, delete")
+    goal_contributions = relationship(
+        "GoalContributions", back_populates="owner", cascade="all, delete")
     reset_tokens = relationship(
         "PasswordResetToken", back_populates="user", cascade="all, delete-orphan")
     email_verification_tokens = relationship(
@@ -147,7 +169,8 @@ class UserProfile(Base):
     initial_balance = Column(BigInteger, nullable=False, default=0)
     budget_rollover_enabled = Column(Boolean, nullable=False, default=True)
     onboarding_completed_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True),
+                        server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -161,14 +184,17 @@ class UserProfile(Base):
 class IncomeSource(Base):
     __tablename__ = "income_sources"
     __table_args__ = (
-        UniqueConstraint("owner_id", "name", name="uq_income_sources_owner_name"),
+        UniqueConstraint("owner_id", "name",
+                         name="uq_income_sources_owner_name"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
-    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner_id = Column(Integer, ForeignKey(
+        "users.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String(32), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True),
+                        server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -183,18 +209,23 @@ class IncomeSource(Base):
 class IncomeEntry(Base):
     __tablename__ = "income_entries"
     __table_args__ = (
-        CheckConstraint("amount > 0", name="ck_income_entries_amount_positive"),
-        CheckConstraint("date >= '2020-01-01'", name="ck_income_entries_date_min_2020_01_01"),
+        CheckConstraint(
+            "amount > 0", name="ck_income_entries_amount_positive"),
+        CheckConstraint("date >= '2020-01-01'",
+                        name="ck_income_entries_date_min_2020_01_01"),
         Index("ix_income_entries_owner_date", "owner_id", "date"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
-    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    source_id = Column(Integer, ForeignKey("income_sources.id", ondelete="SET NULL"), nullable=True, index=True)
+    owner_id = Column(Integer, ForeignKey(
+        "users.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_id = Column(Integer, ForeignKey(
+        "income_sources.id", ondelete="SET NULL"), nullable=True, index=True)
     amount = Column(BigInteger, nullable=False)
     note = Column(String(200), nullable=True)
     date = Column(Date, nullable=False, default=date.today)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True),
+                        server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -286,3 +317,73 @@ class EmailVerificationToken(Base):
     created_at = Column(DateTime(timezone=True),
                         server_default=func.now(), nullable=False)
     user = relationship("User", back_populates="email_verification_tokens")
+
+
+class SavingsTransactions(Base):
+    __tablename__ = "savings_transactions"
+    __table_args__ = (
+        CheckConstraint(
+            "amount > 0", name="ck_savings_transactions_amount_positive"),
+        Index("ix_savings_transactions_owner_created_at",
+              "owner_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey(
+        "users.id", ondelete="CASCADE"), nullable=False, index=True)
+    amount = Column(BigInteger, nullable=False)
+    transaction_type = Column(Enum(SavingsTransactionType), nullable=False)
+    created_at = Column(DateTime(timezone=True),
+                        server_default=func.now(), nullable=False)
+
+    owner = relationship("User", back_populates="savings_transactions")
+
+
+class Goals(Base):
+    __tablename__ = "goals"
+    __table_args__ = (
+        CheckConstraint("target_amount > 0",
+                        name="ck_goals_target_amount_positive"),
+        Index("ix_goals_owner_status", "owner_id", "status"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey(
+        "users.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String(32), nullable=False)
+    target_amount = Column(BigInteger, nullable=False)
+    target_date = Column(Date, nullable=True)
+    status = Column(Enum(GoalStatus), nullable=False,
+                    default=GoalStatus.ACTIVE)
+    created_at = Column(DateTime(timezone=True),
+                        server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(
+    ), onupdate=func.now(), nullable=False)
+
+    owner = relationship("User", back_populates="goals")
+    contributions = relationship(
+        "GoalContributions", back_populates="goal", cascade="all, delete")
+
+
+class GoalContributions(Base):
+    __tablename__ = "goal_contributions"
+    __table_args__ = (
+        CheckConstraint(
+            "amount > 0", name="ck_goal_contributions_amount_positive"),
+        Index("ix_goal_contributions_owner_created_at",
+              "owner_id", "created_at"),
+        Index("ix_goal_contributions_goal_created_at", "goal_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey(
+        "users.id", ondelete="CASCADE"), nullable=False, index=True)
+    goal_id = Column(Integer, ForeignKey(
+        "goals.id", ondelete="CASCADE"), nullable=False, index=True)
+    amount = Column(BigInteger, nullable=False)
+    contribution_type = Column(Enum(GoalContributionType), nullable=False)
+    created_at = Column(DateTime(timezone=True),
+                        server_default=func.now(), nullable=False)
+
+    owner = relationship("User", back_populates="goal_contributions")
+    goal = relationship("Goals", back_populates="contributions")

@@ -1,5 +1,12 @@
 # Learning Notes (ExpenseTracker)
 
+git status
+git branch --show-current
+git add .
+git commit -m "Finish savings and goals lifecycle polish"
+git push origin $(git branch --show-current)
+
+
 ## Alembic (Migrations)
 - **Mental model**: Models define schema. Alembic stores *versioned changes* (migrations). You apply migrations to sync DB.
 - **Setup steps**
@@ -371,3 +378,221 @@ gh pr create `
 # 6) Watch CI status
 gh pr checks --watch
 
+git branch -d feature/budget-rollover-premium
+git push origin --delete feature/budget-rollover-premium
+
+
+## Budget Rollover (Backend -> Frontend)
+
+### Goal
+- Compute rollover dynamically on `GET /budgets` without storing rollover in DB.
+- Return both base and effective budget numbers so UI can explain the math.
+
+### Backend Steps
+1. Query total spent per `budget_id` from `expenses`.
+2. Query all user budgets ordered by `category`, then `budget_year`, then `budget_month` ascending.
+3. Group budgets by category:
+   - Data structure: `dict[str, list[Budget]]`
+4. Check if rollover is enabled:
+   - user is premium
+   - profile exists
+   - `profile.budget_rollover_enabled == true`
+5. For each category list, iterate month by month:
+   - Keep `rollover_for_month`, `prev_year`, `prev_month`
+   - Reset rollover if month chain has a gap (non-consecutive month)
+   - `effective_limit = base_limit + rollover_for_month`
+   - `unused_positive = max(effective_limit - spent, 0)`
+   - Next month rollover = `unused_positive`
+6. Build response objects and sort final output newest-first for UI display.
+
+### Core In-Memory Structures
+- `spent_by_budget_id: dict[int, int]`
+  - Example: `{10: 2500000, 12: 100000}`
+- `by_category: dict[str, list[Budget]]`
+  - Example:
+    - `"Electronics"` -> `[2026-02 budget, 2026-03 budget]`
+    - `"Groceries"` -> `[2026-03 budget]`
+- `budgets_out: list[BudgetOut]`
+  - Final list returned by API.
+
+### Response Shape Sent to Frontend
+Each budget row includes:
+- `id`
+- `category`
+- `monthly_limit` (base limit)
+- `spent`
+- `budget_year`
+- `budget_month`
+- `rollover_amount`
+- `effective_monthly_limit`
+
+Example row:
+```json
+{
+  "id": 12,
+  "category": "Electronics",
+  "monthly_limit": 3000000,
+  "spent": 0,
+  "budget_year": 2026,
+  "budget_month": 3,
+  "rollover_amount": 500000,
+  "effective_monthly_limit": 3500000
+}
+```
+
+### Frontend Mapping
+- `baseLimit <- monthly_limit`
+- `rolloverAmount <- rollover_amount`
+- `effectiveLimit <- effective_monthly_limit`
+- `remaining <- max(effectiveLimit - spent, 0)`
+
+### Important Behavior
+- If rollover is disabled (non-premium, missing profile, or toggle off):
+  - `rollover_amount = 0`
+  - `effective_monthly_limit = monthly_limit`
+- Rollover is category-local and only carries through consecutive months.
+
+## Savings / Goals Future Note
+- Current model:
+  - `Savings` = reserved cash
+  - `Goals` = labeled / locked savings, not real-world spending yet
+- So returning money from a goal back to savings is valid in v1 because the money has not left the system.
+- Future idea:
+  - allow a goal to be explicitly settled by a real expense later
+  - example: goal `Laptop` can be marked completed by linking it to an actual expense
+  - possible future field: optional `linked_expense_id` on goal
+- Keep this out of v1 for now because it creates edge cases:
+  - partial settlement
+  - one expense covering multiple goals
+  - edits/deletes on linked expenses
+  - amount mismatch between funded goal and expense
+
+## Savings / Goals (V1) - Architecture + Lessons
+
+### Core Mental Model
+- `Total balance` = initial balance + income - expenses
+- `Savings` is still user-owned money; it is not spending.
+- `Free savings` = money moved into savings but not locked into any goal.
+- `Locked in goals` = money allocated from savings into goals.
+- `Spendable balance` = total balance - free savings - locked in goals
+- Goal money moves only inside the savings system:
+  - deposit to savings
+  - allocate to goal
+  - return from goal
+  - archive goal can auto-return goal funds back to free savings
+
+### Backend Balance Algorithm
+- Savings summary is computed dynamically, not stored:
+  1) Sum all savings deposits.
+  2) Sum all savings withdrawals.
+  3) Sum all goal `ALLOCATE` contributions.
+  4) Sum all goal `RETURN` contributions.
+  5) `locked_in_goals = allocated_total - returned_total`
+  6) `free_savings_balance = deposit_total - withdrawal_total - locked_in_goals`
+  7) `spendable_balance = total_balance - free_savings_balance - locked_in_goals`
+- Important rule:
+  - clamp `free_savings_balance` and `locked_in_goals` to `>= 0` in the response layer.
+
+### Goal Progress Algorithm
+- Goal progress is also computed dynamically:
+  1) `funded_amount = total_allocated_to_goal - total_returned_from_goal`
+  2) `remaining_amount = max(target_amount - funded_amount, 0)`
+  3) `progress_percent = min(funded_amount / target_amount * 100, 100)`
+- Goal lifecycle stays simple:
+  - `ACTIVE`
+  - `COMPLETED`
+  - `ARCHIVED`
+- Derived deadline state is separate:
+  - `on_track`
+  - `due_soon`
+  - `overdue`
+
+### Goal Status Rules
+- `COMPLETED` if funded amount >= target amount.
+- `ACTIVE` if funded amount < target amount.
+- `ARCHIVED` is a manual lifecycle state and must not be overwritten by normal status sync.
+- Restore flow must explicitly set status out of `ARCHIVED` before running status sync.
+  - Bug we hit: restore did nothing because sync logic intentionally returns early for archived goals.
+
+### Archive / Delete Rules
+- Best V1 rule:
+  - normal delete = archive
+  - archived delete = permanent delete
+- Better UX than blocking archive:
+  - when archiving a funded goal, automatically create a full `RETURN` contribution
+  - move locked amount back to free savings
+  - then set goal to `ARCHIVED`
+- Why:
+  - user intent is cleanup, not bookkeeping
+  - avoids forcing a manual “return then archive” two-step flow
+  - archived goals should not continue holding locked money
+
+### Deadline / Timezone Rules
+- Deadline dates are calendar-based, so they must be evaluated in the user’s local timezone, not server time.
+- Correct implementation:
+  - frontend sends `X-Timezone`
+  - backend falls back to saved user timezone
+  - deadline state uses `today_in_tz(user_tz)`
+- Bug we hit:
+  - goal deadline state originally used raw `date.today()`, which ignored the user timezone.
+
+### Frontend UX Rules That Worked Well
+- Keep action-oriented values separate from accounting values.
+  - Example:
+    - summary cards can show negative real balances
+    - transfer widgets should clamp “available” to `0` if the user cannot act on negative money
+- If an action is impossible, disable controls instead of only showing a warning.
+  - deposit disabled when spendable balance < 0
+- Use explicit close/collapse controls for expandable cards.
+  - mode buttons are not enough by themselves
+- Separate money actions from management actions visually.
+  - `Contribute` / `Move back` grouped together
+  - `Edit` / `Archive` grouped separately
+- Use compact currency formatting for scanability, but always provide full-value tooltip on hover/tap.
+- Keep the currency label (`UZS`) smaller and muted than the number.
+
+### Goal Card Presentation Rules
+- Lifecycle badge and deadline badge should not compete.
+  - lifecycle badge stays primary
+  - time badge belongs near the deadline metadata row
+- Deadline wording must be explicit.
+  - use `Deadline` / `Срок` / `Muddat` near displayed dates
+  - use `Deadline (Optional)` in forms
+- Amount emphasis should target only the numeric part, not the entire sentence.
+
+### Form UX Lessons
+- Current expense entry speed is acceptable when:
+  - date is prefilled with today
+  - title autofocus is enabled
+  - note is optional
+  - only a few required fields remain
+- Good speed optimization:
+  - prefill last used category
+- Lower-value optimization for now:
+  - swapping title/amount order
+
+### State Management Lessons
+- Do not reuse one error state across unrelated dialogs.
+  - Bug we hit: edit error leaked into archive/delete modal
+  - fix: each dialog/action needs its own local error state
+- Route logic changes require backend restart before validating UI behavior.
+  - We hit multiple cases where source code was correct but running API still used old logic.
+
+### Testing / Verification Lessons
+- Goal tests should cover:
+  - contribute
+  - return
+  - archive with funded amount
+  - restore
+  - permanent delete
+  - deadline state transitions
+  - timezone-sensitive deadline behavior
+- Current environment caveat:
+  - tests depend on Redis host resolution (`redis:6379`)
+  - frontend build catches JSX/runtime import issues, but backend behavior still needs live API restart or working test infra
+
+### Future Guardrails
+- Keep savings/goal balances derived, not duplicated in multiple stored fields.
+- Keep lifecycle status and time state separate.
+- Prefer automating reversible bookkeeping when it matches user intent.
+- Any feature using date-only deadlines should be reviewed for timezone correctness.

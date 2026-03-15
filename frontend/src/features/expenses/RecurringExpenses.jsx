@@ -9,8 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { EmptyState } from "@/components/EmptyState";
+import { CurrencyAmount } from "@/components/CurrencyAmount";
 import { categoryIconMap, getCategoryBgClass } from "@/lib/category";
-import { formatAmountDisplay, formatDisplayDate, formatAmountInput, formatMonthYear } from "@/lib/format";
+import { formatDisplayDate, formatAmountInput, formatMonthYear } from "@/lib/format";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -476,7 +477,13 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                         <div className="text-center text-sm tabular-nums">{formatDisplayDate(e.next_due_date, appLang)}</div>
 
                                         {/* Amount */}
-                                        <div className="text-right font-semibold tabular-nums">{formatAmountDisplay(e.amount)} UZS</div>
+                                        <CurrencyAmount
+                                            value={e.amount}
+                                            format="display"
+                                            tooltip="compact"
+                                            className="flex items-baseline justify-end gap-1 text-right font-semibold tabular-nums"
+                                            currencyClassName="font-normal"
+                                        />
 
                                         {/* Active toggle (inline) */}
                                         <div className="flex justify-center">

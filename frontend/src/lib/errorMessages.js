@@ -117,8 +117,53 @@ export function localizeApiError(message, t) {
   if (msg === "income.amount_too_large") {
     return t("income.amountTooLarge");
   }
+  if (msg === "savings.insufficient_spendable_balance") {
+    return t("savings.insufficientSpendable");
+  }
+  if (msg === "savings.insufficient_free_savings_balance") {
+    return t("savings.insufficientFree");
+  }
+  if (msg === "savings.write_rate_limited") {
+    return t("savings.tooManySoon");
+  }
+  if (msg === "goals.not_found") {
+    return t("savings.goals.notFound");
+  }
+  if (msg === "goals.write_rate_limited") {
+    return t("savings.goals.tooManySoon");
+  }
+  if (msg === "goals.insufficient_free_savings_balance") {
+    return t("savings.goals.insufficientFreeSavings");
+  }
+  if (msg === "goals.insufficient_goal_balance") {
+    return t("savings.goals.insufficientGoalBalance");
+  }
+  if (msg === "goals.target_below_funded_amount") {
+    return t("savings.goals.targetBelowFunded");
+  }
+  if (msg === "goals.archive_requires_zero_funded") {
+    return t("savings.goals.archiveRequiresZeroFunded");
+  }
+  if (msg === "goals.delete_requires_archived") {
+    return t("savings.goals.deleteRequiresArchived");
+  }
+  if (msg === "goals.delete_requires_zero_funded") {
+    return t("savings.goals.deleteRequiresZeroFunded");
+  }
+  if (msg === "goals.restore_requires_archived") {
+    return t("savings.goals.restoreRequiresArchived");
+  }
+  if (msg === "goals.archived_read_only") {
+    return t("savings.goals.archivedReadOnly");
+  }
+  if (msg === "goals.active_limit_reached") {
+    return t("savings.goals.activeLimitReached");
+  }
+  if (msg === "goals.archived_limit_reached") {
+    return t("savings.goals.archivedLimitReached");
+  }
   if (msg === "users.premium_required") {
-    return t("settings.budgetRolloverPremiumOnly");
+    return t("common.premiumRequired");
   }
   if (msg === "users.profile_required") {
     return t("settings.failedProfile");

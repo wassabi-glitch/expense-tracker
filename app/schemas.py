@@ -4,11 +4,24 @@ from datetime import datetime, date
 from enum import Enum
 import re
 
-from .models import ExpenseCategory, LifeStatus, RecurringFrequency  # Importing enums
+from .models import (
+    ExpenseCategory,
+    GoalContributionType,
+    GoalStatus,
+    LifeStatus,
+    RecurringFrequency,
+    SavingsTransactionType,
+)  # Importing enums
 
 MIN_BUDGET_YEAR = 2020
 MAX_BUDGET_YEARS_AHEAD = 5
 MAX_INCOME_AMOUNT = 999_999_999_999
+
+
+class GoalTimeState(str, Enum):
+    ON_TRACK = "on_track"
+    DUE_SOON = "due_soon"
+    OVERDUE = "overdue"
 
 
 # --- USER SCHEMAS ---
@@ -202,6 +215,145 @@ class IncomeEntryOut(IncomeEntryBase):
 class PaginatedIncomeEntriesOut(BaseModel):
     total: int
     items: List[IncomeEntryOut]
+
+
+class SavingsTransactionCreate(BaseModel):
+    amount: int = Field(gt=0)
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount_max(cls, v: int):
+        if v > MAX_INCOME_AMOUNT:
+            raise ValueError("income.amount_too_large")
+        return v
+
+
+class SavingsTransactionOut(BaseModel):
+    id: int
+    owner_id: int
+    amount: int
+    transaction_type: SavingsTransactionType
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GoalBase(BaseModel):
+    title: str
+    target_amount: int = Field(gt=0)
+    target_date: Optional[date] = None
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, v: str):
+        value = v.strip()
+        if not (3 <= len(value) <= 32):
+            raise ValueError("expenses.validation.title.length")
+        return value
+
+    @field_validator("target_amount")
+    @classmethod
+    def validate_target_amount_max(cls, v: int):
+        if v > MAX_INCOME_AMOUNT:
+            raise ValueError("income.amount_too_large")
+        return v
+
+    @field_validator("target_date")
+    @classmethod
+    def validate_target_date(cls, v: Optional[date]):
+        if v is None:
+            return v
+        if v.year < 2020:
+            raise ValueError("expenses.date_too_early")
+        return v
+
+
+class GoalCreate(GoalBase):
+    pass
+
+
+class GoalUpdate(BaseModel):
+    title: Optional[str] = None
+    target_amount: Optional[int] = Field(default=None, gt=0)
+    target_date: Optional[date] = None
+    status: Optional[GoalStatus] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, v: Optional[str]):
+        if v is None:
+            return v
+        value = v.strip()
+        if not (3 <= len(value) <= 32):
+            raise ValueError("expenses.validation.title.length")
+        return value
+
+    @field_validator("target_amount")
+    @classmethod
+    def validate_target_amount_max(cls, v: Optional[int]):
+        if v is None:
+            return v
+        if v > MAX_INCOME_AMOUNT:
+            raise ValueError("income.amount_too_large")
+        return v
+
+    @field_validator("target_date")
+    @classmethod
+    def validate_target_date(cls, v: Optional[date]):
+        if v is None:
+            return v
+        if v.year < 2020:
+            raise ValueError("expenses.date_too_early")
+        return v
+
+
+class GoalContributionCreate(BaseModel):
+    amount: int = Field(gt=0)
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount_max(cls, v: int):
+        if v > MAX_INCOME_AMOUNT:
+            raise ValueError("income.amount_too_large")
+        return v
+
+
+class GoalContributionOut(BaseModel):
+    id: int
+    owner_id: int
+    goal_id: int
+    amount: int
+    contribution_type: GoalContributionType
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GoalOut(GoalBase):
+    id: int
+    owner_id: int
+    status: GoalStatus
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GoalWithProgressOut(GoalOut):
+    funded_amount: int = 0
+    remaining_amount: int = 0
+    progress_percent: float = 0
+    time_state: Optional[GoalTimeState] = None
+    days_until_target: Optional[int] = None
+
+
+class SavingsSummaryOut(BaseModel):
+    total_balance: int
+    free_savings_balance: int
+    locked_in_goals: int
+    spendable_balance: int
 
 
 # --- EXPENSE SCHEMAS ---
