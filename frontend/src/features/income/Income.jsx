@@ -18,7 +18,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { formatAmountDisplay, formatAmountInput, formatDisplayDate, formatUzs } from "@/lib/format";
+import { CurrencyAmount } from "@/components/CurrencyAmount";
+import { formatAmountInput, formatDisplayDate, formatUzs } from "@/lib/format";
 import { localizeApiError } from "@/lib/errorMessages";
 import { toISODateInTimeZone } from "@/lib/date";
 import {
@@ -651,7 +652,14 @@ export default function Income() {
                   <LoadingSpinner className="h-5 w-5" />
                 </div>
               ) : (
-                <p className="text-2xl font-semibold tabular-nums">{formatAmountDisplay(monthIncomeTotal)} UZS</p>
+                <CurrencyAmount
+                  value={monthIncomeTotal}
+                  format="display"
+                  tooltip="compact"
+                  className="flex items-baseline gap-1.5 flex-wrap"
+                  valueClassName="text-2xl font-semibold tabular-nums"
+                  currencyClassName="text-sm"
+                />
               )}
             </CardContent>
           </Card>
@@ -789,7 +797,13 @@ export default function Income() {
                       <div className="text-sm">{formatDisplayDate(entry.date, appLang)}</div>
                       <div className="flex items-center justify-end gap-1.5 text-right font-semibold tabular-nums text-primary">
                         <ArrowUpRight className="h-4 w-4 shrink-0" />
-                        <span>{formatAmountDisplay(entry.amount)} UZS</span>
+                        <CurrencyAmount
+                          value={entry.amount}
+                          format="display"
+                          tooltip="compact"
+                          className="flex items-baseline gap-1"
+                          currencyClassName="opacity-80"
+                        />
                       </div>
                       <div className="relative flex justify-end" data-action-popover>
                         <Button

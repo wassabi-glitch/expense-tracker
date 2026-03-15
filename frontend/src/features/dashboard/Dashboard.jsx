@@ -13,6 +13,8 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Download, Plus, Wallet, TrendingUp, Layers, Circle, CalendarClock } from "lucide-react";
+import { CurrencyAmount } from "@/components/CurrencyAmount";
+import { InteractiveTooltip } from "@/components/InteractiveTooltip";
 import { cn } from "@/lib/utils";
 import { categoryIconMap } from "@/lib/category";
 
@@ -32,7 +34,7 @@ import {
 
 import { toISODateInTimeZone } from "@/lib/date";
 import { localizeApiError } from "@/lib/errorMessages";
-import { formatPrettyDate, formatUzs, formatUzsCard, formatCompactUzs, shortMMDD, formatAmountDisplay } from "@/lib/format";
+import { formatPrettyDate, formatUzs, formatCompactUzs, shortMMDD } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { useDashboardDataQuery } from "./hooks/useDashboardDataQuery";
@@ -164,34 +166,52 @@ export default function Dashboard() {
   const statCards = [
     {
       label: t("dashboard.totalBalance", { defaultValue: "Total Balance" }),
-      value: `${summary.overall_balance >= 0 ? "+" : "-"}${formatUzsCard(Math.abs(summary.overall_balance))} UZS`,
-      cardClassName: summary.overall_balance >= 0
-        ? "border-primary/45 bg-primary/10 shadow-[0_0_16px_rgba(34,197,94,0.16)] dark:border-primary/35 dark:bg-primary/10 dark:shadow-[0_0_16px_rgba(34,197,94,0.12)]"
-        : "border-destructive/30 bg-destructive/15 shadow-[0_0_16px_rgba(239,68,68,0.18)] dark:shadow-[0_0_16px_rgba(248,113,113,0.14)]",
-      titleClassName: summary.overall_balance >= 0 ? "text-primary" : "text-destructive dark:text-red-400",
-      iconClassName: summary.overall_balance >= 0 ? "text-primary" : "text-destructive dark:text-red-400",
+      rawValue: Math.abs(summary.overall_balance),
+      value: formatCompactUzs(Math.abs(summary.overall_balance)),
+      fullValue: formatUzs(Math.abs(summary.overall_balance)),
+      prefix: summary.overall_balance >= 0 ? "+" : "-",
+      cardClassName: "border-border bg-card transition-all duration-300 hover:border-primary/40 active:border-primary/40 hover:shadow-[0_0_15px_rgba(34,197,94,0.1)] active:shadow-[0_0_15px_rgba(34,197,94,0.1)] active:scale-[0.98]",
+      titleClassName: "text-muted-foreground",
+      iconClassName: "text-muted-foreground",
       valueClassName: summary.overall_balance >= 0 ? "text-primary" : "text-destructive dark:text-red-400",
       icon: Wallet,
     },
     {
       label: t("dashboard.incomeThisMonth", { defaultValue: "Income This Month" }),
-      value: `${formatUzsCard(summary.income)} UZS`,
+      rawValue: summary.income,
+      value: formatCompactUzs(summary.income),
+      fullValue: formatUzs(summary.income),
+      prefix: "",
+      cardClassName: "border-border bg-card transition-all duration-300 hover:border-border/80 active:border-border/80 hover:shadow-sm active:shadow-sm active:scale-[0.98]",
+      titleClassName: "text-muted-foreground",
+      iconClassName: "text-muted-foreground",
+      valueClassName: "text-foreground",
       icon: Wallet,
     },
     {
       label: t("dashboard.spentThisMonth", { defaultValue: "Spent This Month" }),
-      value: `${formatUzsCard(summary.spent)} UZS`,
+      rawValue: summary.spent,
+      value: formatCompactUzs(summary.spent),
+      fullValue: formatUzs(summary.spent),
+      prefix: "",
+      cardClassName: "border-border bg-card transition-all duration-300 hover:border-border/80 active:border-border/80 hover:shadow-sm active:shadow-sm active:scale-[0.98]",
+      titleClassName: "text-muted-foreground",
+      iconClassName: "text-muted-foreground",
+      valueClassName: "text-foreground",
       icon: TrendingUp,
     },
     {
       label: t("dashboard.remainingThisMonth", { defaultValue: "Remaining This Month" }),
-      value: `${summary.remaining >= 0 ? "+" : "-"}${formatUzsCard(Math.abs(summary.remaining))} UZS`,
+      rawValue: Math.abs(summary.remaining),
+      value: formatCompactUzs(Math.abs(summary.remaining)),
+      fullValue: formatUzs(Math.abs(summary.remaining)),
+      prefix: summary.remaining >= 0 ? "+" : "-",
       cardClassName: summary.remaining >= 0
-        ? "border-primary/30 bg-primary/5"
-        : "border-destructive/30 bg-destructive/15",
+        ? "border-border bg-card transition-all duration-300 hover:border-primary/40 active:border-primary/40 hover:shadow-[0_0_15px_rgba(34,197,94,0.1)] active:shadow-[0_0_15px_rgba(34,197,94,0.1)] active:scale-[0.98]"
+        : "border-border bg-card transition-all duration-300 hover:border-destructive/40 active:border-destructive/40 hover:shadow-[0_0_15px_rgba(239,68,68,0.1)] active:shadow-[0_0_15px_rgba(239,68,68,0.1)] active:scale-[0.98]",
       valueClassName: summary.remaining >= 0 ? "text-primary" : "text-destructive dark:text-red-400",
-      titleClassName: summary.remaining >= 0 ? "text-primary" : "text-destructive dark:text-red-400",
-      iconClassName: summary.remaining >= 0 ? "text-primary" : "text-destructive dark:text-red-400",
+      titleClassName: "text-muted-foreground",
+      iconClassName: "text-muted-foreground",
       icon: summary.remaining >= 0 ? Layers : Wallet,
     },
   ];
@@ -264,15 +284,24 @@ export default function Dashboard() {
           {statCards.map((s, i) => {
             const Icon = s.icon;
             return (
-              <Card key={i} className={cn("shadow-sm", s.cardClassName)}>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5">
-                  <CardTitle className={cn("text-sm font-medium text-muted-foreground", s.titleClassName)}>
+              <Card key={i} className={cn("shadow-sm overflow-hidden", s.cardClassName)}>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className={cn("text-sm font-medium", s.titleClassName)}>
                     {s.label}
                   </CardTitle>
-                  <Icon className={cn("h-4 w-4 text-muted-foreground", s.iconClassName)} />
+                  <Icon className={cn("h-4 w-4", s.iconClassName)} />
                 </CardHeader>
-                <CardContent className="pt-0">
-                  <div className={cn("text-2xl font-bold", s.valueClassName)}>{s.value}</div>
+                <CardContent>
+                  <CurrencyAmount
+                    value={s.rawValue}
+                    prefix={s.prefix}
+                    format="compact"
+                    tooltip="always"
+                    className="flex items-baseline gap-1.5 flex-wrap text-left outline-none"
+                    valueClassName={cn("text-2xl lg:text-3xl font-semibold tracking-tight tabular-nums break-words", s.valueClassName)}
+                    currencyClassName="text-[11px] mt-auto mb-1"
+                    tooltipContent={`${s.prefix}${s.fullValue} UZS`}
+                  />
                 </CardContent>
               </Card>
             );
@@ -353,16 +382,17 @@ export default function Dashboard() {
                         </span>
                       </div>
                       <div className="flex items-center justify-end">
-                        <span
+                        <InteractiveTooltip
+                          content={`${formatUzs(item.total)} / ${formatUzs(item.budget_limit)} UZS`}
                           className={cn(
-                            "inline-block min-w-[140px] overflow-hidden text-ellipsis whitespace-nowrap text-right tabular-nums text-foreground",
+                            "flex items-baseline justify-end gap-1 min-w-[140px] overflow-hidden text-ellipsis whitespace-nowrap text-right tabular-nums text-foreground",
                             hasHugeBudgetValues && "text-[13px]"
                           )}
-                          title={`${formatCompactUzs(item.total)} / ${formatCompactUzs(item.budget_limit)} UZS`}
                         >
                           <span className="font-semibold">{formatCompactUzs(item.total)}</span> /{" "}
-                          <span className="font-semibold">{formatCompactUzs(item.budget_limit)}</span> UZS
-                        </span>
+                          <span className="font-semibold">{formatCompactUzs(item.budget_limit)}</span>
+                          <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">UZS</span>
+                        </InteractiveTooltip>
                       </div>
                     </div>
                     <Progress
@@ -431,9 +461,20 @@ export default function Dashboard() {
                       {t(`categories.${e.category}`, { defaultValue: e.category })} • {e.date}
                     </p>
                   </div>
-                  <div className="font-semibold text-sm text-foreground/90 shrink-0 whitespace-nowrap">
-                    {Number(e.amount) >= 1_000_000 ? formatCompactUzs(e.amount) : formatUzs(e.amount)} UZS
-                  </div>
+                  {Number(e.amount) >= 1_000_000 ? (
+                    <InteractiveTooltip
+                      content={`${formatUzs(e.amount)} UZS`}
+                      className="flex items-baseline justify-end gap-1 font-semibold text-sm text-foreground/90 shrink-0 whitespace-nowrap"
+                    >
+                      <span>{formatCompactUzs(e.amount)}</span>
+                      <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/70">UZS</span>
+                    </InteractiveTooltip>
+                  ) : (
+                    <div className="flex items-baseline justify-end gap-1 font-semibold text-sm text-foreground/90 shrink-0 whitespace-nowrap">
+                      <span>{formatUzs(e.amount)}</span>
+                      <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/70">UZS</span>
+                    </div>
+                  )}
                 </div>
               ))}
             </CardContent>
@@ -516,8 +557,9 @@ export default function Dashboard() {
                         contentStyle={tooltipStyle}
                         labelStyle={{ color: "hsl(var(--foreground))" }}
                         formatter={(value) => [
-                          <span style={{ color: "hsl(var(--primary))", fontWeight: 600 }}>
-                            {formatUzs(value)} UZS
+                          <span style={{ color: "hsl(var(--primary))", fontWeight: 600 }} className="flex items-baseline gap-1">
+                            <span>{formatUzs(value)}</span>
+                            <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/70">UZS</span>
                           </span>,
                           t("dashboard.amount"),
                         ]}
@@ -603,8 +645,9 @@ export default function Dashboard() {
                             t(`categories.${label}`, { defaultValue: label })
                           }
                           formatter={(value) => [
-                            <span style={{ color: "hsl(var(--primary))", fontWeight: 600 }}>
-                              {formatUzs(value)} UZS
+                            <span style={{ color: "hsl(var(--primary))", fontWeight: 600 }} className="flex items-baseline gap-1">
+                              <span>{formatUzs(value)}</span>
+                              <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/70">UZS</span>
                             </span>,
                             t("dashboard.total"),
                           ]}
@@ -677,9 +720,13 @@ export default function Dashboard() {
                             {formatRelativeDue(e.days_until_due, e.next_due_date)}
                           </div>
                         </div>
-                        <div className="font-semibold text-sm tabular-nums text-right shrink-0 whitespace-nowrap">
-                          {formatAmountDisplay(e.amount)} <span className="text-xs font-normal text-muted-foreground">UZS</span>
-                        </div>
+                        <CurrencyAmount
+                          value={e.amount}
+                          format="display"
+                          tooltip="compact"
+                          className="flex items-baseline justify-end gap-1 font-semibold text-sm tabular-nums text-right shrink-0 whitespace-nowrap"
+                          currencyClassName="text-[10px]"
+                        />
                       </div>
                     ))}
                   </div>

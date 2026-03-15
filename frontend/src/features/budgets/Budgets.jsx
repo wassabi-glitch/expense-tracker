@@ -23,6 +23,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { CurrencyAmount } from "@/components/CurrencyAmount";
+import { InteractiveTooltip } from "@/components/InteractiveTooltip";
 import { useBudgetCategoriesQuery } from "./hooks/useBudgetCategoriesQuery";
 import { useBudgetsDataQuery } from "./hooks/useBudgetsDataQuery";
 import {
@@ -467,21 +469,21 @@ export default function Budgets() {
                   <SelectTrigger className={selectTriggerClass}>
                     <SelectValue />
                   </SelectTrigger>
-                    <SelectContent className={selectContentClass} position="popper" side="bottom">
-                      <SelectItem value="all">{t("budgets.filterCategoryAll")}</SelectItem>
-                      {orderedCategoryOptions.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          <span className="flex items-center gap-2">
-                            {(() => {
-                              const CategoryIcon = categoryIconMap[c] || Circle;
-                              return <CategoryIcon className="h-4 w-4 text-muted-foreground" />;
-                            })()}
-                            <span>{tCategory(c)}</span>
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <SelectContent className={selectContentClass} position="popper" side="bottom">
+                    <SelectItem value="all">{t("budgets.filterCategoryAll")}</SelectItem>
+                    {orderedCategoryOptions.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        <span className="flex items-center gap-2">
+                          {(() => {
+                            const CategoryIcon = categoryIconMap[c] || Circle;
+                            return <CategoryIcon className="h-4 w-4 text-muted-foreground" />;
+                          })()}
+                          <span>{tCategory(c)}</span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Select value={filterStatus} onValueChange={setFilterStatus}>
                   <SelectTrigger className={selectTriggerClass}>
                     <SelectValue />
@@ -587,9 +589,10 @@ export default function Budgets() {
               const useCompactAmounts = Math.max(b.spent, b.effectiveLimit) >= 1_000_000_000;
               const spentLabel = useCompactAmounts ? formatCompactUzs(b.spent) : formatUzs(b.spent);
               const limitLabel = useCompactAmounts ? formatCompactUzs(b.effectiveLimit) : formatUzs(b.effectiveLimit);
+              const spentFullLabel = formatUzs(b.spent);
+              const limitFullLabel = formatUzs(b.effectiveLimit);
               const usedOfLabel = t("budgets.usedOf", { spent: spentLabel, limit: limitLabel });
-              const baseLabel = useCompactAmounts ? formatCompactUzs(b.baseLimit) : formatUzs(b.baseLimit);
-              const rolloverLabel = useCompactAmounts ? formatCompactUzs(b.rolloverAmount) : formatUzs(b.rolloverAmount);
+              const remainingLabel = formatCompactUzs(b.remaining);
               return (
                 <Card
                   key={b.id}
@@ -631,21 +634,38 @@ export default function Budgets() {
                     </div>
                     <CardDescription className="space-y-2">
                       <span className="block text-sm text-muted-foreground">{formatBudgetMonth(b.budgetYear, b.budgetMonth)}</span>
-                      <span
-                        className="block w-full overflow-hidden text-ellipsis whitespace-nowrap tabular-nums text-sm font-medium text-foreground sm:text-base"
-                        title={usedOfLabel}
+                      <InteractiveTooltip
+                        content={`${t("budgets.usedOf", { spent: spentFullLabel, limit: limitFullLabel })} UZS`}
+                        className="flex w-full items-baseline gap-1 overflow-hidden text-ellipsis whitespace-nowrap tabular-nums text-sm font-medium text-foreground sm:text-base"
                       >
-                        {usedOfLabel}
-                      </span>
+                        <span className="truncate">{usedOfLabel}</span>
+                        <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
+                          UZS
+                        </span>
+                      </InteractiveTooltip>
                       <div className="space-y-1 text-xs tabular-nums">
                         <div className="flex items-center justify-between gap-3 text-muted-foreground">
                           <span>{t("budgets.baseLimit")}</span>
-                          <span>{baseLabel} UZS</span>
+                          <CurrencyAmount
+                            value={b.baseLimit}
+                            format={useCompactAmounts ? "compact" : "full"}
+                            tooltip="compact"
+                            className="flex items-baseline gap-1"
+                            valueClassName=""
+                            currencyClassName="font-normal"
+                          />
                         </div>
                         <div className="h-px w-full bg-border/60" aria-hidden="true" />
                         <div className="flex items-center justify-between gap-3">
                           <span className="text-muted-foreground">{t("budgets.rolloverAmount")}</span>
-                          <span className="font-semibold text-primary">+{rolloverLabel} UZS</span>
+                          <CurrencyAmount
+                            value={b.rolloverAmount}
+                            prefix="+"
+                            format={useCompactAmounts ? "compact" : "full"}
+                            tooltip="compact"
+                            className="flex items-baseline gap-1 font-semibold text-primary"
+                            currencyClassName="opacity-80"
+                          />
                         </div>
                       </div>
                     </CardDescription>
@@ -653,10 +673,28 @@ export default function Budgets() {
                   <CardContent className="space-y-5 pt-1">
                     <div className="flex items-center justify-between text-sm text-muted-foreground tabular-nums">
                       <span>{t("budgets.percentUsed", { percent })}</span>
-                      <span className={b.spent > b.limit ? "whitespace-nowrap font-semibold text-destructive" : "whitespace-nowrap"}>
-                        {b.spent > b.limit
-                          ? `-${formatUzs(deltaAmount)} UZS`
-                          : t("budgets.remaining", { amount: formatUzs(b.remaining) })}
+                      <span className={`whitespace-nowrap flex items-baseline gap-1 ${b.spent > b.limit ? "font-semibold text-destructive" : ""}`}>
+                        {b.spent > b.limit ? (
+                          <CurrencyAmount
+                            value={deltaAmount}
+                            prefix="-"
+                            format="compact"
+                            tooltip="compact"
+                            className="flex items-baseline gap-1"
+                            currencyClassName=""
+                          />
+                        ) : (
+                          <InteractiveTooltip
+                            content={`${formatUzs(b.remaining)} UZS ${t("budgets.remainingLabel")}`}
+                            className="flex items-baseline gap-1"
+                          >
+                            <span>{remainingLabel}</span>
+                            <span className="text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground/65">
+                              UZS
+                            </span>
+                            <span>{t("budgets.remainingLabel")}</span>
+                          </InteractiveTooltip>
+                        )}
                       </span>
                     </div>
                     <Progress

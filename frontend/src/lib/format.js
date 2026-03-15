@@ -36,7 +36,7 @@ export const formatUzsCard = (value) => {
 };
 
 export const formatCompactUzs = (value) => {
-    const num = Number(value || 0);
+    const num = Math.abs(Number(value || 0));
     if (num >= 1_000_000_000_000) return `${(num / 1_000_000_000_000).toFixed(3).replace(/\.?0+$/, "")}T`;
     if (num >= 1_000_000_000) return `${(num / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
     if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
@@ -45,11 +45,15 @@ export const formatCompactUzs = (value) => {
 };
 
 export const formatAmountDisplay = (value) => {
-    const num = Number(value || 0);
+    const num = Math.abs(Number(value || 0));
     if (num >= 1_000_000_000_000) return `${(num / 1_000_000_000_000).toFixed(3).replace(/\.?0+$/, "")}T`;
     if (num >= 1_000_000_000) return `${(num / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
     return formatUzs(num);
 };
+
+export const isCompactUzsValue = (value) => Math.abs(Number(value || 0)) >= 1_000;
+
+export const isCompactAmountDisplayValue = (value) => Math.abs(Number(value || 0)) >= 1_000_000_000;
 
 export const formatAmountInput = (raw, maxDigits = 15) => {
     const digits = String(raw ?? "").replace(/\D/g, "").slice(0, maxDigits);

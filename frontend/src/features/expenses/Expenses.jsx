@@ -36,6 +36,7 @@ import {
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { CurrencyAmount } from "@/components/CurrencyAmount";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import RecurringExpenses from "./RecurringExpenses";
 
@@ -45,16 +46,35 @@ const MAX_EXPENSE_AMOUNT_DIGITS = String(MAX_EXPENSE_AMOUNT).length;
 const ALL_CATEGORIES_SELECT = "__all_categories__";
 const EMPTY_ARRAY = [];
 const MAX_EXPENSES_PER_MONTH = 1000;
+const LAST_EXPENSE_CATEGORY_STORAGE_KEY = "expenses.lastUsedCategory";
 
 import { getCategoryBgClass, categoryIconMap, CATEGORIES } from "@/lib/category";
 import { Circle } from "lucide-react";
-import { formatAmountDisplay, formatAmountInput, formatDisplayDate, formatMonthYear } from "@/lib/format";
+import { formatAmountInput, formatDisplayDate, formatMonthYear } from "@/lib/format";
 
 const parsePageParam = (value) => {
   const raw = String(value ?? "").trim();
   if (!raw) return 1;
   const parsed = Number(raw);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
+};
+
+const getStoredLastExpenseCategory = () => {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(LAST_EXPENSE_CATEGORY_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+};
+
+const setStoredLastExpenseCategory = (category) => {
+  if (!category || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(LAST_EXPENSE_CATEGORY_STORAGE_KEY, category);
+  } catch {
+    // Ignore storage failures and keep the form usable.
+  }
 };
 
 export default function Expenses() {
@@ -179,6 +199,14 @@ export default function Expenses() {
     return [...inOrder, ...extras];
   }, [categories]);
 
+  const preferredAddCategory = useMemo(() => {
+    const storedCategory = getStoredLastExpenseCategory();
+    if (storedCategory && orderedCategories.includes(storedCategory)) return storedCategory;
+
+    const recentCategory = expenses.find((item) => item?.category && orderedCategories.includes(item.category))?.category;
+    return recentCategory || "";
+  }, [expenses, orderedCategories]);
+
   const getActionErrorMessage = (e, options = {}) => {
     const rawMessage = String(e?.message || "");
     const msg = rawMessage.toLowerCase();
@@ -245,9 +273,9 @@ export default function Expenses() {
     setActionError("");
     setAddTitle("");
     setAddAmount("");
-    setAddCategory("");
+    setAddCategory(preferredAddCategory);
     setAddDescription("");
-    setAddDate("");
+    setAddDate(todayISO);
     setTouchedAdd({});
     setAddOpen(true);
   };
@@ -403,6 +431,7 @@ export default function Expenses() {
         description: parsed.data.description ?? null,
         date: parsed.data.date,
       });
+      setStoredLastExpenseCategory(parsed.data.category);
       setAddOpen(false);
     } catch (e) {
       setActionError(getActionErrorMessage(e, { category: parsed.data.category, date: parsed.data.date }));
@@ -654,9 +683,13 @@ export default function Expenses() {
                             {_formatDisplayDateLocal(e.date)}
                           </div>
 
-                          <div className="self-center text-right text-sm font-medium tabular-nums whitespace-nowrap">
-                            {formatAmountDisplay(e.amount)} UZS
-                          </div>
+                          <CurrencyAmount
+                            value={e.amount}
+                            format="display"
+                            tooltip="compact"
+                            className="self-center flex justify-end gap-1 text-sm font-medium tabular-nums whitespace-nowrap"
+                            currencyClassName="font-normal tracking-widest self-end pb-[1px]"
+                          />
 
                           <div className="min-w-0">
                             <div className="flex justify-end" data-action-popover>

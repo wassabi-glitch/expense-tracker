@@ -20,18 +20,9 @@ import { Input } from "@/components/ui/input";
 
 import { toISODateInTimeZone } from "@/lib/date";
 import { localizeApiError } from "@/lib/errorMessages";
+import { formatCompactUzs, formatUzs } from "@/lib/format";
 import { useAnalyticsChartsQuery, useAnalyticsSummaryQuery } from "./hooks/useAnalyticsDataQueries";
 const EMPTY_ARRAY = [];
-
-const formatCompactUZS = (value) => {
-  const num = Number(value || 0);
-  if (num >= 1_000_000_000) return `${(num / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
-  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-  if (num >= 1_000) return `${(num / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
-  return num;
-};
-
-const formatUzs = (value) => String(Number(value || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 const UZ_MONTHS_SHORT = [
   "Yan",
   "Fev",
@@ -132,8 +123,8 @@ export default function Analytics() {
   }, [range, setSearchParams]);
 
   const summary = useMemo(() => [
-    { label: t("analytics.lifetimeSpent"), value: `${formatUzs(history?.total_spent_lifetime || 0)} UZS` },
-    { label: t("analytics.avgTransaction"), value: `${formatUzs(history?.average_transaction || 0)} UZS` },
+    { label: t("analytics.lifetimeSpent"), value: <span className="flex items-baseline gap-1"><span>{formatUzs(history?.total_spent_lifetime || 0)}</span><span className="text-xs text-muted-foreground uppercase opacity-80">UZS</span></span> },
+    { label: t("analytics.avgTransaction"), value: <span className="flex items-baseline gap-1"><span>{formatUzs(history?.average_transaction || 0)}</span><span className="text-xs text-muted-foreground uppercase opacity-80">UZS</span></span> },
     { label: t("analytics.totalTransactions"), value: `${history?.total_transaction || 0}` },
   ], [history, t]);
 
@@ -260,8 +251,8 @@ export default function Analytics() {
                     </defs>
                     <CartesianGrid strokeDasharray="4 4" className="stroke-muted" />
                     <XAxis dataKey="date" tickFormatter={(value) => formatLongDate(value, chartLocale, i18n.language)} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={28} />
-                    <YAxis tickFormatter={(value) => formatCompactUZS(value)} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} width={60} />
-                    <Tooltip formatter={(value) => [`${formatUzs(value)} UZS`, t("analytics.amount")]} labelFormatter={(label) => `${t("analytics.date")}: ${formatLongDate(label, chartLocale, i18n.language)}`} contentStyle={{ borderRadius: 10, border: "1px solid hsl(var(--border))", background: "hsl(var(--background))" }} />
+                    <YAxis tickFormatter={(value) => formatCompactUzs(value)} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} width={60} />
+                    <Tooltip formatter={(value) => [<span className="flex items-baseline gap-1 font-semibold"><span>{formatUzs(value)}</span><span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/70">UZS</span></span>, t("analytics.amount")]} labelFormatter={(label) => `${t("analytics.date")}: ${formatLongDate(label, chartLocale, i18n.language)}`} contentStyle={{ borderRadius: 10, border: "1px solid hsl(var(--border))", background: "hsl(var(--background))" }} />
                     <Area type="monotone" dataKey="amount" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#analyticsTrendFill)" />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -292,10 +283,10 @@ export default function Analytics() {
                       tickLine={false}
                       width={120}
                     />
-                    <XAxis type="number" tickFormatter={(value) => formatCompactUZS(value)} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <XAxis type="number" tickFormatter={(value) => formatCompactUzs(value)} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
                     <Tooltip
                       cursor={{ fill: "hsl(var(--muted))", opacity: 0.25 }}
-                      formatter={(value) => [`${formatUzs(value)} UZS`, t("analytics.total")]}
+                      formatter={(value) => [<span className="flex items-baseline gap-1 font-semibold"><span>{formatUzs(value)}</span><span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/70">UZS</span></span>, t("analytics.total")]}
                       labelFormatter={(label) => `${t("analytics.category")}: ${t(`categories.${label}`, { defaultValue: label })}`}
                       contentStyle={{ borderRadius: 10, border: "1px solid hsl(var(--border))", background: "hsl(var(--background))" }}
                     />

@@ -17,6 +17,7 @@ import {
   Receipt,
   Landmark,
   PiggyBank,
+  Wallet,
   LineChart,
   Download,
   Settings,
@@ -38,6 +39,7 @@ const mainNavItems = [
   { to: "/expenses", labelKey: "nav.expenses", icon: Receipt },
   { to: "/income", labelKey: "nav.income", icon: Landmark },
   { to: "/budgets", labelKey: "nav.budgets", icon: PiggyBank },
+  { to: "/savings", labelKey: "nav.savings", icon: Wallet, premiumOnly: true },
   { to: "/analytics", labelKey: "nav.analytics", icon: LineChart },
 ];
 
@@ -73,8 +75,9 @@ function useDarkMode() {
   return { isDark, toggle: () => setIsDark((v) => !v) };
 }
 
-function NavList({ onNavigate, compact = false }) {
+function NavList({ onNavigate, compact = false, isPremium = false }) {
   const { t } = useTranslation();
+  const visibleMainNavItems = mainNavItems.filter((item) => !item.premiumOnly || isPremium);
 
   const rowBase =
     "group relative rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-muted/70 hover:text-foreground";
@@ -98,7 +101,7 @@ function NavList({ onNavigate, compact = false }) {
         </div>
 
         <div className="space-y-1">
-          {mainNavItems.map((item) => (
+          {visibleMainNavItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -251,7 +254,7 @@ export default function Layout() {
             </SheetTrigger>
 
             <SheetContent side="left" className="w-64 pt-10">
-              <NavList onNavigate={() => setMobileOpen(false)} />
+              <NavList onNavigate={() => setMobileOpen(false)} isPremium={!!userQuery.data?.is_premium} />
             </SheetContent>
           </Sheet>
 
@@ -302,7 +305,7 @@ export default function Layout() {
           <div className="absolute inset-y-0 left-0 z-20 w-16 overflow-hidden border-r bg-background/90 shadow-none transition-[width,box-shadow,backdrop-filter,background-color] duration-200 group-hover/sidebar:w-64 group-hover/sidebar:bg-background/75 group-hover/sidebar:backdrop-blur-xl group-hover/sidebar:shadow-lg dark:bg-background/80 dark:group-hover/sidebar:bg-background/60">
             <div className="flex h-full flex-col">
               <div className="flex-1 overflow-y-auto overflow-x-hidden">
-                <NavList compact />
+                <NavList compact isPremium={!!userQuery.data?.is_premium} />
               </div>
 
               <div className="border-t py-3">

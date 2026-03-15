@@ -29,3 +29,5 @@ export {
     updateIncomeEntry,
     deleteIncomeEntry,
 } from "./api/income";
+export { getSavingsSummary, depositToSavings, withdrawFromSavings } from "./api/savings";
+export { getGoals, createGoal, updateGoal, contributeToGoal, returnFromGoal, archiveGoal, restoreGoal, deleteGoal } from "./api/goals";
