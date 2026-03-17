@@ -341,7 +341,7 @@ def upsert_onboarding_profile(
 def toggle_premium(
     db: Session = Depends(get_db), current_user: models.User = Depends(oauth2.get_current_user)
 ):
-    if not settings.debug_allow_premium_toggle:
+    if settings.is_production or not settings.debug_allow_premium_toggle:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="users.premium_toggle_disabled")
     current_user.is_premium = not current_user.is_premium
     db.commit()
