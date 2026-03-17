@@ -1,3 +1,4 @@
+from config import settings
 from tests.helpers import create_user_and_token
 
 
@@ -20,7 +21,12 @@ def test_create_invoice_rejects_invalid_plan(client):
     assert res.json()["detail"] == "payments.invalid_plan_id"
 
 
-def test_toggle_premium_is_disabled_by_default(client):
+def test_toggle_premium_is_disabled_in_production(client):
     headers = create_user_and_token(client, "payuser3", "payuser3@example.com", "Password123!")
-    res = client.post("/users/me/toggle-premium", headers=headers)
-    assert res.status_code == 403
+    previous = settings.is_production
+    settings.is_production = True
+    try:
+        res = client.post("/users/me/toggle-premium", headers=headers)
+        assert res.status_code == 403
+    finally:
+        settings.is_production = previous

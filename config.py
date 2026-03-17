@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     telegram_admin_chat_ids: str = ""
 
     # Debug / dev-only toggles
-    debug_allow_premium_toggle: bool = True
+    debug_allow_premium_toggle: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

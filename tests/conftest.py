@@ -10,6 +10,11 @@ from app.main import app
 from app.redis_rate_limiter import redis_client
 from app.session import Base, get_db
 from app import models  # noqa: F401 — registers SQLAlchemy tables
+from config import settings
+
+# Tests rely on being able to toggle premium via a dev-only endpoint.
+# In production, this endpoint is still blocked by `settings.is_production`.
+settings.debug_allow_premium_toggle = True
 
 # ---------------------------------------------------------------------------
 # Database engine — environment-aware
