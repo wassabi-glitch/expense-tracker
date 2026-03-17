@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Plus, Search, ChevronLeft, ChevronRight, Inbox, Trash2, MoreHorizontal, Pencil, FileText } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -28,6 +29,7 @@ import { useExpenseCategoriesQuery } from "./hooks/useExpenseCategoriesQuery";
 import { useExpensesQuery } from "./hooks/useExpensesQuery";
 import { toISODateInTimeZone } from "@/lib/date";
 import { localizeApiError } from "@/lib/errorMessages";
+import { getCurrentUser } from "@/lib/api";
 import {
   expenseFormSchema,
   expenseUpdateFormSchema,
@@ -82,6 +84,12 @@ export default function Expenses() {
   const translateValidation = (message) => t(message, { defaultValue: message });
   const [searchParams, setSearchParams] = useSearchParams();
   const [actionError, setActionError] = useState("");
+
+  const userQuery = useQuery({
+    queryKey: ["users", "me"],
+    queryFn: getCurrentUser,
+  });
+  const isPremium = !!userQuery.data?.is_premium;
 
   const [search, setSearch] = useState(() => searchParams.get("search") || "");
   const [category, setCategory] = useState(() => searchParams.get("category") || "");
@@ -512,14 +520,16 @@ export default function Expenses() {
       <div className="container mx-auto px-4 py-8 space-y-6">
         <PageHeader title={t("expenses.title")} description={t("expenses.subtitle")}>
           {activeTab === "recurring" ? (
-            <Button
-              className="bg-primary text-primary-foreground hover:bg-primary/90"
-              onClick={() => recurringAddRef.current?.()}
-              disabled={recurringCount >= 50}
-              title={recurringCount >= 50 ? t("recurring.maxLimitReached") : undefined}
-            >
-              <Plus className="mr-2 h-4 w-4" /> {t("recurring.addTemplate")}
-            </Button>
+            isPremium ? (
+              <Button
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
+                onClick={() => recurringAddRef.current?.()}
+                disabled={recurringCount >= 50}
+                title={recurringCount >= 50 ? t("recurring.maxLimitReached") : undefined}
+              >
+                <Plus className="mr-2 h-4 w-4" /> {t("recurring.addTemplate")}
+              </Button>
+            ) : null
           ) : (
             <Button
               className="bg-primary text-primary-foreground hover:bg-primary/90"

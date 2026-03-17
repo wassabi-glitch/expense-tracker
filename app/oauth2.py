@@ -97,6 +97,13 @@ def get_current_user(token: str = Depends(oauth2_scheme), db=Depends(get_db)):
     user = db.query(models.User).filter(models.User.id == token.user_id).first()
     if user is None:
         raise credentials_exception
+
+    if user.is_premium and user.premium_expires_at is not None:
+        now = datetime.now(timezone.utc)
+        if user.premium_expires_at <= now:
+            user.is_premium = False
+            user.premium_expires_at = None
+            db.commit()
     return user
 
 

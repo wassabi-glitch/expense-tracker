@@ -1,4 +1,5 @@
 export { setAccessToken, isLoggedIn, silentRefresh } from "./api/client";
+export { apiClient } from "./api/client";
 
 export {
     signin,

@@ -51,6 +51,36 @@ export function useToggleIncomeSourceActiveMutation() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: ({ sourceId, isActive }) => updateIncomeSourceActive(sourceId, isActive),
+        onMutate: async ({ sourceId, isActive }) => {
+            const keys = [
+                ["income", "sources", true],
+                ["income", "sources", false],
+            ];
+
+            await Promise.all(keys.map((queryKey) => queryClient.cancelQueries({ queryKey })));
+
+            const previousByKey = keys.map((queryKey) => ({
+                queryKey,
+                data: queryClient.getQueryData(queryKey),
+            }));
+
+            for (const { queryKey } of previousByKey) {
+                queryClient.setQueryData(queryKey, (old) => {
+                    if (!Array.isArray(old)) return old;
+                    return old.map((source) =>
+                        source?.id === sourceId ? { ...source, is_active: isActive } : source,
+                    );
+                });
+            }
+
+            return { previousByKey };
+        },
+        onError: (_err, _vars, context) => {
+            if (!context?.previousByKey) return;
+            for (const entry of context.previousByKey) {
+                queryClient.setQueryData(entry.queryKey, entry.data);
+            }
+        },
         onSuccess: async () => {
             await invalidateIncomeDerivedQueries(queryClient);
         },

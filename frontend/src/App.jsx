@@ -30,6 +30,7 @@ import ExportPage from "@/features/expenses/ExportPage";
 import Settings from "@/features/settings/Settings";
 import Onboarding from "@/features/onboarding/Onboarding";
 import Savings from "@/features/savings/Savings";
+import Premium from "@/features/premium/Premium";
 
 export default function App() {
   const authBootstrapQuery = useQuery({
@@ -72,6 +73,7 @@ export default function App() {
               <Route path="/savings" element={<Savings />} />
               <Route path="/analytics" element={<Analytics />} />
               <Route path="/export" element={<ExportPage />} />
+              <Route path="/premium" element={<Premium />} />
               <Route path="/settings" element={<Settings />} />
             </Route>
           </Route>

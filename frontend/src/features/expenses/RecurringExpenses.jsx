@@ -1,12 +1,13 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, Pencil, MessageSquare, Search, ChevronLeft, ChevronRight, Circle, MoreHorizontal } from "lucide-react";
+import { Plus, Trash2, Pencil, MessageSquare, Search, ChevronLeft, ChevronRight, Circle, MoreHorizontal, Crown } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { EmptyState } from "@/components/EmptyState";
 import { CurrencyAmount } from "@/components/CurrencyAmount";
@@ -30,25 +31,6 @@ import {
     useUpdateRecurringMutation,
 } from "./hooks/useRecurringMutations";
 
-// Reusable pill toggle
-function ActiveToggle({ checked, onChange, disabled }) {
-    return (
-        <button
-            type="button"
-            role="switch"
-            aria-checked={checked}
-            disabled={disabled}
-            onClick={() => !disabled && onChange(!checked)}
-            className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${checked ? "bg-primary" : "bg-muted-foreground/30"
-                }`}
-        >
-            <span
-                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${checked ? "translate-x-4" : "translate-x-0.5"
-                    }`}
-            />
-        </button>
-    );
-}
 
 // ── Column layout shared between header and rows ─────────────────────────────
 // Title | Category | Frequency | Next Due | Amount | Active | Actions
@@ -57,8 +39,12 @@ const EMPTY_ARRAY = [];
 
 export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
     const { t, i18n } = useTranslation();
+    const navigate = useNavigate();
     const queryClient = useQueryClient();
     const [error, setError] = useState("");
+    const [toggleCooldown, setToggleCooldown] = useState(false);
+    const toggleCooldownTimerRef = useRef(null);
+    const togglingRef = useRef(false);
 
     // Delete
     const [deleteOpen, setDeleteOpen] = useState(false);
@@ -85,6 +71,14 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
 
     // Inline toggle saving
     const [togglingId, setTogglingId] = useState(null);
+
+    useEffect(() => {
+        return () => {
+            if (toggleCooldownTimerRef.current) {
+                clearTimeout(toggleCooldownTimerRef.current);
+            }
+        };
+    }, []);
 
     // Add form
     const [addTitle, setAddTitle] = useState("");
@@ -193,7 +187,11 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
 
     // Inline toggle — dedicated PATCH endpoint, no dialog needed
     const handleInlineToggle = useCallback(async (e, newValue) => {
+        if (toggleCooldown) return;
+        if (togglingRef.current) return;
         if (togglingId) return;
+
+        togglingRef.current = true;
         setTogglingId(e.id);
         const previous = queryClient.getQueryData(["recurring", "list"]) || EMPTY_ARRAY;
         queryClient.setQueryData(
@@ -204,11 +202,29 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
             await toggleRecurringMutation.mutateAsync({ id: e.id, is_active: newValue });
         } catch (err) {
             queryClient.setQueryData(["recurring", "list"], previous);
+
+            if (err?.status === 429) {
+                const waitSeconds = Number(err?.retryAfterSeconds || 2);
+                const waitMs = Number.isFinite(waitSeconds) && waitSeconds > 0 ? waitSeconds * 1000 : 2000;
+
+                setError("");
+                setToggleCooldown(true);
+                if (toggleCooldownTimerRef.current) {
+                    clearTimeout(toggleCooldownTimerRef.current);
+                }
+                toggleCooldownTimerRef.current = setTimeout(() => {
+                    setToggleCooldown(false);
+                    toggleCooldownTimerRef.current = null;
+                }, waitMs);
+                return;
+            }
+
             setError(localizeApiError(err?.message, t) || err?.message || t("recurring.toggleFailed"));
         } finally {
             setTogglingId(null);
+            togglingRef.current = false;
         }
-    }, [togglingId, queryClient, toggleRecurringMutation, t]);
+    }, [toggleCooldown, togglingId, queryClient, toggleRecurringMutation, t]);
 
     const handleDelete = async () => {
         if (isDeleting || !deleteTarget) return;
@@ -369,13 +385,23 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
 
     if (!isPremium) {
         return (
-            <Card className="shadow-sm">
-                <CardContent className="min-h-80 flex flex-col items-center justify-center p-6 text-center space-y-4">
-                    <div className="p-4 bg-amber-500/10 rounded-full mb-2"><span className="text-3xl">✨</span></div>
-                    <h3 className="text-xl font-bold">{t("recurring.premiumTitle")}</h3>
-                    <p className="text-muted-foreground max-w-sm">
-                        {t("recurring.premiumDesc")}
-                    </p>
+            <Card className="overflow-hidden border-primary/25 bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.14),transparent_45%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,1))] shadow-sm dark:border-primary/30 dark:bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.16),transparent_42%),linear-gradient(180deg,rgba(20,24,29,0.98),rgba(10,12,16,1))]">
+                <CardContent className="flex flex-col gap-6 p-6 sm:p-8 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="space-y-3">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                            <Crown className="h-3.5 w-3.5" />
+                            {t("recurring.premiumBadge")}
+                        </div>
+                        <div className="space-y-2">
+                            <h3 className="text-2xl font-semibold tracking-tight">{t("recurring.premiumTitle")}</h3>
+                            <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+                                {t("recurring.premiumDesc")}
+                            </p>
+                        </div>
+                    </div>
+                    <Button className="h-11 rounded-2xl px-6 text-base" onClick={() => navigate("/premium")}>
+                        {t("recurring.viewPlans")}
+                    </Button>
                 </CardContent>
             </Card>
         );
@@ -487,10 +513,12 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
 
                                         {/* Active toggle (inline) */}
                                         <div className="flex justify-center">
-                                            <ActiveToggle
+                                            <Switch
+                                                size="sm"
                                                 checked={e.is_active}
-                                                onChange={(val) => handleInlineToggle(e, val)}
-                                                disabled={togglingId === e.id}
+                                                onCheckedChange={(val) => handleInlineToggle(e, val)}
+                                                disabled={toggleCooldown || togglingId === e.id}
+                                                aria-label={t("recurring.active")}
                                             />
                                         </div>
 

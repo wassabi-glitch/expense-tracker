@@ -32,7 +32,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CurrencyAmount } from "@/components/CurrencyAmount";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { getCurrentUser } from "@/lib/api";
@@ -483,7 +489,7 @@ export default function Savings() {
     return (
       <div className="space-y-6 py-4">
         <PageHeader title={t("savings.title")} description={t("savings.subtitle")} />
-        <Card className="overflow-hidden border-primary/30 bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.16),transparent_42%),linear-gradient(180deg,rgba(20,24,29,0.98),rgba(10,12,16,1))]">
+        <Card className="overflow-hidden border-primary/25 bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.14),transparent_45%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,1))] dark:border-primary/30 dark:bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.16),transparent_42%),linear-gradient(180deg,rgba(20,24,29,0.98),rgba(10,12,16,1))]">
           <CardContent className="flex flex-col gap-6 p-6 sm:p-8 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-3">
               <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
@@ -495,8 +501,8 @@ export default function Savings() {
                 <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t("savings.premiumDesc")}</p>
               </div>
             </div>
-            <Button className="h-11 rounded-2xl px-6 text-base" onClick={() => navigate("/settings")}>
-              {t("savings.goToSettings")}
+            <Button className="h-11 rounded-2xl px-6 text-base" onClick={() => navigate("/premium")}>
+              {t("savings.viewPlans")}
             </Button>
           </CardContent>
         </Card>
