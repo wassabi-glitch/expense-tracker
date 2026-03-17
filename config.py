@@ -34,6 +34,14 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = True
     email_from: str = "no-reply@expensetracker.local"
 
+    # Telegram (manual payment verification)
+    telegram_bot_token: Optional[SecretStr] = None
+    telegram_webhook_secret_token: Optional[SecretStr] = None
+    telegram_admin_chat_ids: str = ""
+
+    # Debug / dev-only toggles
+    debug_allow_premium_toggle: bool = False
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @computed_field
@@ -49,6 +57,19 @@ class Settings(BaseSettings):
     @computed_field
     def trusted_hosts_list(self) -> list[str]:
         return [host.strip().lower() for host in self.trusted_hosts.split(",") if host.strip()]
+
+    @computed_field
+    def telegram_admin_chat_id_list(self) -> list[int]:
+        ids: list[int] = []
+        for raw in self.telegram_admin_chat_ids.split(","):
+            value = raw.strip()
+            if not value:
+                continue
+            try:
+                ids.append(int(value))
+            except ValueError:
+                continue
+        return ids
 
 
 settings = Settings()

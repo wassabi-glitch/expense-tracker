@@ -747,3 +747,16 @@ class DashboardSummary(BaseModel):
     remaining: int
     daily_average: int
     overall_balance: int
+
+
+class CreateInvoiceIn(BaseModel):
+    plan_id: str
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class CreateInvoiceOut(BaseModel):
+    order_code: str
+    amount: int
+    currency: str
+    plan_id: str

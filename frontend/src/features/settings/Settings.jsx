@@ -3,8 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -17,7 +19,6 @@ import { localizeApiError } from "@/lib/errorMessages";
 import { useSettingsDataQuery } from "./hooks/useSettingsDataQuery";
 import {
   useLogoutMutation,
-  useTogglePremiumMutation,
   useUpdateBudgetRolloverPreferenceMutation,
 } from "./hooks/useSettingsMutations";
 
@@ -32,7 +33,8 @@ function getStoredPreference(key, fallback) {
 export default function Settings() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [error, setError] = useState("");
+  const [rolloverError, setRolloverError] = useState("");
+  const [sessionError, setSessionError] = useState("");
 
   const savedCurrency = useMemo(() => getStoredPreference(CURRENCY_KEY, "UZS"), []);
   const savedDateFormat = useMemo(() => getStoredPreference(DATE_FORMAT_KEY, "YYYY-MM-DD"), []);
@@ -40,22 +42,27 @@ export default function Settings() {
   const [logoutOpen, setLogoutOpen] = useState(false);
   const userQuery = useSettingsDataQuery();
   const logoutMutation = useLogoutMutation();
-  const togglePremiumMutation = useTogglePremiumMutation();
   const updateBudgetRolloverPreferenceMutation = useUpdateBudgetRolloverPreferenceMutation();
-  const isTogglingPremium = togglePremiumMutation.isPending;
   const isUpdatingRollover = updateBudgetRolloverPreferenceMutation.isPending;
   const username = userQuery.data?.username || "";
   const email = userQuery.data?.email || "";
   const isPremium = !!userQuery.data?.is_premium;
-  const rolloverEnabled = userQuery.data?.profile?.budget_rollover_enabled !== false;
+  const rolloverPreferenceEnabled = userQuery.data?.profile?.budget_rollover_enabled !== false;
+  const rolloverEnabled = isPremium && rolloverPreferenceEnabled;
   const profileError = userQuery.error
     ? localizeApiError(userQuery.error?.message, t) || userQuery.error?.message || t("settings.failedProfile")
     : "";
-  const displayError = error || profileError;
 
   const handleLogout = async () => {
-    await logoutMutation.mutateAsync();
-    navigate("/sign-in", { replace: true });
+    setSessionError("");
+    try {
+      await logoutMutation.mutateAsync();
+      navigate("/sign-in", { replace: true });
+    } catch (e) {
+      setSessionError(
+        localizeApiError(e?.message, t) || e?.message || t("settings.signOutFailed"),
+      );
+    }
   };
 
   return (
@@ -66,7 +73,7 @@ export default function Settings() {
           <p className="text-muted-foreground">{t("settings.subtitle")}</p>
         </div>
 
-        {displayError && <p className="text-sm text-red-600">{displayError}</p>}
+        {profileError && <p className="text-sm text-red-600">{profileError}</p>}
 
         <Card className="shadow-sm">
           <CardHeader>
@@ -116,61 +123,51 @@ export default function Settings() {
 
         <Card className="shadow-sm">
           <CardHeader>
-            <CardTitle>{t("settings.budgetRolloverTitle")}</CardTitle>
-            <CardDescription>{t("settings.budgetRolloverDesc")}</CardDescription>
+            <CardTitle>{t("settings.premiumTitle")}</CardTitle>
+            <CardDescription>{isPremium ? t("settings.premiumActiveDesc") : t("settings.premiumDesc")}</CardDescription>
           </CardHeader>
-          <CardContent className="flex items-center justify-between gap-4">
-            <div className="space-y-1">
-              <p className="text-sm text-muted-foreground">
-                {isPremium ? t("settings.budgetRolloverPremiumHint") : t("settings.budgetRolloverPremiumOnly")}
-              </p>
-              <p className="text-sm font-medium">
-                {rolloverEnabled ? t("settings.budgetRolloverOn") : t("settings.budgetRolloverOff")}
-              </p>
-            </div>
-            <Button
-              variant={rolloverEnabled ? "default" : "secondary"}
-              disabled={!isPremium || isUpdatingRollover}
-              onClick={async () => {
-                setError("");
-                try {
-                  await updateBudgetRolloverPreferenceMutation.mutateAsync(!rolloverEnabled);
-                } catch (e) {
-                  setError(localizeApiError(e?.message, t) || t("settings.budgetRolloverUpdateFailed"));
-                }
-              }}
-            >
-              {rolloverEnabled ? t("settings.turnOff") : t("settings.turnOn")}
+          <CardContent>
+            <Button onClick={() => navigate("/premium")}>
+              {isPremium ? t("settings.managePremium") : t("settings.viewPlans")}
             </Button>
           </CardContent>
         </Card>
 
-        {/* DEV ONLY PANEL */}
-        <Card className="shadow-sm border-dashed border-primary">
+        <Card className="shadow-sm">
           <CardHeader>
-            <CardTitle>Developer Tools</CardTitle>
-            <CardDescription>Temporary settings strictly for testing features locally</CardDescription>
+            <CardTitle>{t("settings.budgetRolloverTitle")}</CardTitle>
+            <CardDescription>{t("settings.budgetRolloverDesc")}</CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
-              <div>
-                <h4 className="font-medium">Premium Status View</h4>
-                <p className="text-sm text-muted-foreground">Force toggle `is_premium` to unlock or lock Recurring Expenses</p>
-              </div>
-              <Button
-                variant={isPremium ? "default" : "secondary"}
-                disabled={isTogglingPremium}
-                onClick={async () => {
-                  setError("");
+          <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">
+                {isPremium ? t("settings.budgetRolloverPremiumHint") : t("settings.budgetRolloverPremiumOnly")}
+              </p>
+              {rolloverError && <p className="text-sm text-red-600">{rolloverError}</p>}
+            </div>
+
+            <div className="flex items-center justify-between gap-3 sm:justify-end">
+              <Badge variant={rolloverEnabled ? "default" : "outline"}>
+                {rolloverEnabled ? t("settings.budgetRolloverOn") : t("settings.budgetRolloverOff")}
+              </Badge>
+
+              <Switch
+                checked={rolloverEnabled}
+                disabled={!isPremium || isUpdatingRollover}
+                onCheckedChange={async (nextValue) => {
+                  setRolloverError("");
                   try {
-                    await togglePremiumMutation.mutateAsync();
+                    await updateBudgetRolloverPreferenceMutation.mutateAsync(nextValue);
                   } catch (e) {
-                    setError(localizeApiError(e?.message, t) || `Failed to toggle premium: ${e?.message || ""}`.trim());
+                    setRolloverError(
+                      localizeApiError(e?.message, t) ||
+                        e?.message ||
+                        t("settings.budgetRolloverUpdateFailed"),
+                    );
                   }
                 }}
-              >
-                {isPremium ? "Premium Active (Click to Disable)" : "Free User (Click to Enable)"}
-              </Button>
+                aria-label={t("settings.budgetRolloverTitle")}
+              />
             </div>
           </CardContent>
         </Card>
@@ -181,6 +178,7 @@ export default function Settings() {
             <CardDescription>{t("settings.sessionDesc")}</CardDescription>
           </CardHeader>
           <CardContent>
+            {sessionError && <p className="text-sm text-red-600 mb-3">{sessionError}</p>}
             <Button variant="destructive" onClick={() => setLogoutOpen(true)}>
               {t("common.signOut")}
             </Button>
@@ -204,6 +202,6 @@ export default function Settings() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </div >
   );
 }

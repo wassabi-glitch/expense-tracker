@@ -88,6 +88,7 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_verified = Column(Boolean, default=False, nullable=False)
     is_premium = Column(Boolean, default=False, nullable=False)
+    premium_expires_at = Column(DateTime(timezone=True), nullable=True)
     timezone = Column(String(50), default="UTC", nullable=False)
     profile = relationship(
         "UserProfile",
@@ -387,3 +388,30 @@ class GoalContributions(Base):
 
     owner = relationship("User", back_populates="goal_contributions")
     goal = relationship("Goals", back_populates="contributions")
+
+
+class PaymentStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    COMPLETED = "COMPLETED"
+    REJECTED = "REJECTED"
+
+
+class PaymentTransaction(Base):
+    __tablename__ = "payment_transactions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    order_code = Column(String(50), unique=True, index=True, nullable=False)
+    plan_id = Column(String(50), nullable=False)
+    amount = Column(Integer, nullable=False)
+    currency = Column(String(10), default="UZS", nullable=False)
+    status = Column(Enum(PaymentStatus), nullable=False, default=PaymentStatus.PENDING)
+    telegram_user_id = Column(BigInteger, nullable=True, index=True)
+    telegram_chat_id = Column(BigInteger, nullable=True, index=True)
+    telegram_language_code = Column(String(10), nullable=True)
+    telegram_receipt_message_id = Column(BigInteger, nullable=True)
+    receipt_submitted_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    user = relationship("User", backref="payment_transactions")

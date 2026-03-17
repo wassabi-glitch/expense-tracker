@@ -8,7 +8,7 @@ v1:
 6.Deployment
 
 v2:
-1.Recurring goal contributions
+1.Recurring goal contributions and goals linked with expense creation
 2.Family sharing
 3.
 

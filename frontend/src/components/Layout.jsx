@@ -21,6 +21,7 @@ import {
   LineChart,
   Download,
   Settings,
+  Sparkles,
   Menu,
   LogOut,
   User,
@@ -39,12 +40,13 @@ const mainNavItems = [
   { to: "/expenses", labelKey: "nav.expenses", icon: Receipt },
   { to: "/income", labelKey: "nav.income", icon: Landmark },
   { to: "/budgets", labelKey: "nav.budgets", icon: PiggyBank },
-  { to: "/savings", labelKey: "nav.savings", icon: Wallet, premiumOnly: true },
+  { to: "/savings", labelKey: "nav.savings", icon: Wallet },
   { to: "/analytics", labelKey: "nav.analytics", icon: LineChart },
 ];
 
 const secondaryNavItems = [
   { to: "/export", labelKey: "nav.exportData", icon: Download },
+  { to: "/premium", labelKey: "nav.premium", icon: Sparkles },
   { to: "/settings", labelKey: "nav.settings", icon: Settings },
 ];
 

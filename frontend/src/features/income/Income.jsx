@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -59,26 +60,6 @@ function parsePageParam(value) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
 }
 
-function ActiveToggle({ checked, onChange, disabled, ariaLabel }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={ariaLabel}
-      disabled={disabled}
-      onClick={() => !disabled && onChange(!checked)}
-      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${checked ? "bg-primary" : "bg-muted-foreground/30"
-        }`}
-    >
-      <span
-        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${checked ? "translate-x-4" : "translate-x-0.5"
-          }`}
-      />
-    </button>
-  );
-}
-
 function parseAmountInput(value) {
   const digits = String(value || "").replace(/\s/g, "");
   return Number(digits || 0);
@@ -118,6 +99,8 @@ export default function Income() {
   const [entryMenuPosition, setEntryMenuPosition] = useState(null);
   const [sourceMenuForId, setSourceMenuForId] = useState(null);
   const [sourcesCollapsed, setSourcesCollapsed] = useState(false);
+  const togglingSourceIdsRef = useRef(new Set());
+  const [togglingSourceIds, setTogglingSourceIds] = useState({});
   const [entryNoteOpen, setEntryNoteOpen] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [entryAmount, setEntryAmount] = useState("");
@@ -443,16 +426,26 @@ export default function Income() {
     }
   };
 
-  const handleToggleSourceActive = async (source) => {
-    if (toggleSourceActiveMutation.isPending) return;
+  const handleToggleSourceActive = async (source, nextIsActive) => {
+    if (sourceWriteLocked) return;
+    if (togglingSourceIdsRef.current.has(source.id)) return;
     try {
+      togglingSourceIdsRef.current.add(source.id);
+      setTogglingSourceIds((prev) => ({ ...prev, [source.id]: true }));
       await toggleSourceActiveMutation.mutateAsync({
         sourceId: source.id,
-        isActive: !source.is_active,
+        isActive: typeof nextIsActive === "boolean" ? nextIsActive : !source.is_active,
       });
     } catch (e) {
       setSourceActionError(getRequestError(e));
       if (e?.status === 429) armWriteRateLimitLock("source", e?.retryAfterSeconds);
+    } finally {
+      togglingSourceIdsRef.current.delete(source.id);
+      setTogglingSourceIds((prev) => {
+        const next = { ...prev };
+        delete next[source.id];
+        return next;
+      });
     }
   };
 
@@ -709,11 +702,12 @@ export default function Income() {
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
-                      <ActiveToggle
+                      <Switch
+                        size="sm"
                         checked={source.is_active}
-                        disabled={toggleSourceActiveMutation.isPending || sourceWriteLocked}
-                        onChange={() => handleToggleSourceActive(source)}
-                        ariaLabel={t("income.toggleSource")}
+                        disabled={sourceWriteLocked || !!togglingSourceIds[source.id]}
+                        onCheckedChange={(next) => handleToggleSourceActive(source, next)}
+                        aria-label={t("income.toggleSource")}
                       />
                       <div className="relative" data-action-popover>
                         <Button

@@ -121,7 +121,8 @@ def list_income_sources(
     query = db.query(models.IncomeSource).filter(models.IncomeSource.owner_id == current_user.id)
     if not include_inactive:
         query = query.filter(models.IncomeSource.is_active.is_(True))
-    return query.order_by(models.IncomeSource.created_at.desc()).all()
+    # Stable ordering: created_at ties are possible (same-second inserts), so add id as a tiebreaker.
+    return query.order_by(models.IncomeSource.created_at.desc(), models.IncomeSource.id.desc()).all()
 
 
 @router.post("/sources", response_model=schemas.IncomeSourceOut, status_code=status.HTTP_201_CREATED)
