@@ -760,3 +760,55 @@ class CreateInvoiceOut(BaseModel):
     amount: int
     currency: str
     plan_id: str
+
+
+# --- NOTIFICATION SCHEMAS ---
+
+
+class NotificationTypeEnum(str, Enum):
+    BUDGET_WARNING = "budget_warning"
+    BUDGET_EXCEEDED = "budget_exceeded"
+    RECURRING_DUE = "recurring_due"
+    GOAL_MILESTONE = "goal_milestone"
+    GOAL_COMPLETED = "goal_completed"
+    SYSTEM = "system"
+
+
+class NotificationPriorityEnum(str, Enum):
+    INFO = "info"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class NotificationOut(BaseModel):
+    id: int
+    type: str
+    title: str
+    message: str
+    is_read: bool
+    priority: str
+    extra_data: Optional[dict] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class NotificationListOut(BaseModel):
+    total: int
+    unread_count: int
+    items: List[NotificationOut]
+
+
+class NotificationMarkRead(BaseModel):
+    notification_ids: List[int]
+
+    @field_validator("notification_ids")
+    @classmethod
+    def validate_notification_ids(cls, v: List[int]):
+        if not v:
+            raise ValueError("notifications.ids_required")
+        if len(v) > 100:
+            raise ValueError("notifications.too_many_ids")
+        return v

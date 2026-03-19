@@ -19,7 +19,8 @@
     "forbidden": "Bu amalni bajarishga ruxsatingiz yo'q.",
     "premiumRequired": "Bu funksiya Premium obuna talab qiladi.",
     "actions": "Amallar",
-    "close": "Yopish"
+    "close": "Yopish",
+    "justNow": "hozir"
   },
   "nav": {
     "platform": "Platforma",
@@ -847,6 +848,125 @@
     "Entertainment": "Kino, hobbi, sayohat va dam olish tadbirlari",
     "Installments & Debt": "Kredit to'lovlari, bo'lib to'lash / qarzlar",
     "Business / Work": "Mijoz uchrashuvlari, ofis jihozlari, dasturiy vositalar va ish safarlari"
+  },
+  "notifications": {
+    "title": "Bildirishnomalar",
+    "empty": "Hali bildirishnomalar yo'q",
+    "markRead": "O'qilgan deb belgilash",
+    "markAllRead": "Hammasini o'qilgan deb belgilash",
+    "priority": {
+      "info": "Ma'lumot",
+      "low": "Past",
+      "medium": "O'rta",
+      "high": "Yuqori",
+      "critical": "Jiddiy"
+    },
+    "type": {
+      "budget_warning": "Byudjet ogohlantirish",
+      "budget_exceeded": "Byudjet oshib ketdi",
+      "recurring_due": "Davriy to'lov",
+      "goal_milestone": "Maqsad",
+      "goal_completed": "Maqsad bajarildi",
+      "system": "Tizim"
+    },
+    "messages": {
+      "budget_warning_50": "{{category}} byudjetining 50% sarflagansiz",
+      "budget_warning_70": "{{category}} byudjetining 70% sarflagansiz. {{remaining}} UZS qoldi",
+      "budget_warning_90": "{{category}} byudjeti: Faqat {{remaining}} UZS qoldi (90% sarflangan)",
+      "budget_exceeded": "Byudjet oshib ketdi: {{category}}",
+      "budget_exceeded_detail": "{{category}} byudjet {{over}} UZS ga oshib ketdi",
+      "goal_milestone_25": "Yaxshi boshlash: {{goal}}",
+      "goal_milestone_25_detail": "{{goal}} maqsadingizning 25%iga yetdingiz!",
+      "goal_milestone_50": "Yo'lda: {{goal}}",
+      "goal_milestone_50_detail": "{{goal}} maqsadingizga yarmiga yetdingiz! Davom eting!",
+      "goal_milestone_75": "Deyarli yetdingiz: {{goal}}",
+      "goal_milestone_75_detail": "{{goal}} maqsadingizning 75%iga yetdingiz! Faqat {{remaining}} UZS qoldi",
+      "goal_completed": "Maqsadga yetdingiz: {{goal}}",
+      "goal_completed_detail": "Tabriklayman! {{goal}} maqsadingizga yetdingiz!"
+    },
+    "titles": {
+      "budgetExceeded": "Byudjet oshib ketdi",
+      "budgetWarning": "Byudjet ogohlantirish",
+      "highRisk": "Yuqori xavf",
+      "goalReached": "Maqsadga yetildi",
+      "goalMilestone": "Maqsad bosqichi"
+    }
+  },
+  "toasts": {
+    "expense": {
+      "created": "Xarajat qo'shildi",
+      "created_detail": "{{title}} - {{amount}} UZS",
+      "updated": "Xarajat yangilandi",
+      "updated_detail": "{{title}} - {{amount}} UZS",
+      "deleted": "Xarajat o'chirildi",
+      "failedToCreate": "Xarajatni qo'shib bo'lmadi",
+      "failedToUpdate": "Xarajatni yangilab bo'lmadi",
+      "failedToDelete": "Xarajatni o'chirib bo'lmadi"
+    },
+    "income": {
+      "sourceCreated": "Daromad manbai qo'shildi",
+      "sourceUpdated": "Daromad manbai yangilandi",
+      "sourceDeleted": "Daromad manbai o'chirildi",
+      "entryCreated": "Daromad qo'shildi",
+      "entryCreated_detail": "{{amount}} UZS",
+      "entryUpdated": "Daromad yangilandi",
+      "entryUpdated_detail": "{{amount}} UZS",
+      "entryDeleted": "Daromad o'chirildi",
+      "failedToCreateSource": "Daromad manbainI qo'shib bo'lmadi",
+      "failedToUpdateSource": "Daromad manbainI yangilab bo'lmadi",
+      "failedToDeleteSource": "Daromad manbainI o'chirib bo'lmadi",
+      "failedToCreateEntry": "Daromadni qo'shib bo'lmadi",
+      "failedToUpdateEntry": "Daromadni yangilab bo'lmadi",
+      "failedToDeleteEntry": "Daromadni o'chirib bo'lmadi",
+      "failedToToggleSource": "Daromad manbainI almashtirib bo'lmadi"
+    },
+    "budget": {
+      "created": "Byudjet yaratildi",
+      "created_detail": "{{category}} - {{amount}} UZS/oy",
+      "updated": "Byudjet yangilandi",
+      "updated_detail": "{{category}} - {{amount}} UZS/oy",
+      "deleted": "Byudjet o'chirildi",
+      "failedToCreate": "Byudjetni yaratib bo'lmadi",
+      "failedToUpdate": "Byudjetni yangilab bo'lmadi",
+      "failedToDelete": "Byudjetni o'chirib bo'lmadi"
+    },
+    "goal": {
+      "created": "Maqsad yaratildi",
+      "created_detail": "{{title}} - {{amount}} UZS",
+      "contributed": "Hissa qo'shildi",
+      "contributed_detail": "{{goal}} maqsadiga {{amount}} UZS qo'shildi",
+      "returned": "Mablag'lar qaytarildi",
+      "returned_detail": "{{goal}} maqsadidan {{amount}} UZS qaytarildi",
+      "updated": "Maqsad yangilandi",
+      "archived": "Maqsad arxivlandi",
+      "restored": "Maqsad qayta tiklandi",
+      "deleted": "Maqsad o'chirildi",
+      "failedToCreate": "Maqsadni yaratib bo'lmadi",
+      "failedToContribute": "Hissa qo'shib bo'lmadi",
+      "failedToReturn": "Mablag'larni qaytarib bo'lmadi",
+      "failedToUpdate": "Maqsadni yangilab bo'lmadi",
+      "failedToArchive": "Maqsadni arxivlab bo'lmadi",
+      "failedToRestore": "Maqsadni qayta tiklab bo'lmadi",
+      "failedToDelete": "Maqsadni o'chirib bo'lmadi"
+    },
+    "recurring": {
+      "created": "Takroriy xarajat yaratildi",
+      "created_detail": "{{title}} - {{amount}} UZS",
+      "updated": "Takroriy xarajat yangilandi",
+      "updated_detail": "{{title}} - {{amount}} UZS",
+      "deleted": "Takroriy xarajat o'chirildi",
+      "failedToCreate": "Takroriy xarajatni yaratib bo'lmadi",
+      "failedToUpdate": "Takroriy xarajatni yangilab bo'lmadi",
+      "failedToDelete": "Takroriy xarajatni o'chirib bo'lmadi",
+      "failedToToggle": "Takroriy xarajat holatini o'zgartirib bo'lmadi"
+    },
+    "savings": {
+      "deposited": "Mablag' muvaffaqiyatli kiritildi",
+      "deposited_detail": "{{amount}} UZS",
+      "withdrawn": "Mablag' muvaffaqiyatli yechildi",
+      "withdrawn_detail": "{{amount}} UZS",
+      "failedToDeposit": "Mablag'ni kiritib bo'lmadi",
+      "failedToWithdraw": "Mablag'ni yechib bo'lmadi"
+    }
   }
 }
-

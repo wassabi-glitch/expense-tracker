@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { getCurrentUser, logout } from "@/lib/api";
 import { APP_LANGUAGE_KEY } from "@/i18n";
 import { LanguageSelect } from "@/components/ui/language-select";
+import { NotificationBell } from "@/components/NotificationBell";
 import flowLockup from "@/assets/brand/sarflog-flow-lockup.svg";
 import flowLockupDark from "@/assets/brand/sarflog-flow-lockup-dark.svg";
 
@@ -276,6 +277,8 @@ export default function Layout() {
             onChange={handleLanguageChange}
             buttonClassName="min-w-[74px]"
           />
+
+          <NotificationBell />
 
           <Button
             variant="ghost"

@@ -1,4 +1,4 @@
-﻿{
+{
   "appName": "Sarflog",
   "common": {
     "back": "Назад",
@@ -19,7 +19,8 @@
     "forbidden": "У вас нет прав для выполнения этого действия.",
     "premiumRequired": "Эта функция требует подписки Premium.",
     "actions": "Действия",
-    "close": "Закрыть"
+    "close": "Закрыть",
+    "justNow": "только что"
   },
   "nav": {
     "platform": "Платформа",
@@ -842,6 +843,126 @@
     "Entertainment": "Кино, хобби, путешествия и отдых",
     "Installments & Debt": "Выплаты по кредитам, рассрочка и долги",
     "Business / Work": "Встречи с клиентами, офисные расходы, рабочие сервисы и командировки"
+  },
+  "notifications": {
+    "title": "Уведомления",
+    "empty": "Пока нет уведомлений",
+    "markRead": "Отметить как прочитанное",
+    "markAllRead": "Отметить все как прочитанные",
+    "priority": {
+      "info": "Информация",
+      "low": "Низкий",
+      "medium": "Средний",
+      "high": "Высокий",
+      "critical": "Критический"
+    },
+    "type": {
+      "budget_warning": "Предупреждение о бюджете",
+      "budget_exceeded": "Бюджет превышен",
+      "recurring_due": "Повторяющееся",
+      "goal_milestone": "Цель",
+      "goal_completed": "Цель достигнута",
+      "system": "Система"
+    },
+    "messages": {
+      "budget_warning_50": "Вы использовали 50% бюджета на {{category}}",
+      "budget_warning_70": "Вы использовали 70% бюджета на {{category}}. Осталось {{remaining}} UZS",
+      "budget_warning_90": "Бюджет {{category}}: Осталось всего {{remaining}} UZS (90% использовано)",
+      "budget_exceeded": "Бюджет превышен: {{category}}",
+      "budget_exceeded_detail": "Вы превысили бюджет на {{category}} на {{over}} UZS",
+      "goal_milestone_25": "Отличное начало: {{goal}}",
+      "goal_milestone_25_detail": "Вы достигли 25% цели {{goal}}!",
+      "goal_milestone_50": "На полпути: {{goal}}",
+      "goal_milestone_50_detail": "Вы на полпути к цели {{goal}}! Продолжайте!",
+      "goal_milestone_75": "Почти у цели: {{goal}}",
+      "goal_milestone_75_detail": "Вы достигли 75% цели {{goal}}! Осталось {{remaining}} UZS",
+      "goal_completed": "Цель достигнута: {{goal}}",
+      "goal_completed_detail": "Поздравляем! Вы достигли цели {{goal}}!"
+    },
+    "titles": {
+      "budgetExceeded": "Бюджет превышен",
+      "budgetWarning": "Предупреждение о бюджете",
+      "highRisk": "Высокий риск",
+      "goalReached": "Цель достигнута",
+      "goalMilestone": "Этап цели"
+    }
+  },
+  "toasts": {
+    "expense": {
+      "created": "Расход добавлен",
+      "created_detail": "{{title}} - {{amount}} UZS",
+      "updated": "Расход обновлён",
+      "updated_detail": "{{title}} - {{amount}} UZS",
+      "deleted": "Расход удалён",
+      "failedToCreate": "Не удалось добавить расход",
+      "failedToUpdate": "Не удалось обновить расход",
+      "failedToDelete": "Не удалось удалить расход"
+    },
+    "income": {
+      "sourceCreated": "Источник дохода добавлен",
+      "sourceUpdated": "Источник дохода обновлён",
+      "sourceDeleted": "Источник дохода удалён",
+      "entryCreated": "Доход добавлен",
+      "entryCreated_detail": "{{amount}} UZS",
+      "entryUpdated": "Доход обновлён",
+      "entryUpdated_detail": "{{amount}} UZS",
+      "entryDeleted": "Доход удалён",
+      "failedToCreateSource": "Не удалось добавить источник дохода",
+      "failedToUpdateSource": "Не удалось обновить источник дохода",
+      "failedToDeleteSource": "Не удалось удалить источник дохода",
+      "failedToCreateEntry": "Не удалось добавить доход",
+      "failedToUpdateEntry": "Не удалось обновить доход",
+      "failedToDeleteEntry": "Не удалось удалить доход",
+      "failedToToggleSource": "Не удалось переключить источник дохода"
+    },
+    "budget": {
+      "created": "Бюджет создан",
+      "created_detail": "{{category}} - {{amount}} UZS/мес.",
+      "updated": "Бюджет обновлён",
+      "updated_detail": "{{category}} - {{amount}} UZS/мес.",
+      "deleted": "Бюджет удалён",
+      "failedToCreate": "Не удалось создать бюджет",
+      "failedToUpdate": "Не удалось обновить бюджет",
+      "failedToDelete": "Не удалось удалить бюджет"
+    },
+    "goal": {
+      "created": "Цель создана",
+      "created_detail": "{{title}} - {{amount}} UZS",
+      "contributed": "Взнос добавлен",
+      "contributed_detail": "{{amount}} UZS в {{goal}}",
+      "returned": "Средства возвращены",
+      "returned_detail": "{{amount}} UZS из {{goal}}",
+      "updated": "Цель обновлена",
+      "archived": "Цель архивирована",
+      "restored": "Цель восстановлена",
+      "deleted": "Цель удалена",
+      "failedToCreate": "Не удалось создать цель",
+      "failedToContribute": "Не удалось сделать взнос",
+      "failedToReturn": "Не удалось вернуть средства",
+      "failedToUpdate": "Не удалось обновить цель",
+      "failedToArchive": "Не удалось архивировать цель",
+      "failedToRestore": "Не удалось восстановить цель",
+      "failedToDelete": "Не удалось удалить цель"
+    },
+    "recurring": {
+      "created": "Регулярный расход создан",
+      "created_detail": "{{title}} - {{amount}} UZS",
+      "updated": "Регулярный расход обновлен",
+      "updated_detail": "{{title}} - {{amount}} UZS",
+      "deleted": "Регулярный расход удален",
+      "failedToCreate": "Не удалось создать регулярный расход",
+      "failedToUpdate": "Не удалось обновить регулярный расход",
+      "failedToDelete": "Не удалось удалить регулярный расход",
+      "failedToToggle": "Не удалось изменить статус регулярного расхода"
+    },
+    "savings": {
+      "deposited": "Депозит успешно внесен",
+      "deposited_detail": "{{amount}} UZS",
+      "withdrawn": "Средства успешно сняты",
+      "withdrawn_detail": "{{amount}} UZS",
+      "failedToDeposit": "Не удалось внести депозит",
+      "failedToWithdraw": "Не удалось снять средства"
+    }
   }
 }
 

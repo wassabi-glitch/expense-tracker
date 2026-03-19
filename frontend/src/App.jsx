@@ -10,6 +10,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { silentRefresh } from "@/lib/api";
 import { AuthContext } from "@/lib/AuthContext";
+import { NotificationProvider } from "@/lib/context/NotificationContext";
+import { ToastProvider } from "@/lib/context/ToastContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import OnboardingGate from "@/components/OnboardingGate";
 import Layout from "@/components/Layout";
@@ -53,7 +55,9 @@ export default function App() {
 
   return (
     <AuthContext.Provider value={{ authReady }}>
-      <Routes>
+      <ToastProvider>
+        <NotificationProvider>
+          <Routes>
         <Route path="/" element={<Navigate to="/sign-in" replace />} />
         <Route path="/sign-in" element={<Login />} />
         <Route path="/sign-up" element={<Signup />} />
@@ -79,7 +83,9 @@ export default function App() {
           </Route>
         </Route>
         <Route path="*" element={<NotFound />} />
-      </Routes>
+        </Routes>
+        </NotificationProvider>
+      </ToastProvider>
     </AuthContext.Provider>
   );
 }

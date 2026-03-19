@@ -354,6 +354,20 @@ def contribute_to_goal(
 
     funded_amount = get_goal_funded_amount(db, current_user.id, goal.id)
     sync_goal_status(goal, funded_amount)
+
+    from app.routers.notifications import create_goal_milestone_notification
+    is_completed = goal.status == models.GoalStatus.COMPLETED
+    notification = create_goal_milestone_notification(
+        db=db,
+        owner_id=current_user.id,
+        goal_title=goal.title,
+        funded_amount=funded_amount,
+        target_amount=goal.target_amount,
+        is_completed=is_completed,
+    )
+    if notification:
+        db.add(notification)
+
     db.commit()
     db.refresh(goal)
     return build_goal_with_progress(goal, funded_amount, today=today_in_tz(user_tz))
