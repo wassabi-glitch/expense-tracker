@@ -1,4 +1,3 @@
-import pytest
 from app import models
 from tests.helpers import create_user_and_token, create_budget, create_expense
 
