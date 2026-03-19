@@ -226,9 +226,9 @@ def test_scheduler_recreates_budget_after_manual_budget_and_expense_deletion(cli
     del_exp = client.delete(f"/expenses/{expense_id}", headers=headers)
     assert del_exp.status_code == 204
 
-    del_budget = client.delete(f"/budgets/{today.year}/{today.month}/Utilities", headers=headers)
+    del_budget = client.delete(f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Utilities", headers=headers)
     assert del_budget.status_code == 204
-    get_deleted_budget = client.get(f"/budgets/{today.year}/{today.month}/Utilities", headers=headers)
+    get_deleted_budget = client.get(f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Utilities", headers=headers)
     assert get_deleted_budget.status_code == 404
 
     db_gen, db = _get_test_db()

@@ -214,6 +214,11 @@ def create_budget_notification(
         message = f"You've used 70% of your {category} budget. {remaining:,} UZS remaining"
         priority = "medium"
         notification_type = models.NotificationType.BUDGET_WARNING.value
+    elif percentage >= 50:
+        title = f"Alert: {category}"
+        message = f"You've used 50% of your {category} budget (reached {spent:,} UZS)"
+        priority = "low"
+        notification_type = models.NotificationType.BUDGET_WARNING.value
     else:
         return None
 

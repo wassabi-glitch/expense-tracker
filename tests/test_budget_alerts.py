@@ -27,6 +27,7 @@ def test_budget_alerts_thresholds(client, session):
     user_id = _get_user_id(session, "alertuser@example.com")
     budget = _get_budget(session, user_id, models.ExpenseCategory.GROCERIES)
     check_budget_alerts(session, budget)
+    session.commit()
     session.refresh(budget)
     assert budget.last_notified_threshold == 0
 
@@ -34,6 +35,7 @@ def test_budget_alerts_thresholds(client, session):
     create_expense(client, headers, title="Exp2", amount=10, category="Food")
     budget = _get_budget(session, user_id, models.ExpenseCategory.GROCERIES)
     check_budget_alerts(session, budget)
+    session.commit()
     session.refresh(budget)
     assert budget.last_notified_threshold == 50
 
@@ -41,6 +43,7 @@ def test_budget_alerts_thresholds(client, session):
     create_expense(client, headers, title="Exp3", amount=40, category="Food")
     budget = _get_budget(session, user_id, models.ExpenseCategory.GROCERIES)
     check_budget_alerts(session, budget)
+    session.commit()
     session.refresh(budget)
     assert budget.last_notified_threshold == 90
 
@@ -48,6 +51,7 @@ def test_budget_alerts_thresholds(client, session):
     create_expense(client, headers, title="Exp4", amount=20, category="Food")
     budget = _get_budget(session, user_id, models.ExpenseCategory.GROCERIES)
     check_budget_alerts(session, budget)
+    session.commit()
     session.refresh(budget)
     assert budget.last_notified_threshold == 100
 
@@ -62,6 +66,7 @@ def test_budget_alerts_reset_below_50(client, session):
     user_id = _get_user_id(session, "alertuser2@example.com")
     budget = _get_budget(session, user_id, models.ExpenseCategory.GROCERIES)
     check_budget_alerts(session, budget)
+    session.commit()
     session.refresh(budget)
     assert budget.last_notified_threshold == 50
 
@@ -75,5 +80,6 @@ def test_budget_alerts_reset_below_50(client, session):
 
     budget = _get_budget(session, user_id, models.ExpenseCategory.GROCERIES)
     check_budget_alerts(session, budget)
+    session.commit()
     session.refresh(budget)
     assert budget.last_notified_threshold == 0

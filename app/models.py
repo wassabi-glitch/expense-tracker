@@ -290,6 +290,7 @@ class Budget(Base):
         "users.id", ondelete="CASCADE"), nullable=False)
     owner = relationship("User", back_populates="budgets")
     expenses = relationship("Expense", back_populates="budget")
+    last_notified_threshold = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     # is_active = Column(Boolean, default=True)
 

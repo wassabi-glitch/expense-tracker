@@ -1,4 +1,4 @@
-﻿import os
+import os
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,6 +15,8 @@ from config import settings
 # Tests rely on being able to toggle premium via a dev-only endpoint.
 # In production, this endpoint is still blocked by `settings.is_production`.
 settings.debug_allow_premium_toggle = True
+settings.smtp_host = None # Disable emails in tests
+
 
 # ---------------------------------------------------------------------------
 # Database engine — environment-aware
