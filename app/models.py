@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, CheckConstraint, Column, Date, Index, Integer, BigInteger, String, DateTime, ForeignKey, Enum, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, Column, Date, Index, Integer, BigInteger, String, DateTime, ForeignKey, Enum, UniqueConstraint, JSON
 from sqlalchemy.sql import func
 from .session import Base
 import enum
@@ -119,6 +119,8 @@ class User(Base):
         "PasswordResetToken", back_populates="user", cascade="all, delete-orphan")
     email_verification_tokens = relationship(
         "EmailVerificationToken", back_populates="user", cascade="all, delete-orphan")
+    notifications = relationship(
+        "Notification", back_populates="owner", cascade="all, delete")
 
 
 class Expense(Base):
@@ -288,6 +290,7 @@ class Budget(Base):
         "users.id", ondelete="CASCADE"), nullable=False)
     owner = relationship("User", back_populates="budgets")
     expenses = relationship("Expense", back_populates="budget")
+    last_notified_threshold = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     # is_active = Column(Boolean, default=True)
 
@@ -394,6 +397,46 @@ class PaymentStatus(str, enum.Enum):
     PENDING = "PENDING"
     COMPLETED = "COMPLETED"
     REJECTED = "REJECTED"
+
+
+class NotificationPriority(str, enum.Enum):
+    INFO = "info"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class NotificationType(str, enum.Enum):
+    BUDGET_WARNING = "budget_warning"
+    BUDGET_EXCEEDED = "budget_exceeded"
+    RECURRING_DUE = "recurring_due"
+    GOAL_MILESTONE = "goal_milestone"
+    GOAL_COMPLETED = "goal_completed"
+    SYSTEM = "system"
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    __table_args__ = (
+        Index("ix_notifications_owner_id", "owner_id"),
+        Index("ix_notifications_owner_is_read", "owner_id", "is_read"),
+        Index("ix_notifications_owner_created_at", "owner_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey(
+        "users.id", ondelete="CASCADE"), nullable=False)
+    type = Column(String(50), nullable=False)
+    title = Column(String(100), nullable=False)
+    message = Column(String(500), nullable=False)
+    is_read = Column(Boolean, default=False, nullable=False)
+    priority = Column(String(20), nullable=False, default="info")
+    extra_data = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True),
+                        server_default=func.now(), nullable=False)
+
+    owner = relationship("User", back_populates="notifications")
 
 
 class PaymentTransaction(Base):

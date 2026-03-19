@@ -166,6 +166,11 @@ def create_expense(
 
     db.add(new_expense)
     db.commit()
+    
+    from app.utils import check_budget_alerts
+    check_budget_alerts(db, budget)
+    db.commit()
+    
     db.refresh(new_expense)
     return new_expense
 
@@ -422,6 +427,11 @@ def update_expense(
     db_expense.budget_id = budget.id
 
     db.commit()
+    
+    from app.utils import check_budget_alerts
+    check_budget_alerts(db, budget)
+    db.commit()
+    
     db.refresh(db_expense)
     return db_expense
 
@@ -453,6 +463,14 @@ def delete_expense(
             detail="common.forbidden",
         )
 
+    budget = db_expense.budget
     db.delete(db_expense)
     db.commit()
+
+    # Re-check budget alerts to reset notification thresholds if spending decreased.
+    from app.utils import check_budget_alerts
+    if budget:
+        check_budget_alerts(db, budget)
+        db.commit()
+
     return Response(status_code=status.HTTP_204_NO_CONTENT)

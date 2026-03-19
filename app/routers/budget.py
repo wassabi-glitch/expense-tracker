@@ -199,7 +199,7 @@ def get_budgets(
     return budgets_out
 
 
-@router.get("/{budget_year}/{budget_month}/{category}", response_model=schemas.BudgetOut)
+@router.get("/item", response_model=schemas.BudgetOut)
 def get_budget(
     budget_year: int,
     budget_month: int,
@@ -223,7 +223,7 @@ def get_budget(
     return budget
 
 
-@router.patch("/{budget_year}/{budget_month}/{category}", response_model=schemas.BudgetOut)
+@router.patch("/item", response_model=schemas.BudgetOut)
 def update_budget(
     budget_year: int,
     budget_month: int,
@@ -257,7 +257,7 @@ def update_budget(
     return budget
 
 
-@router.delete("/{budget_year}/{budget_month}/{category}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/item", status_code=status.HTTP_204_NO_CONTENT)
 def delete_budget(
     budget_year: int,
     budget_month: int,

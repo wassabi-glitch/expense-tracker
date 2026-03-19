@@ -16,16 +16,26 @@ export async function createBudget(category, monthly_limit, budget_year, budget_
 }
 
 export async function updateBudget(category, monthly_limit, budget_year, budget_month) {
+    const params = new URLSearchParams({
+        budget_year,
+        budget_month,
+        category,
+    });
     const response = await apiClient.patch(
-        `/budgets/${encodeURIComponent(budget_year)}/${encodeURIComponent(budget_month)}/${encodeURIComponent(category)}`,
+        `/budgets/item?${params.toString()}`,
         { monthly_limit },
     );
     return response.data;
 }
 
 export async function deleteBudget(category, budget_year, budget_month) {
+    const params = new URLSearchParams({
+        budget_year,
+        budget_month,
+        category,
+    });
     const response = await apiClient.delete(
-        `/budgets/${encodeURIComponent(budget_year)}/${encodeURIComponent(budget_month)}/${encodeURIComponent(category)}`,
+        `/budgets/item?${params.toString()}`,
     );
     return response.data;
 }

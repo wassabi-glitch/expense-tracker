@@ -1,5 +1,9 @@
+import { useTranslation } from "react-i18next";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createExpense, deleteExpense, updateExpense } from "@/lib/api";
+import { useToast } from "@/lib/context/ToastContext";
+import { formatUzs } from "@/lib/format";
+import { localizeApiError } from "@/lib/errorMessages";
 
 function toAmount(value) {
     const n = Number(value);
@@ -46,11 +50,14 @@ async function invalidateExpenseDerivedQueries(queryClient) {
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
         queryClient.invalidateQueries({ queryKey: ["analytics"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["notifications"] }),
     ]);
 }
 
 export function useCreateExpenseMutation() {
+    const { t } = useTranslation();
     const queryClient = useQueryClient();
+    const toast = useToast();
 
     return useMutation({
         mutationFn: createExpense,
@@ -60,10 +67,18 @@ export function useCreateExpenseMutation() {
             applySummaryDelta(queryClient, toAmount(payload?.amount));
             return { previousSummaries };
         },
-        onError: (_error, _variables, context) => {
+        onError: (error, _variables, context) => {
             for (const [key, data] of context?.previousSummaries || []) {
                 queryClient.setQueryData(key, data);
             }
+            const msg = localizeApiError(error.message, t) || error.message;
+            toast.error(t("toasts.expense.failedToCreate"), msg);
+        },
+        onSuccess: (data) => {
+            toast.success(
+                t("toasts.expense.created"),
+                t("toasts.expense.created_detail", { title: data.title, amount: formatUzs(data.amount) })
+            );
         },
         onSettled: async () => {
             await invalidateExpenseDerivedQueries(queryClient);
@@ -72,7 +87,9 @@ export function useCreateExpenseMutation() {
 }
 
 export function useUpdateExpenseMutation() {
+    const { t } = useTranslation();
     const queryClient = useQueryClient();
+    const toast = useToast();
 
     return useMutation({
         mutationFn: ({ id, payload }) => updateExpense(id, payload),
@@ -85,10 +102,18 @@ export function useUpdateExpenseMutation() {
             applySummaryDelta(queryClient, deltaSpent);
             return { previousSummaries };
         },
-        onError: (_error, _variables, context) => {
+        onError: (error, _variables, context) => {
             for (const [key, data] of context?.previousSummaries || []) {
                 queryClient.setQueryData(key, data);
             }
+            const msg = localizeApiError(error.message, t) || error.message;
+            toast.error(t("toasts.expense.failedToUpdate"), msg);
+        },
+        onSuccess: (data) => {
+            toast.success(
+                t("toasts.expense.updated"),
+                t("toasts.expense.updated_detail", { title: data.title, amount: formatUzs(data.amount) })
+            );
         },
         onSettled: async () => {
             await invalidateExpenseDerivedQueries(queryClient);
@@ -97,7 +122,9 @@ export function useUpdateExpenseMutation() {
 }
 
 export function useDeleteExpenseMutation() {
+    const { t } = useTranslation();
     const queryClient = useQueryClient();
+    const toast = useToast();
 
     return useMutation({
         mutationFn: (id) => deleteExpense(id),
@@ -109,10 +136,15 @@ export function useDeleteExpenseMutation() {
             applySummaryDelta(queryClient, deltaSpent);
             return { previousSummaries };
         },
-        onError: (_error, _variables, context) => {
+        onError: (error, _variables, context) => {
             for (const [key, data] of context?.previousSummaries || []) {
                 queryClient.setQueryData(key, data);
             }
+            const msg = localizeApiError(error.message, t) || error.message;
+            toast.error(t("toasts.expense.failedToDelete"), msg);
+        },
+        onSuccess: () => {
+            toast.success(t("toasts.expense.deleted"));
         },
         onSettled: async () => {
             await invalidateExpenseDerivedQueries(queryClient);

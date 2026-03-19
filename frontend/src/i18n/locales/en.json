@@ -19,7 +19,8 @@
     "forbidden": "You are not allowed to perform this action.",
     "premiumRequired": "This feature requires a Premium subscription.",
     "actions": "Actions",
-    "close": "Close"
+    "close": "Close",
+    "justNow": "just now"
   },
   "nav": {
     "platform": "Platform",
@@ -847,6 +848,126 @@
     "Entertainment": "Cinema, hobbies, travel, and leisure activities",
     "Installments & Debt": "Loan repayments, installments, and credit card debt",
     "Business / Work": "Client meetings, office supplies, software tools, and work travel"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "empty": "No notifications yet",
+    "markRead": "Mark as read",
+    "markAllRead": "Mark all as read",
+    "priority": {
+      "info": "Info",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "critical": "Critical"
+    },
+    "type": {
+      "budget_warning": "Budget Warning",
+      "budget_exceeded": "Budget Exceeded",
+      "recurring_due": "Recurring Due",
+      "goal_milestone": "Goal Milestone",
+      "goal_completed": "Goal Completed",
+      "system": "System"
+    },
+    "messages": {
+      "budget_warning_50": "You've used 50% of your {{category}} budget",
+      "budget_warning_70": "You've used 70% of your {{category}} budget. {{remaining}} UZS remaining",
+      "budget_warning_90": "{{category}} budget: Only {{remaining}} UZS remaining (90% spent)",
+      "budget_exceeded": "Budget exceeded: {{category}}",
+      "budget_exceeded_detail": "You've exceeded your {{category}} budget by {{over}} UZS",
+      "goal_milestone_25": "Great start: {{goal}}",
+      "goal_milestone_25_detail": "25% of your {{goal}} goal reached!",
+      "goal_milestone_50": "Halfway: {{goal}}",
+      "goal_milestone_50_detail": "You're halfway to your {{goal}} goal! Keep going!",
+      "goal_milestone_75": "Almost there: {{goal}}",
+      "goal_milestone_75_detail": "You're 75% to your {{goal}} goal! Only {{remaining}} UZS left",
+      "goal_completed": "Goal reached: {{goal}}",
+      "goal_completed_detail": "Congratulations! You've reached your {{goal}} goal!"
+    },
+    "titles": {
+      "budgetExceeded": "Budget Exceeded",
+      "budgetWarning": "Budget Warning",
+      "highRisk": "High Risk",
+      "goalReached": "Goal Reached",
+      "goalMilestone": "Goal Milestone"
+    }
+  },
+  "toasts": {
+    "expense": {
+      "created": "Expense added",
+      "created_detail": "{{title}} - {{amount}} UZS",
+      "updated": "Expense updated",
+      "updated_detail": "{{title}} - {{amount}} UZS",
+      "deleted": "Expense deleted",
+      "failedToCreate": "Failed to add expense",
+      "failedToUpdate": "Failed to update expense",
+      "failedToDelete": "Failed to delete expense"
+    },
+    "income": {
+      "sourceCreated": "Income source added",
+      "sourceUpdated": "Income source updated",
+      "sourceDeleted": "Income source deleted",
+      "entryCreated": "Income added",
+      "entryCreated_detail": "{{amount}} UZS",
+      "entryUpdated": "Income updated",
+      "entryUpdated_detail": "{{amount}} UZS",
+      "entryDeleted": "Income deleted",
+      "failedToCreateSource": "Failed to add income source",
+      "failedToUpdateSource": "Failed to update income source",
+      "failedToDeleteSource": "Failed to delete income source",
+      "failedToCreateEntry": "Failed to add income",
+      "failedToUpdateEntry": "Failed to update income",
+      "failedToDeleteEntry": "Failed to delete income",
+      "failedToToggleSource": "Failed to toggle income source"
+    },
+    "budget": {
+      "created": "Budget created",
+      "created_detail": "{{category}} - {{amount}} UZS/month",
+      "updated": "Budget updated",
+      "updated_detail": "{{category}} - {{amount}} UZS/month",
+      "deleted": "Budget deleted",
+      "failedToCreate": "Failed to create budget",
+      "failedToUpdate": "Failed to update budget",
+      "failedToDelete": "Failed to delete budget"
+    },
+    "goal": {
+      "created": "Goal created",
+      "created_detail": "{{title}} - {{amount}} UZS",
+      "contributed": "Contribution added",
+      "contributed_detail": "{{amount}} UZS to {{goal}}",
+      "returned": "Funds returned",
+      "returned_detail": "{{amount}} UZS from {{goal}}",
+      "updated": "Goal updated",
+      "archived": "Goal archived",
+      "restored": "Goal restored",
+      "deleted": "Goal deleted",
+      "failedToCreate": "Failed to create goal",
+      "failedToContribute": "Failed to contribute",
+      "failedToReturn": "Failed to return funds",
+      "failedToUpdate": "Failed to update goal",
+      "failedToArchive": "Failed to archive goal",
+      "failedToRestore": "Failed to restore goal",
+      "failedToDelete": "Failed to delete goal"
+    },
+    "recurring": {
+      "created": "Recurring expense created",
+      "created_detail": "{{title}} - {{amount}} UZS",
+      "updated": "Recurring expense updated",
+      "updated_detail": "{{title}} - {{amount}} UZS",
+      "deleted": "Recurring expense deleted",
+      "failedToCreate": "Failed to create recurring expense",
+      "failedToUpdate": "Failed to update recurring expense",
+      "failedToDelete": "Failed to delete recurring expense",
+      "failedToToggle": "Failed to toggle recurring expense"
+    },
+    "savings": {
+      "deposited": "Deposit successful",
+      "deposited_detail": "{{amount}} UZS",
+      "withdrawn": "Withdrawal successful",
+      "withdrawn_detail": "{{amount}} UZS",
+      "failedToDeposit": "Failed to deposit funds",
+      "failedToWithdraw": "Failed to withdraw funds"
+    }
   }
 }
 
