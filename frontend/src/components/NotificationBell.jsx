@@ -13,7 +13,7 @@ export function NotificationBell() {
     const [mobileOpen, setMobileOpen] = useState(false);
     const { unreadCount } = useNotifications();
 
-    const TriggerContent = (
+    const triggerContent = (
         <>
             <Bell className={cn("h-5 w-5 transition-transform", (isOpen || mobileOpen) && "scale-90")} />
             {unreadCount > 0 && (
@@ -24,19 +24,20 @@ export function NotificationBell() {
         </>
     );
 
-    const TriggerButton = (props) => (
+    // Render helper (not a component) to avoid "component defined inside render" ESLint error
+    const renderTriggerButton = (extraProps = {}) => (
         <Button
             variant="ghost"
             size="icon"
-            {...props}
+            {...extraProps}
             className={cn(
                 "relative rounded-xl transition-colors",
                 (isOpen || mobileOpen) && "bg-muted",
-                props.className
+                extraProps.className
             )}
             aria-label={t("notifications.title")}
         >
-            {TriggerContent}
+            {triggerContent}
         </Button>
     );
 
@@ -46,7 +47,7 @@ export function NotificationBell() {
             <div className="md:hidden">
                 <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
                     <SheetTrigger asChild>
-                        <TriggerButton />
+                        {renderTriggerButton()}
                     </SheetTrigger>
                     <SheetContent side="bottom" showCloseButton={false} className="h-[82vh] p-0 rounded-t-2xl overflow-hidden border-t shadow-2xl flex flex-col">
                         <NotificationList onClose={() => setMobileOpen(false)} />
@@ -56,7 +57,7 @@ export function NotificationBell() {
 
             {/* ── Desktop View: Dropdown ────────────────── */}
             <div className="hidden md:block">
-                <TriggerButton onClick={() => setIsOpen(!isOpen)} />
+                {renderTriggerButton({ onClick: () => setIsOpen(!isOpen) })}
 
                 {isOpen && (
                     <>

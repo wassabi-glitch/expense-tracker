@@ -15,7 +15,6 @@ import {
   UserCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 const wealthItems = [
   { to: "/income", labelKey: "nav.income", icon: Landmark },
@@ -28,7 +27,7 @@ const utilityItems = [
   { to: "/settings", labelKey: "nav.settings", icon: Settings },
 ];
 
-export function MobileMenuHub({ isOpen, onClose, onLogout, username, email }) {
+export function MobileMenuHub({ isOpen, onClose, onLogout }) {
   const { t } = useTranslation();
 
   if (!isOpen) return null;

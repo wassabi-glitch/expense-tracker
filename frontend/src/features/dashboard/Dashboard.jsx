@@ -40,13 +40,6 @@ import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { useDashboardDataQuery } from "./hooks/useDashboardDataQuery";
 
-const tooltipStyle = {
-  borderRadius: 10,
-  border: "1px solid hsl(var(--border))",
-  background: "hsl(var(--background))",
-  color: "hsl(var(--foreground))",
-  boxShadow: "0 10px 30px rgba(0,0,0,0.12)",
-};
 const EMPTY_ARRAY = [];
 
 const getCategoryColor = (category) => {

@@ -206,14 +206,14 @@ def rotate_refresh_token(old_raw_token: str) -> tuple[str, int]:
     old_key = _rt_key(old_hash)
     rotated_marker_key = f"rotated:{old_hash}"
 
-    # 1. First, check if this token was ALREADY rotated very recently (race condition)
-    # This happens if multiple requests from different tabs hit /refresh at the same time.
+    # 1. Check if this token was ALREADY rotated (already used once)
+    # If a rotated_marker exists, this old token is invalid — raise 401.
     rotated_info = _redis.get(rotated_marker_key)
     if rotated_info:
-        # We found a grace-period marker! Format is "new_raw|user_id"
-        parts = rotated_info.split("|", 1)
-        if len(parts) == 2:
-            return parts[0], int(parts[1])
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="auth.refresh_token_invalid",
+        )
 
     # 2. Look up the old token in Redis (the "live" one)
     stored = _redis.get(old_key)
@@ -253,13 +253,9 @@ def rotate_refresh_token(old_raw_token: str) -> tuple[str, int]:
     _redis.sadd(family_key, new_hash)
     _redis.expire(family_key, REFRESH_TOKEN_EXPIRE_SECONDS)
 
-    # 4. Set a grace-period marker for the OLD hash
-    # This tells us: "If you see old_hash again in the next 30s, give them new_raw"
-    _redis.setex(
-        rotated_marker_key,
-        30,  # 30 second grace period
-        f"{new_raw}|{user_id}",
-    )
+    # 4. Set a short-lived marker so we know this old hash was already rotated.
+    # This prevents the old hash from being used again (replay protection).
+    _redis.setex(rotated_marker_key, 30, "used")
 
     return new_raw, user_id
 

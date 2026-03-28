@@ -54,7 +54,6 @@ import { localizeApiError } from "@/lib/errorMessages";
 import {
   formatAmountDisplay,
   formatAmountInput,
-  formatCompactUzs,
   formatDisplayDate,
   formatUzs,
 } from "@/lib/format";
