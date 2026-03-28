@@ -239,7 +239,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup environment
-        run: cp .env.example .env
+        run: |
+          cp .env.example .env
+          echo "GOOGLE_CLIENT_ID=ci-placeholder" >> .env
+          echo "GOOGLE_CLIENT_SECRET=ci-placeholder" >> .env
+          echo "GOOGLE_REDIRECT_URI=http://localhost:9000/auth/google/callback" >> .env
 
       - name: Start Application in Background
         run: |
