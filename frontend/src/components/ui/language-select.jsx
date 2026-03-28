@@ -50,7 +50,7 @@ export function LanguageSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className={`flex h-9 items-center justify-center gap-1 rounded-md border border-input bg-background px-2 text-center text-sm ${buttonClassName}`}
+        className={`flex h-9 items-center justify-center gap-1 rounded-md border border-input bg-background px-1.5 lg:px-2 text-center text-sm ${buttonClassName}`}
       >
         <span className="min-w-[2ch] text-center">{active.label}</span>
         <ChevronDown className="h-4 w-4 opacity-80" />

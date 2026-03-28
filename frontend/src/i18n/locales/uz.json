@@ -20,7 +20,9 @@
     "premiumRequired": "Bu funksiya Premium obuna talab qiladi.",
     "actions": "Amallar",
     "close": "Yopish",
-    "justNow": "hozir"
+    "justNow": "hozir",
+    "transaction": "tranzaksiya",
+    "transactions": "tranzaksiyalar"
   },
   "nav": {
     "platform": "Platforma",
@@ -213,9 +215,13 @@
     "title": "Boshqaruv paneli",
     "subtitle": "Ushbu oy uchun moliyaviy ko'rinishingiz.",
     "totalBalance": "Umumiy balans",
+    "totalBalanceHint": "Barcha daromad va xarajatlaringiz bo'yicha joriy sof balansingiz.",
     "incomeThisMonth": "Shu oydagi daromad",
+    "incomeHint": "Shu kalendar oyida olingan umumiy daromad.",
     "spentThisMonth": "Shu oydagi sarf",
+    "spentHint": "Shu kalendar oyida qayd etilgan umumiy xarajatlar.",
     "remainingThisMonth": "Shu oy qoldig'i",
+    "remainingHint": "Sizning oylik sof tejamingiz yoki defitsitingiz (Daromad - Xarajat).",
     "income": "Daromad",
     "spent": "Sarf",
     "remaining": "Qoldiq",
@@ -356,6 +362,7 @@
     "amount": "Summa",
     "category": "Toifa",
     "description": "Izoh",
+    "optional": "ixtiyoriy",
     "viewDescription": "Izoh",
     "actions": "Amallar",
     "emptyDesc": "Xarajat topilmadi.",
@@ -385,7 +392,7 @@
     "endFuture": "Tugash sanasi kelajakda bo'lishi mumkin emas.",
     "startAfterEnd": "Boshlanish sanasi tugash sanasidan keyin bo'lishi mumkin emas.",
     "frequencyRequired": "Iltimos, takroriylikni tanlang.",
-    "oneTime": "Bir martalik xarajatlar",
+    "oneTime": "Bir martalik",
     "recurringTab": "Takroriy",
     "tooManyWait": "Juda ko'p so'rov. {{seconds}} soniyadan keyin urinib ko'ring.",
     "tooManySoon": "Juda ko'p so'rov. Birozdan keyin urinib ko'ring.",
@@ -418,7 +425,7 @@
     "frequency": "Takroriylik",
     "selectFrequency": "Takroriylikni tanlang",
     "startDate": "Boshlanish sanasi",
-    "nextDue": "Keyingi to'lov sanasi",
+    "nextDue": "Keyingi To'lov",
     "active": "Faol",
     "daily": "Har kuni",
     "weekly": "Har hafta",
@@ -688,7 +695,7 @@
       "spendable": "Sarflanadigan",
       "freeSavings": "Erkin jamg'arma"
     },
-    "amountLabel": "Summa (UZS)",
+    "amountLabel": "Summa",
     "amountPlaceholder": "Summani kiriting",
     "availableToMove": "O'tkazish mumkin",
     "availableToWithdraw": "Qaytarish mumkin",
@@ -730,7 +737,7 @@
         "custom": "O'zining"
       },
       "goalNameLabel": "Maqsad nomi",
-      "targetLabel": "Maqsad summasi (UZS)",
+      "targetLabel": "Maqsad summasi",
       "targetDateLabel": "Muddat",
       "deadlinePrefix": "Muddat",
       "createHint": "Maqsad nomi sodda va aniq bo'lsin. Yaratilgach, erkin jamg'armadan darhol mablag' ajratish mumkin.",
@@ -851,7 +858,8 @@
   },
   "notifications": {
     "title": "Bildirishnomalar",
-    "empty": "Hali bildirishnomalar yo'q",
+    "empty": "Hozircha bildirishnomalar yo'q",
+    "totalCount": "Jami {{count}} ta bildirishnoma",
     "markRead": "O'qilgan deb belgilash",
     "markAllRead": "Hammasini o'qilgan deb belgilash",
     "priority": {

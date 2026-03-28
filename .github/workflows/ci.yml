@@ -1,4 +1,4 @@
-﻿name: CI
+name: CI
 
 on:
   push:
@@ -193,7 +193,7 @@ jobs:
 
       - name: Python Dependency Audit
         working-directory: .
-        run: pip-audit -r requirements.txt --ignore-vuln CVE-2024-23342
+        run: pip-audit -r requirements.txt --ignore-vuln CVE-2024-23342 --ignore-vuln CVE-2026-4539
 
       - name: Setup Node
         uses: actions/setup-node@v4

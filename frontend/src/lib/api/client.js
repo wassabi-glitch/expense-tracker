@@ -7,6 +7,30 @@ const GOOGLE_LOGIN_URL = `${API_BASE}/auth/google/login`;
 let accessToken = null;
 let refreshPromise = null;
 
+function parseJwt(token) {
+    try {
+        const base64Url = token.split(".")[1];
+        const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+        const jsonPayload = decodeURIComponent(
+            window
+                .atob(base64)
+                .split("")
+                .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+                .join("")
+        );
+        return JSON.parse(jsonPayload);
+    } catch {
+        return null;
+    }
+}
+
+function isTokenExpiredSoon(token, bufferSeconds = 60) {
+    const payload = parseJwt(token);
+    if (!payload || !payload.exp) return true;
+    const now = Math.floor(Date.now() / 1000);
+    return payload.exp - now < bufferSeconds;
+}
+
 function resetThemeOnSignout() {
     if (typeof document !== "undefined") {
         document.documentElement.classList.remove("dark", "theme-switching");
@@ -119,7 +143,13 @@ export const apiClient = axios.create({
     withCredentials: true,
 });
 
-apiClient.interceptors.request.use((config) => {
+apiClient.interceptors.request.use(async (config) => {
+    // 1. Pre-emptive refresh: if token is about to expire, refresh it BEFORE making the request.
+    // This prevents 401s from ever hitting the console (since we don't send expired tokens).
+    if (!config.skipAuthToken && accessToken && isTokenExpiredSoon(accessToken)) {
+        await attemptRefresh();
+    }
+
     const next = addTimezoneHeader(config);
     const headers = next.headers || {};
 

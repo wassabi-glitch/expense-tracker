@@ -1,10 +1,15 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
   ArrowDownLeft,
   Archive,
+  ArrowDown,
+  ArrowUp,
+  ArrowDownRight,
+  ArrowUpLeft,
+  ArrowLeft,
   ArrowRight,
   ArrowUpRight,
   BriefcaseBusiness,
@@ -25,13 +30,16 @@ import {
   Target,
   Trash2,
   Wallet,
+  HelpCircle,
 } from "lucide-react";
 
+import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CurrencyAmount } from "@/components/CurrencyAmount";
+import { InteractiveTooltip } from "@/components/InteractiveTooltip";
 import {
   Dialog,
   DialogContent,
@@ -43,7 +51,12 @@ import { Input } from "@/components/ui/input";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { getCurrentUser } from "@/lib/api";
 import { localizeApiError } from "@/lib/errorMessages";
-import { formatAmountDisplay, formatAmountInput, formatDisplayDate, formatUzs } from "@/lib/format";
+import {
+  formatAmountDisplay,
+  formatAmountInput,
+  formatDisplayDate,
+  formatUzs,
+} from "@/lib/format";
 import {
   goalActionAmountSchema,
   goalCreateFormSchema,
@@ -84,57 +97,83 @@ const GOAL_TEMPLATES = [
   { key: "custom", icon: SquarePen },
 ];
 
+const _formatCompactUzs = (value) => {
+  const num = Math.abs(Number(value || 0));
+  if (num >= 1_000_000_000_000) return `${(num / 1_000_000_000_000).toFixed(3).replace(/\.?0+$/, "")}T`;
+  if (num >= 1_000_000_000) return `${(num / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
+  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (num >= 1_000) return `${(num / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+  return num;
+};
+
 function parseAmountInput(value) {
   const digits = String(value || "").replace(/\s/g, "");
   return Number(digits || 0);
 }
 
-function SummaryCard({ title, value, hint, accent = "default", icon }) {
+function SummaryCard({ title, value, hint, accent = "default", icon, isMobile }) {
   const IconComponent = icon;
   const isNegative = Number(value || 0) < 0;
   const absoluteValue = Math.abs(Number(value || 0));
   const prefix = isNegative ? "-" : "";
 
   const accentClasses = isNegative
-    ? "border-border bg-card transition-all duration-300 hover:border-destructive/40 active:border-destructive/40 hover:shadow-[0_0_15px_rgba(239,68,68,0.1)] active:shadow-[0_0_15px_rgba(239,68,68,0.1)] active:scale-[0.98]"
+    ? "border-destructive/50 bg-card transition-all duration-300 hover:border-destructive active:border-destructive hover:shadow-[0_0_15px_rgba(239,68,68,0.1)] active:shadow-[0_0_15px_rgba(239,68,68,0.1)] active:scale-[0.98]"
     : accent === "primary"
       ? "border-border bg-card transition-all duration-300 hover:border-primary/40 active:border-primary/40 hover:shadow-[0_0_15px_rgba(34,197,94,0.1)] active:shadow-[0_0_15px_rgba(34,197,94,0.1)] active:scale-[0.98]"
       : "border-border bg-card transition-all duration-300 hover:border-border/80 active:border-border/80 hover:shadow-sm active:shadow-sm active:scale-[0.98]";
 
   const textClasses = isNegative
-    ? "text-destructive dark:text-red-400"
+    ? "text-destructive animate-pulse"
     : accent === "primary"
       ? "text-primary"
       : "text-foreground";
 
   return (
-    <Card className={`shadow-sm overflow-hidden ${accentClasses}`}>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-5 w-full">
-        <CardTitle className="text-sm font-medium text-muted-foreground w-full">
+    <Card className={cn(
+      "shadow-sm overflow-hidden relative", 
+      accentClasses,
+      isMobile && "min-w-[260px] flex-shrink-0"
+    )}>
+      <CardHeader className={cn(
+        "flex flex-row items-center justify-between space-y-0 p-5 pb-0 w-full",
+        isMobile && "pt-4"
+      )}>
+        <CardTitle className={cn("text-ui-micro w-full", isNegative ? "text-destructive" : accent === "primary" ? "text-primary" : "")}>
           {title}
         </CardTitle>
-        <IconComponent className="h-4 w-4 text-muted-foreground shrink-0" />
+        <IconComponent className="size-icon-sm text-muted-foreground shrink-0" />
       </CardHeader>
-      <CardContent className="px-5 pb-5 pt-0">
+      <CardContent className={cn("px-5 pb-5 pt-0", isMobile && "-mt-2")}>
         <CurrencyAmount
           value={absoluteValue}
           prefix={prefix}
-          format="display"
+          format="compact"
           tooltip="always"
           className="flex w-full items-baseline gap-1.5 flex-wrap text-left outline-none"
-          valueClassName={`text-2xl lg:text-3xl font-semibold tracking-tight tabular-nums break-words ${textClasses}`}
-          currencyClassName="text-sm mt-auto mb-1"
+          valueClassName={cn("text-[24px] lg:text-[28px] font-semibold tracking-tight tabular-nums break-words", textClasses)}
+          currencyClassName="text-[10px] md:text-xs lg:text-sm opacity-70"
           tooltipContent={`${prefix}${formatUzs(absoluteValue)} UZS`}
         />
-        <div className="space-y-2 flex-1 min-w-0">
-          <p className="text-sm text-muted-foreground break-words overflow-hidden text-ellipsis">{hint}</p>
-        </div>
+        {hint && (
+          isMobile ? (
+            <div className="absolute bottom-3 right-3">
+              <InteractiveTooltip content={hint}>
+                <HelpCircle className="h-4 w-4 text-muted-foreground/40 hover:text-muted-foreground/70 transition-colors cursor-help" />
+              </InteractiveTooltip>
+            </div>
+          ) : (
+            <div className="mt-2.5 space-y-2 flex-1 min-w-0">
+              <p className="text-ui-desc leading-relaxed text-muted-foreground/80 font-medium break-words overflow-hidden text-ellipsis">{hint}</p>
+            </div>
+          )
+        )}
       </CardContent>
     </Card>
   );
 }
 
-function GoalStatusBadge({ status, t }) {
+function GoalStatusBadge({ status, t, className }) {
   const normalized = String(status || "ACTIVE").toUpperCase();
   const classes =
     normalized === "COMPLETED"
@@ -148,8 +187,8 @@ function GoalStatusBadge({ status, t }) {
       : normalized === "ARCHIVED"
         ? "savings.goalStatus.archived"
         : "savings.goalStatus.active";
-
-  return <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${classes}`}>{t(labelKey)}</span>;
+ 
+  return <span className={cn("rounded-full border px-3 py-1 text-xs font-semibold whitespace-nowrap", classes, className)}>{t(labelKey)}</span>;
 }
 
 function GoalTimeBadge({ timeState, t }) {
@@ -160,13 +199,35 @@ function GoalTimeBadge({ timeState, t }) {
       : timeState === "due_soon"
         ? "border border-amber-500/35 bg-amber-500/10 text-amber-400"
         : "border border-primary/25 bg-primary/10 text-primary";
-  return <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold leading-4 ${classes}`}>{t(`savings.goalTime.${timeState}`)}</span>;
+  return (
+    <span className={cn(
+      "rounded-full font-bold whitespace-nowrap border leading-none tracking-tight",
+      "px-1.5 py-0.5 text-[9px]",
+      classes
+    )}>
+      {t(`savings.goalTime.${timeState}`)}
+    </span>
+  );
 }
 
 export default function Savings() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const appLang = String(i18n.resolvedLanguage || i18n.language || "en").toLowerCase();
+
+  const [isMobile, setIsMobile] = useState(false);
+  const [isBelowMd, setIsBelowMd] = useState(false);
+  const [isBelow430, setIsBelow430] = useState(false);
+  useEffect(() => {
+    const check = () => {
+      setIsMobile(window.innerWidth < 640);
+      setIsBelowMd(window.innerWidth < 768);
+      setIsBelow430(window.innerWidth < 430);
+    };
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   const [mode, setMode] = useState("deposit");
   const [amount, setAmount] = useState("");
@@ -492,7 +553,7 @@ export default function Savings() {
         <Card className="overflow-hidden border-primary/25 bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.14),transparent_45%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,1))] dark:border-primary/30 dark:bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.16),transparent_42%),linear-gradient(180deg,rgba(20,24,29,0.98),rgba(10,12,16,1))]">
           <CardContent className="flex flex-col gap-6 p-6 sm:p-8 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-3">
-              <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+              <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-primary">
                 <Crown className="h-3.5 w-3.5" />
                 {t("savings.premiumBadge")}
               </div>
@@ -514,12 +575,49 @@ export default function Savings() {
     <div className="space-y-6 py-4">
       <PageHeader title={t("savings.title")} description={t("savings.subtitle")} />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard title={t("savings.cards.totalBalance")} value={summary.total_balance} hint={t("savings.cards.totalBalanceHint")} icon={Sparkles} />
-        <SummaryCard title={t("savings.cards.spendable")} value={summary.spendable_balance} hint={t("savings.cards.spendableHint")} icon={ArrowDownLeft} />
-        <SummaryCard title={t("savings.cards.freeSavings")} value={summary.free_savings_balance} hint={t("savings.cards.freeSavingsHint")} accent="primary" icon={Wallet} />
-        <SummaryCard title={t("savings.cards.lockedGoals")} value={summary.locked_in_goals} hint={t("savings.cards.lockedGoalsHint")} icon={ArrowRight} />
+      {/* Stat Cards Layout */}
+      <div className={cn(
+        "grid gap-4 xl:grid-cols-4",
+        isMobile ? "grid-cols-1" : "grid-cols-2"
+      )}>
+        <SummaryCard 
+          title={t("savings.cards.totalBalance")} 
+          value={summary.total_balance} 
+          hint={t("savings.cards.totalBalanceHint")} 
+          icon={Sparkles} 
+          accent={Number(summary.total_balance) >= 0 ? "primary" : "default"} 
+          isMobile={isMobile}
+        />
+        {!isMobile && (
+          <>
+            <SummaryCard 
+              title={t("savings.cards.spendable")} 
+              value={summary.spendable_balance} 
+              hint={t("savings.cards.spendableHint")} 
+              icon={ArrowDownLeft} 
+              accent={Number(summary.spendable_balance) >= 0 ? "primary" : "default"}
+            />
+            <SummaryCard title={t("savings.cards.freeSavings")} value={summary.free_savings_balance} hint={t("savings.cards.freeSavingsHint")} accent="primary" icon={Wallet} />
+            <SummaryCard title={t("savings.cards.lockedGoals")} value={summary.locked_in_goals} hint={t("savings.cards.lockedGoalsHint")} icon={ArrowRight} />
+          </>
+        )}
       </div>
+
+      {/* Mobile-only scrollable row for other cards */}
+      {isMobile && (
+        <div className="flex overflow-x-auto gap-4 -mx-4 px-4 pb-4 no-scrollbar scroll-smooth">
+          <SummaryCard 
+            title={t("savings.cards.spendable")} 
+            value={summary.spendable_balance} 
+            hint={t("savings.cards.spendableHint")} 
+            icon={ArrowDownLeft} 
+            accent={Number(summary.spendable_balance) >= 0 ? "primary" : "default"}
+            isMobile={true}
+          />
+          <SummaryCard title={t("savings.cards.freeSavings")} value={summary.free_savings_balance} hint={t("savings.cards.freeSavingsHint")} accent="primary" icon={Wallet} isMobile={true} />
+          <SummaryCard title={t("savings.cards.lockedGoals")} value={summary.locked_in_goals} hint={t("savings.cards.lockedGoalsHint")} icon={ArrowRight} isMobile={true} />
+        </div>
+      )}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)]">
         <Card className="overflow-hidden">
@@ -528,7 +626,7 @@ export default function Savings() {
               <CardTitle>{t("savings.transferTitle")}</CardTitle>
               <CardDescription>{t("savings.transferDesc")}</CardDescription>
             </div>
-            <div>
+            <div className="flex justify-center md:block">
               <div className="inline-flex rounded-2xl border border-border bg-muted/50 p-1">
                 <button
                   type="button"
@@ -554,9 +652,11 @@ export default function Savings() {
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid gap-4 rounded-3xl border border-border/70 bg-[linear-gradient(180deg,rgba(34,197,94,0.08),transparent)] p-4 sm:p-5 md:grid-cols-[1.1fr_0.5fr_1.1fr] md:items-center">
-              <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            {/* Flow Indicator - Adaptive Layout */}
+            <div className="grid gap-4 rounded-3xl border border-border/70 bg-[linear-gradient(180deg,rgba(34,197,94,0.08),transparent)] p-4 sm:p-5 md:grid-cols-[1fr_auto_1fr] md:items-center xl:grid-cols-1 xl:gap-2">
+              {/* Spendable Section (Top-Left in stacked, Left in 3-col) */}
+              <div className="flex flex-col items-start justify-center space-y-1">
+                <p className="text-ui-micro text-muted-foreground/80">
                   {mode === "deposit" ? t("savings.flow.spendable") : t("savings.flow.spendable")}
                 </p>
                 <CurrencyAmount
@@ -564,26 +664,41 @@ export default function Savings() {
                   format="display"
                   tooltip="compact"
                   className="flex items-baseline gap-1.5 flex-wrap"
-                  valueClassName="text-2xl font-semibold tabular-nums"
-                  currencyClassName="text-sm"
+                  valueClassName="text-ui-h1 font-semibold tabular-nums"
+                  currencyClassName="text-ui-desc"
                 />
               </div>
-              <div className="flex items-center justify-center">
-                {mode === "deposit" ? (
-                  <ArrowUpRight className="h-6 w-6 text-primary" />
-                ) : (
-                  <ArrowDownLeft className="h-6 w-6 text-primary" />
-                )}
+
+              {/* Arrow Section - Adaptive Direction */}
+              <div className="flex items-center justify-center py-2 md:py-0">
+                {/* Diagonal arrows for Mobile, SM and XL (Stacked) */}
+                <div className="md:hidden xl:block">
+                  {mode === "deposit" ? (
+                    <ArrowDownRight className="h-6 w-6 text-primary" />
+                  ) : (
+                    <ArrowUpLeft className="h-6 w-6 text-primary" />
+                  )}
+                </div>
+                {/* Horizontal arrows for MD and LG (3-column) */}
+                <div className="hidden md:block xl:hidden">
+                  {mode === "deposit" ? (
+                    <ArrowRight className="h-6 w-6 text-primary" />
+                  ) : (
+                    <ArrowLeft className="h-6 w-6 text-primary" />
+                  )}
+                </div>
               </div>
-              <div className="space-y-1 md:text-right">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{t("savings.flow.freeSavings")}</p>
+
+              {/* Free Savings Section (Bottom-Right in stacked, Right in 3-col) */}
+              <div className="flex flex-col items-end justify-center space-y-1">
+                <p className="text-ui-micro text-muted-foreground/80">{t("savings.flow.freeSavings")}</p>
                 <CurrencyAmount
                   value={summary.free_savings_balance}
                   format="display"
                   tooltip="compact"
                   className="flex items-baseline gap-1.5 flex-wrap justify-end text-primary"
-                  valueClassName="text-2xl font-semibold tabular-nums"
-                  currencyClassName="text-sm opacity-80"
+                  valueClassName="text-ui-h1 font-semibold tabular-nums"
+                  currencyClassName="text-ui-desc opacity-80"
                 />
               </div>
             </div>
@@ -595,31 +710,62 @@ export default function Savings() {
 
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)]">
               <div className="space-y-3">
-                <label className="text-sm font-medium">{t("savings.amountLabel")}</label>
-                <div>
-                  <Input
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={MAX_SAVINGS_AMOUNT_INPUT_LENGTH}
-                    value={amount}
-                    disabled={isDepositBlocked}
-                    placeholder={t("savings.amountPlaceholder")}
-                    onChange={(e) => {
-                      setAmount(formatAmountInput(e.target.value, MAX_SAVINGS_AMOUNT_DIGITS));
-                      setTouchedTransfer(true);
-                      setActionError("");
-                    }}
-                    onFocus={() => setIsTransferFocused(true)}
-                    onBlur={() => setIsTransferFocused(false)}
-                    className={`h-14 rounded-2xl px-4 text-xl font-semibold tabular-nums ${isTransferFocused && transferAmountError ? "border-red-500 focus-visible:border-red-500" : ""}`}
-                  />
+                <label className="text-ui-micro text-muted-foreground/80">{t("savings.amountLabel")}</label>
+                <div className="space-y-1">
+                  <div className="relative flex items-center">
+                    <Input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={MAX_SAVINGS_AMOUNT_INPUT_LENGTH}
+                      value={amount}
+                      disabled={isDepositBlocked}
+                      placeholder={isBelowMd ? "" : t("savings.amountPlaceholder")}
+                      onChange={(e) => {
+                        setAmount(formatAmountInput(e.target.value, MAX_SAVINGS_AMOUNT_DIGITS));
+                        setTouchedTransfer(true);
+                        setActionError("");
+                      }}
+                      onFocus={() => setIsTransferFocused(true)}
+                      onBlur={() => setIsTransferFocused(false)}
+                      className={cn(
+                        "h-10 sm:h-11 md:h-12 rounded-2xl px-3 sm:px-4 pr-12 sm:pr-14 font-normal !text-xs md:!text-sm input-refined",
+                        isTransferFocused && transferAmountError ? "border-red-500 focus-visible:border-red-500" : ""
+                      )}
+                    />
+                    <span className="absolute right-4 text-[10px] font-medium text-muted-foreground uppercase tracking-widest pointer-events-none select-none">
+                      UZS
+                    </span>
+                  </div>
                   {isTransferFocused && transferAmountError ? <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{transferAmountError}</p> : null}
                   {actionError ? <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{actionError}</p> : null}
+                  
+                  {/* Presets - Only visible on lg+ when in this column */}
+                  <div className="hidden lg:flex flex-wrap items-center gap-2 mt-4">
+                    {QUICK_AMOUNTS.map((chipAmount) => (
+                      <button
+                        key={chipAmount}
+                        type="button"
+                        onClick={() => addQuickAmount(chipAmount)}
+                        disabled={isDepositBlocked}
+                        className="rounded-full border border-border bg-muted/40 px-3 py-1.5 text-xs md:text-sm font-medium text-muted-foreground transition-all hover:border-primary/30 hover:text-foreground hover:bg-muted/60 active:scale-95 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        +{formatAmountDisplay(chipAmount)}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setQuickAmount(availableAmount)}
+                      disabled={isDepositBlocked}
+                      className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-all hover:bg-primary/15 active:scale-95 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      {t("savings.useMax")}
+                    </button>
+                  </div>
                 </div>
               </div>
 
               <div className="rounded-2xl border border-border bg-muted/35 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                <p className="text-ui-micro text-muted-foreground/80">
                   {mode === "deposit" ? t("savings.availableToMove") : t("savings.availableToWithdraw")}
                 </p>
                 <CurrencyAmount
@@ -627,8 +773,8 @@ export default function Savings() {
                   format="display"
                   tooltip="compact"
                   className="mt-2 flex items-baseline gap-1.5 flex-wrap"
-                  valueClassName="text-2xl font-semibold tabular-nums"
-                  currencyClassName="text-sm"
+                  valueClassName="text-ui-h1 font-semibold tabular-nums"
+                  currencyClassName="text-ui-desc"
                 />
                 <p className="mt-2 text-sm text-muted-foreground">
                   {mode === "deposit" ? t("savings.depositHint") : t("savings.withdrawHint")}
@@ -636,14 +782,14 @@ export default function Savings() {
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2 lg:hidden">
               {QUICK_AMOUNTS.map((chipAmount) => (
                 <button
                   key={chipAmount}
                   type="button"
                   onClick={() => addQuickAmount(chipAmount)}
                   disabled={isDepositBlocked}
-                  className="rounded-full border border-border bg-muted/40 px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-45"
+                  className="rounded-full border border-border bg-muted/40 px-3 py-1.5 text-xs md:text-sm font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-45"
                 >
                   +{formatAmountDisplay(chipAmount)}
                 </button>
@@ -652,17 +798,17 @@ export default function Savings() {
                 type="button"
                 onClick={() => setQuickAmount(availableAmount)}
                 disabled={isDepositBlocked}
-                className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary/15 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-45"
+                className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs md:text-sm font-medium text-primary transition-colors hover:bg-primary/15 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-45"
               >
                 {t("savings.useMax")}
               </button>
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm text-muted-foreground">
+              <p className="text-xs sm:text-sm text-muted-foreground">
                 {mode === "deposit" ? t("savings.depositCaption") : t("savings.withdrawCaption")}
               </p>
-              <Button className="h-12 min-w-[200px] rounded-2xl text-base" disabled={!canSubmitTransfer} onClick={handleTransferSubmit}>
+              <Button className="h-10 sm:h-12 w-full sm:min-w-[200px] sm:w-auto rounded-2xl text-base" disabled={!canSubmitTransfer} onClick={handleTransferSubmit}>
                 {isSubmittingTransfer ? t("common.loading") : mode === "deposit" ? t("savings.moveToSavings") : t("savings.moveToBalance")}
               </Button>
             </div>
@@ -688,10 +834,13 @@ export default function Savings() {
                     onClick={() => selectTemplate(template)}
                     disabled={activeGoalLimitReached}
                     title={activeGoalLimitReached ? t("savings.goals.activeLimitReached") : undefined}
-                    className={`flex min-w-0 items-center gap-2.5 rounded-2xl border px-3 py-2.5 text-left transition-all disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-45 ${active ? "border-primary/45 bg-card shadow-[0_0_0_1px_rgba(34,197,94,0.14)]" : "border-border bg-[linear-gradient(180deg,rgba(255,255,255,0.02),transparent)] hover:border-primary/20"}`}
+                    className={cn(
+                      "flex min-w-0 items-center gap-2.5 rounded-2xl border px-3 py-2 sm:py-2.5 text-left transition-all disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-45",
+                      active ? "border-primary/45 bg-card shadow-[0_0_0_1px_rgba(34,197,94,0.14)]" : "border-border bg-[linear-gradient(180deg,rgba(255,255,255,0.02),transparent)] hover:border-primary/20"
+                    )}
                   >
-                    <IconComponent className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <p className="min-w-0 truncate text-xs font-semibold leading-4 sm:text-sm">
+                    <IconComponent className="size-icon-sm shrink-0 text-muted-foreground" />
+                    <p className="min-w-0 truncate font-semibold leading-4 text-ui-desc">
                       {t(`savings.goals.templates.${template.key}`)}
                     </p>
                   </button>
@@ -699,9 +848,9 @@ export default function Savings() {
               })}
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(220px,0.72fr)]">
+            <div className="space-y-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">{t("savings.goals.goalNameLabel")}</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">{t("savings.goals.goalNameLabel")}</label>
                 <Input
                   ref={goalTitleInputRef}
                   value={goalTitle}
@@ -712,54 +861,72 @@ export default function Savings() {
                     setTouchedGoalCreate(true);
                     setGoalCreateError("");
                   }}
-                  className="h-12 rounded-2xl"
+                  className="h-10 sm:h-12 rounded-2xl !text-xs md:!text-sm input-refined"
                 />
               </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">{t("savings.goals.targetLabel")}</label>
-                <div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">{t("savings.goals.targetLabel")}</label>
+                  <div className="space-y-1">
+                    <div className="relative flex items-center">
+                      <Input
+                        ref={goalAmountInputRef}
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={MAX_SAVINGS_AMOUNT_INPUT_LENGTH}
+                        value={goalAmount}
+                        disabled={activeGoalLimitReached}
+                        placeholder={t("savings.amountPlaceholder")}
+                        onChange={(e) => {
+                          setGoalAmount(formatAmountInput(e.target.value, MAX_SAVINGS_AMOUNT_DIGITS));
+                          setTouchedGoalCreate(true);
+                          setGoalCreateError("");
+                        }}
+                        onFocus={() => setIsGoalCreateFocused(true)}
+                        onBlur={() => setIsGoalCreateFocused(false)}
+                        className={cn(
+                          "h-10 sm:h-11 rounded-2xl pr-12 sm:pr-14 !text-xs md:!text-sm input-refined",
+                          isGoalCreateFocused && createGoalErrorText ? "border-red-500 focus-visible:border-red-500" : ""
+                        )}
+                      />
+                      <span className="absolute right-4 text-[10px] font-medium text-muted-foreground uppercase tracking-widest pointer-events-none select-none">
+                        UZS
+                      </span>
+                    </div>
+                    {isGoalCreateFocused && createGoalErrorText ? <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{createGoalErrorText}</p> : null}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-ui-micro text-muted-foreground/80">
+                    {t("savings.goals.targetDateLabel")}
+                  </label>
                   <Input
-                    ref={goalAmountInputRef}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={MAX_SAVINGS_AMOUNT_INPUT_LENGTH}
-                    value={goalAmount}
+                    type="date"
+                    value={goalDate}
                     disabled={activeGoalLimitReached}
-                    placeholder={t("savings.amountPlaceholder")}
                     onChange={(e) => {
-                      setGoalAmount(formatAmountInput(e.target.value, MAX_SAVINGS_AMOUNT_DIGITS));
+                      setGoalDate(e.target.value);
                       setTouchedGoalCreate(true);
                       setGoalCreateError("");
                     }}
-                    onFocus={() => setIsGoalCreateFocused(true)}
-                    onBlur={() => setIsGoalCreateFocused(false)}
-                    className={`h-12 rounded-2xl ${isGoalCreateFocused && createGoalErrorText ? "border-red-500 focus-visible:border-red-500" : ""}`}
+                    className="h-10 sm:h-11 rounded-2xl !text-xs md:!text-sm input-refined"
                   />
-                  {isGoalCreateFocused && createGoalErrorText ? <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{createGoalErrorText}</p> : null}
                 </div>
               </div>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">
-                {t("savings.goals.targetDateLabel")} ({t("common.optional")})
-              </label>
-              <Input
-                type="date"
-                value={goalDate}
-                disabled={activeGoalLimitReached}
-                onChange={(e) => {
-                  setGoalDate(e.target.value);
-                  setTouchedGoalCreate(true);
-                  setGoalCreateError("");
-                }}
-                className="h-12 rounded-2xl"
-              />
-            </div>
+
             {goalCreateError ? <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{goalCreateError}</p> : null}
-            <div className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-muted/25 p-4">
-              <p className={`text-sm ${activeGoalLimitReached ? "font-medium text-amber-400" : "text-muted-foreground"}`}>{goalCreateHelperText}</p>
+            <div className="flex flex-col gap-3 rounded-2xl border border-border bg-muted/25 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+              <p className={cn(
+                "text-xs leading-5 sm:text-sm",
+                activeGoalLimitReached ? "font-medium text-amber-400" : "text-muted-foreground"
+              )}>
+                {goalCreateHelperText}
+              </p>
               <Button
-                className="h-11 rounded-2xl px-5"
+                className="h-10 shrink-0 rounded-2xl px-5 sm:h-11"
                 disabled={!canSubmitCreateGoal}
                 title={activeGoalLimitReached ? t("savings.goals.activeLimitReached") : undefined}
                 onClick={handleCreateGoal}
@@ -791,106 +958,144 @@ export default function Savings() {
                 const isExpanded = goalAction.goalId === goal.id;
                 const isContributeMode = goalAction.mode === "contribute";
                 return (
-                  <div key={goal.id} className="rounded-3xl border border-border bg-[linear-gradient(180deg,rgba(255,255,255,0.02),transparent)] p-5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <h3 className="text-xl font-semibold tracking-tight">{goal.title}</h3>
-                        <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-sm text-muted-foreground">
+                  <div
+                    key={goal.id}
+                    className={cn(
+                      "group flex flex-col rounded-3xl border border-border bg-[linear-gradient(180deg,rgba(255,255,255,0.02),transparent)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] active:-translate-y-0 active:shadow-sm",
+                      isBelow430 ? "p-4" : "p-5"
+                    )}
+                  >
+                    {/* Header: Status & Title centered on mobile */}
+                    <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                      <div className="order-1 sm:order-2">
+                        <GoalStatusBadge status={goal.status} t={t} />
+                      </div>
+                      <div className="order-2 sm:order-1 flex min-w-0 flex-1 flex-col items-center sm:items-start">
+                        <InteractiveTooltip content={goal.name || goal.title}>
+                          <h3 className="w-full cursor-help truncate text-center text-base font-semibold text-foreground/90 sm:text-left">
+                            {goal.name || goal.title}
+                          </h3>
+                        </InteractiveTooltip>
+                        {goal.target_date && (
+                          <div className="mt-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/60">
+                            <CalendarClock className="h-3 w-3" />
+                            <span>{formatDisplayDate(goal.target_date, appLang)}</span>
+                            <GoalTimeBadge timeState={goal.time_state} t={t} />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Hero Stat: Saved Amount - Hidden on mobile */}
+                    <div className="mt-4 hidden sm:block">
+                      <div className="flex flex-wrap items-baseline gap-2">
+                        <span className="text-2xl font-bold tabular-nums text-foreground">
+                          {renderGoalAmount(goal.funded_amount)}
+                        </span>
+                        <span className="text-ui-micro font-medium text-muted-foreground/40 uppercase tracking-tighter">
                           {appLang.startsWith("uz") ? (
                             <>
-                              {renderGoalAmount(goal.target_amount)}
-                              <span>{t("savings.goals.savedFrom")}</span>
-                              {renderGoalAmount(goal.funded_amount)}
-                              <span>{t("savings.goals.savedSuffix")}</span>
+                              {renderGoalAmount(goal.target_amount)} {t("savings.goals.savedFrom")} {t("savings.goals.savedSuffix")}
                             </>
                           ) : (
                             <>
-                              {renderGoalAmount(goal.funded_amount)}
-                              <span>{t("savings.goals.savedOf")}</span>
-                              {renderGoalAmount(goal.target_amount)}
+                              {t("savings.goals.savedOf")} {renderGoalAmount(goal.target_amount)}
                             </>
                           )}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Progress Area */}
+                    <div className="mt-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-ui-micro font-medium text-muted-foreground/60 uppercase tracking-widest">{t("savings.goals.progress")}</span>
+                        <span className="text-xs font-bold tabular-nums text-primary">{progress.toFixed(0)}%</span>
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted/40">
+                        <div 
+                          className="h-full bg-primary transition-[width] duration-500 ease-out" 
+                          style={{ width: `${progress}%` }} 
+                        />
+                      </div>
+                      <div className="flex items-center justify-between pt-1">
+                        <div className="flex items-baseline gap-1 text-ui-micro">
+                          <span className="text-muted-foreground/70 lowercase">{t("savings.goals.remainingLabel")}</span>
+                          <InteractiveTooltip content={`${formatUzs(goal.remaining_amount)} UZS`}>
+                            <span className="cursor-help font-bold text-foreground">
+                              <span className="sm:hidden">{_formatCompactUzs(goal.remaining_amount)} UZS</span>
+                              <span className="hidden sm:inline">{renderGoalAmount(goal.remaining_amount)}</span>
+                            </span>
+                          </InteractiveTooltip>
                         </div>
-                          {goal.target_date ? (
-                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                              <CalendarClock className="h-3.5 w-3.5" />
-                              <span className="font-medium text-muted-foreground/90">{t("savings.goals.deadlinePrefix")}</span>
-                              <span>{formatDisplayDate(goal.target_date, appLang)}</span>
-                              <GoalTimeBadge timeState={goal.time_state} t={t} />
-                            </div>
-                          ) : null}
-                      </div>
-                      <div className="flex flex-wrap items-center justify-end gap-2">
-                        <GoalStatusBadge status={goal.status} t={t} />
+                        <div className="flex items-baseline gap-1 text-ui-micro">
+                          <span className="text-muted-foreground/70 lowercase">{t("savings.goals.lockedLabel")}</span>
+                          <InteractiveTooltip content={`${formatUzs(goal.funded_amount)} UZS`}>
+                            <span className="cursor-help font-bold text-foreground">
+                              <span className="sm:hidden">{_formatCompactUzs(goal.funded_amount)} UZS</span>
+                              <span className="hidden sm:inline">{renderGoalAmount(goal.funded_amount)}</span>
+                            </span>
+                          </InteractiveTooltip>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="mt-5 space-y-3">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">{t("savings.goals.progress")}</span>
-                        <span className="font-medium tabular-nums">{progress.toFixed(progress % 1 === 0 ? 0 : 1)}%</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-muted/60">
-                        <div className="h-2 rounded-full bg-primary transition-[width] duration-300" style={{ width: `${progress}%` }} />
-                      </div>
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                        <span className="flex flex-wrap items-baseline gap-1 text-muted-foreground">
-                          {renderGoalAmount(goal.remaining_amount)}
-                          <span>{t("savings.goals.remainingLabel")}</span>
-                        </span>
-                        <span className="flex flex-wrap items-baseline gap-1 font-medium text-primary">
-                          {renderGoalAmount(goal.funded_amount)}
-                          <span>{t("savings.goals.lockedLabel")}</span>
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex flex-wrap gap-2">
+                    {/* Primary Actions */}
+                    <div className={cn(
+                      "mt-6 flex flex-wrap items-center justify-between",
+                      isBelow430 ? "gap-2" : "gap-3"
+                    )}>
+                      <div className={cn("flex items-center", isBelow430 ? "gap-1.5" : "gap-2")}>
                         <Button
                           variant={isExpanded && isContributeMode ? "default" : "outline"}
-                          className="rounded-2xl"
+                          className={cn(
+                            "h-9 rounded-xl font-semibold",
+                            isBelow430 ? "px-2.5 text-[11px]" : "px-4 text-xs"
+                          )}
                           onClick={() => openGoalAction(goal, "contribute")}
                         >
                           {t("savings.goals.contribute")}
                         </Button>
                         <Button
                           variant={isExpanded && !isContributeMode ? "default" : "outline"}
-                          className="rounded-2xl"
+                          className={cn(
+                            "h-9 rounded-xl font-semibold",
+                            isBelow430 ? "px-2.5 text-[11px]" : "px-4 text-xs"
+                          )}
                           onClick={() => openGoalAction(goal, "return")}
                         >
                           {t("savings.goals.return")}
                         </Button>
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Button variant="ghost" className="rounded-2xl text-muted-foreground" onClick={() => openEditGoal(goal)}>
-                          <Pencil className="mr-2 h-4 w-4" />
-                          {t("common.edit")}
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl text-muted-foreground" onClick={() => openEditGoal(goal)} title={t("common.edit")}>
+                          <Pencil className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"
-                          className="rounded-2xl text-muted-foreground"
+                          size="icon"
+                          className="h-9 w-9 rounded-xl text-muted-foreground"
                           disabled={archivedGoalLimitReached}
-                          title={archivedGoalLimitReached ? t("savings.goals.archivedLimitReached") : undefined}
+                          title={archivedGoalLimitReached ? t("savings.goals.archivedLimitReached") : t("savings.goals.archive")}
                           onClick={() => {
                             setArchiveGoalError("");
                             setGoalToArchive(goal);
                           }}
                         >
-                          <Archive className="mr-2 h-4 w-4" />
-                          {t("savings.goals.archive")}
+                          <Archive className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>
 
-                    {isExpanded ? (
+                    {/* Expanded Inline Action Form */}
+                    {isExpanded && (
                       <div className="mt-5 space-y-4 rounded-2xl border border-border bg-muted/25 p-4">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-2">
-                            <p className="text-sm font-medium">
+                            <p className="text-ui-micro text-muted-foreground/80">
                               {isContributeMode ? t("savings.goals.contributeDesc") : t("savings.goals.returnDesc")}
                             </p>
-                            <p className="flex flex-wrap items-baseline gap-1 text-sm text-muted-foreground">
+                            <p className="flex flex-wrap items-baseline gap-1 text-ui-desc text-muted-foreground">
                               {renderGoalAmount(goalActionAvailable)}
                               <span>{t("savings.goals.availableNowLabel")}</span>
                             </p>
@@ -906,25 +1111,33 @@ export default function Savings() {
                             {t("common.close")}
                           </Button>
                         </div>
-                        <div>
-                          <Input
-                            type="text"
-                            inputMode="numeric"
-                            maxLength={MAX_SAVINGS_AMOUNT_INPUT_LENGTH}
-                            value={goalAction.amount}
-                            placeholder={t("savings.amountPlaceholder")}
-                            onChange={(e) => {
-                              setGoalAction((prev) => ({
-                                ...prev,
-                                amount: formatAmountInput(e.target.value, MAX_SAVINGS_AMOUNT_DIGITS),
-                              }));
-                              setTouchedGoalAction(true);
-                              setGoalActionError("");
-                            }}
-                            onFocus={() => setIsGoalActionFocused(true)}
-                            onBlur={() => setIsGoalActionFocused(false)}
-                            className={`h-12 rounded-2xl ${isGoalActionFocused && goalActionErrorText ? "border-red-500 focus-visible:border-red-500" : ""}`}
-                          />
+                        <div className="space-y-1">
+                          <div className="relative flex items-center">
+                            <Input
+                              type="text"
+                              inputMode="numeric"
+                              maxLength={MAX_SAVINGS_AMOUNT_INPUT_LENGTH}
+                              value={goalAction.amount}
+                              placeholder={t("savings.amountPlaceholder")}
+                              onChange={(e) => {
+                                setGoalAction((prev) => ({
+                                  ...prev,
+                                  amount: formatAmountInput(e.target.value, MAX_SAVINGS_AMOUNT_DIGITS),
+                                }));
+                                setTouchedGoalAction(true);
+                                setGoalActionError("");
+                              }}
+                              onFocus={() => setIsGoalActionFocused(true)}
+                              onBlur={() => setIsGoalActionFocused(false)}
+                              className={cn(
+                                "h-10 sm:h-12 rounded-2xl pr-12 sm:pr-14 !text-xs md:!text-sm input-refined",
+                                isGoalActionFocused && goalActionErrorText ? "border-red-500 focus-visible:border-red-500" : ""
+                              )}
+                            />
+                            <span className="absolute right-4 text-[10px] font-medium text-muted-foreground uppercase tracking-widest pointer-events-none select-none">
+                              UZS
+                            </span>
+                          </div>
                           {isGoalActionFocused && goalActionErrorText ? <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{goalActionErrorText}</p> : null}
                           {goalActionError ? <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{goalActionError}</p> : null}
                         </div>
@@ -934,7 +1147,7 @@ export default function Savings() {
                               key={chipAmount}
                               type="button"
                               onClick={() => addGoalChip(chipAmount)}
-                              className="rounded-full border border-border bg-background px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
+                              className="rounded-full border border-border bg-background px-3 py-1.5 text-xs md:text-sm font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
                             >
                               +{formatAmountDisplay(chipAmount)}
                             </button>
@@ -948,7 +1161,7 @@ export default function Savings() {
                           </button>
                         </div>
                         <div className="flex flex-wrap items-center justify-between gap-3">
-                          <p className="text-sm text-muted-foreground">
+                          <p className="text-ui-micro text-muted-foreground/80">
                             {isContributeMode ? t("savings.goals.contributeHint") : t("savings.goals.returnHint")}
                           </p>
                           <Button
@@ -964,7 +1177,7 @@ export default function Savings() {
                           </Button>
                         </div>
                       </div>
-                    ) : null}
+                    )}
                   </div>
                 );
               })}
@@ -977,28 +1190,40 @@ export default function Savings() {
                   {showArchived ? (
                     <div className="grid gap-4 xl:grid-cols-2">
                       {archivedGoals.map((goal) => (
-                        <div key={goal.id} className="rounded-3xl border border-border bg-muted/10 p-5 opacity-80">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="space-y-1">
-                              <h3 className="text-xl font-semibold tracking-tight">{goal.title}</h3>
-                              <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-sm text-muted-foreground">
+                        <div
+                          key={goal.id}
+                          className={cn(
+                            "rounded-3xl border border-border bg-muted/10 opacity-80",
+                            isBelow430 ? "p-4" : "p-5"
+                          )}
+                        >
+                          <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                            <div className="order-1 sm:order-2">
+                              <GoalStatusBadge status={goal.status} t={t} />
+                            </div>
+                            <div className="order-2 sm:order-1 flex min-w-0 flex-1 flex-col items-center sm:items-start">
+                              <InteractiveTooltip content={goal.name || goal.title}>
+                                <h3 className="w-full cursor-help truncate text-center text-base font-semibold text-foreground/90 sm:text-left">
+                                  {goal.name || goal.title}
+                                </h3>
+                              </InteractiveTooltip>
+                              <div className="mt-1 flex flex-wrap items-baseline justify-center gap-1.5 text-xs text-muted-foreground sm:justify-start">
                                 {appLang.startsWith("uz") ? (
                                   <>
                                     {renderGoalAmount(goal.target_amount)}
-                                    <span>{t("savings.goals.savedFrom")}</span>
+                                    <span className="text-[10px] uppercase opacity-60 tracking-wider font-medium">{t("savings.goals.savedFrom")}</span>
                                     {renderGoalAmount(goal.funded_amount)}
-                                    <span>{t("savings.goals.savedSuffix")}</span>
+                                    <span className="text-[10px] uppercase opacity-60 tracking-wider font-medium">{t("savings.goals.savedSuffix")}</span>
                                   </>
                                 ) : (
                                   <>
                                     {renderGoalAmount(goal.funded_amount)}
-                                    <span>{t("savings.goals.savedOf")}</span>
+                                    <span className="text-[10px] uppercase opacity-60 tracking-wider font-medium">{t("savings.goals.savedOf")}</span>
                                     {renderGoalAmount(goal.target_amount)}
                                   </>
                                 )}
                               </div>
                             </div>
-                            <GoalStatusBadge status={goal.status} t={t} />
                           </div>
                           <div className="mt-5 flex flex-wrap gap-2">
                             <Button
@@ -1038,20 +1263,33 @@ export default function Savings() {
           <DialogHeader>
             <DialogTitle>{t("savings.goals.editTitle")}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("savings.goals.goalNameLabel")}</label>
-              <Input value={editGoalTitle} onChange={(e) => setEditGoalTitle(e.target.value)} />
+          <div className="space-y-2.5 pt-1">
+            <div className="space-y-1">
+              <label className="text-muted-foreground/80">{t("savings.goals.goalNameLabel")}</label>
+              <Input value={editGoalTitle} onChange={(e) => setEditGoalTitle(e.target.value)} className="rounded-2xl !text-xs md:!text-sm input-refined" />
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("savings.goals.targetLabel")}</label>
-              <Input value={editGoalAmount} inputMode="numeric" onChange={(e) => setEditGoalAmount(formatAmountInput(e.target.value, MAX_SAVINGS_AMOUNT_DIGITS))} />
+            <div className="space-y-1">
+              <label className="text-muted-foreground/80">{t("savings.goals.targetLabel")}</label>
+              <div className="relative flex items-center">
+                <Input
+                  value={editGoalAmount}
+                  inputMode="numeric"
+                  onChange={(e) => setEditGoalAmount(formatAmountInput(e.target.value, MAX_SAVINGS_AMOUNT_DIGITS))}
+                  className="rounded-2xl pr-12 !text-xs md:!text-sm input-refined"
+                />
+                <span className="absolute right-4 text-[10px] font-medium select-none pointer-events-none">
+                  UZS
+                </span>
+              </div>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">
-                {t("savings.goals.targetDateLabel")} ({t("common.optional")})
-              </label>
-              <Input type="date" value={editGoalDate} onChange={(e) => setEditGoalDate(e.target.value)} />
+            <div className="space-y-1">
+              <label className="text-muted-foreground/80">{t("savings.goals.targetDateLabel")}</label>
+              <Input
+                type="date"
+                value={editGoalDate}
+                onChange={(e) => setEditGoalDate(e.target.value)}
+                className="rounded-2xl !text-xs md:!text-sm input-refined"
+              />
             </div>
             {editGoalError ? <p className="text-sm text-red-500">{editGoalError}</p> : null}
           </div>

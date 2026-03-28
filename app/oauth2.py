@@ -204,12 +204,21 @@ def rotate_refresh_token(old_raw_token: str) -> tuple[str, int]:
     """
     old_hash = _hash_token(old_raw_token)
     old_key = _rt_key(old_hash)
+    rotated_marker_key = f"rotated:{old_hash}"
 
-    # Look up the old token in Redis
+    # 1. Check if this token was ALREADY rotated (already used once)
+    # If a rotated_marker exists, this old token is invalid — raise 401.
+    rotated_info = _redis.get(rotated_marker_key)
+    if rotated_info:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="auth.refresh_token_invalid",
+        )
+
+    # 2. Look up the old token in Redis (the "live" one)
     stored = _redis.get(old_key)
     if not stored:
         # Token not found — either expired naturally, or this is a replay attack.
-        # We can't distinguish the two, but we err on the side of caution.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="auth.refresh_token_invalid",
@@ -226,7 +235,7 @@ def rotate_refresh_token(old_raw_token: str) -> tuple[str, int]:
     user_id = int(parts[0])
     family_id = parts[1]
 
-    # Delete the old token (it's been used — one-time-use)
+    # 3. Rotate!
     _redis.delete(old_key)
     family_key = _rt_family_key(family_id)
     _redis.srem(family_key, old_hash)
@@ -235,6 +244,7 @@ def rotate_refresh_token(old_raw_token: str) -> tuple[str, int]:
     new_raw = secrets.token_urlsafe(48)
     new_hash = _hash_token(new_raw)
 
+    # Write the new token to Redis
     _redis.setex(
         _rt_key(new_hash),
         REFRESH_TOKEN_EXPIRE_SECONDS,
@@ -242,6 +252,10 @@ def rotate_refresh_token(old_raw_token: str) -> tuple[str, int]:
     )
     _redis.sadd(family_key, new_hash)
     _redis.expire(family_key, REFRESH_TOKEN_EXPIRE_SECONDS)
+
+    # 4. Set a short-lived marker so we know this old hash was already rotated.
+    # This prevents the old hash from being used again (replay protection).
+    _redis.setex(rotated_marker_key, 30, "used")
 
     return new_raw, user_id
 

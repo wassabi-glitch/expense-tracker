@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from "react";
+import * as React from "react";
 import { useSearchParams } from "react-router-dom";
 import { Trash2, Circle, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -38,7 +38,10 @@ import { categoryIconMap, CATEGORIES } from "@/lib/category";
 import { formatUzs, formatCompactUzs, formatAmountInput, formatMonthYear, getFallbackMonthsLong, getDateLocale } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
+import { TitleTooltip } from "@/components/TitleTooltip";
+import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+
 const EMPTY_ARRAY = [];
 
 export default function Budgets() {
@@ -46,11 +49,11 @@ export default function Budgets() {
   const today = new Date();
   const currentYear = today.getFullYear();
   const currentMonth = today.getMonth() + 1;
-  const [actionError, setActionError] = useState("");
+  const [actionError, setActionError] = React.useState("");
 
-  const [addOpen, setAddOpen] = useState(false);
-  const [updateOpen, setUpdateOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [addOpen, setAddOpen] = React.useState(false);
+  const [updateOpen, setUpdateOpen] = React.useState(false);
+  const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const showHistory = searchParams.get("history") === "true";
@@ -89,12 +92,23 @@ export default function Budgets() {
   const setFilterMonth = (val) => updateSearchParam("month", val);
   const setSortBy = (val) => updateSearchParam("sort", val, "newest");
 
-  const [selectedBudget, setSelectedBudget] = useState(null);
-  const [newLimit, setNewLimit] = useState("");
-  const [addCategory, setAddCategory] = useState("");
-  const [addLimit, setAddLimit] = useState("");
-  const [addBudgetYear, setAddBudgetYear] = useState(currentYear);
-  const [addBudgetMonth, setAddBudgetMonth] = useState(currentMonth);
+  const [selectedBudget, setSelectedBudget] = React.useState(null);
+  const [newLimit, setNewLimit] = React.useState("");
+  const [addCategory, setAddCategory] = React.useState("");
+  const [addLimit, setAddLimit] = React.useState("");
+  const [addBudgetYear, setAddBudgetYear] = React.useState(currentYear);
+  const [addBudgetMonth, setAddBudgetMonth] = React.useState(currentMonth);
+  const [windowWidth, setWindowWidth] = React.useState(typeof window !== "undefined" ? window.innerWidth : 1200);
+
+  // Diagnostic log to verify HMR sync
+  console.log("[Budgets] Rendering at width:", windowWidth);
+
+  React.useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   const appLang = String(i18n.resolvedLanguage || i18n.language || "en").toLowerCase();
   const categorySortLocale = appLang.startsWith("uz")
     ? "uz-UZ"
@@ -102,11 +116,12 @@ export default function Budgets() {
       ? "ru-RU"
       : "en-US";
 
-  const tCategory = useCallback((name) => t(`categories.${name}`, { defaultValue: name }), [t]);
-  const compareLocalizedCategory = useCallback((leftCategory, rightCategory) =>
+  const tCategory = React.useCallback((name) => t(`categories.${name}`, { defaultValue: name }), [t]);
+  const compareLocalizedCategory = React.useCallback((leftCategory, rightCategory) =>
     tCategory(leftCategory).localeCompare(tCategory(rightCategory), categorySortLocale, { sensitivity: "base" }),
     [tCategory, categorySortLocale]
   );
+
   const { budgetsQuery, statsQuery } = useBudgetsDataQuery();
   const categoriesQuery = useBudgetCategoriesQuery();
 
@@ -119,7 +134,7 @@ export default function Budgets() {
     : "";
 
   const categories = categoriesQuery.data || EMPTY_ARRAY;
-  const budgets = useMemo(() => {
+  const budgets = React.useMemo(() => {
     const budgetRows = budgetsQuery.data || [];
     const stats = statsQuery.data;
     const currentMonthStatusByCategory = new Map(
@@ -143,7 +158,6 @@ export default function Budgets() {
       baseLimit: Number(b.monthly_limit || 0),
       rolloverAmount: Number(b.rollover_amount || 0),
       effectiveLimit: Number(b.effective_monthly_limit || b.monthly_limit || 0),
-      // Keep `limit` for existing sorting/filtering code paths.
       limit: Number(b.effective_monthly_limit || b.monthly_limit || 0),
       spent: Number(b.spent || 0),
       remaining: Math.max(
@@ -157,7 +171,7 @@ export default function Budgets() {
     }));
   }, [budgetsQuery.data, statsQuery.data, currentYear, currentMonth]);
 
-  const sortedBudgets = useMemo(
+  const sortedBudgets = React.useMemo(
     () =>
       [...budgets].sort((a, b) =>
         b.budgetYear - a.budgetYear ||
@@ -166,7 +180,8 @@ export default function Budgets() {
       ),
     [budgets, compareLocalizedCategory]
   );
-  const visibleBudgets = useMemo(
+
+  const visibleBudgets = React.useMemo(
     () =>
       showHistory
         ? sortedBudgets
@@ -179,16 +194,17 @@ export default function Budgets() {
   const monthLocale = getDateLocale(appLang);
   const fallbackMonthNames = getFallbackMonthsLong(appLang);
 
-  const formatBudgetMonth = useCallback((year, month) => formatMonthYear(year, month, appLang), [appLang]);
+  const formatBudgetMonth = React.useCallback((year, month) => formatMonthYear(year, month, appLang), [appLang]);
 
   const formatBudgetAmountInput = (raw) => formatAmountInput(raw, maxBudgetAmountDigits);
-  const budgetYearOptions = useMemo(() => {
+
+  const budgetYearOptions = React.useMemo(() => {
     const minYear = 2020;
     const maxYear = currentYear + 5;
     return Array.from({ length: maxYear - minYear + 1 }, (_, i) => maxYear - i);
   }, [currentYear]);
 
-  const budgetMonthOptions = useMemo(
+  const budgetMonthOptions = React.useMemo(
     () =>
       Array.from({ length: 12 }, (_, i) => {
         const month = i + 1;
@@ -204,10 +220,12 @@ export default function Budgets() {
       }),
     [monthLocale, fallbackMonthNames]
   );
-  const visibleMonthOptions = useMemo(() => {
+
+  const visibleMonthOptions = React.useMemo(() => {
     const maxMonthForYear = addBudgetYear === currentYear + 5 ? currentMonth : 12;
     return budgetMonthOptions.filter((m) => m.value <= maxMonthForYear);
   }, [budgetMonthOptions, addBudgetYear, currentYear, currentMonth]);
+
   const tZodError = (parsed) => {
     const key = parsed?.error?.issues?.[0]?.message;
     return key ? t(key, { defaultValue: key }) : t("common.error", { defaultValue: "Invalid input" });
@@ -223,12 +241,11 @@ export default function Budgets() {
     }
     return localizeApiError(e?.message, t) || t("budgets.requestFailed");
   };
-  const selectTriggerClass =
-    "w-full bg-white text-black dark:bg-black dark:text-white dark:hover:bg-black";
-  const selectContentClass =
-    "max-h-[190px] overflow-y-auto bg-white text-black dark:bg-black dark:text-white";
-  const inputBaseClass =
-    "dark:bg-input/30 border-input h-9 w-full min-w-0 rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm";
+
+  const selectTriggerClass = "w-full bg-white text-black dark:bg-black dark:text-white dark:hover:bg-black";
+  const selectContentClass = "max-h-[190px] overflow-y-auto bg-white text-black dark:bg-black dark:text-white";
+  const inputBaseClass = "dark:bg-input/30 border-input h-9 w-full min-w-0 rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm";
+
   const deriveProgressStatus = (backendStatus, percent) => {
     if (backendStatus === "Over Limit") return "danger";
     if (backendStatus === "High Risk") return "highRisk";
@@ -239,7 +256,8 @@ export default function Budgets() {
     if (percent >= 70) return "warning";
     return "healthy";
   };
-  const budgetsWithDerived = useMemo(
+
+  const budgetsWithDerived = React.useMemo(
     () =>
       visibleBudgets.map((b) => {
         const percent = b.limit > 0 ? Math.min(Math.round((b.spent / b.limit) * 100), 100) : 0;
@@ -252,7 +270,8 @@ export default function Budgets() {
       }),
     [visibleBudgets]
   );
-  const monthFilterOptions = useMemo(() => {
+
+  const monthFilterOptions = React.useMemo(() => {
     const source = showHistory ? sortedBudgets : visibleBudgets;
     const seen = new Set();
     return source
@@ -266,13 +285,15 @@ export default function Budgets() {
         return true;
       });
   }, [showHistory, sortedBudgets, visibleBudgets, formatBudgetMonth]);
-  const orderedCategoryOptions = useMemo(() => {
+
+  const orderedCategoryOptions = React.useMemo(() => {
     const set = new Set(categories || []);
     const inOrder = CATEGORIES.filter((c) => set.has(c));
     const extras = [...set].filter((c) => !CATEGORIES.includes(c));
     return [...inOrder, ...extras];
   }, [categories]);
-  const filteredBudgets = useMemo(() => {
+
+  const filteredBudgets = React.useMemo(() => {
     let rows = budgetsWithDerived;
     if (filterCategory !== "all") {
       rows = rows.filter((b) => b.category === filterCategory);
@@ -308,6 +329,7 @@ export default function Budgets() {
     });
     return sorted;
   }, [budgetsWithDerived, filterCategory, filterStatus, filterMonth, sortBy, compareLocalizedCategory]);
+
   const resetBudgetFilters = () => {
     setSearchParams(prev => {
       prev.delete("category");
@@ -318,7 +340,7 @@ export default function Budgets() {
     }, { replace: true });
   };
 
-  const addBudgetFormParsed = useMemo(() => {
+  const addBudgetFormParsed = React.useMemo(() => {
     const budgetMonthValue = `${addBudgetYear}-${String(addBudgetMonth).padStart(2, "0")}`;
     return budgetCreateFormSchema.safeParse({
       category: addCategory,
@@ -326,6 +348,7 @@ export default function Budgets() {
       budget_month_value: budgetMonthValue,
     });
   }, [addBudgetYear, addBudgetMonth, addCategory, addLimit]);
+
   const addBudgetMutation = useCreateBudgetMutation();
   const updateBudgetMutation = useUpdateBudgetMutation();
   const deleteBudgetMutation = useDeleteBudgetMutation();
@@ -335,8 +358,7 @@ export default function Budgets() {
   const isDeletingBudget = deleteBudgetMutation.isPending;
   const canSubmitAddBudget = addBudgetFormParsed.success && !isAddingBudget;
 
-
-  const updateBudgetFormParsed = useMemo(
+  const updateBudgetFormParsed = React.useMemo(
     () =>
       budgetUpdateFormSchema.safeParse({
         monthly_limit: newLimit,
@@ -525,7 +547,11 @@ export default function Budgets() {
                     <SelectItem value="category">{t("budgets.sort.category")}</SelectItem>
                   </SelectContent>
                 </Select>
-                <Button variant="outline" onClick={resetBudgetFilters}>
+                <Button
+                  variant="outline"
+                  onClick={resetBudgetFilters}
+                  className="md:col-span-2 xl:col-span-1"
+                >
                   {t("budgets.resetFilters")}
                 </Button>
               </div>
@@ -541,7 +567,7 @@ export default function Budgets() {
         )}
 
         {!loading && !error && (
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3">
             {filteredBudgets.map((b) => {
               const percent = b.percent;
               const progressStatus = b.progressStatus;
@@ -569,14 +595,6 @@ export default function Budgets() {
                     : progressStatus === "warning"
                       ? "border border-yellow-500/35 bg-yellow-500/15 text-yellow-700 dark:text-yellow-400"
                       : "border border-primary/35 bg-primary/15 text-primary dark:text-primary";
-              const _iconColorClass =
-                progressStatus === "danger"
-                  ? "text-destructive dark:text-red-400"
-                  : progressStatus === "highRisk"
-                    ? "text-orange-600 dark:text-orange-400"
-                    : progressStatus === "warning"
-                      ? "text-yellow-600 dark:text-yellow-400"
-                      : "text-primary dark:text-primary";
               const statusLabel =
                 progressStatus === "danger"
                   ? t("budgets.status.overBudget")
@@ -586,48 +604,42 @@ export default function Budgets() {
                       ? t("budgets.status.closeToLimit")
                       : t("budgets.status.onTrack");
               const deltaAmount = Math.max(0, b.spent - b.effectiveLimit);
-              const useCompactAmounts = Math.max(b.spent, b.effectiveLimit) >= 1_000_000_000;
+              const useCompactAmounts = (windowWidth < 450 && Math.max(b.spent, b.effectiveLimit) >= 10_000) || Math.max(b.spent, b.effectiveLimit) >= 100_000_000;
               const spentLabel = useCompactAmounts ? formatCompactUzs(b.spent) : formatUzs(b.spent);
               const limitLabel = useCompactAmounts ? formatCompactUzs(b.effectiveLimit) : formatUzs(b.effectiveLimit);
+              const remainingLabel = useCompactAmounts ? formatCompactUzs(b.remaining) : formatUzs(b.remaining);
               const spentFullLabel = formatUzs(b.spent);
               const limitFullLabel = formatUzs(b.effectiveLimit);
               const usedOfLabel = t("budgets.usedOf", { spent: spentLabel, limit: limitLabel });
-              const remainingLabel = formatCompactUzs(b.remaining);
               return (
                 <Card
                   key={b.id}
-                  className={`group shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md ${b.isCurrentMonth ? "opacity-100" : "opacity-65 hover:opacity-100"}`}
-                // "opacity-45 grayscale-[0.5] hover:opacity-100 hover:grayscale-0"
+                  className={`group shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] active:-translate-y-0 active:shadow-sm ${b.isCurrentMonth ? "opacity-100" : "opacity-65 hover:opacity-100"}`}
                 >
-                  <CardHeader className="space-y-3 pb-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <CardTitle className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden pr-2 text-lg font-semibold">
+                  <CardHeader className={cn(
+                    "space-y-3 pb-3 transition-all duration-200",
+                    windowWidth < 400 ? "px-4" : ""
+                  )}>
+                    <div className={cn(
+                      "flex gap-2.5 transition-all duration-200",
+                      windowWidth < 450 ? "flex-col-reverse items-center text-center" : "flex-row items-start justify-between"
+                    )}>
+                      <CardTitle className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden font-semibold transition-all duration-200 justify-center min-[450px]:justify-start pr-0 min-[450px]:pr-1 pb-1">
                         {(() => {
                           const CategoryIcon = categoryIconMap[b.category] || Circle;
-                          return <CategoryIcon className="h-4 w-4 text-muted-foreground" aria-hidden="true" />;
+                          return <CategoryIcon className="size-icon-sm text-muted-foreground" aria-hidden="true" />;
                         })()}
-                        <TooltipProvider delayDuration={0}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                type="button"
-                                className="block w-full min-w-0 max-w-full truncate text-left outline-none focus-visible:underline decoration-muted-foreground underline-offset-4 cursor-pointer"
-                                title={tCategory(b.category)}
-                              >
-                                {(() => {
-                                  const full = tCategory(b.category);
-                                  return full.length > 12 ? `${full.slice(0, 12)}...` : full;
-                                })()}
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="max-w-[250px] sm:max-w-xs break-words">
-                              {tCategory(b.category)}
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
+                        <TitleTooltip title={tCategory(b.category)}>
+                          <div className="font-bold tracking-tight text-foreground truncate cursor-default transition-all duration-200 text-ui-title leading-normal">
+                            {tCategory(b.category)}
+                          </div>
+                        </TitleTooltip>
                       </CardTitle>
                       <span
-                        className={`inline-flex shrink-0 min-h-8 min-w-[86px] max-w-[96px] items-center justify-center rounded-full px-2 py-1 text-center text-[11px] font-medium leading-tight whitespace-normal sm:text-xs ${statusBadgeClass}`}
+                        className={cn(
+                          "inline-flex shrink-0 items-center justify-center rounded-full text-center font-medium leading-[1.3] transition-all duration-200 min-h-6 min-[450px]:min-h-7 md:min-h-8 px-1.5 min-[450px]:px-2 md:px-3 py-[3px] md:py-1 text-[10px] min-[450px]:text-[11px] md:text-xs whitespace-nowrap md:whitespace-normal max-w-fit md:min-w-[70px] lg:min-w-[86px]",
+                          statusBadgeClass
+                        )}
                       >
                         {statusLabel}
                       </span>
@@ -636,7 +648,7 @@ export default function Budgets() {
                       <span className="block text-sm text-muted-foreground">{formatBudgetMonth(b.budgetYear, b.budgetMonth)}</span>
                       <InteractiveTooltip
                         content={`${t("budgets.usedOf", { spent: spentFullLabel, limit: limitFullLabel })} UZS`}
-                        className="flex w-full items-baseline gap-1 overflow-hidden text-ellipsis whitespace-nowrap tabular-nums text-sm font-medium text-foreground sm:text-base"
+                        className="flex w-full items-baseline gap-1 overflow-hidden text-ellipsis whitespace-nowrap tabular-nums font-medium text-foreground text-ui-desc"
                       >
                         <span className="truncate">{usedOfLabel}</span>
                         <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
@@ -656,8 +668,8 @@ export default function Budgets() {
                           />
                         </div>
                         <div className="h-px w-full bg-border/60" aria-hidden="true" />
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-muted-foreground">{t("budgets.rolloverAmount")}</span>
+                        <div className="flex items-center justify-between gap-3 text-muted-foreground text-ui-desc">
+                          <span>{t("budgets.rolloverAmount")}</span>
                           <CurrencyAmount
                             value={b.rolloverAmount}
                             prefix="+"
@@ -670,15 +682,21 @@ export default function Budgets() {
                       </div>
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-5 pt-1">
-                    <div className="flex items-center justify-between text-sm text-muted-foreground tabular-nums">
+                  <CardContent className={cn(
+                    "space-y-5 pt-1 transition-all duration-200",
+                    windowWidth < 400 ? "px-4" : ""
+                  )}>
+                    <div className="flex flex-col min-[400px]:flex-row items-start min-[400px]:items-center justify-between gap-1 tabular-nums text-muted-foreground transition-all duration-200 text-ui-detail sm:text-ui-desc">
                       <span>{t("budgets.percentUsed", { percent })}</span>
-                      <span className={`whitespace-nowrap flex items-baseline gap-1 ${b.spent > b.limit ? "font-semibold text-destructive" : ""}`}>
-                        {b.spent > b.limit ? (
+                      <span className={cn(
+                        "whitespace-nowrap flex items-baseline gap-1 transition-all duration-200",
+                        b.spent > b.effectiveLimit ? "font-semibold text-destructive animate-pulse" : ""
+                      )}>
+                        {b.spent > b.effectiveLimit ? (
                           <CurrencyAmount
                             value={deltaAmount}
                             prefix="-"
-                            format="compact"
+                            format={useCompactAmounts ? "compact" : "full"}
                             tooltip="compact"
                             className="flex items-baseline gap-1"
                             currencyClassName=""
@@ -704,14 +722,19 @@ export default function Budgets() {
                       indicatorClassName={progressIndicatorClass}
                     />
                     <div className="flex gap-2 transition-opacity duration-200 md:opacity-85 md:group-hover:opacity-100">
-                      <Button variant="outline" size="sm" className="flex-1" onClick={() => openUpdate(b)}>{t("budgets.updateLimit")}</Button>
+                      <Button
+                        variant="outline"
+                        className="flex-1 font-medium h-btn text-ui-detail px-2 py-1"
+                        onClick={() => openUpdate(b)}
+                      >
+                        {t("budgets.updateLimit")}
+                      </Button>
                       <Button
                         variant="ghost"
-                        size="sm"
-                        className="flex-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        className="flex-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive font-medium h-btn text-ui-detail px-2 py-1"
                         onClick={() => openDelete(b)}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="size-icon-sm" />
                         {t("budgets.delete")}
                       </Button>
                     </div>
@@ -732,14 +755,14 @@ export default function Budgets() {
       </div>
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="py-16">
-          <DialogHeader className="space-y-3 pb-2">
-            <DialogTitle className="text-3xl font-bold tracking-tight">{t("budgets.addDialogTitle")}</DialogTitle>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("budgets.addDialogTitle")}</DialogTitle>
             <DialogDescription>{t("budgets.addDialogDesc")}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-6">
-            <div className="space-y-3">
-              <label className="text-sm font-medium">{t("budgets.budgetMonthLabel")}</label>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label>{t("budgets.budgetMonthLabel")}</label>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <label className="text-xs font-normal text-muted-foreground">{t("budgets.yearLabel")}</label>
@@ -789,8 +812,8 @@ export default function Budgets() {
                 </div>
               </div>
             </div>
-            <div className="space-y-3">
-              <label className="text-sm font-medium">{t("expenses.category")}</label>
+            <div className="space-y-1.5">
+              <label>{t("expenses.category")}</label>
               <Select value={addCategory || undefined} onValueChange={setAddCategory}>
                 <SelectTrigger className={selectTriggerClass}>
                   <SelectValue placeholder={t("budgets.selectCategory")} />
@@ -819,8 +842,8 @@ export default function Budgets() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-3">
-              <label className="text-sm font-medium">{t("budgets.monthlyLimit")}</label>
+            <div className="space-y-1.5">
+              <label>{t("budgets.monthlyLimit")}</label>
               <input
                 type="text"
                 inputMode="numeric"
@@ -859,8 +882,8 @@ export default function Budgets() {
       </Dialog>
 
       <Dialog open={updateOpen} onOpenChange={setUpdateOpen}>
-        <DialogContent className="pt-8">
-          <DialogHeader className="space-y-3 pb-2">
+        <DialogContent>
+          <DialogHeader>
             <DialogTitle>{t("budgets.updateDialogTitle")}</DialogTitle>
             <DialogDescription>
               {selectedBudget
@@ -868,8 +891,8 @@ export default function Budgets() {
                 : ""}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <label className="text-sm font-medium">{t("budgets.newLimit")}</label>
+          <div className="space-y-2">
+            <label>{t("budgets.newLimit")}</label>
             <input
               type="text"
               inputMode="numeric"

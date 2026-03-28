@@ -20,7 +20,9 @@
     "premiumRequired": "Эта функция требует подписки Premium.",
     "actions": "Действия",
     "close": "Закрыть",
-    "justNow": "только что"
+    "justNow": "только что",
+    "transaction": "транзакция",
+    "transactions": "транзакции"
   },
   "nav": {
     "platform": "Платформа",
@@ -213,9 +215,13 @@
     "title": "Панель",
     "subtitle": "Все финансовые данные на текущий месяц.",
     "totalBalance": "Общий баланс",
+    "totalBalanceHint": "Ваш текущий чистый баланс по всем доходам и расходам.",
     "incomeThisMonth": "Доход за месяц",
+    "incomeHint": "Общий доход, полученный в этом календарном месяце.",
     "spentThisMonth": "Расходы за месяц",
+    "spentHint": "Общие расходы, зафиксированные в этом календарном месяце.",
     "remainingThisMonth": "Остаток за месяц",
+    "remainingHint": "Ваша чистая ежемесячная экономия или дефицит (Доход - Расход).",
     "income": "Доход",
     "spent": "Расходы",
     "remaining": "Остаток",
@@ -683,7 +689,7 @@
       "spendable": "Доступно",
       "freeSavings": "Свободные накопления"
     },
-    "amountLabel": "Сумма (UZS)",
+    "amountLabel": "Сумма",
     "amountPlaceholder": "Введите сумму",
     "availableToMove": "Доступно для перевода",
     "availableToWithdraw": "Доступно для возврата",
@@ -725,7 +731,7 @@
         "custom": "Своя"
       },
       "goalNameLabel": "Название цели",
-      "targetLabel": "Целевая сумма (UZS)",
+      "targetLabel": "Целевая сумма",
       "targetDateLabel": "Срок цели",
       "deadlinePrefix": "Срок",
       "createHint": "Делайте цели короткими и понятными. После создания можно сразу вносить свободные накопления.",
@@ -820,7 +826,7 @@
     "Transport": "Транспорт",
     "Health": "Здоровье",
     "Personal care": "Личный уход",
-    "Education": "Образовние",
+    "Education": "Образование",
     "Clothing": "Одежда",
     "Family & Events": "Семья и мероприятия",
     "Entertainment": "Развлечения",
@@ -847,6 +853,7 @@
   "notifications": {
     "title": "Уведомления",
     "empty": "Пока нет уведомлений",
+    "totalCount": "Всего {{count}} уведомлений",
     "markRead": "Отметить как прочитанное",
     "markAllRead": "Отметить все как прочитанные",
     "priority": {

@@ -18,9 +18,9 @@ function Switch(
   const [internalChecked, setInternalChecked] = React.useState(defaultChecked);
   const isChecked = isControlled ? checked : internalChecked;
 
-  const trackSizeClass = size === "sm" ? "h-5 w-9" : "h-6 w-11";
-  const thumbSizeClass = size === "sm" ? "h-4 w-4" : "h-5 w-5";
-  const thumbCheckedClass = size === "sm" ? "translate-x-4" : "translate-x-5";
+  const trackSizeClass = size === "xs" ? "h-4 w-7" : size === "sm" ? "h-5 w-9" : "h-6 w-11";
+  const thumbSizeClass = size === "xs" ? "h-3 w-3" : size === "sm" ? "h-4 w-4" : "h-5 w-5";
+  const thumbCheckedClass = size === "xs" ? "translate-x-3.5" : size === "sm" ? "translate-x-4" : "translate-x-5";
 
   const toggle = () => {
     if (disabled) return;

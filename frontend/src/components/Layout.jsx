@@ -256,8 +256,10 @@ export default function Layout() {
               </Button>
             </SheetTrigger>
 
-            <SheetContent side="left" className="w-64 pt-10">
-              <NavList onNavigate={() => setMobileOpen(false)} isPremium={!!userQuery.data?.is_premium} />
+            <SheetContent side="left" className="w-64 pt-8 flex flex-col h-full [&>button]:right-4">
+              <div className="flex-1 overflow-y-auto pt-4 [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none]">
+                <NavList onNavigate={() => setMobileOpen(false)} isPremium={!!userQuery.data?.is_premium} />
+              </div>
             </SheetContent>
           </Sheet>
 
@@ -275,7 +277,7 @@ export default function Layout() {
             ariaLabel={t("common.language")}
             value={language}
             onChange={handleLanguageChange}
-            buttonClassName="min-w-[74px]"
+            buttonClassName="min-w-0 px-2 lg:min-w-[74px] lg:px-3"
           />
 
           <NotificationBell />
@@ -309,7 +311,7 @@ export default function Layout() {
         <aside className="group/sidebar relative hidden w-16 border-r bg-background lg:block">
           <div className="absolute inset-y-0 left-0 z-20 w-16 overflow-hidden border-r bg-background/90 shadow-none transition-[width,box-shadow,backdrop-filter,background-color] duration-200 group-hover/sidebar:w-64 group-hover/sidebar:bg-background/75 group-hover/sidebar:backdrop-blur-xl group-hover/sidebar:shadow-lg dark:bg-background/80 dark:group-hover/sidebar:bg-background/60">
             <div className="flex h-full flex-col">
-              <div className="flex-1 overflow-y-auto overflow-x-hidden">
+              <div className="flex-1 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none]">
                 <NavList compact isPremium={!!userQuery.data?.is_premium} />
               </div>
 
@@ -332,7 +334,7 @@ export default function Layout() {
           </div>
         </aside>
         <main className="flex-1 overflow-y-auto px-4 pt-2 pb-4 lg:px-6 lg:pt-3 lg:pb-6">
-          <div className="mx-auto max-w-6xl">
+          <div className="mx-auto max-w-full md:max-w-3xl lg:max-w-6xl xl:max-w-7xl 2xl:max-w-screen-2xl">
             <Outlet />
           </div>
         </main>
