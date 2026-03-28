@@ -1,4 +1,4 @@
-﻿/**
+/**
  * App.jsx — Root component with silent refresh on mount.
  *
  * On page reload, the in-memory access token is gone. silentRefresh()
@@ -61,7 +61,7 @@ export default function App() {
         <Route path="/" element={<Navigate to="/sign-in" replace />} />
         <Route path="/sign-in" element={<Login />} />
         <Route path="/sign-up" element={<Signup />} />
-        <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/oauth-callback" element={<AuthCallback />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/verify-email" element={<VerifyEmail />} />

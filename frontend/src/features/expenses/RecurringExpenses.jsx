@@ -130,7 +130,9 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
     const { userQuery, recurringQuery, isPremium } = useRecurringDataQuery();
     const categoriesQuery = useRecurringCategoriesQuery(isPremium);
     const loading = userQuery.isLoading || (isPremium && (recurringQuery.isLoading || categoriesQuery.isLoading));
-    const expenses = recurringQuery.data || EMPTY_ARRAY;
+    
+    // Safety check: ensure recurringQuery.data is an array before mapping
+    const expenses = Array.isArray(recurringQuery.data) ? recurringQuery.data : EMPTY_ARRAY;
     void categoriesQuery.data; // fetched to warm the cache; used indirectly via query state
     const fetchError = userQuery.error || recurringQuery.error || categoriesQuery.error;
     const displayError = error || (fetchError

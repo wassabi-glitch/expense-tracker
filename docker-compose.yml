@@ -42,10 +42,23 @@ services:
       - REDIS_URL=${REDIS_URL}
       - CORS_ORIGINS=${CORS_ORIGINS}
       - TRUSTED_HOSTS=${TRUSTED_HOSTS}
-      - IS_PRODUCTION=${IS_PRODUCTION}
+      - IS_PRODUCTION=False
+      - FRONTEND_URL=http://localhost
     depends_on:
       - db
       - redis
+
+  # The Frontend (React + Nginx)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: expense_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    restart: always
 
 volumes:
   postgres_data:
