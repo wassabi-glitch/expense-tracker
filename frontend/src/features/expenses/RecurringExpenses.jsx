@@ -51,7 +51,7 @@ const COL = "grid grid-cols-[minmax(0,1.75fr)_minmax(0,1.25fr)_minmax(0,1.05fr)_
 const EMPTY_ARRAY = [];
 
 export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
-    const { t, i18n } = useTranslation();
+    const { t } = useTranslation();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const [error, setError] = React.useState("");
@@ -131,7 +131,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
     const categoriesQuery = useRecurringCategoriesQuery(isPremium);
     const loading = userQuery.isLoading || (isPremium && (recurringQuery.isLoading || categoriesQuery.isLoading));
     const expenses = recurringQuery.data || EMPTY_ARRAY;
-    const categories = categoriesQuery.data || EMPTY_ARRAY;
+    void categoriesQuery.data; // fetched to warm the cache; used indirectly via query state
     const fetchError = userQuery.error || recurringQuery.error || categoriesQuery.error;
     const displayError = error || (fetchError
         ? localizeApiError(fetchError?.message, t) || fetchError?.message || t("recurring.loadFailed")

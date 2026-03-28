@@ -154,7 +154,7 @@ export default function Analytics() {
       rawValue: history?.total_transaction || 0,
       isRaw: true
     },
-  ], [history, t]);
+  ], [history]);
   
   const getCategoryColor = (category) => {
     const colors = {
