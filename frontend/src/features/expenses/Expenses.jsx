@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import * as React from "react";
 import { createPortal } from "react-dom";
 import { Plus, Search, ChevronLeft, ChevronRight, Inbox, Trash2, MoreHorizontal, Pencil, FileText } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
@@ -10,9 +10,7 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Select,
   SelectContent,
@@ -20,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import {
   useCreateExpenseMutation,
   useDeleteExpenseMutation,
@@ -29,12 +28,14 @@ import { useExpenseCategoriesQuery } from "./hooks/useExpenseCategoriesQuery";
 import { useExpensesQuery } from "./hooks/useExpensesQuery";
 import { toISODateInTimeZone } from "@/lib/date";
 import { localizeApiError } from "@/lib/errorMessages";
+import { cn } from "@/lib/utils";
 import { getCurrentUser } from "@/lib/api";
 import {
   expenseFormSchema,
   expenseUpdateFormSchema,
   MAX_EXPENSE_AMOUNT,
 } from "./expenseSchemas.js";
+import { TitleTooltip } from "@/components/TitleTooltip";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -50,9 +51,11 @@ const EMPTY_ARRAY = [];
 const MAX_EXPENSES_PER_MONTH = 1000;
 const LAST_EXPENSE_CATEGORY_STORAGE_KEY = "expenses.lastUsedCategory";
 
-import { getCategoryBgClass, categoryIconMap, CATEGORIES } from "@/lib/category";
+import { getCategoryBgClass, getCategoryColorClass, categoryIconMap, CATEGORIES } from "@/lib/category";
 import { Circle } from "lucide-react";
 import { formatAmountInput, formatDisplayDate, formatMonthYear } from "@/lib/format";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+
 
 const parsePageParam = (value) => {
   const raw = String(value ?? "").trim();
@@ -83,7 +86,7 @@ export default function Expenses() {
   const { t, i18n } = useTranslation();
   const translateValidation = (message) => t(message, { defaultValue: message });
   const [searchParams, setSearchParams] = useSearchParams();
-  const [actionError, setActionError] = useState("");
+  const [actionError, setActionError] = React.useState("");
 
   const userQuery = useQuery({
     queryKey: ["users", "me"],
@@ -91,20 +94,19 @@ export default function Expenses() {
   });
   const isPremium = !!userQuery.data?.is_premium;
 
-  const [search, setSearch] = useState(() => searchParams.get("search") || "");
-  const [category, setCategory] = useState(() => searchParams.get("category") || "");
-  const [startDate, setStartDate] = useState(() => searchParams.get("start_date") || "");
-  const [endDate, setEndDate] = useState(() => searchParams.get("end_date") || "");
-  const [sort, setSort] = useState(() => searchParams.get("sort") || "newest");
-  const todayISO = useMemo(() => toISODateInTimeZone(), []);
+  const [search, setSearch] = React.useState(() => searchParams.get("search") || "");
+  const [category, setCategory] = React.useState(() => searchParams.get("category") || "");
+  const [startDate, setStartDate] = React.useState(() => searchParams.get("start_date") || "");
+  const [endDate, setEndDate] = React.useState(() => searchParams.get("end_date") || "");
+  const [sort, setSort] = React.useState(() => searchParams.get("sort") || "newest");
+  const todayISO = React.useMemo(() => toISODateInTimeZone(), []);
 
-  const [page, setPage] = useState(() => parsePageParam(searchParams.get("page")));
+  const [page, setPage] = React.useState(() => parsePageParam(searchParams.get("page")));
 
-  const [recurringCount, setRecurringCount] = useState(0);
-
-  const [addOpen, setAddOpen] = useState(false);
+  const [recurringCount, setRecurringCount] = React.useState(0);
+  const [addOpen, setAddOpen] = React.useState(false);
   const VALID_TABS = ["one-time", "recurring"];
-  const [activeTab, setActiveTabState] = useState(() => {
+  const [activeTab, setActiveTabState] = React.useState(() => {
     const t = searchParams.get("tab");
     return VALID_TABS.includes(t) ? t : "one-time";
   });
@@ -117,30 +119,38 @@ export default function Expenses() {
       return next;
     }, { replace: true });
   };
-  const recurringAddRef = useRef(null);
-  const [addTitle, setAddTitle] = useState("");
-  const [addAmount, setAddAmount] = useState("");
-  const [addCategory, setAddCategory] = useState("");
-  const [addDescription, setAddDescription] = useState("");
-  const [addDate, setAddDate] = useState("");
-  const [touchedAdd, setTouchedAdd] = useState({});
+  const recurringAddRef = React.useRef(null);
+  const [addTitle, setAddTitle] = React.useState("");
+  const [addAmount, setAddAmount] = React.useState("");
+  const [addCategory, setAddCategory] = React.useState("");
+  const [addDescription, setAddDescription] = React.useState("");
+  const [addDate, setAddDate] = React.useState("");
+  const [touchedAdd, setTouchedAdd] = React.useState({});
 
-  const [editOpen, setEditOpen] = useState(false);
-  const [editExpense, setEditExpense] = useState(null);
-  const [editTitle, setEditTitle] = useState("");
-  const [editAmount, setEditAmount] = useState("");
-  const [editCategory, setEditCategory] = useState("");
-  const [editDescription, setEditDescription] = useState("");
-  const [editDate, setEditDate] = useState("");
-  const [touchedEdit, setTouchedEdit] = useState({});
+  const [editOpen, setEditOpen] = React.useState(false);
+  const [editExpense, setEditExpense] = React.useState(null);
+  const [editTitle, setEditTitle] = React.useState("");
+  const [editAmount, setEditAmount] = React.useState("");
+  const [editCategory, setEditCategory] = React.useState("");
+  const [editDescription, setEditDescription] = React.useState("");
+  const [editDate, setEditDate] = React.useState("");
+  const [touchedEdit, setTouchedEdit] = React.useState({});
 
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const [deleteTarget, setDeleteTarget] = React.useState(null);
 
-  const [descriptionOpen, setDescriptionOpen] = useState(false);
-  const [descriptionTarget, setDescriptionTarget] = useState(null);
-  const [expenseMenuForId, setExpenseMenuForId] = useState(null);
-  const [expenseMenuPosition, setExpenseMenuPosition] = useState(null);
+  const [descriptionOpen, setDescriptionOpen] = React.useState(false);
+  const [descriptionTarget, setDescriptionTarget] = React.useState(null);
+  const [expenseMenuForId, setExpenseMenuForId] = React.useState(null);
+  const [expenseMenuPosition, setExpenseMenuPosition] = React.useState(null);
+
+  const [windowWidth, setWindowWidth] = React.useState(typeof window !== "undefined" ? window.innerWidth : 1280);
+  React.useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", handleResize);
+    console.log("[Expenses] Initializing at width:", window.innerWidth);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const tCategory = (name) => t(`categories.${name}`, { defaultValue: name });
   const selectTriggerClass =
@@ -152,7 +162,7 @@ export default function Expenses() {
   const _formatDisplayDateLocal = (value) => formatDisplayDate(value, appLang);
   const _formatMonthYearLocal = (value) => formatMonthYear(value, appLang);
 
-  const queryParams = useMemo(() => {
+  const queryParams = React.useMemo(() => {
     return {
       limit: PAGE_SIZE,
       skip: (page - 1) * PAGE_SIZE,
@@ -164,7 +174,7 @@ export default function Expenses() {
     };
   }, [search, category, startDate, endDate, sort, page]);
 
-  const currentMonthCountParams = useMemo(() => ({
+  const currentMonthCountParams = React.useMemo(() => ({
     limit: 1,
     skip: 0,
     start_date: `${todayISO.slice(0, 7)}-01`,
@@ -172,7 +182,7 @@ export default function Expenses() {
     sort: "newest",
   }), [todayISO]);
 
-  const dateFilterError = useMemo(() => {
+  const dateFilterError = React.useMemo(() => {
     if (startDate && startDate > todayISO) return t("expenses.startFuture");
     if (endDate && endDate > todayISO) return t("expenses.endFuture");
     if (startDate && endDate && startDate > endDate) return t("expenses.startAfterEnd");
@@ -200,14 +210,14 @@ export default function Expenses() {
       t("expenses.loadFailed")
       : "";
 
-  const orderedCategories = useMemo(() => {
+  const orderedCategories = React.useMemo(() => {
     const set = new Set(categories);
     const inOrder = CATEGORIES.filter((c) => set.has(c));
     const extras = [...set].filter((c) => !CATEGORIES.includes(c));
     return [...inOrder, ...extras];
   }, [categories]);
 
-  const preferredAddCategory = useMemo(() => {
+  const preferredAddCategory = React.useMemo(() => {
     const storedCategory = getStoredLastExpenseCategory();
     if (storedCategory && orderedCategories.includes(storedCategory)) return storedCategory;
 
@@ -247,7 +257,7 @@ export default function Expenses() {
     return localizeApiError(e?.message, t) || e?.message || t("expenses.requestFailed");
   };
 
-  useEffect(() => {
+  React.useEffect(() => {
     const next = new URLSearchParams();
     if (activeTab === "recurring") {
       next.set("tab", "recurring");
@@ -311,7 +321,7 @@ export default function Expenses() {
     setDescriptionOpen(true);
   };
 
-  useEffect(() => {
+  React.useEffect(() => {
     const onPointerDown = (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
@@ -359,7 +369,7 @@ export default function Expenses() {
     setPage((p) => p + 1);
   };
 
-  const addExpenseParsed = useMemo(
+  const addExpenseParsed = React.useMemo(
     () =>
       expenseFormSchema.safeParse({
         title: addTitle,
@@ -371,7 +381,7 @@ export default function Expenses() {
     [addTitle, addAmount, addCategory, addDate, addDescription]
   );
 
-  const addErrors = useMemo(() => {
+  const addErrors = React.useMemo(() => {
     if (addExpenseParsed.success) return {};
     const errs = {};
     addExpenseParsed.error.issues.forEach((issue) => {
@@ -392,7 +402,7 @@ export default function Expenses() {
   const isDeleting = deleteExpenseMutation.isPending;
   const canSubmitAddExpense = addExpenseParsed.success && !isAdding && !expenseMonthLimitReached;
 
-  const editExpenseParsed = useMemo(
+  const editExpenseParsed = React.useMemo(
     () =>
       expenseUpdateFormSchema.safeParse({
         title: editTitle,
@@ -403,7 +413,7 @@ export default function Expenses() {
     [editTitle, editAmount, editDate, editDescription]
   );
 
-  const editErrors = useMemo(() => {
+  const editErrors = React.useMemo(() => {
     if (editExpenseParsed.success) return {};
     const errs = {};
     editExpenseParsed.error.issues.forEach((issue) => {
@@ -491,7 +501,7 @@ export default function Expenses() {
 
   const paginationControls = (
     <div className="flex items-center justify-between">
-      <p className="text-sm text-muted-foreground">
+      <p className="text-muted-foreground transition-all duration-200 text-pag font-medium">
         {t("expenses.page")} {page} / {totalPages || 1}
       </p>
       <div className="flex items-center gap-2">
@@ -500,16 +510,18 @@ export default function Expenses() {
           size="sm"
           disabled={page === 1 || loading || isFetching}
           onClick={goPrevPage}
+          className="h-8 w-8 p-0 rounded-md"
         >
-          <ChevronLeft className="mr-1 h-4 w-4" /> {t("expenses.prev")}
+          <ChevronLeft className="h-4 w-4" />
         </Button>
         <Button
           variant="outline"
           size="sm"
           disabled={page >= totalPages || loading || isFetching}
           onClick={goNextPage}
+          className="h-8 w-8 p-0 rounded-md"
         >
-          {t("expenses.next")} <ChevronRight className="ml-1 h-4 w-4" />
+          <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
     </div>
@@ -544,9 +556,9 @@ export default function Expenses() {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-4 shadow-none">
-          <TabsList className="grid w-full h-12 max-w-[400px] grid-cols-2 rounded-xl">
-            <TabsTrigger value="one-time" className="rounded-lg">{t("expenses.oneTime", { defaultValue: "One-Time Expenses" })}</TabsTrigger>
-            <TabsTrigger value="recurring" className="rounded-lg">{t("expenses.recurringTab", { defaultValue: "Recurring" })}</TabsTrigger>
+          <TabsList className="grid w-full h-10 sm:h-12 grid-cols-2 rounded-xl">
+            <TabsTrigger value="one-time" className="rounded-lg text-xs sm:text-sm">{t("expenses.oneTime", { defaultValue: "One-Time" })}</TabsTrigger>
+            <TabsTrigger value="recurring" className="rounded-lg text-xs sm:text-sm">{t("expenses.recurringTab", { defaultValue: "Recurring" })}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="one-time" className="space-y-6 mt-4">
@@ -556,7 +568,7 @@ export default function Expenses() {
                 <CardTitle>{t("expenses.filtersTitle")}</CardTitle>
                 <CardDescription>{t("expenses.filtersDesc")}</CardDescription>
               </CardHeader>
-              <CardContent className="grid gap-3 md:grid-cols-6">
+              <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
                 <Input
                   type="date"
                   max={todayISO}
@@ -637,11 +649,95 @@ export default function Expenses() {
             </Card>
 
             {/* ✅ Expenses Table */}
-            <Card className="shadow-sm">
-              <CardContent className="min-h-80 py-6">
-                <div className="overflow-x-auto">
-                  <div className="min-w-[920px] space-y-0">
-                    <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,0.4fr)] items-center gap-x-2 border-b border-border px-3 py-3 text-xs uppercase tracking-wide text-muted-foreground">
+            <Card className="shadow-sm border-none sm:border bg-transparent sm:bg-card">
+              <CardContent className="min-h-80 py-4 sm:py-6 px-0 sm:px-6">
+                {/* 📋 Universal List View (0-1023px) */}
+                <div className="space-y-0 lg:hidden text-muted-foreground transition-all duration-300">
+                  {loading ? (
+                    <div className="flex justify-center px-4 py-20">
+                      <LoadingSpinner className="h-8 w-8 text-primary" />
+                    </div>
+                  ) : expenses.length === 0 ? (
+                    <EmptyState
+                      inline
+                      description={t("expenses.noResults", { defaultValue: "No expenses found." })}
+                    />
+                  ) : (
+                    <div className="divide-y divide-border/40">
+                      {expenses.map((e, index) => {
+                        const Icon = categoryIconMap[e.category] || Circle;
+                        const bgClass = getCategoryBgClass(e.category);
+
+                        return (
+                          <div
+                            key={e.id}
+                            className={cn(
+                              "flex items-center justify-between py-4 transition-all duration-300 px-page gap-rowg",
+                              "hover:bg-muted/50 dark:hover:bg-muted/20",
+                              "active:scale-[0.99] [&:has([data-action-popover]:active)]:scale-100",
+                              "animate-in fade-in slide-in-from-bottom-2 duration-500 fill-both"
+                            )}
+                            style={{ animationDelay: `${index * 30}ms` }}
+                          >
+                            <div className={cn(
+                              "shrink-0 rounded-full flex items-center justify-center h-exp-icon w-exp-icon",
+                              bgClass
+                            )}>
+                              <Icon className="h-[45%] w-[45%]" />
+                            </div>
+
+                            <div className="flex-1 min-w-0 pr-4 space-y-0.5">
+                              <TitleTooltip title={e.title}>
+                                <div className="font-semibold text-exp-title text-foreground/90 leading-tight truncate">
+                                  {e.title}
+                                </div>
+                              </TitleTooltip>
+                              <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
+                                <p className="text-exp-detail text-muted-foreground/80 font-medium truncate capitalize">
+                                  {tCategory(e.category)}
+                                </p>
+                                <span className="hidden sm:inline text-muted-foreground/20">•</span>
+                                <p className="text-exp-detail font-normal text-muted-foreground/50">
+                                  {_formatDisplayDateLocal(e.date)}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-col items-end justify-between self-stretch shrink-0 gap-2 min-w-[70px]">
+                              <div data-action-popover>
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8 -mr-1 -mt-1.5 text-muted-foreground/40 hover:text-foreground transition-colors"
+                                  onPointerDown={(ev) => ev.stopPropagation()}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    openExpenseActions(event, e);
+                                  }}
+                                >
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </div>
+                              <CurrencyAmount
+                                value={e.amount}
+                                format={windowWidth < 550 ? "compact" : "display"}
+                                tooltip="compact"
+                                className="font-bold text-exp-title tabular-nums text-right leading-none"
+                                currencyClassName="text-exp-detail ml-1.5 opacity-60"
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 🖥️ Desktop Table View (>= 1024px) */}
+                <div className="hidden lg:block overflow-x-auto">
+                  <div className="min-w-[800px] space-y-0">
+                    <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,0.4fr)] items-center gap-x-4 border-b border-border px-page py-3 text-[11px] uppercase tracking-widest font-bold text-muted-foreground/50">
                       <div className="text-left">{t("expenses.titleCol")}</div>
                       <div className="text-center">{t("expenses.category")}</div>
                       <div className="text-center">{t("expenses.date")}</div>
@@ -650,8 +746,8 @@ export default function Expenses() {
                     </div>
 
                     {loading ? (
-                      <div className="flex justify-center px-4 py-10">
-                        <LoadingSpinner className="h-6 w-6" />
+                      <div className="flex justify-center px-4 py-20">
+                        <LoadingSpinner className="h-8 w-8 text-primary" />
                       </div>
                     ) : expenses.length === 0 ? (
                       <EmptyState
@@ -659,68 +755,65 @@ export default function Expenses() {
                         description={t("expenses.noResults", { defaultValue: "No expenses found." })}
                       />
                     ) : (
-                      expenses.map((e) => (
-                        <div
-                          key={e.id}
-                          className="grid grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,0.4fr)] items-start gap-x-2 border-b border-border px-3 py-3 hover:bg-muted/50 dark:hover:bg-muted/30"
-                        >
-                          <div className="min-w-0 self-center">
-                            <TooltipProvider delayDuration={0}>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className="max-w-full text-left truncate font-medium text-foreground outline-none focus-visible:underline decoration-muted-foreground underline-offset-4 cursor-pointer"
-                                    onClick={(e) => e.preventDefault()}
-                                  >
-                                    {e.title}
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="max-w-[250px] sm:max-w-xs break-words">
+                      <div>
+                        {expenses.map((e, index) => (
+                          <div
+                            key={e.id}
+                            className="grid grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,0.4fr)] items-center gap-x-4 border-b border-border px-page py-3 hover:bg-muted/50 dark:hover:bg-muted/30 active:bg-muted/70 dark:active:bg-muted/40 transition-colors duration-200 group"
+                            style={{ animationDelay: `${index * 30}ms` }}
+                          >
+                            <div className="min-w-0">
+                              <TitleTooltip title={e.title}>
+                                <div className="text-table-title font-semibold text-foreground truncate cursor-default">
                                   {e.title}
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          </div>
+                                </div>
+                              </TitleTooltip>
+                            </div>
 
-                          <div className="min-w-0 self-center flex justify-center">
-                            <Badge variant="secondary" className={`max-w-full truncate ${getCategoryBgClass(e.category)}`}>
-                              {tCategory(e.category)}
-                            </Badge>
-                          </div>
+                            <div className="flex justify-center">
+                              <Badge
+                                variant="secondary"
+                                className={cn(
+                                  "px-2 py-0.5 rounded-full text-[10px] xl:text-[10px] 2xl:text[12px] font-bold capitalize bg-muted/50 border-none shrink-0",
+                                  getCategoryColorClass(e.category)
+                                )}
+                              >
+                                {tCategory(e.category)}
+                              </Badge>
+                            </div>
 
-                          <div className="self-center text-center text-sm text-foreground whitespace-nowrap">
-                            {_formatDisplayDateLocal(e.date)}
-                          </div>
+                            <div className="text-center text-table-detail text-muted-foreground font-medium">
+                              {_formatDisplayDateLocal(e.date)}
+                            </div>
 
-                          <CurrencyAmount
-                            value={e.amount}
-                            format="display"
-                            tooltip="compact"
-                            className="self-center flex justify-end gap-1 text-sm font-medium tabular-nums whitespace-nowrap"
-                            currencyClassName="font-normal tracking-widest self-end pb-[1px]"
-                          />
+                            <CurrencyAmount
+                              value={e.amount}
+                              format="display"
+                              tooltip="compact"
+                              className="flex justify-end gap-1 items-baseline text-table-amount font-bold tabular-nums text-foreground"
+                              currencyClassName="text-table-detail font-medium opacity-40 ml-0.5"
+                            />
 
-                          <div className="min-w-0">
                             <div className="flex justify-end" data-action-popover>
                               <Button
                                 type="button"
                                 size="icon"
                                 variant="ghost"
-                                className="h-8 w-8"
+                                className="h-8 w-8 opacity-20 group-hover:opacity-100 transition-opacity hover:bg-muted"
                                 onClick={(event) => openExpenseActions(event, e)}
                               >
                                 <MoreHorizontal className="h-4 w-4" />
                               </Button>
                             </div>
                           </div>
-                        </div>
-                      ))
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>
+
                 {totalPages > 1 && (
-                  <div className="mt-4">{paginationControls}</div>
+                  <div className="mt-6 px-page">{paginationControls}</div>
                 )}
               </CardContent>
             </Card>
@@ -794,24 +887,24 @@ export default function Expenses() {
           if (!open) setActionError("");
         }}
       >
-        <DialogContent className="py-8">
-          <DialogHeader className="space-y-3 pb-2">
-            <DialogTitle className="text-3xl font-bold tracking-tight">{t("expenses.addDialogTitle")}</DialogTitle>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("expenses.addDialogTitle")}</DialogTitle>
             <DialogDescription>{t("expenses.addDialogDesc")}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("expenses.titleCol")}</label>
+          <div className="space-y-2.5">
+            <div className="space-y-1">
+              <label>{t("expenses.titleCol")}</label>
               <div>
                 <Input value={addTitle}
                   onChange={(e) => { setAddTitle(e.target.value); setTouchedAdd(p => ({ ...p, title: true })); }}
                   onBlur={() => setTouchedAdd(p => ({ ...p, title: true }))}
-                  className={addErrors.title ? "border-red-500 focus-visible:border-red-500" : ""} />
-                {addErrors.title && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.title}</p>}
+                  className={cn(addErrors.title ? "border-red-500 focus-visible:border-red-500" : "")} />
+                {addErrors.title && <p className="text-[10px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.title}</p>}
               </div>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("expenses.amountUzs")}</label>
+            <div className="space-y-1">
+              <label>{t("expenses.amountUzs")}</label>
               <div>
                 <Input
                   type="text"
@@ -825,16 +918,16 @@ export default function Expenses() {
                       e.preventDefault();
                     }
                   }}
-                  className={addErrors.amount ? "border-red-500 focus-visible:border-red-500" : ""}
+                  className={cn(addErrors.amount ? "border-red-500 focus-visible:border-red-500" : "")}
                 />
-                {addErrors.amount && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.amount}</p>}
+                {addErrors.amount && <p className="text-[10px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.amount}</p>}
               </div>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("expenses.category")}</label>
+            <div className="space-y-1">
+              <label>{t("expenses.category")}</label>
               <div>
                 <Select value={addCategory || undefined} onValueChange={(v) => { setAddCategory(v); setTouchedAdd(p => ({ ...p, category: true })); }}>
-                  <SelectTrigger className={`${selectTriggerClass} ${addErrors.category ? "border-red-500 focus-visible:border-red-500" : ""}`} onBlur={() => setTouchedAdd(p => ({ ...p, category: true }))}>
+                  <SelectTrigger className={cn(selectTriggerClass, addErrors.category ? "border-red-500 focus-visible:border-red-500" : "")} onBlur={() => setTouchedAdd(p => ({ ...p, category: true }))}>
                     <SelectValue placeholder={t("expenses.selectCategory")} />
                   </SelectTrigger>
                   <SelectContent className={selectContentClass} position="popper" side="bottom">
@@ -859,8 +952,8 @@ export default function Expenses() {
                 {addErrors.category && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.category}</p>}
               </div>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("expenses.date")}</label>
+            <div className="space-y-1">
+              <label>{t("expenses.date")}</label>
               <div>
                 <Input
                   type="date"
@@ -869,24 +962,24 @@ export default function Expenses() {
                   value={addDate}
                   onChange={(e) => { setAddDate(e.target.value); setTouchedAdd(p => ({ ...p, date: true })); }}
                   onBlur={() => setTouchedAdd(p => ({ ...p, date: true }))}
-                  className={addErrors.date ? "border-red-500 focus-visible:border-red-500" : ""}
+                  className={cn(addErrors.date ? "border-red-500 focus-visible:border-red-500" : "")}
                 />
-                {addErrors.date && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.date}</p>}
+                {addErrors.date && <p className="text-[10px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.date}</p>}
               </div>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">
+            <div className="space-y-1">
+              <label>
                 {t("expenses.description")} ({t("common.optional", { defaultValue: "Optional" })})
               </label>
               <div>
                 <Textarea
-                  className={`h-24 min-h-24 resize-none overflow-y-auto ${addErrors.description ? "border-red-500 focus-visible:border-red-500" : ""}`}
+                  className={`resize-none overflow-y-auto ${addErrors.description ? "border-red-500 focus-visible:border-red-500" : ""}`}
                   value={addDescription}
                   onChange={(e) => { setAddDescription(e.target.value); setTouchedAdd(p => ({ ...p, description: true })); }}
                   onBlur={() => setTouchedAdd(p => ({ ...p, description: true }))}
                 />
-                {addErrors.description && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.description}</p>}
-                {actionError && <p className="text-[11px] leading-4 text-red-500 font-medium ml-0.5 mt-1">{actionError}</p>}
+                {addErrors.description && <p className="text-[10px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.description}</p>}
+                {actionError && <p className="text-[10px] leading-4 text-red-500 font-medium ml-0.5 mt-1">{actionError}</p>}
               </div>
             </div>
           </div>
@@ -925,24 +1018,24 @@ export default function Expenses() {
           if (!open) setActionError("");
         }}
       >
-        <DialogContent className="py-8">
-          <DialogHeader className="space-y-3 pb-2">
-            <DialogTitle className="text-3xl font-bold tracking-tight">{t("expenses.editDialogTitle")}</DialogTitle>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("expenses.editDialogTitle")}</DialogTitle>
             <DialogDescription>{t("expenses.editDialogDesc")}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("expenses.titleCol")}</label>
+          <div className="space-y-2.5">
+            <div className="space-y-1">
+              <label>{t("expenses.titleCol")}</label>
               <div>
                 <Input value={editTitle}
                   onChange={(e) => { setEditTitle(e.target.value); setTouchedEdit(p => ({ ...p, title: true })); }}
                   onBlur={() => setTouchedEdit(p => ({ ...p, title: true }))}
-                  className={editErrors.title ? "border-red-500 focus-visible:border-red-500" : ""} />
-                {editErrors.title && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.title}</p>}
+                  className={cn(editErrors.title ? "border-red-500 focus-visible:border-red-500" : "")} />
+                {editErrors.title && <p className="text-[10px] text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.title}</p>}
               </div>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("expenses.amountUzs")}</label>
+            <div className="space-y-1">
+              <label>{t("expenses.amountUzs")}</label>
               <div>
                 <Input
                   type="text"
@@ -956,17 +1049,17 @@ export default function Expenses() {
                       e.preventDefault();
                     }
                   }}
-                  className={editErrors.amount ? "border-red-500 focus-visible:border-red-500" : ""}
+                  className={cn(editErrors.amount ? "border-red-500 focus-visible:border-red-500" : "")}
                 />
-                {editErrors.amount && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.amount}</p>}
+                {editErrors.amount && <p className="text-[10px] text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.amount}</p>}
               </div>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("expenses.category")}</label>
-              <Input value={tCategory(editCategory) || ""} disabled readOnly />
+            <div className="space-y-1">
+              <label>{t("expenses.category")}</label>
+              <Input className="bg-muted/50" value={tCategory(editCategory) || ""} disabled readOnly />
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("expenses.date")}</label>
+            <div className="space-y-1">
+              <label>{t("expenses.date")}</label>
               <div>
                 <Input
                   type="date"
@@ -975,23 +1068,23 @@ export default function Expenses() {
                   value={editDate}
                   onChange={(e) => { setEditDate(e.target.value); setTouchedEdit(p => ({ ...p, date: true })); }}
                   onBlur={() => setTouchedEdit(p => ({ ...p, date: true }))}
-                  className={editErrors.date ? "border-red-500 focus-visible:border-red-500" : ""}
+                  className={cn(editErrors.date ? "border-red-500 focus-visible:border-red-500" : "")}
                 />
-                {editErrors.date && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.date}</p>}
+                {editErrors.date && <p className="text-[10px] text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.date}</p>}
               </div>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">
+            <div className="space-y-1">
+              <label>
                 {t("expenses.description")} ({t("common.optional", { defaultValue: "Optional" })})
               </label>
               <div>
                 <Textarea
-                  className={`h-24 min-h-24 resize-none overflow-y-auto ${editErrors.description ? "border-red-500 focus-visible:border-red-500" : ""}`}
+                  className={`resize-none overflow-y-auto ${editErrors.description ? "border-red-500 focus-visible:border-red-500" : ""}`}
                   value={editDescription}
                   onChange={(e) => { setEditDescription(e.target.value); setTouchedEdit(p => ({ ...p, description: true })); }}
                   onBlur={() => setTouchedEdit(p => ({ ...p, description: true }))}
                 />
-                {editErrors.description && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.description}</p>}
+                {editErrors.description && <p className="text-[10px] text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.description}</p>}
               </div>
             </div>
             {actionError && <p className="text-sm text-red-600">{actionError}</p>}

@@ -90,3 +90,24 @@ export const getCategoryBgClass = (category) => {
             return "bg-gray-100 hover:bg-gray-200 border border-gray-200 dark:bg-gray-500/30 dark:hover:bg-gray-500/15 dark:border-gray-400/35";
     }
 };
+
+export const getCategoryColorClass = (category) => {
+    switch (category) {
+        case "Groceries": return "text-emerald-500";
+        case "Dining Out": return "text-orange-500";
+        case "Electronics": return "text-cyan-500";
+        case "Housing": return "text-blue-500";
+        case "Utilities": return "text-yellow-500";
+        case "Subscriptions": return "text-purple-500";
+        case "Transport": return "text-sky-500";
+        case "Health": return "text-red-500";
+        case "Personal care": return "text-indigo-500";
+        case "Education": return "text-amber-500";
+        case "Clothing": return "text-pink-500";
+        case "Family & Events": return "text-lime-500";
+        case "Entertainment": return "text-fuchsia-500";
+        case "Installments & Debt": return "text-slate-500";
+        case "Business / Work": return "text-teal-500";
+        default: return "text-muted-foreground";
+    }
+};

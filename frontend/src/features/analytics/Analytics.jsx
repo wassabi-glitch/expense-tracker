@@ -7,16 +7,20 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
+  LabelList,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 import { differenceInCalendarDays } from "date-fns";
-
+import { Wallet, TrendingUp, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import { CurrencyAmount } from "@/components/CurrencyAmount";
 
 import { toISODateInTimeZone } from "@/lib/date";
 import { localizeApiError } from "@/lib/errorMessages";
@@ -93,6 +97,15 @@ export default function Analytics() {
 
   const [startInput, setStartInput] = useState(() => searchParams.get("start_date") || "");
   const [endInput, setEndInput] = useState(() => searchParams.get("end_date") || "");
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
   const todayISO = useMemo(() => toISODateInTimeZone(), []);
 
   const summaryQuery = useAnalyticsSummaryQuery();
@@ -122,11 +135,47 @@ export default function Analytics() {
     setSearchParams(next, { replace: true });
   }, [range, setSearchParams]);
 
-  const summary = useMemo(() => [
-    { label: t("analytics.lifetimeSpent"), value: <span className="flex items-baseline gap-1"><span>{formatUzs(history?.total_spent_lifetime || 0)}</span><span className="text-xs text-muted-foreground uppercase opacity-80">UZS</span></span> },
-    { label: t("analytics.avgTransaction"), value: <span className="flex items-baseline gap-1"><span>{formatUzs(history?.average_transaction || 0)}</span><span className="text-xs text-muted-foreground uppercase opacity-80">UZS</span></span> },
-    { label: t("analytics.totalTransactions"), value: `${history?.total_transaction || 0}` },
+  const summaryCards = useMemo(() => [
+    {
+      titleKey: "analytics.lifetimeSpent",
+      icon: Wallet,
+      rawValue: history?.total_spent_lifetime || 0,
+      tooltip: `${formatUzs(history?.total_spent_lifetime || 0)} UZS`
+    },
+    {
+      titleKey: "analytics.avgTransaction",
+      icon: TrendingUp,
+      rawValue: history?.average_transaction || 0,
+      tooltip: `${formatUzs(history?.average_transaction || 0)} UZS`
+    },
+    {
+      titleKey: "analytics.totalTransactions",
+      icon: Layers,
+      rawValue: history?.total_transaction || 0,
+      isRaw: true
+    },
   ], [history, t]);
+  
+  const getCategoryColor = (category) => {
+    const colors = {
+      "Groceries": "#10b981",
+      "Dining Out": "#f97316",
+      "Electronics": "#06b6d4",
+      "Housing": "#3b82f6",
+      "Utilities": "#eab308",
+      "Subscriptions": "#a855f7",
+      "Transport": "#0ea5e9",
+      "Health": "#ef4444",
+      "Personal care": "#6366f1",
+      "Education": "#f59e0b",
+      "Clothing": "#ec4899",
+      "Family & Events": "#84cc16",
+      "Entertainment": "#d946ef",
+      "Installments & Debt": "#64748b",
+      "Business / Work": "#14b8a6",
+    };
+    return colors[category] || "#94a3b8";
+  };
 
   const trendChartData = useMemo(() => (trendData || []).map((d) => ({ date: d.date, amount: Number(d.amount || 0) })).sort((a, b) => new Date(a.date) - new Date(b.date)), [trendData]);
   const categoryChartData = useMemo(() => (categoryBreakdown || []).map((c) => ({ category: c.category, total: Number(c.total || 0), count: Number(c.count || 0) })).sort((a, b) => b.total - a.total), [categoryBreakdown]);
@@ -166,131 +215,352 @@ export default function Analytics() {
     <div className="min-h-screen bg-background text-foreground">
       <div className="container mx-auto px-4 py-8 space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">{t("analytics.title")}</h1>
-          <p className="text-muted-foreground">{t("analytics.subtitle")}</p>
+          <h1 className="text-xl sm:text-3xl font-bold tracking-tight text-foreground">{t("analytics.title")}</h1>
+          <p className="text-xs sm:text-base text-muted-foreground mt-0.5 sm:mt-1">{t("analytics.subtitle")}</p>
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className={cn(
+          "grid gap-4 sm:grid-cols-2 lg:grid-cols-3",
+          isMobile ? "grid-cols-1" : "grid-cols-3"
+        )}>
           {loadingSummary && !history ? (
             <>
               <div className="h-[110px] rounded-xl bg-muted animate-pulse" />
-              <div className="h-[110px] rounded-xl bg-muted animate-pulse" />
-              <div className="h-[110px] rounded-xl bg-muted animate-pulse" />
+              {!isMobile && (
+                <>
+                  <div className="h-[110px] rounded-xl bg-muted animate-pulse" />
+                  <div className="h-[110px] rounded-xl bg-muted animate-pulse" />
+                </>
+              )}
             </>
-          ) : summary.map((item) => (
-            <Card key={item.label} className="shadow-sm">
-              <CardHeader className="space-y-1">
-                <CardDescription>{item.label}</CardDescription>
-                <CardTitle className="text-2xl">{item.value}</CardTitle>
-              </CardHeader>
-            </Card>
-          ))}
+          ) : summaryCards.map((card, idx) => {
+            if (isMobile && idx !== 0) return null;
+            return (
+              <Card
+                key={idx}
+                className={cn(
+                  "border-border/40 bg-card/40 shadow-sm transition-all duration-200 hover:shadow-md hover:bg-card/60 active:scale-[0.98] cursor-pointer",
+                  isMobile && idx === 0 && "w-full"
+                )}
+              >
+                <CardHeader className="p-4 flex flex-row items-center justify-between space-y-0 pb-1">
+                  <CardTitle className="text-refined-label">
+                    {t(card.titleKey)}
+                  </CardTitle>
+                  <card.icon className="h-3.5 w-3.5 text-muted-foreground/40" />
+                </CardHeader>
+                <CardContent className="p-4 pt-1">
+                  {card.isRaw ? (
+                    <div className="text-xl sm:text-2xl font-bold leading-none tabular-nums text-foreground">{card.rawValue}</div>
+                  ) : (
+                    <CurrencyAmount
+                      value={card.rawValue}
+                      format="compact"
+                      tooltip="always"
+                      className="flex items-baseline gap-1.5 flex-wrap outline-none"
+                      valueClassName="text-xl sm:text-2xl font-bold tracking-tight tabular-nums text-foreground"
+                      currencyClassName="text-xs opacity-70"
+                      tooltipContent={card.tooltip}
+                    />
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
 
-        <Card className="shadow-sm">
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-base">{t("analytics.filtersTitle")}</CardTitle>
-            <CardDescription>{t("analytics.filtersDesc")}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">{t("analytics.quickPresets")}</p>
-              <p className="text-xs text-muted-foreground">{t("analytics.quickPresetsDesc")}</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {PRESETS.map((p) => (
-                <Button key={p.key} variant={isPresetActive(p) ? "default" : "outline"} onClick={() => applyPreset(p)} className="h-9 w-[72px]">
-                  {p.label}
-                </Button>
-              ))}
-            </div>
+        {/* Mobile-only scrollable row for other cards */}
+        {isMobile && !loadingSummary && history && (
+          <div className="flex overflow-x-auto gap-4 -mx-4 px-4 pb-4 no-scrollbar scroll-smooth">
+            {summaryCards.slice(1).map((card, idx) => (
+              <Card
+                key={idx}
+                className="border-border/40 bg-card/40 shadow-sm transition-all duration-200 hover:shadow-md hover:bg-card/60 active:scale-[0.98] cursor-pointer min-w-[260px] flex-shrink-0"
+              >
+                <CardHeader className="p-4 pt-4 flex flex-row items-center justify-between space-y-0 pb-1">
+                  <CardTitle className="text-refined-label">
+                    {t(card.titleKey)}
+                  </CardTitle>
+                  <card.icon className="h-3.5 w-3.5 text-muted-foreground/40" />
+                </CardHeader>
+                  <CardContent className="p-4 pt-1">
+                    {card.isRaw ? (
+                      <div className="text-xl font-bold leading-none tabular-nums text-foreground">{card.rawValue}</div>
+                    ) : (
+                      <CurrencyAmount
+                        value={card.rawValue}
+                        format="compact"
+                        tooltip="always"
+                        className="flex items-baseline gap-1.5 flex-wrap outline-none"
+                        valueClassName="text-xl font-bold tracking-tight tabular-nums text-foreground"
+                        currencyClassName="text-xs opacity-70"
+                        tooltipContent={card.tooltip}
+                      />
+                    )}
+                  </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
 
-            <div className="space-y-1">
-              <p className="text-sm font-medium">{t("analytics.customRange")}</p>
-              <p className="text-xs text-muted-foreground">{t("analytics.customRangeDesc")}</p>
-            </div>
-            <div className="grid gap-3 md:grid-cols-[1fr_auto_1fr_auto_auto] md:items-center">
-              <Input type="date" value={startInput} onChange={(e) => { setStartInput(e.target.value); setHint(""); }} min={MIN_ANALYTICS_DATE} max={todayISO} />
-              <span className="text-muted-foreground text-sm">{t("analytics.to")}</span>
-              <Input type="date" value={endInput} onChange={(e) => { setEndInput(e.target.value); setHint(""); }} min={startInput && startInput > MIN_ANALYTICS_DATE ? startInput : MIN_ANALYTICS_DATE} max={todayISO} />
-              <Button className="h-9" onClick={applyCustom} disabled={!inputsStatus.ok} title={!inputsStatus.ok ? inputsStatus.message : t("analytics.applyDateRange")}>
-                {t("analytics.apply")}
-              </Button>
-              <Button className="h-9" variant="outline" onClick={resetAll}>{t("analytics.reset")}</Button>
-            </div>
-
+        <Card className="border-border/40 bg-card/40 shadow-sm" style={{ marginBottom: "var(--analytics-gap)" }}>
+          <CardHeader className="p-4 sm:p-5 pb-2 sm:pb-1">
             <div className="flex flex-col gap-1">
-              <p className="text-sm text-muted-foreground">{t("analytics.range")}: <span className="font-medium text-foreground">{rangeLabel}</span></p>
-              <p className="text-xs text-muted-foreground">{t("analytics.activeMode")}: {range.mode === "days" ? t("analytics.modePreset") : t("analytics.modeCustom")}.</p>
-              {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+              <CardTitle className="text-base font-semibold tracking-tight">{t("analytics.filtersTitle")}</CardTitle>
+              <CardDescription className="text-ui-micro">{t("analytics.filtersDesc")}</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="p-4 sm:p-5 pt-0 space-y-4 sm:space-y-3">
+            <div className="space-y-2.5">
+              <p className="text-ui-micro">{t("analytics.quickPresets")}</p>
+              <div className="flex flex-wrap gap-2">
+                {PRESETS.map((p) => (
+                  <Button
+                    key={p.key}
+                    variant={isPresetActive(p) ? "default" : "outline"}
+                    onClick={() => applyPreset(p)}
+                    className="btn-pill"
+                  >
+                    {p.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-3.5">
+              <p className="text-ui-micro">{t("analytics.customRange")}</p>
+              <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                <div className="grid gap-3 sm:flex sm:items-center flex-1">
+                  <div className="relative flex-1 lg:max-w-[200px]">
+                    <Input
+                      type="date"
+                      value={startInput}
+                      onChange={(e) => { setStartInput(e.target.value); setHint(""); }}
+                      min={MIN_ANALYTICS_DATE}
+                      max={todayISO}
+                      className="input-pill"
+                    />
+                  </div>
+                  <span className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest text-center px-1 shrink-0">{t("analytics.to")}</span>
+                  <div className="relative flex-1 lg:max-w-[200px]">
+                    <Input
+                      type="date"
+                      value={endInput}
+                      onChange={(e) => { setEndInput(e.target.value); setHint(""); }}
+                      min={startInput && startInput > MIN_ANALYTICS_DATE ? startInput : MIN_ANALYTICS_DATE}
+                      max={todayISO}
+                      className="input-pill"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2 lg:ml-2">
+                  <Button
+                    className="btn-pill-lg flex-1 sm:w-28 lg:w-32"
+                    onClick={applyCustom}
+                    disabled={!inputsStatus.ok}
+                    title={!inputsStatus.ok ? inputsStatus.message : t("analytics.applyDateRange")}
+                  >
+                    {t("analytics.apply")}
+                  </Button>
+                  <Button
+                    className="btn-pill-lg flex-1 sm:w-28 lg:w-32"
+                    variant="outline"
+                    onClick={resetAll}
+                  >
+                    {t("analytics.reset")}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5 border-t border-border/40 pt-4">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">{t("analytics.range")}:</span>
+                <span className="text-[11px] font-bold text-foreground">{rangeLabel}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">{t("analytics.activeMode")}:</span>
+                <span className="text-[11px] font-medium text-muted-foreground">{range.mode === "days" ? t("analytics.modePreset") : t("analytics.modeCustom")}</span>
+              </div>
+              {hint && <p className="text-[10px] font-medium text-amber-500 animate-in fade-in slide-in-from-left-1">{hint}</p>}
             </div>
           </CardContent>
         </Card>
 
-        <div className="grid gap-6">
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle>{t("analytics.dailyTrend")}</CardTitle>
-              <CardDescription>{rangeLabel}</CardDescription>
+        <div className="flex flex-col pb-8" style={{ gap: "var(--analytics-gap)" }}>
+          <Card className="border-border/40 bg-card/40 shadow-sm overflow-hidden">
+            <CardHeader className="p-4 sm:p-5">
+              <div className="flex flex-col gap-1">
+                <CardTitle className="text-base font-semibold tracking-tight">{t("analytics.dailyTrend")}</CardTitle>
+                <span className="text-analytics-period">{rangeLabel}</span>
+              </div>
             </CardHeader>
-            <CardContent className="h-[300px]">
+            <CardContent className="h-[280px] sm:h-[320px] p-0 sm:p-6 sm:pt-0">
               {loadingCharts && trendChartData.length === 0 ? (
-                <div className="h-full w-full animate-pulse rounded-lg bg-muted" />
+                <div className="h-full w-full animate-pulse bg-muted/20" />
               ) : trendChartData.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t("analytics.noTrendData")}</p>
+                <div className="flex h-full items-center justify-center">
+                  <p className="text-xs text-muted-foreground">{t("analytics.noTrendData")}</p>
+                </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={trendChartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                  <AreaChart data={trendChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <defs>
                       <linearGradient id="analyticsTrendFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.35} />
-                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.05} />
+                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="4 4" className="stroke-muted" />
-                    <XAxis dataKey="date" tickFormatter={(value) => formatLongDate(value, chartLocale, i18n.language)} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={28} />
-                    <YAxis tickFormatter={(value) => formatCompactUzs(value)} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} width={60} />
-                    <Tooltip formatter={(value) => [<span className="flex items-baseline gap-1 font-semibold"><span>{formatUzs(value)}</span><span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/70">UZS</span></span>, t("analytics.amount")]} labelFormatter={(label) => `${t("analytics.date")}: ${formatLongDate(label, chartLocale, i18n.language)}`} contentStyle={{ borderRadius: 10, border: "1px solid hsl(var(--border))", background: "hsl(var(--background))" }} />
-                    <Area type="monotone" dataKey="amount" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#analyticsTrendFill)" />
+
+                    <XAxis
+                      dataKey="date"
+                      tickFormatter={(value) => formatLongDate(value, chartLocale, i18n.language)}
+                      tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }}
+                      axisLine={false}
+                      tickLine={false}
+                      interval="preserveStartEnd"
+                      minTickGap={35}
+                    />
+                    <YAxis
+                      tickFormatter={(value) => formatCompactUzs(value)}
+                      tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={60}
+                    />
+                    <Tooltip
+                      cursor={{ stroke: "hsl(var(--primary))", strokeWidth: 1, strokeDasharray: "4 4" }}
+                      content={({ active, payload, label }) => {
+                        if (active && payload && payload.length) {
+                          return (
+                            <div className="rounded-xl border border-border/50 bg-background/95 p-2.5 shadow-xl backdrop-blur-md">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 mb-1">
+                                {formatLongDate(label, chartLocale, i18n.language)}
+                              </p>
+                              <div className="flex items-baseline gap-1.5">
+                                <span className="text-sm font-bold tabular-nums text-foreground">
+                                  {payload[0].value >= 1_000_000_000 ? formatCompactUzs(payload[0].value) : formatUzs(payload[0].value)}
+                                </span>
+                                <span className="text-[9px] font-bold text-muted-foreground/70 uppercase tracking-widest">UZS</span>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="amount"
+                      stroke="hsl(var(--primary))"
+                      strokeWidth={2}
+                      fill="url(#analyticsTrendFill)"
+                      animationDuration={1000}
+                    />
                   </AreaChart>
                 </ResponsiveContainer>
               )}
             </CardContent>
           </Card>
 
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle>{t("analytics.categoryBreakdown")}</CardTitle>
-              <CardDescription>{rangeLabel}</CardDescription>
+          <Card className="border-border/40 bg-card/40 shadow-sm overflow-hidden">
+            <CardHeader className="p-4 sm:p-5 pb-0 sm:pb-0">
+              <div className="flex flex-col gap-1">
+                <CardTitle className="text-base font-semibold tracking-tight">{t("analytics.categoryBreakdown")}</CardTitle>
+                <span className="text-analytics-period">{rangeLabel}</span>
+              </div>
             </CardHeader>
-            <CardContent className="h-[340px]">
+            <CardContent 
+              className="p-0 sm:p-6 sm:pt-0 overflow-visible"
+              style={{ height: `${Math.max(300, categoryChartData.length * 70)}px` }}
+            >
               {loadingCharts && categoryChartData.length === 0 ? (
-                <div className="h-full w-full animate-pulse rounded-lg bg-muted" />
+                <div className="h-full w-full animate-pulse bg-muted/20" />
               ) : categoryChartData.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t("analytics.noCategoryData")}</p>
+                <div className="flex h-full items-center justify-center">
+                  <p className="text-xs text-muted-foreground">{t("analytics.noCategoryData")}</p>
+                </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={categoryChartData} layout="vertical" margin={{ top: 10, right: 16, left: 40, bottom: 10 }}>
-                    <CartesianGrid strokeDasharray="4 4" className="stroke-muted" />
+                  <BarChart 
+                    data={categoryChartData} 
+                    layout="vertical" 
+                    margin={{ top: 5, right: 30, left: 10, bottom: 20 }}
+                    barCategoryGap="20%"
+                  >
+                    <defs>
+                      <linearGradient id="analyticsBarGradient" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.8} />
+                        <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={1} />
+                      </linearGradient>
+                    </defs>
+
+                    <XAxis 
+                      type="number" 
+                      tickFormatter={(value) => formatCompactUzs(value)}
+                      tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
                     <YAxis
                       type="category"
                       dataKey="category"
-                      tickFormatter={(value) => t(`categories.${value}`, { defaultValue: value })}
-                      tick={{ fontSize: 12 }}
-                      axisLine={false}
-                      tickLine={false}
-                      width={120}
+                      hide
                     />
-                    <XAxis type="number" tickFormatter={(value) => formatCompactUzs(value)} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
                     <Tooltip
-                      cursor={{ fill: "hsl(var(--muted))", opacity: 0.25 }}
-                      formatter={(value) => [<span className="flex items-baseline gap-1 font-semibold"><span>{formatUzs(value)}</span><span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/70">UZS</span></span>, t("analytics.total")]}
-                      labelFormatter={(label) => `${t("analytics.category")}: ${t(`categories.${label}`, { defaultValue: label })}`}
-                      contentStyle={{ borderRadius: 10, border: "1px solid hsl(var(--border))", background: "hsl(var(--background))" }}
+                      cursor={{ fill: "hsl(var(--primary))", opacity: 0.05 }}
+                      content={({ active, payload, label }) => {
+                        if (active && payload && payload.length) {
+                          return (
+                            <div className="rounded-xl border border-border/50 bg-background/95 p-2.5 shadow-xl backdrop-blur-md">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 mb-1">
+                                {t(`categories.${label}`, { defaultValue: label })}
+                              </p>
+                              <div className="flex items-baseline gap-1.5">
+                                <span className="text-sm font-bold tabular-nums text-foreground">
+                                  {payload[0].value >= 1_000_000_000 ? formatCompactUzs(payload[0].value) : formatUzs(payload[0].value)}
+                                </span>
+                                <span className="text-[9px] font-bold text-muted-foreground/70 uppercase tracking-widest">UZS</span>
+                              </div>
+                              <p className="mt-1 text-[10px] text-muted-foreground/80 lowercase">
+                                {payload[0].payload.count} {t(payload[0].payload.count === 1 ? "common.transaction" : "common.transactions")}
+                              </p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
                     />
-                    <Bar dataKey="total" fill="hsl(var(--primary))" radius={[0, 6, 6, 0]} />
+                    <Bar 
+                      dataKey="total"
+                      radius={[0, 4, 4, 0]}
+                      barSize={24}
+                      animationDuration={1500}
+                    >
+                      <LabelList
+                        dataKey="category"
+                        position="top"
+                        offset={8}
+                        content={({ x, y, value }) => (
+                          <text
+                            x={x}
+                            y={y - 6}
+                            fill="hsl(var(--muted-foreground) / 0.7)"
+                            fontSize={10}
+                            fontWeight={500}
+                            className="tracking-tight"
+                            textAnchor="start"
+                          >
+                            {t(`categories.${value}`, { defaultValue: value })}
+                          </text>
+                        )}
+                      />
+                      {categoryChartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={getCategoryColor(entry.category)} />
+                      ))}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               )}

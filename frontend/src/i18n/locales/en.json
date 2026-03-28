@@ -20,7 +20,9 @@
     "premiumRequired": "This feature requires a Premium subscription.",
     "actions": "Actions",
     "close": "Close",
-    "justNow": "just now"
+    "justNow": "just now",
+    "transaction": "transaction",
+    "transactions": "transactions"
   },
   "nav": {
     "platform": "Platform",
@@ -213,9 +215,13 @@
     "title": "Dashboard",
     "subtitle": "Your financial overview for this month.",
     "totalBalance": "Total Balance",
+    "totalBalanceHint": "Your current net liquidity across all income and expenses.",
     "incomeThisMonth": "Income This Month",
+    "incomeHint": "Total revenue received this calendar month.",
     "spentThisMonth": "Spent This Month",
+    "spentHint": "Total expenses recorded this calendar month.",
     "remainingThisMonth": "Remaining This Month",
+    "remainingHint": "Your net monthly saving or deficit (Income - Spent).",
     "income": "Income",
     "spent": "Spent",
     "remaining": "Remaining",
@@ -385,7 +391,7 @@
     "endFuture": "End date cannot be in the future.",
     "startAfterEnd": "Start date cannot be after end date.",
     "frequencyRequired": "Please select a frequency.",
-    "oneTime": "One-Time Expenses",
+    "oneTime": "One-Time",
     "recurringTab": "Recurring",
     "tooManyWait": "Too many requests. Try again in {{seconds}} seconds.",
     "tooManySoon": "Too many requests. Try again soon.",
@@ -688,7 +694,7 @@
       "spendable": "Spendable",
       "freeSavings": "Free savings"
     },
-    "amountLabel": "Amount (UZS)",
+    "amountLabel": "Amount",
     "amountPlaceholder": "Enter amount",
     "availableToMove": "Available to move",
     "availableToWithdraw": "Available to withdraw",
@@ -730,7 +736,7 @@
         "custom": "Custom"
       },
       "goalNameLabel": "Goal name",
-      "targetLabel": "Target amount (UZS)",
+      "targetLabel": "Target amount",
       "targetDateLabel": "Deadline",
       "deadlinePrefix": "Deadline",
       "createHint": "Keep goals short and clear. You can start contributing from free savings right after creation.",
@@ -852,6 +858,7 @@
   "notifications": {
     "title": "Notifications",
     "empty": "No notifications yet",
+    "totalCount": "{{count}} notifications total",
     "markRead": "Mark as read",
     "markAllRead": "Mark all as read",
     "priority": {

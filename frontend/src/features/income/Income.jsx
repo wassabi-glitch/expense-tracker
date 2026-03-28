@@ -15,6 +15,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { TitleTooltip } from "@/components/TitleTooltip";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -65,6 +73,7 @@ function parseAmountInput(value) {
   return Number(digits || 0);
 }
 
+
 export default function Income() {
   const { t, i18n } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -98,6 +107,13 @@ export default function Income() {
   const [entryMenuForId, setEntryMenuForId] = useState(null);
   const [entryMenuPosition, setEntryMenuPosition] = useState(null);
   const [sourceMenuForId, setSourceMenuForId] = useState(null);
+  const [windowWidth, setWindowWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 1200);
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
   const [sourcesCollapsed, setSourcesCollapsed] = useState(false);
   const togglingSourceIdsRef = useRef(new Set());
   const [togglingSourceIds, setTogglingSourceIds] = useState({});
@@ -571,7 +587,7 @@ export default function Income() {
               <CardTitle className="text-base">{t("income.filtersTitle")}</CardTitle>
               <CardDescription>{t("income.filtersDesc")}</CardDescription>
             </CardHeader>
-            <CardContent className="pt-0 grid gap-3 md:grid-cols-4">
+            <CardContent className="pt-0 grid gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
               <Input
                 type="date"
                 max={todayISO}
@@ -645,14 +661,17 @@ export default function Income() {
                   <LoadingSpinner className="h-5 w-5" />
                 </div>
               ) : (
-                <CurrencyAmount
-                  value={monthIncomeTotal}
-                  format="display"
-                  tooltip="compact"
-                  className="flex items-baseline gap-1.5 flex-wrap"
-                  valueClassName="text-2xl font-semibold tabular-nums"
-                  currencyClassName="text-sm"
-                />
+                <div className="flex items-center gap-2 text-primary">
+                  <ArrowUpRight className="size-icon-sm shrink-0" />
+                  <CurrencyAmount
+                    value={monthIncomeTotal}
+                    format="display"
+                    tooltip="compact"
+                    className="flex items-baseline gap-1.5 flex-wrap outline-none"
+                    valueClassName="text-ui-h1 font-semibold tabular-nums"
+                    currencyClassName="text-ui-desc opacity-70"
+                  />
+                </div>
               )}
             </CardContent>
           </Card>
@@ -693,11 +712,15 @@ export default function Income() {
                 {sources.map((source) => (
                   <div
                     key={source.id}
-                    className="rounded-lg border border-border p-3 flex items-center justify-between gap-3"
+                    className="rounded-2xl border border-border/50 bg-muted/20 p-4 flex items-center justify-between gap-4 transition-all hover:bg-muted/30 group min-w-0"
                   >
-                    <div className="min-w-0">
-                      <p className="font-medium truncate">{localizeSourceName(source.name)}</p>
-                      <p className="text-xs text-muted-foreground">
+                    <div className="min-w-0 flex-1">
+                      <TitleTooltip title={localizeSourceName(source.name)}>
+                        <p className="font-semibold text-ui-title text-foreground truncate cursor-default">
+                          {localizeSourceName(source.name)}
+                        </p>
+                      </TitleTooltip>
+                      <p className="text-ui-detail scale-90 origin-left font-bold uppercase tracking-wider text-muted-foreground/40 mt-0.5">
                         {source.is_active ? t("income.active") : t("income.inactive")}
                       </p>
                     </div>
@@ -764,15 +787,78 @@ export default function Income() {
             ) : entries.length === 0 ? (
               <EmptyState inline description={t("income.noEntries")} />
             ) : (
-              <div
-                className="overflow-x-auto"
-                onScroll={() => {
-                  if (entryMenuForId) {
-                    setEntryMenuForId(null);
-                    setEntryMenuPosition(null);
-                  }
-                }}
-              >
+              <div className="space-y-4">
+                {/* 📱 Mobile/Tablet List View (< 1024px) */}
+                <div className="lg:hidden space-y-4">
+                  {entries.map((entry, index) => {
+                    const sourceName = entry.source_id 
+                      ? sourceNameById.get(entry.source_id) || t("income.sourceDeleted")
+                      : t("income.noSource");
+                    
+                    const isCompactMode = windowWidth < 400 && Math.abs(entry.amount) >= 1_000;
+                    
+                    return (
+                      <div
+                        key={entry.id}
+                        className="group relative bg-card/40 border border-border/50 rounded-2xl p-4 transition-all duration-300 hover:bg-card hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] active:-translate-y-0 active:shadow-sm animate-in fade-in slide-in-from-bottom-2 fill-both"
+                        style={{ animationDelay: `${index * 50}ms` }}
+                      >
+                        <div className="flex items-start justify-between gap-4 mb-4">
+                          <div className="min-w-0 flex-1">
+                            <TitleTooltip title={sourceName}>
+                              <div className="font-bold tracking-tight text-foreground truncate cursor-default text-ui-title">
+                                {sourceName}
+                              </div>
+                            </TitleTooltip>
+                            <p className="text-ui-detail font-semibold text-muted-foreground/60 mt-1">
+                              {formatDisplayDate(entry.date, appLang)}
+                            </p>
+                          </div>
+                          <div className="shrink-0" data-action-popover>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-9 w-9 rounded-full opacity-40 group-hover:opacity-100 transition-all hover:bg-muted"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openEntryActions(event, entry);
+                              }}
+                            >
+                              <MoreHorizontal className="size-icon-sm" />
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="pt-4 border-t border-border/10 flex items-center justify-between">
+                          <span className="font-black uppercase tracking-[0.2em] text-muted-foreground/40 text-[10px]">
+                            {t("income.amount")}
+                          </span>
+                          <div className="flex items-center gap-2 overflow-hidden text-primary font-black">
+                            <ArrowUpRight className="size-icon-sm shrink-0" />
+                            <CurrencyAmount
+                              value={entry.amount}
+                              format={isCompactMode ? "compact" : "display"}
+                              tooltip={isCompactMode ? "compact" : "none"}
+                              className="text-ui-amount font-black tabular-nums tracking-tight whitespace-nowrap"
+                              currencyClassName="text-ui-detail font-bold opacity-60 ml-2"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* 🖥️ Desktop Table View (>= 1024px) */}
+                <div
+                  className="hidden lg:block overflow-x-auto"
+                  onScroll={() => {
+                    if (entryMenuForId) {
+                      setEntryMenuForId(null);
+                      setEntryMenuPosition(null);
+                    }
+                  }}
+                >
                 <div className="min-w-[760px] space-y-0">
                   <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.35fr)] gap-2 border-b border-border px-2 py-3 text-xs uppercase tracking-wide text-muted-foreground">
                     <div>{t("income.source")}</div>
@@ -785,12 +871,18 @@ export default function Income() {
                       key={entry.id}
                       className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.35fr)] gap-2 border-b border-border px-2 py-3 items-center rounded-lg transition-all duration-300 hover:bg-muted/50 dark:hover:bg-muted/30"
                     >
-                      <div className="text-sm truncate">
-                        {entry.source_id ? sourceNameById.get(entry.source_id) || t("income.sourceDeleted") : t("income.noSource")}
+                      <div className="text-ui-desc truncate">
+                        <TitleTooltip title={entry.source_id ? sourceNameById.get(entry.source_id) || t("income.sourceDeleted") : t("income.noSource")}>
+                          <span className="cursor-default">
+                            {entry.source_id ? sourceNameById.get(entry.source_id) || t("income.sourceDeleted") : t("income.noSource")}
+                          </span>
+                        </TitleTooltip>
                       </div>
-                      <div className="text-sm">{formatDisplayDate(entry.date, appLang)}</div>
-                      <div className="flex items-center justify-end gap-1.5 text-right font-semibold tabular-nums text-primary">
-                        <ArrowUpRight className="h-4 w-4 shrink-0" />
+                      <div className="text-ui-desc lg:text-[10px] xl:text-[12px] 2xl:text-[14px]">
+                        {formatDisplayDate(entry.date, appLang)}
+                      </div>
+                      <div className="flex items-center justify-end gap-1.5 text-right font-semibold tabular-nums text-primary text-ui-desc">
+                        <ArrowUpRight className="size-icon-sm shrink-0" />
                         <CurrencyAmount
                           value={entry.amount}
                           format="display"
@@ -803,15 +895,20 @@ export default function Income() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          onClick={(event) => openEntryActions(event, entry)}
+                          className="h-8 w-8 rounded-full opacity-40 group-hover:opacity-100 transition-all hover:bg-muted"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openEntryActions(event, entry);
+                          }}
                         >
-                          <MoreHorizontal className="h-4 w-4" />
+                          <MoreHorizontal className="size-icon-sm" />
                         </Button>
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
+            </div>
             )}
             {!loading && entries.length > 0 ? (
               <div className="mt-4 flex items-center justify-between">
@@ -824,16 +921,18 @@ export default function Income() {
                     size="sm"
                     disabled={page === 1 || loading || entriesFetching}
                     onClick={goPrevPage}
+                    className="h-8 w-8 p-0 rounded-md"
                   >
-                    <ChevronLeft className="mr-1 h-4 w-4" /> {t("expenses.prev")}
+                    <ChevronLeft className="size-icon-sm" />
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
                     disabled={page >= (totalPages || 1) || loading || entriesFetching}
                     onClick={goNextPage}
+                    className="h-8 w-8 p-0 rounded-md"
                   >
-                    {t("expenses.next")} <ChevronRight className="ml-1 h-4 w-4" />
+                    <ChevronRight className="size-icon-sm" />
                   </Button>
                 </div>
               </div>
@@ -889,9 +988,8 @@ export default function Income() {
             <DialogTitle>{t("income.addSourceTitle")}</DialogTitle>
             <DialogDescription>{t("income.addSourceDesc")}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">{t("income.sourceName")}</label>
-            <Input
+          <div className="space-y-1.5">
+            <label>{t("income.sourceName")}</label>            <Input
               value={sourceName}
               maxLength={MAX_INCOME_SOURCE_NAME_LENGTH}
               onChange={(e) => {
@@ -936,9 +1034,8 @@ export default function Income() {
             <DialogTitle>{t("income.editSourceTitle")}</DialogTitle>
             <DialogDescription>{t("income.editSourceDesc")}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">{t("income.sourceName")}</label>
-            <Input
+          <div className="space-y-1.5">
+            <label>{t("income.sourceName")}</label>            <Input
               value={sourceEditName}
               maxLength={MAX_INCOME_SOURCE_NAME_LENGTH}
               onChange={(e) => {
@@ -997,9 +1094,9 @@ export default function Income() {
             <DialogTitle>{t("income.addEntryTitle")}</DialogTitle>
             <DialogDescription>{t("income.addEntryDesc")}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("income.amountUzs")}</label>
+          <div className="space-y-2.5">
+            <div className="space-y-1">
+              <label>{t("income.amountUzs")}</label>
               <Input
                 type="text"
                 inputMode="numeric"
@@ -1012,8 +1109,8 @@ export default function Income() {
               />
               {addEntryErrors.amount ? <p className="text-xs text-red-600">{addEntryErrors.amount}</p> : null}
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("income.source")}</label>
+            <div className="space-y-1">
+              <label>{t("income.source")}</label>
               <Select value={entrySourceId} onValueChange={setEntrySourceId}>
                 <SelectTrigger className="w-full min-w-0">
                   <SelectValue className="truncate" />
@@ -1030,8 +1127,8 @@ export default function Income() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("income.date")}</label>
+            <div className="space-y-1">
+              <label>{t("income.date")}</label>
               <Input
                 type="date"
                 min={monthStartISO}
@@ -1044,8 +1141,8 @@ export default function Income() {
               />
               {addEntryErrors.date ? <p className="text-xs text-red-600">{addEntryErrors.date}</p> : null}
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("income.note")}</label>
+            <div className="space-y-1">
+              <label>{t("income.note")}</label>
               <Input
                 value={entryNote}
                 maxLength={MAX_INCOME_NOTE_LENGTH}
@@ -1092,9 +1189,9 @@ export default function Income() {
             <DialogTitle>{t("income.editEntryTitle")}</DialogTitle>
             <DialogDescription>{t("income.editEntryDesc")}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("income.amountUzs")}</label>
+          <div className="space-y-2.5">
+            <div className="space-y-1">
+              <label>{t("income.amountUzs")}</label>
               <Input
                 type="text"
                 inputMode="numeric"
@@ -1107,8 +1204,8 @@ export default function Income() {
               />
               {editEntryErrors.amount ? <p className="text-xs text-red-600">{editEntryErrors.amount}</p> : null}
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("income.source")}</label>
+            <div className="space-y-1">
+              <label>{t("income.source")}</label>
               <Select value={entrySourceId} onValueChange={setEntrySourceId}>
                 <SelectTrigger className="w-full min-w-0">
                   <SelectValue className="truncate" />
@@ -1125,8 +1222,8 @@ export default function Income() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("income.date")}</label>
+            <div className="space-y-1 sm:space-y-2">
+              <label>{t("income.date")}</label>
               <Input
                 type="date"
                 min={monthStartISO}
@@ -1139,8 +1236,8 @@ export default function Income() {
               />
               {editEntryErrors.date ? <p className="text-xs text-red-600">{editEntryErrors.date}</p> : null}
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("income.note")}</label>
+            <div className="space-y-1">
+              <label>{t("income.note")}</label>
               <Input
                 value={entryNote}
                 maxLength={MAX_INCOME_NOTE_LENGTH}

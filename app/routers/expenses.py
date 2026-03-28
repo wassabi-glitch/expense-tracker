@@ -259,30 +259,62 @@ def export_csv_expense(response: Response, db: Session = Depends(get_db), curren
     CSV_TRANSLATIONS = {
         "uz": {
             "categories": {
-                "Food": "Oziq-ovqat",
-                "Transport": "Transport",
-                "Housing": "Uy-joy",
+                "Groceries": "Oziq-ovqat mahsulotlari",
+                "Dining Out": "Ko'chada ovqatlanish",
                 "Electronics": "Elektronika",
-                "Entertainment": "Ko'ngilochar",
+                "Housing": "Turar joy",
+                "Utilities": "Kommunal xizmatlar",
+                "Subscriptions": "Obunalar",
+                "Transport": "Transport",
+                "Health": "Sog'liqni saqlash",
                 "Personal care": "Shaxsiy parvarish",
-                "Utilities": "Kommunal",
-                "Other": "Boshqa"
+                "Education": "Ta'lim",
+                "Clothing": "Kiyim-kechak",
+                "Family & Events": "Oila & marosimlar",
+                "Entertainment": "Ko'ngilochar",
+                "Installments & Debt": "Muddatli to'lov / qarzlar",
+                "Business / Work": "Biznes / ish"
             },
             "headers": ["sana", "nomi", "summa", "toifa", "tavsif"]
         },
         "ru": {
             "categories": {
-                "Food": "Еда",
+                "Groceries": "Продукты",
+                "Dining Out": "Питание вне дома",
+                "Electronics": "Электроника",
+                "Housing": "Жилье",
+                "Utilities": "Коммунальные услуги",
+                "Subscriptions": "Подписки",
                 "Transport": "Транспорт",
-                "Housing": "Жильё",
+                "Health": "Здоровье",
+                "Personal care": "Личный уход",
+                "Education": "Образование",
+                "Clothing": "Одежда",
+                "Family & Events": "Семья и мероприятия",
                 "Entertainment": "Развлечения",
-                "Utilities": "Коммунальные",
-                "Other": "Другое"
+                "Installments & Debt": "Рассрочка и долги",
+                "Business / Work": "Бизнес / работа"
             },
             "headers": ["дата", "название", "сумма", "категория", "описание"]
         },
         "en": {
-            "categories": {},
+            "categories": {
+                "Groceries": "Groceries",
+                "Dining Out": "Dining Out",
+                "Electronics": "Electronics",
+                "Housing": "Housing",
+                "Utilities": "Utilities",
+                "Subscriptions": "Subscriptions",
+                "Transport": "Transport",
+                "Health": "Health",
+                "Personal care": "Personal care",
+                "Education": "Education",
+                "Clothing": "Clothing",
+                "Family & Events": "Family & Events",
+                "Entertainment": "Entertainment",
+                "Installments & Debt": "Installments & Debt",
+                "Business / Work": "Business / Work"
+            },
             "headers": ["date", "title", "amount", "category", "description"]
         }
     }
