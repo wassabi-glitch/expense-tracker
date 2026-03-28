@@ -1,8 +1,8 @@
 import axios from "axios";
 import { getBrowserTimeZone } from "../date";
 
-export const API_BASE = "http://localhost:9000";
-const GOOGLE_LOGIN_URL = `${API_BASE}/auth/google/login`;
+export const API_BASE = "";
+const GOOGLE_LOGIN_URL = `/auth/google/login`;
 
 let accessToken = null;
 let refreshPromise = null;

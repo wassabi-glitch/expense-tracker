@@ -185,7 +185,7 @@ def google_callback(code: str, state: str, response: Response, db: Session = Dep
     refresh_token = oauth2.create_refresh_token(user_id=user.id)
 
     # Build redirect — access token goes in URL hash, refresh token goes in cookie
-    redirect_url = f"{settings.frontend_url}/auth/callback#token={app_token}"
+    redirect_url = f"{settings.frontend_url}/oauth-callback#token={app_token}"
     redirect_response = RedirectResponse(redirect_url, status_code=302)
     oauth2.set_refresh_cookie(redirect_response, refresh_token)
 
