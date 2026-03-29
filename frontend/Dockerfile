@@ -15,8 +15,8 @@ RUN npm run build
 # Step 2: Serve the application with Nginx (Debian based)
 FROM --platform=linux/amd64 nginx:1.25
 
-# Copy custom config as a template for envsubst
-COPY nginx.conf /etc/nginx/templates/default.conf.template
+# Copy custom config directly
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Copy the build output from Step 1
 COPY --from=build /app/dist /usr/share/nginx/html
@@ -25,9 +25,7 @@ COPY --from=build /app/dist /usr/share/nginx/html
 ENV API_URL=http://api:9000
 ENV API_HOST=localhost
 
-# ONLY replace our custom variables, leave $host, $remote_addr, etc alone!
-ENV NGINX_ENVSUBST_FILTER=API_URL,API_HOST
-
 EXPOSE 80
 
-CMD ["nginx", "-g", "daemon off;"]
+# Manual replacement of __PLACEHOLDERS__ during container startup
+CMD ["sh", "-c", "sed -i \"s|__API_URL__|$API_URL|g\" /etc/nginx/conf.d/default.conf && sed -i \"s|__API_HOST__|$API_HOST|g\" /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
