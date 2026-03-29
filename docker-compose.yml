@@ -43,7 +43,7 @@ services:
       - CORS_ORIGINS=${CORS_ORIGINS}
       - TRUSTED_HOSTS=${TRUSTED_HOSTS}
       - IS_PRODUCTION=False
-      - FRONTEND_URL=http://localhost
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost}
     depends_on:
       - db
       - redis

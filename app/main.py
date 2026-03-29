@@ -1,6 +1,7 @@
-from fastapi import FastAPI, Depends, Request
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -99,8 +100,16 @@ def read_root():
 
 @app.get("/health", tags=["Health"])
 def health_check(db: Session = Depends(get_db)):
-    """Check if the API and Database are connected."""
-    return {"status": "online", "database": "connected"}
+    """Check if the API process is up and the DB is reachable."""
+    try:
+        db.execute(text("SELECT 1"))
+        return {"status": "online", "database": "connected"}
+    except Exception as exc:
+        logger.error("Health DB check failed: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "degraded", "database": "disconnected"},
+        )
 
 
 @app.get("/meta/categories", tags=["Meta"])
