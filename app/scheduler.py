@@ -7,6 +7,7 @@ except Exception:  # pragma: no cover - optional local dependency
     AsyncIOScheduler = None
     IntervalTrigger = None
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import ProgrammingError
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
@@ -105,15 +106,23 @@ def process_due_recurring_expenses(db: Session = None):
     db_session = db or SessionLocal()
     try:
         # Load ALL active templates (we'll filter by per-user date below)
-        all_templates = (
-            db_session.query(models.RecurringExpense)
-            .join(models.User, models.RecurringExpense.owner_id == models.User.id)
-            .filter(
-                models.RecurringExpense.is_active == True,   # noqa: E712
-                models.User.is_premium == True,              # noqa: E712
+        try:
+            all_templates = (
+                db_session.query(models.RecurringExpense)
+                .join(models.User, models.RecurringExpense.owner_id == models.User.id)
+                .filter(
+                    models.RecurringExpense.is_active == True,   # noqa: E712
+                    models.User.is_premium == True,              # noqa: E712
+                )
+                .all()
             )
-            .all()
-        )
+        except ProgrammingError:
+            logger.warning(
+                "recurring_expenses table does not exist yet — skipping scheduler run. "
+                "Migrations may not have completed. Will retry on the next scheduled interval."
+            )
+            db_session.rollback()
+            return
 
         if not all_templates:
             logger.info("No active recurring templates found.")
