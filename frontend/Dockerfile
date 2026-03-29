@@ -23,5 +23,4 @@ COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 80
 
-# Replace the placeholder with the actual API_URL and start nginx
-CMD ["sh", "-c", "sed -i \"s|BACKEND_URL_PLACEHOLDER|$API_URL|g\" /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
+CMD ["nginx", "-g", "daemon off;"]
