@@ -56,8 +56,9 @@ app.add_middleware(
     allowed_hosts=settings.trusted_hosts_list,
 )
 
-if settings.is_production:
-    app.add_middleware(HTTPSRedirectMiddleware)
+# Redundant HTTPS redirection is handled by Railway and Nginx.
+# if settings.is_production:
+#     app.add_middleware(HTTPSRedirectMiddleware)
 
 
 @app.middleware("http")

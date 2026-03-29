@@ -26,4 +26,4 @@ COPY . .
 
 # 7. The command to run the app
 # We use uvicorn to serve the FastAPI app
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9000", "--proxy-headers", "--forwarded-allow-ips='*'"]
