@@ -21,6 +21,10 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # Copy the build output from Step 1
 COPY --from=build /app/dist /usr/share/nginx/html
 
+# Install curl to perform health checks against the backend
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
 EXPOSE 80
 
-CMD ["nginx", "-g", "daemon off;"]
+# Wait for the backend to be reachable before starting Nginx
+CMD sh -c "until curl -s http://api:9000/health; do echo 'Waiting for API...'; sleep 2; done && echo 'API is up - starting Nginx' && nginx -g 'daemon off;'"
