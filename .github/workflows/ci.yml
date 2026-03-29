@@ -238,6 +238,7 @@ jobs:
         with:
           target: 'http://localhost'
           fail_action: false
+          allow_issue_writing: false
 
   owasp-api-dast:
     name: OWASP ZAP API Scan
@@ -273,3 +274,4 @@ jobs:
           target: 'http://localhost:9000/openapi.json'
           format: openapi
           fail_action: false
+          allow_issue_writing: false
