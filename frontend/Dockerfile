@@ -15,11 +15,8 @@ RUN npm run build
 # Step 2: Serve the application with Nginx (Debian based)
 FROM --platform=linux/amd64 nginx:1.25
 
-# Clean default config
-RUN rm /etc/nginx/conf.d/default.conf
-
-# Copy custom config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copy custom config as a template for envsubst
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 
 # Copy the build output from Step 1
 COPY --from=build /app/dist /usr/share/nginx/html
