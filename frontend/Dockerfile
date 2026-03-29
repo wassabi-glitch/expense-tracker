@@ -23,5 +23,4 @@ COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 80
 
-# Give the internal Network 10 seconds to wake up before starting Nginx
-CMD ["sh", "-c", "sleep 10 && nginx -g 'daemon off;'"]
+CMD ["nginx", "-g", "daemon off;"]
