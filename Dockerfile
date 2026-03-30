@@ -25,6 +25,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 7. The command to run the app
-# Bind to dual-stack (::) for Railway private/public networking compatibility.
-# Use Railway-provided PORT in cloud and default to 9000 locally.
-CMD ["sh", "-c", "uvicorn app.main:app --host :: --port ${PORT:-9000} --proxy-headers --forwarded-allow-ips='*'"]
+# Keep a fixed container port (9000) to match Railway service target port configuration.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9000", "--proxy-headers", "--forwarded-allow-ips", "*"]
