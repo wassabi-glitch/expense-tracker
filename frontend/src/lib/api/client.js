@@ -1,7 +1,15 @@
 import axios from "axios";
 import { getBrowserTimeZone } from "../date";
 
-export const API_BASE = "";
+const RAILWAY_STAGING_FRONTEND_HOST = "accurate-alignment-staging.up.railway.app";
+const RAILWAY_STAGING_BACKEND_URL = "https://perceptive-insight-staging.up.railway.app";
+
+// Keep local/dev behavior unchanged (same-origin proxy), but bypass Nginx upstream
+// in Railway staging where proxy connectivity has been unstable.
+export const API_BASE =
+    typeof window !== "undefined" && window.location.hostname === RAILWAY_STAGING_FRONTEND_HOST
+        ? RAILWAY_STAGING_BACKEND_URL
+        : "";
 const GOOGLE_LOGIN_URL = `/auth/google/login`;
 
 let accessToken = null;
