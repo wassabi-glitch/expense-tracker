@@ -21,11 +21,15 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # Copy the build output from Step 1
 COPY --from=build /app/dist /usr/share/nginx/html
 
+# Copy the entrypoint script
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 # Default values for local development (matches docker-compose)
 ENV API_URL=http://api:9000
 ENV API_HOST=localhost
 
 EXPOSE 80
 
-# Manual replacement of __PLACEHOLDERS__ during container startup
-CMD ["sh", "-c", "sed -i \"s|__API_URL__|$API_URL|g\" /etc/nginx/conf.d/default.conf && sed -i \"s|__API_HOST__|$API_HOST|g\" /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
+# Execute the debug entrypoint
+ENTRYPOINT ["/app/entrypoint.sh"]
