@@ -25,5 +25,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 7. The command to run the app
-# We use uvicorn to serve the FastAPI app
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9000", "--proxy-headers", "--forwarded-allow-ips='*'"]
+# Bind to dual-stack (::) for Railway private/public networking compatibility.
+# Use Railway-provided PORT in cloud and default to 9000 locally.
+CMD ["sh", "-c", "uvicorn app.main:app --host :: --port ${PORT:-9000} --proxy-headers --forwarded-allow-ips='*'"]
