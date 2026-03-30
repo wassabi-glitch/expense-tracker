@@ -1,4 +1,5 @@
 #!/bin/sh
+# BUILD ID: 1774825109354 - GHOST BUSTER 3000
 echo "--- DEBUG: Current Nginx Config ---"
 cat /etc/nginx/conf.d/default.conf
 echo "--- END DEBUG ---"
