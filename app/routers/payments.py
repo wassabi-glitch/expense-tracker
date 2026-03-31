@@ -112,8 +112,15 @@ async def telegram_webhook(
     db: Session = Depends(get_db),
     telegram_secret: Optional[str] = Header(default=None, alias="X-Telegram-Bot-Api-Secret-Token"),
 ):
-    expected_secret = settings.telegram_webhook_secret_token.get_secret_value() if settings.telegram_webhook_secret_token else ""
-    if expected_secret and telegram_secret != expected_secret:
+    # Trim whitespace to avoid accidental config/header mismatches.
+    expected_secret = (
+        settings.telegram_webhook_secret_token.get_secret_value()
+        if settings.telegram_webhook_secret_token
+        else ""
+    ).strip()
+    incoming_secret = (telegram_secret or "").strip()
+
+    if expected_secret and incoming_secret != expected_secret:
         raise HTTPException(status_code=401, detail="payments.telegram_webhook_unauthorized")
 
     payload = await request.json()
