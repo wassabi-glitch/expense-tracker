@@ -22,6 +22,23 @@ def _api_url(method: str) -> str:
     return f"https://api.telegram.org/bot{token}/{method}"
 
 
+async def _post_telegram(method: str, payload: dict[str, Any]) -> None:
+    """Post to Telegram API and log non-2xx responses for faster debugging."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(_api_url(method), json=payload)
+            if response.status_code >= 400:
+                logger.error(
+                    "Telegram API %s failed: status=%s body=%s payload=%s",
+                    method,
+                    response.status_code,
+                    response.text,
+                    payload,
+                )
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.exception("Telegram API %s request error: %s", method, exc)
+
+
 async def send_message(
     chat_id: int,
     text: str,
@@ -42,8 +59,7 @@ async def send_message(
     if reply_markup is not None:
         payload["reply_markup"] = reply_markup
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        await client.post(_api_url("sendMessage"), json=payload)
+    await _post_telegram("sendMessage", payload)
 
 
 async def copy_message(
@@ -61,8 +77,7 @@ async def copy_message(
         "from_chat_id": from_chat_id,
         "message_id": message_id,
     }
-    async with httpx.AsyncClient(timeout=10) as client:
-        await client.post(_api_url("copyMessage"), json=payload)
+    await _post_telegram("copyMessage", payload)
 
 
 async def answer_callback_query(callback_query_id: str, text: str = "") -> None:
@@ -74,5 +89,4 @@ async def answer_callback_query(callback_query_id: str, text: str = "") -> None:
     if text:
         payload["text"] = text
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        await client.post(_api_url("answerCallbackQuery"), json=payload)
+    await _post_telegram("answerCallbackQuery", payload)

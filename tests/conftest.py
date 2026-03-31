@@ -18,6 +18,13 @@ settings.debug_allow_premium_toggle = True
 settings.smtp_host = None # Disable emails in tests
 
 
+@pytest.fixture(autouse=True)
+def silent_scheduler(monkeypatch):
+    """Ensure the background scheduler never starts during tests."""
+    # We mock it at the entry point in main.py to be 100% safe.
+    monkeypatch.setattr("app.main.start_scheduler", lambda: None)
+
+
 # ---------------------------------------------------------------------------
 # Database engine — environment-aware
 # ---------------------------------------------------------------------------
