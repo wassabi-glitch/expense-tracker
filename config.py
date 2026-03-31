@@ -41,7 +41,6 @@ class Settings(BaseSettings):
 
     # Debug / dev-only toggles
     debug_allow_premium_toggle: bool = False
-    run_scheduler: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

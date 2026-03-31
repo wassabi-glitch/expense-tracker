@@ -184,10 +184,6 @@ def process_due_recurring_expenses(db: Session = None):
 
 
 def start_scheduler():
-    if not settings.run_scheduler:
-        logger.info("Scheduler is disabled via settings (run_scheduler=False).")
-        return None
-
     if AsyncIOScheduler is None or IntervalTrigger is None:
         logger.warning(
             "APScheduler is not installed. Recurring background scheduler is disabled."
