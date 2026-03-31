@@ -15,6 +15,7 @@ from config import settings
 # Tests rely on being able to toggle premium via a dev-only endpoint.
 # In production, this endpoint is still blocked by `settings.is_production`.
 settings.debug_allow_premium_toggle = True
+settings.run_scheduler = False
 settings.smtp_host = None # Disable emails in tests
 
 
