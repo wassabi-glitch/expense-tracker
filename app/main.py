@@ -25,8 +25,8 @@ except Exception as exc:  # pragma: no cover - defensive fallback
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Start the background scheduler
-    scheduler = start_scheduler()
+    # Startup: Start the background scheduler if enabled
+    scheduler = start_scheduler() if settings.run_scheduler else None
     yield
     # Shutdown: Stop the scheduler
     if scheduler:
