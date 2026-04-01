@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     smtp_password: Optional[SecretStr] = None
     smtp_use_tls: bool = False
     email_from: str = "Sarflog <no-reply@staging-mail.sarflog.uz>"
+    resend_api_key: Optional[SecretStr] = None
 
     # Telegram (manual payment verification)
     telegram_bot_token: Optional[SecretStr] = None

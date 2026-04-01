@@ -1,5 +1,8 @@
 import logging
 import smtplib
+import json
+from urllib.error import URLError, HTTPError
+from urllib.request import Request, urlopen
 from email.message import EmailMessage
 
 from config import settings
@@ -52,7 +55,62 @@ def _get_base_template(content_html: str, action_text: str, action_url: str) -> 
 """.strip()
 
 def _send_email(to_email: str, subject: str, text_body: str, html_body: str) -> bool:
-    """Centralized, resilient email sender helper."""
+    """Centralized, resilient email sender helper.
+
+    Delivery order:
+    1) Resend HTTP API (if RESEND_API_KEY is set)
+    2) SMTP fallback
+    """
+    if _send_email_via_resend_api(to_email, subject, text_body, html_body):
+        return True
+    return _send_email_via_smtp(to_email, subject, text_body, html_body)
+
+
+def _send_email_via_resend_api(
+    to_email: str, subject: str, text_body: str, html_body: str
+) -> bool:
+    api_key = settings.resend_api_key
+    if not api_key:
+        return False
+
+    payload = {
+        "from": settings.email_from,
+        "to": [to_email],
+        "subject": subject,
+        "text": text_body,
+        "html": html_body,
+    }
+    body = json.dumps(payload).encode("utf-8")
+    endpoint = "https://api.resend.com/emails"
+    req = Request(
+        endpoint,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {api_key.get_secret_value()}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urlopen(req, timeout=20) as resp:
+            status_code = getattr(resp, "status", None)
+            if status_code and status_code >= 400:
+                logger.error("Resend API returned status=%s for %s", status_code, to_email)
+                return False
+        return True
+    except HTTPError as exc:
+        logger.exception("Resend API HTTP error for %s: status=%s", to_email, exc.code)
+        return False
+    except URLError:
+        logger.exception("Resend API network error for %s", to_email)
+        return False
+    except Exception:
+        logger.exception("Unexpected Resend API send failure for %s", to_email)
+        return False
+
+
+def _send_email_via_smtp(to_email: str, subject: str, text_body: str, html_body: str) -> bool:
     if not settings.smtp_host or not settings.smtp_password:
         logger.warning("SMTP not configured. Missing Host or Password. Host=%s", settings.smtp_host)
         return False
