@@ -1,8 +1,7 @@
 import logging
 import smtplib
 import json
-from urllib.error import URLError, HTTPError
-from urllib.request import Request, urlopen
+import http.client
 from email.message import EmailMessage
 
 from config import settings
@@ -80,31 +79,23 @@ def _send_email_via_resend_api(
         "text": text_body,
         "html": html_body,
     }
-    body = json.dumps(payload).encode("utf-8")
-    endpoint = "https://api.resend.com/emails"
-    req = Request(
-        endpoint,
-        data=body,
-        headers={
-            "Authorization": f"Bearer {api_key.get_secret_value()}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
+    body = json.dumps(payload)
+    headers = {
+        "Authorization": f"Bearer {api_key.get_secret_value()}",
+        "Content-Type": "application/json",
+    }
 
     try:
-        with urlopen(req, timeout=20) as resp:
-            status_code = getattr(resp, "status", None)
-            if status_code and status_code >= 400:
-                logger.error("Resend API returned status=%s for %s", status_code, to_email)
-                return False
+        conn = http.client.HTTPSConnection("api.resend.com", timeout=20)
+        conn.request("POST", "/emails", body=body, headers=headers)
+        resp = conn.getresponse()
+        status_code = resp.status
+        resp.read()
+        conn.close()
+        if status_code >= 400:
+            logger.error("Resend API returned status=%s for %s", status_code, to_email)
+            return False
         return True
-    except HTTPError as exc:
-        logger.exception("Resend API HTTP error for %s: status=%s", to_email, exc.code)
-        return False
-    except URLError:
-        logger.exception("Resend API network error for %s", to_email)
-        return False
     except Exception:
         logger.exception("Unexpected Resend API send failure for %s", to_email)
         return False
