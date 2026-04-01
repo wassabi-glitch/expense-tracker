@@ -54,8 +54,10 @@ def _get_base_template(content_html: str, action_text: str, action_url: str) -> 
 def _send_email(to_email: str, subject: str, text_body: str, html_body: str) -> bool:
     """Centralized, resilient email sender helper."""
     if not settings.smtp_host or not settings.smtp_password:
-        logger.warning("SMTP not configured. Email to %s hidden: %s", to_email, subject)
+        logger.warning("SMTP not configured. Missing Host or Password. Host=%s", settings.smtp_host)
         return False
+
+    logger.info("Email Attempt: Connecting to %s:%s", settings.smtp_host, settings.smtp_port)
 
     msg = EmailMessage()
     msg["Subject"] = subject
