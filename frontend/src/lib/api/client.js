@@ -9,8 +9,8 @@ const RAILWAY_STAGING_BACKEND_URL = "https://perceptive-insight-staging.up.railw
 // in Railway staging where proxy connectivity has been unstable.
 export const API_BASE =
     typeof window !== "undefined" &&
-    (window.location.hostname === RAILWAY_STAGING_FRONTEND_HOST ||
-     window.location.hostname === CUSTOM_STAGING_HOST)
+        (window.location.hostname === RAILWAY_STAGING_FRONTEND_HOST ||
+            window.location.hostname === CUSTOM_STAGING_HOST)
         ? RAILWAY_STAGING_BACKEND_URL
         : "";
 const GOOGLE_LOGIN_URL = `/auth/google/login`;
