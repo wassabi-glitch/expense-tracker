@@ -27,12 +27,12 @@ class Settings(BaseSettings):
     google_client_secret: SecretStr
     google_redirect_uri: str
     frontend_url: str
-    smtp_host: Optional[str] = None
-    smtp_port: int = 587
-    smtp_username: Optional[str] = None
+    smtp_host: str = "smtp.resend.com"
+    smtp_port: int = 465
+    smtp_username: str = "resend"
     smtp_password: Optional[SecretStr] = None
-    smtp_use_tls: bool = True
-    email_from: str = "no-reply@expensetracker.local"
+    smtp_use_tls: bool = False
+    email_from: str = "Sarflog <no-reply@staging-mail.sarflog.uz>"
 
     # Telegram (manual payment verification)
     telegram_bot_token: Optional[SecretStr] = None

@@ -68,8 +68,13 @@ def _send_email(to_email: str, subject: str, text_body: str, html_body: str) -> 
     pwd = settings.smtp_password.get_secret_value()
     try:
         # We use a short timeout (20s) to avoid hanging the app.
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as server:
-            if settings.smtp_use_tls:
+        if settings.smtp_port == 465:
+            server_class = smtplib.SMTP_SSL
+        else:
+            server_class = smtplib.SMTP
+
+        with server_class(settings.smtp_host, settings.smtp_port, timeout=20) as server:
+            if settings.smtp_port != 465 and settings.smtp_use_tls:
                 server.starttls()
             server.login(settings.smtp_username or "resend", pwd)
             server.send_message(msg)
