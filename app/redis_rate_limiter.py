@@ -17,7 +17,13 @@ class RateLimitResult:
     reset_seconds: int
 
 
-redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
+redis_client = redis.Redis.from_url(
+    settings.redis_url, 
+    decode_responses=True,
+    socket_timeout=1,
+    socket_connect_timeout=1,
+    retry_on_timeout=False
+)
 INCR_EXPIRE_SCRIPT = redis_client.register_script(
     """
 local current = redis.call("INCR", KEYS[1])
@@ -79,40 +85,52 @@ def _key(scope: str, identifier: str, window: int) -> str:
 
 
 def check_and_consume(scope: str, identifier: str) -> RateLimitResult:
-    now_ts = time.time()
-    current_window = _window_id(now_ts)
-    prev_window = current_window - 1
+    try:
+        now_ts = time.time()
+        current_window = _window_id(now_ts)
+        prev_window = current_window - 1
 
-    elapsed = now_ts % WINDOW_SECONDS
-    prev_weight = (WINDOW_SECONDS - elapsed) / \
-        WINDOW_SECONDS  # 1 -> 0 across window
+        elapsed = now_ts % WINDOW_SECONDS
+        prev_weight = (WINDOW_SECONDS - elapsed) / \
+            WINDOW_SECONDS  # 1 -> 0 across window
 
-    key_curr = _key(scope, identifier, current_window)
-    key_prev = _key(scope, identifier, prev_window)
+        key_curr = _key(scope, identifier, current_window)
+        key_prev = _key(scope, identifier, prev_window)
 
-    prev_raw = redis_client.get(key_prev)
-    curr_count, curr_ttl = INCR_EXPIRE_SCRIPT(
-        keys=[key_curr],
-        args=[WINDOW_SECONDS + 1],
-    )
-    curr_count = int(curr_count)
-    curr_ttl = int(curr_ttl)
+        prev_raw = redis_client.get(key_prev)
+        curr_count, curr_ttl = INCR_EXPIRE_SCRIPT(
+            keys=[key_curr],
+            args=[WINDOW_SECONDS + 1],
+        )
+        curr_count = int(curr_count)
+        curr_ttl = int(curr_ttl)
 
-    prev_count = int(prev_raw or 0)
+        prev_count = int(prev_raw or 0)
 
-    effective = (prev_count * prev_weight) + curr_count
-    allowed = effective <= MAX_ATTEMPTS
+        effective = (prev_count * prev_weight) + curr_count
+        allowed = effective <= MAX_ATTEMPTS
 
-    remaining = max(0, int(MAX_ATTEMPTS - effective))
-    reset_seconds = max(
-        1, int(curr_ttl if curr_ttl and curr_ttl > 0 else WINDOW_SECONDS - elapsed))
+        remaining = max(0, int(MAX_ATTEMPTS - effective))
+        reset_seconds = max(
+            1, int(curr_ttl if curr_ttl and curr_ttl > 0 else WINDOW_SECONDS - elapsed))
 
-    return RateLimitResult(
-        allowed=allowed,
-        limit=MAX_ATTEMPTS,
-        remaining=remaining,
-        reset_seconds=reset_seconds,
-    )
+        return RateLimitResult(
+            allowed=allowed,
+            limit=MAX_ATTEMPTS,
+            remaining=remaining,
+            reset_seconds=reset_seconds,
+        )
+    except Exception as exc:
+        # FAIL OPEN: If Redis is down, we allow the request but log the warning.
+        # This prevents a Redis outage from taking down the whole app.
+        import logging
+        logging.getLogger(__name__).warning("Redis rate limiter failed (check_and_consume): %s", exc)
+        return RateLimitResult(
+            allowed=True,
+            limit=MAX_ATTEMPTS,
+            remaining=MAX_ATTEMPTS,
+            reset_seconds=1,
+        )
 
 
 def consume_token_bucket(
@@ -122,23 +140,34 @@ def consume_token_bucket(
     refill_rate_per_second: float,
     consume_tokens: int = 1,
 ) -> RateLimitResult:
-    # Single Redis hash key; no window suffix for token bucket.
-    safe_id = identifier.strip().lower()
-    key = f"tb:{scope}:{safe_id}"
-    now_ts = int(time.time())
-    ttl_seconds = max(1, int((capacity / refill_rate_per_second) * 2))
+    try:
+        # Single Redis hash key; no window suffix for token bucket.
+        safe_id = identifier.strip().lower()
+        key = f"tb:{scope}:{safe_id}"
+        now_ts = int(time.time())
+        ttl_seconds = max(1, int((capacity / refill_rate_per_second) * 2))
 
-    allowed_raw, tokens_raw, retry_after_raw = TOKEN_BUCKET_SCRIPT(
-        keys=[key],
-        args=[now_ts, capacity, refill_rate_per_second, consume_tokens, ttl_seconds],
-    )
-    allowed = int(allowed_raw) == 1
-    tokens_left = int(float(tokens_raw))
-    retry_after = int(retry_after_raw)
+        allowed_raw, tokens_raw, retry_after_raw = TOKEN_BUCKET_SCRIPT(
+            keys=[key],
+            args=[now_ts, capacity, refill_rate_per_second, consume_tokens, ttl_seconds],
+        )
+        allowed = int(allowed_raw) == 1
+        tokens_left = int(float(tokens_raw))
+        retry_after = int(retry_after_raw)
 
-    return RateLimitResult(
-        allowed=allowed,
-        limit=capacity,
-        remaining=max(0, tokens_left),
-        reset_seconds=max(1, retry_after if retry_after > 0 else 1),
-    )
+        return RateLimitResult(
+            allowed=allowed,
+            limit=capacity,
+            remaining=max(0, tokens_left),
+            reset_seconds=max(1, retry_after if retry_after > 0 else 1),
+        )
+    except Exception as exc:
+        # FAIL OPEN for same reasons as check_and_consume
+        import logging
+        logging.getLogger(__name__).warning("Redis rate limiter failed (consume_token_bucket): %s", exc)
+        return RateLimitResult(
+            allowed=True,
+            limit=capacity,
+            remaining=capacity,
+            reset_seconds=1,
+        )
