@@ -130,9 +130,17 @@ def resend_verification(
         raw_token = issue_email_verification_token(db, user)
         verify_link = build_verify_email_link(raw_token)
         sent = send_verification_email(user.email, verify_link)
-        if not sent and not settings.is_production:
+        if sent:
+            logger.info("Resend verification email accepted for %s", user.email)
+        elif not settings.is_production:
             logger.info("Email verification link fallback for %s: %s",
                         user.email, verify_link)
+        else:
+            logger.warning("Resend verification send failed for %s", user.email)
+    elif not user:
+        logger.info("Resend verification skipped: no user for %s", email)
+    else:
+        logger.info("Resend verification skipped: already verified %s", email)
 
     return schemas.MessageResponse(message=VERIFY_EMAIL_SUCCESS_MESSAGE)
 

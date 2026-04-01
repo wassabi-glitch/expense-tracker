@@ -62,6 +62,7 @@ def _send_email(to_email: str, subject: str, text_body: str, html_body: str) -> 
     """
     if _send_email_via_resend_api(to_email, subject, text_body, html_body):
         return True
+    logger.info("Falling back to SMTP for %s", to_email)
     return _send_email_via_smtp(to_email, subject, text_body, html_body)
 
 
@@ -70,6 +71,7 @@ def _send_email_via_resend_api(
 ) -> bool:
     api_key = settings.resend_api_key
     if not api_key:
+        logger.info("RESEND_API_KEY is not set; skipping Resend API transport")
         return False
 
     payload = {
@@ -85,20 +87,30 @@ def _send_email_via_resend_api(
         "Content-Type": "application/json",
     }
 
+    conn = None
     try:
+        logger.info("Email Attempt: Resend API for %s", to_email)
         conn = http.client.HTTPSConnection("api.resend.com", timeout=20)
         conn.request("POST", "/emails", body=body, headers=headers)
         resp = conn.getresponse()
         status_code = resp.status
-        resp.read()
-        conn.close()
+        raw_body = resp.read()
+        response_text = raw_body.decode("utf-8", errors="replace")
         if status_code >= 400:
-            logger.error("Resend API returned status=%s for %s", status_code, to_email)
+            logger.error(
+                "Resend API returned status=%s for %s body=%s",
+                status_code,
+                to_email,
+                response_text[:1000],
+            )
             return False
         return True
     except Exception:
         logger.exception("Unexpected Resend API send failure for %s", to_email)
         return False
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def _send_email_via_smtp(to_email: str, subject: str, text_body: str, html_body: str) -> bool:
