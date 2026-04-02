@@ -13,7 +13,7 @@ import {
 import { localizeApiError } from "@/lib/errorMessages";
 import { useSettingsDataQuery } from "@/features/settings/hooks/useSettingsDataQuery";
 
-const TELEGRAM_BOT_USERNAME = import.meta.env.VITE_TELEGRAM_BOT_USERNAME || "sarflog_bot";
+const TELEGRAM_BOT_USERNAME = (import.meta.env.VITE_TELEGRAM_BOT_USERNAME || "").trim();
 
 const PLANS = {
   BETA_MONTHLY: {
@@ -76,6 +76,8 @@ export default function Premium() {
       setIsGenerating(false);
     }
   };
+
+  const hasTelegramBotUsername = TELEGRAM_BOT_USERNAME.length > 0;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -229,10 +231,16 @@ export default function Premium() {
 
             <Button
               className="w-full h-12 text-md mt-1 shadow-md hover:scale-[1.02] transition-transform"
+              disabled={!hasTelegramBotUsername}
               onClick={() => window.open(`https://t.me/${TELEGRAM_BOT_USERNAME}?start=${invoiceData?.order_code}`, "_blank")}
             >
               {t("premium.sendReceiptButton")}
             </Button>
+            {!hasTelegramBotUsername && (
+              <p className="text-xs text-red-600">
+                {t("premium.telegramBotMissing", { defaultValue: "Telegram bot is not configured." })}
+              </p>
+            )}
             <div className="text-[11px] text-muted-foreground font-mono mt-1">
               {t("premium.orderId", { order: invoiceData?.order_code })}
             </div>
