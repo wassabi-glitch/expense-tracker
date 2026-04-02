@@ -9,6 +9,10 @@ COPY package*.json ./
 RUN npm install
 COPY . .
 
+# Vite env vars must exist at build-time (npm run build), not only runtime.
+ARG VITE_TELEGRAM_BOT_USERNAME
+ENV VITE_TELEGRAM_BOT_USERNAME=${VITE_TELEGRAM_BOT_USERNAME}
+
 # Run the build
 RUN npm run build
 
