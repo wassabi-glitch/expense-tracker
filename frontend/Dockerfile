@@ -19,6 +19,8 @@ RUN npm run build
 # Step 2: Serve the application with Nginx (Debian based)
 FROM --platform=linux/amd64 nginx:1.25
 
+WORKDIR /app
+
 # Copy custom config directly
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
@@ -27,7 +29,7 @@ COPY --from=build /app/dist /usr/share/nginx/html
 
 # Copy the entrypoint script
 COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Default values for local development (matches docker-compose)
 ENV API_URL=http://api:9000
