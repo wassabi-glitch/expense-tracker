@@ -98,17 +98,6 @@ export default function Budgets() {
   const [addLimit, setAddLimit] = React.useState("");
   const [addBudgetYear, setAddBudgetYear] = React.useState(currentYear);
   const [addBudgetMonth, setAddBudgetMonth] = React.useState(currentMonth);
-  const [windowWidth, setWindowWidth] = React.useState(typeof window !== "undefined" ? window.innerWidth : 1200);
-
-  // Diagnostic log to verify HMR sync
-  console.log("[Budgets] Rendering at width:", windowWidth);
-
-  React.useEffect(() => {
-    const handleResize = () => setWindowWidth(window.innerWidth);
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
   const appLang = String(i18n.resolvedLanguage || i18n.language || "en").toLowerCase();
   const categorySortLocale = appLang.startsWith("uz")
     ? "uz-UZ"
@@ -470,7 +459,7 @@ export default function Budgets() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="container mx-auto px-4 py-8 space-y-6">
+      <div className="w-full px-page py-8 space-y-6">
         <PageHeader title={t("budgets.title")} description={t("budgets.subtitle")}>
           <Button variant="outline" onClick={() => setShowHistory((v) => !v)}>
             {showHistory ? t("budgets.hideHistory") : t("budgets.showHistory")}
@@ -604,7 +593,7 @@ export default function Budgets() {
                       ? t("budgets.status.closeToLimit")
                       : t("budgets.status.onTrack");
               const deltaAmount = Math.max(0, b.spent - b.effectiveLimit);
-              const useCompactAmounts = (windowWidth < 450 && Math.max(b.spent, b.effectiveLimit) >= 10_000) || Math.max(b.spent, b.effectiveLimit) >= 100_000_000;
+              const useCompactAmounts = Math.max(b.spent, b.effectiveLimit) >= 100_000_000;
               const spentLabel = useCompactAmounts ? formatCompactUzs(b.spent) : formatUzs(b.spent);
               const limitLabel = useCompactAmounts ? formatCompactUzs(b.effectiveLimit) : formatUzs(b.effectiveLimit);
               const remainingLabel = useCompactAmounts ? formatCompactUzs(b.remaining) : formatUzs(b.remaining);
@@ -614,17 +603,14 @@ export default function Budgets() {
               return (
                 <Card
                   key={b.id}
-                  className={`group shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] active:-translate-y-0 active:shadow-sm ${b.isCurrentMonth ? "opacity-100" : "opacity-65 hover:opacity-100"}`}
+                  className={`mobile-stat-card w-full mx-auto group shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] active:-translate-y-0 active:shadow-sm ${b.isCurrentMonth ? "opacity-100" : "opacity-65 hover:opacity-100"}`}
                 >
-                  <CardHeader className={cn(
-                    "space-y-3 pb-3 transition-all duration-200",
-                    windowWidth < 400 ? "px-4" : ""
-                  )}>
+                  <CardHeader className="space-y-3 pt-4 pb-4 sm:pt-6 sm:pb-3 transition-all duration-200">
                     <div className={cn(
                       "flex gap-2.5 transition-all duration-200",
-                      windowWidth < 450 ? "flex-col-reverse items-center text-center" : "flex-row items-start justify-between"
+                      "flex-col-reverse items-center text-center sm:flex-row sm:items-start sm:justify-between"
                     )}>
-                      <CardTitle className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden font-semibold transition-all duration-200 justify-center min-[450px]:justify-start pr-0 min-[450px]:pr-1 pb-1">
+                      <CardTitle className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden font-semibold transition-all duration-200 justify-center sm:justify-start pr-0 sm:pr-1 pb-1">
                         {(() => {
                           const CategoryIcon = categoryIconMap[b.category] || Circle;
                           return <CategoryIcon className="size-icon-sm text-muted-foreground" aria-hidden="true" />;
@@ -637,7 +623,7 @@ export default function Budgets() {
                       </CardTitle>
                       <span
                         className={cn(
-                          "inline-flex shrink-0 items-center justify-center rounded-full text-center font-medium leading-[1.3] transition-all duration-200 min-h-6 min-[450px]:min-h-7 md:min-h-8 px-1.5 min-[450px]:px-2 md:px-3 py-[3px] md:py-1 text-[10px] min-[450px]:text-[11px] md:text-xs whitespace-nowrap md:whitespace-normal max-w-fit md:min-w-[70px] lg:min-w-[86px]",
+                          "inline-flex shrink-0 items-center justify-center rounded-full text-center font-medium leading-[1.3] transition-all duration-200 min-h-6 sm:min-h-7 md:min-h-8 px-1.5 sm:px-2 md:px-3 py-[3px] md:py-1 text-mobile-caption sm:text-xs md:text-xs whitespace-nowrap md:whitespace-normal max-w-fit md:min-w-[70px] lg:min-w-[86px]",
                           statusBadgeClass
                         )}
                       >
@@ -651,7 +637,7 @@ export default function Budgets() {
                         className="flex w-full items-baseline gap-1 overflow-hidden text-ellipsis whitespace-nowrap tabular-nums font-medium text-foreground text-ui-desc"
                       >
                         <span className="truncate">{usedOfLabel}</span>
-                        <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
+                        <span className="shrink-0 text-mobile-caption font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
                           UZS
                         </span>
                       </InteractiveTooltip>
@@ -682,11 +668,8 @@ export default function Budgets() {
                       </div>
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className={cn(
-                    "space-y-5 pt-1 transition-all duration-200",
-                    windowWidth < 400 ? "px-4" : ""
-                  )}>
-                    <div className="flex flex-col min-[400px]:flex-row items-start min-[400px]:items-center justify-between gap-1 tabular-nums text-muted-foreground transition-all duration-200 text-ui-detail sm:text-ui-desc">
+                  <CardContent className="space-y-5 pt-2 pb-4 sm:pt-1 sm:pb-6 transition-all duration-200">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1 tabular-nums text-muted-foreground transition-all duration-200 text-ui-detail sm:text-ui-desc">
                       <span>{t("budgets.percentUsed", { percent })}</span>
                       <span className={cn(
                         "whitespace-nowrap flex items-baseline gap-1 transition-all duration-200",
@@ -707,7 +690,7 @@ export default function Budgets() {
                             className="flex items-baseline gap-1"
                           >
                             <span>{remainingLabel}</span>
-                            <span className="text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground/65">
+                            <span className="text-mobile-micro font-medium uppercase tracking-[0.08em] text-muted-foreground/65">
                               UZS
                             </span>
                             <span>{t("budgets.remainingLabel")}</span>
@@ -721,17 +704,17 @@ export default function Budgets() {
                       trackClassName={progressTrackClass}
                       indicatorClassName={progressIndicatorClass}
                     />
-                    <div className="flex gap-2 transition-opacity duration-200 md:opacity-85 md:group-hover:opacity-100">
+                    <div className="mt-1 flex gap-2 transition-opacity duration-200 md:opacity-85 md:group-hover:opacity-100">
                       <Button
                         variant="outline"
-                        className="flex-1 font-medium h-btn text-ui-detail px-2 py-1"
+                        className="flex-1 font-medium h-btn text-ui-detail px-2 py-2"
                         onClick={() => openUpdate(b)}
                       >
                         {t("budgets.updateLimit")}
                       </Button>
                       <Button
                         variant="ghost"
-                        className="flex-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive font-medium h-btn text-ui-detail px-2 py-1"
+                        className="flex-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive font-medium h-btn text-ui-detail px-2 py-2"
                         onClick={() => openDelete(b)}
                       >
                         <Trash2 className="size-icon-sm" />
@@ -832,7 +815,7 @@ export default function Budgets() {
                             <Icon className="h-4 w-4 text-muted-foreground" />
                             <span>{tCategory(c)}</span>
                           </div>
-                          <span className="text-[10px] text-muted-foreground leading-tight">
+                          <span className="text-mobile-caption text-muted-foreground leading-tight">
                             {t(`categories_desc.${c}`)}
                           </span>
                         </div>
@@ -947,3 +930,7 @@ export default function Budgets() {
     </div>
   );
 }
+
+
+
+

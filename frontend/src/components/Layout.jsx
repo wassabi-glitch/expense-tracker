@@ -333,7 +333,7 @@ export default function Layout() {
             </div>
           </div>
         </aside>
-        <main className="flex-1 overflow-y-auto px-4 pt-2 pb-4 lg:px-6 lg:pt-3 lg:pb-6">
+        <main className="mobile-page-scroll flex-1 overflow-y-auto px-0 pt-2 pb-4 lg:px-6 lg:pt-3 lg:pb-6">
           <div className="mx-auto max-w-full md:max-w-3xl lg:max-w-6xl xl:max-w-7xl 2xl:max-w-screen-2xl">
             <Outlet />
           </div>

@@ -529,7 +529,7 @@ export default function Expenses() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="container mx-auto px-4 py-8 space-y-6">
+      <div className="w-full px-page py-8 space-y-6">
         <PageHeader title={t("expenses.title")} description={t("expenses.subtitle")}>
           {activeTab === "recurring" ? (
             isPremium ? (
@@ -723,8 +723,8 @@ export default function Expenses() {
                                 value={e.amount}
                                 format={windowWidth < 550 ? "compact" : "display"}
                                 tooltip="compact"
-                                className="font-bold text-exp-title tabular-nums text-right leading-none"
-                                currencyClassName="text-exp-detail ml-1.5 opacity-60"
+                                className="font-bold text-exp-title tabular-nums text-right leading-none text-foreground"
+                                currencyClassName="text-muted-foreground/70 ml-1.5"
                               />
                             </div>
                           </div>
@@ -737,7 +737,7 @@ export default function Expenses() {
                 {/* 🖥️ Desktop Table View (>= 1024px) */}
                 <div className="hidden lg:block overflow-x-auto">
                   <div className="min-w-[800px] space-y-0">
-                    <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,0.4fr)] items-center gap-x-4 border-b border-border px-page py-3 text-[11px] uppercase tracking-widest font-bold text-muted-foreground/50">
+                    <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,0.4fr)] items-center gap-x-4 border-b border-border px-page py-3 text-mobile-micro uppercase tracking-widest font-bold text-muted-foreground/50">
                       <div className="text-left">{t("expenses.titleCol")}</div>
                       <div className="text-center">{t("expenses.category")}</div>
                       <div className="text-center">{t("expenses.date")}</div>
@@ -774,7 +774,7 @@ export default function Expenses() {
                               <Badge
                                 variant="secondary"
                                 className={cn(
-                                  "px-2 py-0.5 rounded-full text-[10px] xl:text-[10px] 2xl:text[12px] font-bold capitalize bg-muted/50 border-none shrink-0",
+                                  "px-2 py-0.5 rounded-full text-mobile-caption xl:text-xs 2xl:text-sm font-bold capitalize bg-muted/50 border-none shrink-0",
                                   getCategoryColorClass(e.category)
                                 )}
                               >
@@ -791,7 +791,7 @@ export default function Expenses() {
                               format="display"
                               tooltip="compact"
                               className="flex justify-end gap-1 items-baseline text-table-amount font-bold tabular-nums text-foreground"
-                              currencyClassName="text-table-detail font-medium opacity-40 ml-0.5"
+                              currencyClassName="text-muted-foreground/70 font-medium ml-0.5"
                             />
 
                             <div className="flex justify-end" data-action-popover>
@@ -900,7 +900,7 @@ export default function Expenses() {
                   onChange={(e) => { setAddTitle(e.target.value); setTouchedAdd(p => ({ ...p, title: true })); }}
                   onBlur={() => setTouchedAdd(p => ({ ...p, title: true }))}
                   className={cn(addErrors.title ? "border-red-500 focus-visible:border-red-500" : "")} />
-                {addErrors.title && <p className="text-[10px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.title}</p>}
+                {addErrors.title && <p className="text-mobile-caption text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.title}</p>}
               </div>
             </div>
             <div className="space-y-1">
@@ -920,7 +920,7 @@ export default function Expenses() {
                   }}
                   className={cn(addErrors.amount ? "border-red-500 focus-visible:border-red-500" : "")}
                 />
-                {addErrors.amount && <p className="text-[10px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.amount}</p>}
+                {addErrors.amount && <p className="text-mobile-caption text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.amount}</p>}
               </div>
             </div>
             <div className="space-y-1">
@@ -940,7 +940,7 @@ export default function Expenses() {
                               <Icon className="h-4 w-4 text-muted-foreground" />
                               <span>{tCategory(c)}</span>
                             </div>
-                            <span className="text-[10px] text-muted-foreground leading-tight">
+                            <span className="text-mobile-caption text-muted-foreground leading-tight">
                               {t(`categories_desc.${c}`)}
                             </span>
                           </div>
@@ -949,7 +949,7 @@ export default function Expenses() {
                     })}
                   </SelectContent>
                 </Select>
-                {addErrors.category && <p className="text-[11px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.category}</p>}
+                {addErrors.category && <p className="text-mobile-micro text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.category}</p>}
               </div>
             </div>
             <div className="space-y-1">
@@ -964,7 +964,7 @@ export default function Expenses() {
                   onBlur={() => setTouchedAdd(p => ({ ...p, date: true }))}
                   className={cn(addErrors.date ? "border-red-500 focus-visible:border-red-500" : "")}
                 />
-                {addErrors.date && <p className="text-[10px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.date}</p>}
+                {addErrors.date && <p className="text-mobile-caption text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.date}</p>}
               </div>
             </div>
             <div className="space-y-1">
@@ -978,8 +978,8 @@ export default function Expenses() {
                   onChange={(e) => { setAddDescription(e.target.value); setTouchedAdd(p => ({ ...p, description: true })); }}
                   onBlur={() => setTouchedAdd(p => ({ ...p, description: true }))}
                 />
-                {addErrors.description && <p className="text-[10px] text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.description}</p>}
-                {actionError && <p className="text-[10px] leading-4 text-red-500 font-medium ml-0.5 mt-1">{actionError}</p>}
+                {addErrors.description && <p className="text-mobile-caption text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.description}</p>}
+                {actionError && <p className="text-mobile-caption leading-4 text-red-500 font-medium ml-0.5 mt-1">{actionError}</p>}
               </div>
             </div>
           </div>
@@ -1031,7 +1031,7 @@ export default function Expenses() {
                   onChange={(e) => { setEditTitle(e.target.value); setTouchedEdit(p => ({ ...p, title: true })); }}
                   onBlur={() => setTouchedEdit(p => ({ ...p, title: true }))}
                   className={cn(editErrors.title ? "border-red-500 focus-visible:border-red-500" : "")} />
-                {editErrors.title && <p className="text-[10px] text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.title}</p>}
+                {editErrors.title && <p className="text-mobile-caption text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.title}</p>}
               </div>
             </div>
             <div className="space-y-1">
@@ -1051,7 +1051,7 @@ export default function Expenses() {
                   }}
                   className={cn(editErrors.amount ? "border-red-500 focus-visible:border-red-500" : "")}
                 />
-                {editErrors.amount && <p className="text-[10px] text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.amount}</p>}
+                {editErrors.amount && <p className="text-mobile-caption text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.amount}</p>}
               </div>
             </div>
             <div className="space-y-1">
@@ -1070,7 +1070,7 @@ export default function Expenses() {
                   onBlur={() => setTouchedEdit(p => ({ ...p, date: true }))}
                   className={cn(editErrors.date ? "border-red-500 focus-visible:border-red-500" : "")}
                 />
-                {editErrors.date && <p className="text-[10px] text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.date}</p>}
+                {editErrors.date && <p className="text-mobile-caption text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.date}</p>}
               </div>
             </div>
             <div className="space-y-1">
@@ -1084,7 +1084,7 @@ export default function Expenses() {
                   onChange={(e) => { setEditDescription(e.target.value); setTouchedEdit(p => ({ ...p, description: true })); }}
                   onBlur={() => setTouchedEdit(p => ({ ...p, description: true }))}
                 />
-                {editErrors.description && <p className="text-[10px] text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.description}</p>}
+                {editErrors.description && <p className="text-mobile-caption text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.description}</p>}
               </div>
             </div>
             {actionError && <p className="text-sm text-red-600">{actionError}</p>}
@@ -1158,4 +1158,7 @@ export default function Expenses() {
     </div>
   );
 }
+
+
+
 

@@ -15,17 +15,18 @@ export function InteractiveTooltip({
     <TooltipProvider delayDuration={0}>
       <Tooltip open={open} onOpenChange={setOpen}>
         <TooltipTrigger asChild>
-          <button
-            type="button"
+          <span
             className={className}
             onMouseEnter={() => setOpen(true)}
             onMouseLeave={() => setOpen(false)}
             onFocus={() => setOpen(true)}
             onBlur={() => setOpen(false)}
             onClick={() => setOpen((prev) => !prev)}
+            onPointerDown={(e) => e.stopPropagation()}
+            role="presentation"
           >
             {children}
-          </button>
+          </span>
         </TooltipTrigger>
         <TooltipContent side={side} className={contentClassName}>
           {content}

@@ -27,7 +27,7 @@ COPY --from=build /app/dist /usr/share/nginx/html
 
 # Copy the entrypoint script
 COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Default values for local development (matches docker-compose)
 ENV API_URL=http://api:9000
@@ -35,5 +35,5 @@ ENV API_HOST=localhost
 
 EXPOSE 80
 
-# Execute the debug entrypoint
-ENTRYPOINT ["/app/entrypoint.sh"]
+# Execute the debug entrypoint using /bin/sh directly to avoid permission issues
+ENTRYPOINT ["/bin/sh", "/app/entrypoint.sh"]

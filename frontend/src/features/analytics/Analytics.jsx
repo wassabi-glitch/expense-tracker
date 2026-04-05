@@ -213,10 +213,10 @@ export default function Analytics() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="container mx-auto px-4 py-8 space-y-6">
-        <div>
-          <h1 className="text-xl sm:text-3xl font-bold tracking-tight text-foreground">{t("analytics.title")}</h1>
-          <p className="text-xs sm:text-base text-muted-foreground mt-0.5 sm:mt-1">{t("analytics.subtitle")}</p>
+      <div className="w-full px-page py-8 space-y-6">
+        <div className="pl-card sm:pl-0 sm:px-3 md:px-0">
+          <h1 className="text-mobile-h1 sm:text-3xl font-bold tracking-tight text-foreground">{t("analytics.title")}</h1>
+          <p className="text-mobile-label sm:text-base text-muted-foreground mt-0.5 sm:mt-1">{t("analytics.subtitle")}</p>
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
@@ -241,26 +241,26 @@ export default function Analytics() {
               <Card
                 key={idx}
                 className={cn(
-                  "border-border/40 bg-card/40 shadow-sm transition-all duration-200 hover:shadow-md hover:bg-card/60 active:scale-[0.98] cursor-pointer",
-                  isMobile && idx === 0 && "w-full"
+                  "mobile-stat-card mobile-top-stat-card border-border/40 bg-card/40 shadow-sm transition-all duration-300 hover:shadow-md hover:bg-card/60 hover:border-border/80 active:border-border/80 active:shadow-sm active:scale-[0.98] cursor-pointer",
+                  isMobile && idx === 0 && "mobile-top-stat-inset"
                 )}
               >
-                <CardHeader className="p-4 flex flex-row items-center justify-between space-y-0 pb-1">
+                <CardHeader className="p-4 flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-refined-label">
                     {t(card.titleKey)}
                   </CardTitle>
                   <card.icon className="h-3.5 w-3.5 text-muted-foreground/40" />
                 </CardHeader>
-                <CardContent className="p-4 pt-1">
+                <CardContent className="p-4 pt-2">
                   {card.isRaw ? (
-                    <div className="text-xl sm:text-2xl font-bold leading-none tabular-nums text-foreground">{card.rawValue}</div>
+                    <div className="text-mobile-stat-amount font-bold leading-none tabular-nums text-foreground">{card.rawValue}</div>
                   ) : (
                     <CurrencyAmount
                       value={card.rawValue}
                       format="compact"
                       tooltip="always"
                       className="flex items-baseline gap-1.5 flex-wrap outline-none"
-                      valueClassName="text-xl sm:text-2xl font-bold tracking-tight tabular-nums text-foreground"
+                      valueClassName="text-mobile-stat-amount font-bold tracking-tight tabular-nums text-foreground"
                       currencyClassName="text-xs opacity-70"
                       tooltipContent={card.tooltip}
                     />
@@ -273,28 +273,28 @@ export default function Analytics() {
 
         {/* Mobile-only scrollable row for other cards */}
         {isMobile && !loadingSummary && history && (
-          <div className="flex overflow-x-auto gap-4 -mx-4 px-4 pb-4 no-scrollbar scroll-smooth">
+          <div className="flex overflow-x-auto gap-4 mx-[calc(var(--page-px)*-1)] px-page pb-4 no-scrollbar scroll-smooth">
             {summaryCards.slice(1).map((card, idx) => (
               <Card
                 key={idx}
-                className="border-border/40 bg-card/40 shadow-sm transition-all duration-200 hover:shadow-md hover:bg-card/60 active:scale-[0.98] cursor-pointer min-w-[260px] flex-shrink-0"
+                className="mobile-stat-card mobile-top-stat-card border-border/40 bg-card/40 shadow-sm transition-all duration-300 hover:shadow-md hover:bg-card/60 hover:border-border/80 active:border-border/80 active:shadow-sm active:scale-[0.98] cursor-pointer w-[calc(100vw-(var(--page-px)*2)-12px)] min-w-0 flex-shrink-0"
               >
-                <CardHeader className="p-4 pt-4 flex flex-row items-center justify-between space-y-0 pb-1">
+                <CardHeader className="p-4 pt-4 flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-refined-label">
                     {t(card.titleKey)}
                   </CardTitle>
                   <card.icon className="h-3.5 w-3.5 text-muted-foreground/40" />
                 </CardHeader>
-                  <CardContent className="p-4 pt-1">
+                  <CardContent className="p-4 pt-2">
                     {card.isRaw ? (
-                      <div className="text-xl font-bold leading-none tabular-nums text-foreground">{card.rawValue}</div>
+                      <div className="text-mobile-stat-amount font-bold leading-none tabular-nums text-foreground">{card.rawValue}</div>
                     ) : (
                       <CurrencyAmount
                         value={card.rawValue}
                         format="compact"
                         tooltip="always"
                         className="flex items-baseline gap-1.5 flex-wrap outline-none"
-                        valueClassName="text-xl font-bold tracking-tight tabular-nums text-foreground"
+                        valueClassName="text-mobile-stat-amount font-bold tracking-tight tabular-nums text-foreground"
                         currencyClassName="text-xs opacity-70"
                         tooltipContent={card.tooltip}
                       />
@@ -343,7 +343,7 @@ export default function Analytics() {
                       className="input-pill"
                     />
                   </div>
-                  <span className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest text-center px-1 shrink-0">{t("analytics.to")}</span>
+                  <span className="text-muted-foreground text-mobile-caption font-bold uppercase tracking-widest text-center px-1 shrink-0">{t("analytics.to")}</span>
                   <div className="relative flex-1 lg:max-w-[200px]">
                     <Input
                       type="date"
@@ -377,14 +377,14 @@ export default function Analytics() {
 
             <div className="flex flex-col gap-1.5 border-t border-border/40 pt-4">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">{t("analytics.range")}:</span>
-                <span className="text-[11px] font-bold text-foreground">{rangeLabel}</span>
+                <span className="text-mobile-caption font-semibold uppercase tracking-wider text-muted-foreground/60">{t("analytics.range")}:</span>
+                <span className="text-mobile-micro font-bold text-foreground">{rangeLabel}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">{t("analytics.activeMode")}:</span>
-                <span className="text-[11px] font-medium text-muted-foreground">{range.mode === "days" ? t("analytics.modePreset") : t("analytics.modeCustom")}</span>
+                <span className="text-mobile-caption font-semibold uppercase tracking-wider text-muted-foreground/60">{t("analytics.activeMode")}:</span>
+                <span className="text-mobile-micro font-medium text-muted-foreground">{range.mode === "days" ? t("analytics.modePreset") : t("analytics.modeCustom")}</span>
               </div>
-              {hint && <p className="text-[10px] font-medium text-amber-500 animate-in fade-in slide-in-from-left-1">{hint}</p>}
+              {hint && <p className="text-mobile-caption font-medium text-amber-500 animate-in fade-in slide-in-from-left-1">{hint}</p>}
             </div>
           </CardContent>
         </Card>
@@ -436,14 +436,14 @@ export default function Analytics() {
                         if (active && payload && payload.length) {
                           return (
                             <div className="rounded-xl border border-border/50 bg-background/95 p-2.5 shadow-xl backdrop-blur-md">
-                              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 mb-1">
+                              <p className="text-mobile-caption font-bold uppercase tracking-wider text-muted-foreground/60 mb-1">
                                 {formatLongDate(label, chartLocale, i18n.language)}
                               </p>
                               <div className="flex items-baseline gap-1.5">
                                 <span className="text-sm font-bold tabular-nums text-foreground">
                                   {payload[0].value >= 1_000_000_000 ? formatCompactUzs(payload[0].value) : formatUzs(payload[0].value)}
                                 </span>
-                                <span className="text-[9px] font-bold text-muted-foreground/70 uppercase tracking-widest">UZS</span>
+                                <span className="text-mobile-micro font-bold text-muted-foreground/70 uppercase tracking-widest">UZS</span>
                               </div>
                             </div>
                           );
@@ -515,16 +515,16 @@ export default function Analytics() {
                         if (active && payload && payload.length) {
                           return (
                             <div className="rounded-xl border border-border/50 bg-background/95 p-2.5 shadow-xl backdrop-blur-md">
-                              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 mb-1">
+                              <p className="text-mobile-caption font-bold uppercase tracking-wider text-muted-foreground/60 mb-1">
                                 {t(`categories.${label}`, { defaultValue: label })}
                               </p>
                               <div className="flex items-baseline gap-1.5">
                                 <span className="text-sm font-bold tabular-nums text-foreground">
                                   {payload[0].value >= 1_000_000_000 ? formatCompactUzs(payload[0].value) : formatUzs(payload[0].value)}
                                 </span>
-                                <span className="text-[9px] font-bold text-muted-foreground/70 uppercase tracking-widest">UZS</span>
+                                <span className="text-mobile-micro font-bold text-muted-foreground/70 uppercase tracking-widest">UZS</span>
                               </div>
-                              <p className="mt-1 text-[10px] text-muted-foreground/80 lowercase">
+                              <p className="mt-1 text-mobile-caption text-muted-foreground/80 lowercase">
                                 {payload[0].payload.count} {t(payload[0].payload.count === 1 ? "common.transaction" : "common.transactions")}
                               </p>
                             </div>
@@ -571,3 +571,6 @@ export default function Analytics() {
     </div>
   );
 }
+
+
+

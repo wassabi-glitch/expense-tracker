@@ -67,15 +67,15 @@ export default function Settings() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="container mx-auto px-4 py-8 space-y-8">
-        <div>
-          <h1 className="text-xl sm:text-3xl font-bold tracking-tight text-foreground">{t("settings.title")}</h1>
-          <p className="text-xs sm:text-base text-muted-foreground mt-0.5 sm:mt-1">{t("settings.subtitle")}</p>
+      <div className="w-full px-page py-8 space-y-8">
+        <div className="pl-card sm:pl-0 sm:px-3 md:px-0">
+          <h1 className="text-mobile-h1 sm:text-3xl font-bold tracking-tight text-foreground">{t("settings.title")}</h1>
+          <p className="text-mobile-label sm:text-base text-muted-foreground mt-0.5 sm:mt-1">{t("settings.subtitle")}</p>
         </div>
 
         {profileError && <p className="text-sm text-red-600">{profileError}</p>}
 
-        <Card className="shadow-sm">
+        <Card className="shadow-sm card-mobile">
           <CardHeader>
             <CardTitle>{t("settings.profile")}</CardTitle>
             <CardDescription>{t("settings.profileDesc")}</CardDescription>
@@ -94,7 +94,7 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        <Card className="shadow-sm">
+        <Card className="shadow-sm card-mobile">
           <CardHeader>
             <CardTitle>{t("settings.password")}</CardTitle>
             <CardDescription>{t("settings.passwordDesc")}</CardDescription>
@@ -110,7 +110,7 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        <Card className="shadow-sm">
+        <Card className="shadow-sm card-mobile">
           <CardHeader>
             <CardTitle>{t("settings.preferences")}</CardTitle>
             <CardDescription>{t("settings.preferencesDesc")}</CardDescription>
@@ -121,7 +121,7 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        <Card className="shadow-sm">
+        <Card className="shadow-sm card-mobile">
           <CardHeader>
             <CardTitle>{t("settings.premiumTitle")}</CardTitle>
             <CardDescription>{isPremium ? t("settings.premiumActiveDesc") : t("settings.premiumDesc")}</CardDescription>
@@ -133,7 +133,7 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        <Card className="shadow-sm">
+        <Card className="shadow-sm card-mobile">
           <CardHeader>
             <CardTitle>{t("settings.budgetRolloverTitle")}</CardTitle>
             <CardDescription>{t("settings.budgetRolloverDesc")}</CardDescription>
@@ -172,7 +172,7 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        <Card className="shadow-sm">
+        <Card className="shadow-sm card-mobile">
           <CardHeader>
             <CardTitle>{t("settings.session")}</CardTitle>
             <CardDescription>{t("settings.sessionDesc")}</CardDescription>
@@ -205,3 +205,5 @@ export default function Settings() {
     </div >
   );
 }
+
+

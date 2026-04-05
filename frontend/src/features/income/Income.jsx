@@ -558,7 +558,7 @@ export default function Income() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="container mx-auto px-4 py-8 space-y-6">
+      <div className="w-full px-page py-8 space-y-6">
         <PageHeader title={t("income.title")} description={t("income.subtitle")}>
           <Button
             variant="outline"
@@ -649,12 +649,12 @@ export default function Income() {
             </CardContent>
           </Card>
 
-          <Card className="shadow-sm">
-            <CardHeader className="pb-2">
+          <Card className="mobile-stat-card mobile-top-stat-card mobile-top-stat-inset border-border bg-card shadow-sm transition-all duration-300 hover:border-border/80 active:border-border/80 hover:shadow-sm active:shadow-sm active:scale-[0.98] cursor-pointer">
+            <CardHeader className="pb-3">
               <CardTitle className="text-base">{t("income.thisMonthTotal")}</CardTitle>
               <CardDescription>{t("income.thisMonthTotalDesc")}</CardDescription>
             </CardHeader>
-            <CardContent className="pt-0">
+            <CardContent className="pt-1">
               {monthSummaryQuery.isLoading ? (
                 <div className="flex min-h-10 items-center">
                   <LoadingSpinner className="h-5 w-5" />
@@ -667,7 +667,7 @@ export default function Income() {
                     format="display"
                     tooltip="compact"
                     className="flex items-baseline gap-1.5 flex-wrap outline-none"
-                    valueClassName="text-ui-h1 font-semibold tabular-nums"
+                    valueClassName="text-mobile-stat-amount font-semibold tabular-nums"
                     currencyClassName="text-ui-desc opacity-70"
                   />
                 </div>
@@ -794,7 +794,7 @@ export default function Income() {
                       ? sourceNameById.get(entry.source_id) || t("income.sourceDeleted")
                       : t("income.noSource");
                     
-                    const isCompactMode = windowWidth < 400 && Math.abs(entry.amount) >= 1_000;
+                    const isCompactMode = windowWidth < 640 && Math.abs(entry.amount) >= 1_000;
                     
                     return (
                       <div
@@ -829,7 +829,7 @@ export default function Income() {
                         </div>
 
                         <div className="pt-4 border-t border-border/10 flex items-center justify-between">
-                          <span className="font-black uppercase tracking-[0.2em] text-muted-foreground/40 text-[10px]">
+                          <span className="font-black uppercase tracking-[0.2em] text-muted-foreground/40 text-mobile-caption">
                             {t("income.amount")}
                           </span>
                           <div className="flex items-center gap-2 overflow-hidden text-primary font-black">
@@ -877,7 +877,7 @@ export default function Income() {
                           </span>
                         </TitleTooltip>
                       </div>
-                      <div className="text-ui-desc lg:text-[10px] xl:text-[12px] 2xl:text-[14px]">
+                      <div className="text-ui-desc lg:text-xs xl:text-sm 2xl:text-base">
                         {formatDisplayDate(entry.date, appLang)}
                       </div>
                       <div className="flex items-center justify-end gap-1.5 text-right font-semibold tabular-nums text-primary text-ui-desc">
@@ -1309,3 +1309,6 @@ export default function Income() {
     </div>
   );
 }
+
+
+
