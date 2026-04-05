@@ -78,12 +78,12 @@ function useDarkMode() {
   return { isDark, toggle: () => setIsDark((v) => !v) };
 }
 
-function NavList({ onNavigate, compact = false, isPremium = false }) {
+function NavList({ onNavigate, compact = false, isPremium = false, isMobile = false }) {
   const { t } = useTranslation();
   const visibleMainNavItems = mainNavItems.filter((item) => !item.premiumOnly || isPremium);
 
   const rowBase =
-    "group relative rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-muted/70 hover:text-foreground";
+    cn("group relative rounded-lg py-2 text-sm font-medium transition-colors hover:bg-muted/70 hover:text-foreground", isMobile ? "px-1" : "px-3");
   const rowLayout = "grid grid-cols-[40px_minmax(0,1fr)] items-center";
   const iconWrap = "h-9 w-10 grid place-items-center";
   const labelReveal =
@@ -92,12 +92,12 @@ function NavList({ onNavigate, compact = false, isPremium = false }) {
   // IMPORTANT: section headers reserve height always so nothing shifts in Y.
   // We only fade them out when compact (collapsed).
   const sectionHeaderBase =
-    "mb-2 pl-6 pr-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground h-6 flex items-center";
+    cn("mb-2 pr-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground h-6 flex items-center", isMobile ? "px-2" : "pl-6");
   const sectionHeaderCompact =
     "max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-[max-width,opacity] duration-200 group-hover/sidebar:max-w-[180px] group-hover/sidebar:opacity-100";
 
   return (
-    <div className="flex flex-col gap-6 py-6">
+    <div className={cn("flex flex-col gap-6 py-6", isMobile ? "px-0" : "")}>
       <div>
         <div className={cn(sectionHeaderBase, compact && sectionHeaderCompact)}>
           {t("nav.platform")}
@@ -114,7 +114,7 @@ function NavList({ onNavigate, compact = false, isPremium = false }) {
                   rowBase,
                   rowLayout,
                   isActive
-                    ? "bg-muted/40 text-foreground ring-0 before:absolute before:left-1 before:top-2 before:bottom-2 before:w-0.5 before:rounded-full before:bg-primary"
+                    ? `bg-muted/40 text-foreground ring-0 before:absolute ${isMobile ? "before:left-0" : "before:left-1"} before:top-2 before:bottom-2 before:w-0.5 ${isMobile ? "before:rounded-r-full" : "before:rounded-full"} before:bg-primary`
                     : "text-muted-foreground"
                 )
               }
@@ -158,7 +158,7 @@ function NavList({ onNavigate, compact = false, isPremium = false }) {
                   rowBase,
                   rowLayout,
                   isActive
-                    ? "bg-muted/40 text-foreground ring-0 before:absolute before:left-1 before:top-2 before:bottom-2 before:w-0.5 before:rounded-full before:bg-primary"
+                    ? `bg-muted/40 text-foreground ring-0 before:absolute ${isMobile ? "before:left-0" : "before:left-1"} before:top-2 before:bottom-2 before:w-0.5 ${isMobile ? "before:rounded-r-full" : "before:rounded-full"} before:bg-primary`
                     : "text-muted-foreground"
                 )
               }
@@ -256,9 +256,9 @@ export default function Layout() {
               </Button>
             </SheetTrigger>
 
-            <SheetContent side="left" className="w-64 pt-8 flex flex-col h-full [&>button]:right-4">
+            <SheetContent side="left" className="w-[15rem] pt-8 flex flex-col h-full [&>button]:right-4 px-2">
               <div className="flex-1 overflow-y-auto pt-4 [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none]">
-                <NavList onNavigate={() => setMobileOpen(false)} isPremium={!!userQuery.data?.is_premium} />
+                <NavList onNavigate={() => setMobileOpen(false)} isPremium={!!userQuery.data?.is_premium} isMobile />
               </div>
             </SheetContent>
           </Sheet>
