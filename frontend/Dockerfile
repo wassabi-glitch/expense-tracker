@@ -19,8 +19,6 @@ RUN npm run build
 # Step 2: Serve the application with Nginx (Debian based)
 FROM --platform=linux/amd64 nginx:1.25
 
-WORKDIR /app
-
 # Copy custom config directly
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
@@ -37,5 +35,5 @@ ENV API_HOST=localhost
 
 EXPOSE 80
 
-# Execute the debug entrypoint
-ENTRYPOINT ["/app/entrypoint.sh"]
+# Execute the debug entrypoint using /bin/sh directly to avoid permission issues
+ENTRYPOINT ["/bin/sh", "/app/entrypoint.sh"]
