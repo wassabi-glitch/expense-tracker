@@ -12,7 +12,7 @@ import {
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Download, Plus, Wallet, TrendingUp, Layers, Circle, CalendarClock, HelpCircle } from "lucide-react";
+import { Download, Plus, Wallet, TrendingUp, Layers, Circle, CalendarClock } from "lucide-react";
 import { CurrencyAmount } from "@/components/CurrencyAmount";
 import { InteractiveTooltip } from "@/components/InteractiveTooltip";
 import { cn } from "@/lib/utils";
@@ -293,7 +293,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="container mx-auto px-4 py-8 xl:py-12 space-y-8 xl:space-y-12">
+      <div className="w-full px-page py-8 xl:py-12 space-y-8 xl:space-y-12">
         <PageHeader title={t("dashboard.title")} description={t("dashboard.subtitle")}>
           <Button asChild variant="outline" className="bg-background hover:bg-muted h-8 sm:h-9 text-xs sm:text-sm px-3 sm:px-4">
             <Link to="/export">
@@ -324,16 +324,16 @@ export default function Dashboard() {
             if (isMobile && !isTotalBalance) return null;
 
             return (
-              <Card 
-                key={i} 
-                className={cn(
-                  "shadow-sm overflow-hidden relative transition-all duration-200 hover:shadow-md hover:bg-card/60 active:scale-[0.98] cursor-pointer", 
-                  s.cardClassName,
-                  isMobile && isTotalBalance && "w-full"
-                )}
+                <Card
+                  key={i}
+                  className={cn(
+                    "mobile-stat-card mobile-top-stat-card shadow-sm overflow-hidden relative transition-all duration-200 hover:shadow-md hover:bg-card/60 active:scale-[0.98] cursor-pointer",
+                    s.cardClassName,
+                    isMobile && isTotalBalance && "mobile-top-stat-inset"
+                  )}
               >
                 <CardHeader className={cn(
-                  "flex flex-row items-center justify-between space-y-0 p-5 pb-0 w-full",
+                  "flex flex-row items-center justify-between space-y-0 p-5 pb-1 w-full",
                   isMobile && "pt-4"
                 )}>
                   <CardTitle className={cn("text-refined-label", s.titleClassName)}>
@@ -341,29 +341,21 @@ export default function Dashboard() {
                   </CardTitle>
                   <Icon className={cn("size-icon-sm", s.iconClassName)} />
                 </CardHeader>
-                <CardContent className={cn("px-5 pb-5 pt-0", isMobile && "-mt-2")}>
+                <CardContent className="px-5 pb-5 pt-1">
                   <CurrencyAmount
                     value={s.rawValue}
                     prefix={s.prefix}
                     format="compact"
                     tooltip="always"
                     className="flex items-baseline gap-1.5 flex-wrap text-left outline-none"
-                    valueClassName={cn("text-[24px] lg:text-[28px] font-bold tracking-tight tabular-nums break-words", s.valueClassName)}
-                    currencyClassName="text-[10px] md:text-xs lg:text-sm opacity-70"
+                    valueClassName={cn("text-2xl lg:text-3xl font-bold tracking-tight tabular-nums break-words", s.valueClassName)}
+                    currencyClassName="text-mobile-caption md:text-xs lg:text-sm opacity-70"
                     tooltipContent={`${s.prefix}${s.fullValue} UZS`}
                   />
                   {s.hint && (
-                    isMobile ? (
-                      <div className="absolute bottom-3 right-3">
-                        <InteractiveTooltip content={s.hint}>
-                          <HelpCircle className="h-4 w-4 text-muted-foreground/40 hover:text-muted-foreground/70 transition-colors cursor-help" />
-                        </InteractiveTooltip>
-                      </div>
-                    ) : (
-                      <p className="mt-2.5 text-ui-desc leading-relaxed text-muted-foreground/80 font-medium">
-                        {s.hint}
-                      </p>
-                    )
+                    <p className="mt-3 text-ui-desc leading-relaxed text-muted-foreground/80 font-medium">
+                      {s.hint}
+                    </p>
                   )}
                 </CardContent>
               </Card>
@@ -373,37 +365,35 @@ export default function Dashboard() {
 
         {/* Mobile-only scrollable row for other cards */}
         {isMobile && (
-          <div className="flex overflow-x-auto gap-4 -mx-4 px-4 pb-4 no-scrollbar scroll-smooth">
+          <div className="flex overflow-x-auto gap-4 mx-[calc(var(--page-px)*-1)] px-page pb-4 no-scrollbar scroll-smooth">
             {statCards.slice(1).map((s, i) => {
               const Icon = s.icon;
               return (
                 <Card 
                   key={i} 
-                  className={cn("shadow-sm overflow-hidden relative min-w-[260px] flex-shrink-0 transition-all duration-200 hover:shadow-md hover:bg-card/60 active:scale-[0.98] cursor-pointer", s.cardClassName)}
+                  className={cn("mobile-stat-card mobile-top-stat-card shadow-sm overflow-hidden relative w-[calc(100vw-(var(--page-px)*2)-12px)] min-w-0 flex-shrink-0 transition-all duration-200 hover:shadow-md hover:bg-card/60 active:scale-[0.98] cursor-pointer", s.cardClassName)}
                 >
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 p-5 pt-4 pb-0 w-full">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 p-5 pt-4 pb-1 w-full">
                     <CardTitle className={cn("text-refined-label", s.titleClassName)}>
                       {s.label}
                     </CardTitle>
                     <Icon className={cn("size-icon-sm", s.iconClassName)} />
                   </CardHeader>
-                  <CardContent className="px-5 pb-5 pt-0 -mt-2">
+                  <CardContent className="px-5 pb-5 pt-1">
                     <CurrencyAmount
                       value={s.rawValue}
                       prefix={s.prefix}
                       format="compact"
                       tooltip="always"
                       className="flex items-baseline gap-1.5 flex-wrap text-left outline-none"
-                      valueClassName={cn("text-[24px] lg:text-[28px] font-bold tracking-tight tabular-nums break-words", s.valueClassName)}
-                      currencyClassName="text-[10px] md:text-xs lg:text-sm mt-auto mb-1 opacity-70"
+                      valueClassName={cn("text-2xl font-bold tracking-tight tabular-nums break-words", s.valueClassName)}
+                      currencyClassName="text-mobile-caption md:text-xs lg:text-sm mt-auto mb-1 opacity-70"
                       tooltipContent={`${s.prefix}${s.fullValue} UZS`}
                     />
                     {s.hint && (
-                      <div className="absolute bottom-3 right-3">
-                        <InteractiveTooltip content={s.hint}>
-                          <HelpCircle className="h-4 w-4 text-muted-foreground/40 hover:text-muted-foreground/70 transition-colors cursor-help" />
-                        </InteractiveTooltip>
-                      </div>
+                      <p className="mt-3 text-ui-desc leading-relaxed text-muted-foreground/80 font-medium">
+                        {s.hint}
+                      </p>
                     )}
                   </CardContent>
                 </Card>
@@ -489,18 +479,18 @@ export default function Dashboard() {
                           </span>
                         </InteractiveTooltip>
                       </div>
-                      <div className="hidden min-[450px]:flex items-center justify-end shrink-0">
+                      <div className="hidden sm:flex items-center justify-end shrink-0">
                         <InteractiveTooltip
                           content={`${formatUzs(item.total)} / ${formatUzs(item.budget_limit)} UZS`}
                           className={cn(
                             "flex items-baseline justify-end gap-1 min-w-[102px] sm:min-w-[140px] overflow-hidden text-ellipsis whitespace-nowrap text-right tabular-nums text-foreground",
-                            hasHugeBudgetValues && "text-[13px]"
+                            hasHugeBudgetValues && "text-mobile-label"
                           )}
                         >
                           <span className="font-bold tracking-tight">{formatCompactUzs(item.total)}</span>{" "}
                           <span className="font-medium text-muted-foreground/70 px-0.5">/</span>{" "}
                           <span className="font-bold tracking-tight">{formatCompactUzs(item.budget_limit)}</span>
-                          <span className="text-[10px] font-medium text-muted-foreground/70 uppercase ml-0.5">UZS</span>
+                          <span className="text-mobile-caption font-medium text-muted-foreground/70 uppercase ml-0.5">UZS</span>
                         </InteractiveTooltip>
                       </div>
                     </div>
@@ -510,18 +500,18 @@ export default function Dashboard() {
                       trackClassName={progressTrackClass}
                       indicatorClassName={progressIndicatorClass}
                     />
-                    <div className="flex min-[450px]:hidden items-center justify-end px-1 mt-0.5">
+                    <div className="flex sm:hidden items-center justify-end px-1 mt-0.5">
                       <InteractiveTooltip
                         content={`${formatUzs(item.total)} / ${formatUzs(item.budget_limit)} UZS`}
                         className={cn(
                           "flex items-baseline justify-end gap-1 overflow-hidden text-ellipsis whitespace-nowrap text-right tabular-nums text-foreground",
-                          hasHugeBudgetValues ? "text-xs" : "text-[13px]"
+                          hasHugeBudgetValues ? "text-xs" : "text-mobile-label"
                         )}
                       >
                         <span className="font-bold tracking-tight">{formatCompactUzs(item.total)}</span>{" "}
                         <span className="font-medium text-muted-foreground/70 px-0.5">/</span>{" "}
                         <span className="font-bold tracking-tight">{formatCompactUzs(item.budget_limit)}</span>
-                        <span className="text-[10px] font-medium text-muted-foreground/70 uppercase ml-0.5">UZS</span>
+                        <span className="text-mobile-caption font-medium text-muted-foreground/70 uppercase ml-0.5">UZS</span>
                       </InteractiveTooltip>
                     </div>
                   </div>
@@ -587,25 +577,25 @@ export default function Dashboard() {
                           </TooltipContent>
                         </UITooltip>
                       </TooltipProvider>
-                      <p className="text-ui-detail lg:text-[10px] text-muted-foreground/80 font-medium truncate capitalize">
+                      <p className="text-ui-detail lg:text-xs text-muted-foreground/80 font-medium truncate capitalize">
                         {t(`categories.${e.category}`, { defaultValue: e.category })}
                       </p>
-                      <p className="text-[10px] lg:text-[9px] font-normal text-muted-foreground/50">
+                      <p className="text-mobile-caption lg:text-xs font-normal text-muted-foreground/50">
                         {formatPrettyDate(e.date, i18n.language)}
                       </p>
                     </div>
                     {Number(e.amount) >= 1_000_000 ? (
                       <InteractiveTooltip
                         content={`${formatUzs(e.amount)} UZS`}
-                        className="flex items-baseline justify-end gap-1 font-semibold text-ui-title lg:text-ui-desc text-foreground/90 shrink-0 whitespace-nowrap"
+                        className="flex items-baseline justify-end gap-1 font-semibold text-ui-title lg:text-ui-desc text-foreground shrink-0 whitespace-nowrap"
                       >
                         <span>{formatCompactUzs(e.amount)}</span>
-                        <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/70">UZS</span>
+                        <span className="text-mobile-caption uppercase tracking-[0.08em] text-muted-foreground/70">UZS</span>
                       </InteractiveTooltip>
                     ) : (
-                      <div className="flex items-baseline justify-end gap-1 font-semibold text-ui-title lg:text-ui-desc text-foreground/90 shrink-0 whitespace-nowrap">
+                      <div className="flex items-baseline justify-end gap-1 font-semibold text-ui-title lg:text-ui-desc text-foreground shrink-0 whitespace-nowrap">
                         <span>{formatUzs(e.amount)}</span>
-                        <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/70">UZS</span>
+                        <span className="text-mobile-caption uppercase tracking-[0.08em] text-muted-foreground/70">UZS</span>
                       </div>
                     )}
                   </div>
@@ -694,14 +684,14 @@ export default function Dashboard() {
                           if (active && payload && payload.length) {
                             return (
                               <div className="rounded-xl border border-border/50 bg-background/95 p-2.5 shadow-xl backdrop-blur-md">
-                                <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 mb-1">
+                                <p className="text-mobile-caption font-bold uppercase tracking-wider text-muted-foreground/60 mb-1">
                                   {formatPrettyDate(payload[0].payload.date, i18n.language)}
                                 </p>
                                 <div className="flex items-baseline gap-1.5">
                                   <span className="text-sm font-bold tabular-nums text-foreground">
                                     {payload[0].value >= 1_000_000_000 ? formatCompactUzs(payload[0].value) : formatUzs(payload[0].value)}
                                   </span>
-                                  <span className="text-[9px] font-bold text-muted-foreground/70 uppercase tracking-widest">UZS</span>
+                                  <span className="text-mobile-micro font-bold text-muted-foreground/70 uppercase tracking-widest">UZS</span>
                                 </div>
                               </div>
                             );
@@ -785,14 +775,14 @@ export default function Dashboard() {
                             if (active && payload && payload.length) {
                               return (
                                 <div className="rounded-xl border border-border/50 bg-background/95 p-2.5 shadow-xl backdrop-blur-md">
-                                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 mb-1">
+                                  <p className="text-mobile-caption font-bold uppercase tracking-wider text-muted-foreground/60 mb-1">
                                     {t(`categories.${label}`, { defaultValue: label })}
                                   </p>
                                   <div className="flex items-baseline gap-1.5">
                                     <span className="text-sm font-bold tabular-nums text-foreground">
                                       {payload[0].value >= 1_000_000_000 ? formatCompactUzs(payload[0].value) : formatUzs(payload[0].value)}
                                     </span>
-                                    <span className="text-[9px] font-bold text-muted-foreground/70 uppercase tracking-widest">UZS</span>
+                                    <span className="text-mobile-micro font-bold text-muted-foreground/70 uppercase tracking-widest">UZS</span>
                                   </div>
                                 </div>
                               );
@@ -887,10 +877,10 @@ export default function Dashboard() {
                             <div className="font-semibold text-ui-title lg:text-ui-desc text-foreground/90 leading-tight truncate transition-all">
                               {e.title}
                             </div>
-                            <p className="text-ui-detail lg:text-[10px] text-muted-foreground/80 font-medium truncate capitalize">
+                            <p className="text-ui-detail lg:text-xs text-muted-foreground/80 font-medium truncate capitalize">
                               {t(`categories.${e.category}`, { defaultValue: e.category })}
                             </p>
-                            <p className="text-[10px] lg:text-[9px] font-normal text-muted-foreground/50">
+                            <p className="text-mobile-caption lg:text-xs font-normal text-muted-foreground/50">
                               {formatRelativeDue(e.days_until_due, e.next_due_date)}
                             </p>
                           </div>
@@ -898,8 +888,8 @@ export default function Dashboard() {
                             value={e.amount}
                             format="display"
                             tooltip="compact"
-                            className="flex items-baseline justify-end gap-1 font-semibold text-ui-title lg:text-ui-desc tabular-nums text-right shrink-0 whitespace-nowrap"
-                            currencyClassName="text-[10px] lg:text-[9px]"
+                            className="flex items-baseline justify-end gap-1 font-semibold text-ui-title lg:text-ui-desc tabular-nums text-right text-foreground shrink-0 whitespace-nowrap"
+                            currencyClassName="text-mobile-caption lg:text-xs"
                           />
                         </div>
                       );
@@ -915,4 +905,8 @@ export default function Dashboard() {
     </div>
   );
 }
+
+
+
+
 

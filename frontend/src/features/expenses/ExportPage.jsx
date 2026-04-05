@@ -111,10 +111,10 @@ export default function ExportPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="container mx-auto px-4 py-8 space-y-6">
-        <div>
-          <h1 className="text-xl sm:text-3xl font-bold tracking-tight text-foreground">{t("export.title")}</h1>
-          <p className="text-xs sm:text-base text-muted-foreground mt-0.5 sm:mt-1">{t("export.subtitle")}</p>
+      <div className="w-full px-page py-8 space-y-6">
+        <div className="pl-card sm:pl-0 sm:px-3 md:px-0">
+          <h1 className="text-mobile-h1 sm:text-3xl font-bold tracking-tight text-foreground">{t("export.title")}</h1>
+          <p className="text-mobile-label sm:text-base text-muted-foreground mt-0.5 sm:mt-1">{t("export.subtitle")}</p>
         </div>
 
         {displayError && <p className="text-sm text-red-600">{displayError}</p>}
@@ -189,3 +189,6 @@ export default function ExportPage() {
     </div>
   );
 }
+
+
+

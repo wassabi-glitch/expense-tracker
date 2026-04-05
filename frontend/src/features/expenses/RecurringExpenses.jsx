@@ -455,7 +455,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                     )}
 
                     {/* 📱 Ultra-Mobile Native List View (< 500px) */}
-                    <div className="min-[501px]:hidden divide-y divide-border/40 pb-4">
+                    <div className="sm:hidden divide-y divide-border/40 pb-4">
                         {loading ? (
                             <div className="flex justify-center py-10">
                                 <LoadingSpinner className="h-6 w-6 text-primary" />
@@ -523,7 +523,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                                 <span className="text-exp-detail font-black text-muted-foreground uppercase tracking-widest opacity-80">
                                                     {t("recurring.nextDue")}
                                                 </span>
-                                                <span className="text-[8px] font-bold text-foreground/90">
+                                                <span className="text-mobile-micro font-bold text-foreground/90">
                                                     {formatDisplayDate(e.next_due_date, appLang)}
                                                 </span>
                                             </div>
@@ -545,8 +545,8 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                         )}
                     </div>
 
-                    {/* 🎨 Mobile Gallery Card View (501px-639px) */}
-                    <div className="hidden min-[501px]:block sm:hidden space-y-6">
+                    {/* Deprecated split view removed: single mobile layout for 0-639 */}
+                    <div className="hidden">
                         {loading ? (
                             <div className="flex justify-center py-10">
                                 <LoadingSpinner className="h-6 w-6 text-primary" />
@@ -576,7 +576,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                                 <Badge
                                                     variant="secondary"
                                                     className={cn(
-                                                        "px-2.5 py-0.5 text-[10px] font-bold capitalize bg-muted/50 border-none shrink-0",
+                                                        "px-2.5 py-0.5 text-mobile-caption font-bold capitalize bg-muted/50 border-none shrink-0",
                                                         getCategoryColorClass(e.category)
                                                     )}
                                                 >
@@ -617,7 +617,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                                     </div>
                                                 </TitleTooltip>
                                                 <div className="flex items-center gap-2">
-                                                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/40 flex items-center gap-1.5">
+                                                    <span className="text-mobile-caption font-bold uppercase tracking-wider text-muted-foreground/40 flex items-center gap-1.5">
                                                         {t(`recurring.${e.frequency.toLowerCase()}`)}
                                                     </span>
                                                 </div>
@@ -625,7 +625,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
 
                                             <div className="flex items-center justify-between py-3 px-4 bg-muted/30 rounded-xl border border-border/5">
                                                 <div className="flex flex-col">
-                                                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/40 leading-none mb-1">
+                                                    <span className="text-mobile-micro font-black uppercase tracking-widest text-muted-foreground/40 leading-none mb-1">
                                                         {t("recurring.nextDue")}
                                                     </span>
                                                     <span className="text-sm font-bold text-foreground/80">
@@ -633,14 +633,14 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                                     </span>
                                                 </div>
                                                 <div className="flex flex-col text-right">
-                                                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/40 leading-none mb-1">
+                                                    <span className="text-mobile-micro font-black uppercase tracking-widest text-muted-foreground/40 leading-none mb-1">
                                                         {t("expenses.amount")}
                                                     </span>
                                                     <CurrencyAmount
                                                         value={e.amount}
                                                         format="display"
                                                         className="text-lg font-black text-foreground tabular-nums tracking-tight"
-                                                        currencyClassName="text-[10px] font-bold opacity-40 ml-1.5"
+                                                        currencyClassName="text-mobile-caption font-bold opacity-40 ml-1.5"
                                                     />
                                                 </div>
                                             </div>
@@ -686,7 +686,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                                         {e.title}
                                                     </div>
                                                 </TitleTooltip>
-                                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-medium text-muted-foreground/60">
+                                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-mobile-caption font-medium text-muted-foreground/60">
                                                     <span className="capitalize">{tCategory(e.category)}</span>
                                                     <span>•</span>
                                                     <span>{t(`recurring.${e.frequency.toLowerCase()}`)}</span>
@@ -698,9 +698,9 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                                         value={e.amount}
                                                         format="display"
                                                         className="font-bold text-sm tabular-nums text-foreground"
-                                                        currencyClassName="text-[10px] ml-1 opacity-60"
+                                                        currencyClassName="text-mobile-caption ml-1 opacity-60"
                                                     />
-                                                    <p className="text-[9px] font-medium text-muted-foreground/40 mt-0.5">
+                                                    <p className="text-mobile-micro font-medium text-muted-foreground/40 mt-0.5">
                                                         {t("recurring.nextDue")}: {formatDisplayDate(e.next_due_date, appLang)}
                                                     </p>
                                                 </div>
@@ -768,7 +768,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                                 <Badge
                                                     variant="secondary"
                                                     className={cn(
-                                                        "px-2.5 py-0.5 text-[10px] font-bold capitalize bg-muted/50 border-none shrink-0",
+                                                        "px-2.5 py-0.5 text-mobile-caption font-bold capitalize bg-muted/50 border-none shrink-0",
                                                         getCategoryColorClass(e.category)
                                                     )}
                                                 >
@@ -809,7 +809,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                                     </div>
                                                 </TitleTooltip>
                                                 <div className="flex items-center gap-2">
-                                                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/40 flex items-center gap-1.5">
+                                                    <span className="text-mobile-caption font-bold uppercase tracking-wider text-muted-foreground/40 flex items-center gap-1.5">
                                                         {t(`recurring.${e.frequency.toLowerCase()}`)}
                                                     </span>
                                                 </div>
@@ -817,7 +817,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
 
                                             <div className="flex items-center justify-between py-3 px-4 bg-muted/30 rounded-xl border border-border/5">
                                                 <div className="flex flex-col">
-                                                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/40 leading-none mb-1">
+                                                    <span className="text-mobile-micro font-black uppercase tracking-widest text-muted-foreground/40 leading-none mb-1">
                                                         {t("recurring.nextDue")}
                                                     </span>
                                                     <span className="text-sm font-bold text-foreground/80">
@@ -825,14 +825,14 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                                     </span>
                                                 </div>
                                                 <div className="flex flex-col text-right">
-                                                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/40 leading-none mb-1">
+                                                    <span className="text-mobile-micro font-black uppercase tracking-widest text-muted-foreground/40 leading-none mb-1">
                                                         {t("expenses.amount")}
                                                     </span>
                                                     <CurrencyAmount
                                                         value={e.amount}
                                                         format="display"
                                                         className="text-lg font-black text-foreground tabular-nums tracking-tight"
-                                                        currencyClassName="text-[10px] font-bold opacity-40 ml-1.5"
+                                                        currencyClassName="text-mobile-caption font-bold opacity-40 ml-1.5"
                                                     />
                                                 </div>
                                             </div>
@@ -846,7 +846,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                     <div className="hidden xl:block overflow-x-auto">
                         <div className="min-w-[860px] space-y-0">
                             {/* Header row */}
-                            <div className={`${COL} border-b border-border py-3 text-[11px] uppercase tracking-widest font-bold text-muted-foreground/50`}>
+                            <div className={`${COL} border-b border-border py-3 text-mobile-micro uppercase tracking-widest font-bold text-muted-foreground/50`}>
                                 <div className="text-left">{t("recurring.templateTitle")}</div>
                                 <div className="text-center">{t("expenses.category")}</div>
                                 <div className="text-center">{t("recurring.frequency")}</div>
@@ -878,7 +878,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                                 {e.description && (
                                                     <button
                                                         onClick={() => openDesc(e)}
-                                                        className="text-[10px] text-muted-foreground/60 hover:text-primary transition-colors flex items-center gap-1 group/desc"
+                                                        className="text-mobile-caption text-muted-foreground/60 hover:text-primary transition-colors flex items-center gap-1 group/desc"
                                                     >
                                                         <MessageSquare className="h-3 w-3" />
                                                         <span className="truncate max-w-[120px]">{e.description}</span>
@@ -888,7 +888,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                         </div>
 
                                         <div className="text-center">
-                                            <Badge variant="secondary" className={cn("px-2 py-0.5 rounded-full text-[10px] xl:text-[10px] 2xl:text[12px] font-bold capitalize bg-muted/50 border-none shrink-0", getCategoryColorClass(e.category))}>
+                                            <Badge variant="secondary" className={cn("px-2 py-0.5 rounded-full text-mobile-caption xl:text-xs 2xl:text-sm font-bold capitalize bg-muted/50 border-none shrink-0", getCategoryColorClass(e.category))}>
                                                 {tCategory(e.category)}
                                             </Badge>
                                         </div>
@@ -1102,19 +1102,19 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                     <div className="space-y-4 py-2">
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-1">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">{t("recurring.frequency")}</p>
+                                <p className="text-mobile-caption font-black uppercase tracking-widest text-muted-foreground/40">{t("recurring.frequency")}</p>
                                 <p className="font-bold text-foreground/80 capitalize">{t(`recurring.${descTarget?.frequency.toLowerCase()}`)}</p>
                             </div>
                             <div className="space-y-1">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">{t("recurring.nextDue")}</p>
+                                <p className="text-mobile-caption font-black uppercase tracking-widest text-muted-foreground/40">{t("recurring.nextDue")}</p>
                                 <p className="font-bold text-foreground/80">{formatDisplayDate(descTarget?.next_due_date, appLang)}</p>
                             </div>
                             <div className="space-y-1">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">{t("expenses.amount")}</p>
+                                <p className="text-mobile-caption font-black uppercase tracking-widest text-muted-foreground/40">{t("expenses.amount")}</p>
                                 <CurrencyAmount value={descTarget?.amount} format="display" className="font-black text-lg" />
                             </div>
                             <div className="space-y-1">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">{t("recurring.active")}</p>
+                                <p className="text-mobile-caption font-black uppercase tracking-widest text-muted-foreground/40">{t("recurring.active")}</p>
                                 <Badge variant={descTarget?.is_active ? "success" : "secondary"} className="font-bold">
                                     {descTarget?.is_active ? t("recurring.statusActive") : t("recurring.statusPaused")}
                                 </Badge>
@@ -1122,7 +1122,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                         </div>
                         {descTarget?.description ? (
                             <div className="space-y-2 pt-4 border-t border-border/40">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">{t("expenses.description")}</p>
+                                <p className="text-mobile-caption font-black uppercase tracking-widest text-muted-foreground/40">{t("expenses.description")}</p>
                                 <p className="text-sm text-foreground/70 leading-relaxed whitespace-pre-wrap bg-muted/30 p-4 rounded-2xl border border-border/5">
                                     {descTarget.description}
                                 </p>
@@ -1154,7 +1154,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                 placeholder={t("expenses.titleCol")}
                                 className={cn(addErrors.title && "border-red-500 focus-visible:ring-red-500")}
                             />
-                            {addErrors.title && <p className="text-[11px] text-red-500 font-medium">{addErrors.title}</p>}
+                            {addErrors.title && <p className="text-mobile-micro text-red-500 font-medium">{addErrors.title}</p>}
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1171,7 +1171,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                     />
                                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground/50">UZS</span>
                                 </div>
-                                {addErrors.amount && <p className="text-[11px] text-red-500 font-medium">{addErrors.amount}</p>}
+                                {addErrors.amount && <p className="text-mobile-micro text-red-500 font-medium">{addErrors.amount}</p>}
                             </div>
 
                             <div className="grid gap-1.5">
@@ -1197,7 +1197,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                         ))}
                                     </SelectContent>
                                 </Select>
-                                {addErrors.category && <p className="text-[11px] text-red-500 font-medium">{addErrors.category}</p>}
+                                {addErrors.category && <p className="text-mobile-micro text-red-500 font-medium">{addErrors.category}</p>}
                             </div>
                         </div>
 
@@ -1228,7 +1228,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                         </div>
 
                         <div className="grid gap-1.5">
-                            <label>{t("expenses.description")} <span className="text-[10px] font-normal text-muted-foreground/50">({t("expenses.optional")})</span></label>
+                            <label>{t("expenses.description")} <span className="text-mobile-caption font-normal text-muted-foreground/50">({t("expenses.optional")})</span></label>
                             <Textarea
                                 value={addDescription}
                                 onChange={(e) => setAddDescription(e.target.value)}
@@ -1268,7 +1268,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                 placeholder={t("expenses.titleCol")}
                                 className={cn(editErrors.title && "border-red-500 focus-visible:ring-red-500")}
                             />
-                            {editErrors.title && <p className="text-[11px] text-red-500 font-medium">{editErrors.title}</p>}
+                            {editErrors.title && <p className="text-mobile-micro text-red-500 font-medium">{editErrors.title}</p>}
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
@@ -1285,7 +1285,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                     />
                                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground/50">UZS</span>
                                 </div>
-                                {editErrors.amount && <p className="text-[11px] text-red-500 font-medium">{editErrors.amount}</p>}
+                                {editErrors.amount && <p className="text-mobile-micro text-red-500 font-medium">{editErrors.amount}</p>}
                             </div>
 
                             <div className="grid gap-1.5">
@@ -1311,12 +1311,12 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                         ))}
                                     </SelectContent>
                                 </Select>
-                                {editErrors.category && <p className="text-[11px] text-red-500 font-medium">{editErrors.category}</p>}
+                                {editErrors.category && <p className="text-mobile-micro text-red-500 font-medium">{editErrors.category}</p>}
                             </div>
                         </div>
 
                         <div className="grid gap-1.5">
-                            <label>{t("expenses.description")} <span className="text-[10px] font-normal text-muted-foreground/50">({t("expenses.optional")})</span></label>
+                            <label>{t("expenses.description")} <span className="text-mobile-caption font-normal text-muted-foreground/50">({t("expenses.optional")})</span></label>
                             <Textarea
                                 value={editDescription}
                                 onChange={(e) => setEditDescription(e.target.value)}
@@ -1340,3 +1340,5 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
         </div>
     );
 }
+
+

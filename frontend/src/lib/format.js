@@ -44,6 +44,14 @@ export const formatCompactUzs = (value) => {
     return num;
 };
 
+export const formatCompactUzsFromMillion = (value) => {
+    const num = Math.abs(Number(value || 0));
+    if (num >= 1_000_000_000_000) return `${(num / 1_000_000_000_000).toFixed(3).replace(/\.?0+$/, "")}T`;
+    if (num >= 1_000_000_000) return `${(num / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
+    if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+    return formatUzs(num);
+};
+
 export const formatAmountDisplay = (value) => {
     const num = Math.abs(Number(value || 0));
     if (num >= 1_000_000_000_000) return `${(num / 1_000_000_000_000).toFixed(3).replace(/\.?0+$/, "")}T`;
@@ -52,6 +60,7 @@ export const formatAmountDisplay = (value) => {
 };
 
 export const isCompactUzsValue = (value) => Math.abs(Number(value || 0)) >= 1_000;
+export const isCompactMobileAmountValue = (value) => Math.abs(Number(value || 0)) >= 1_000_000;
 
 export const isCompactAmountDisplayValue = (value) => Math.abs(Number(value || 0)) >= 1_000_000_000;
 
