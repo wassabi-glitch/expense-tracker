@@ -1,5 +1,5 @@
 import * as React from "react";
-import { createPortal } from "react-dom";
+import { ActionMenu, ActionMenuItem, ActionMenuDivider } from "@/components/ActionMenu";
 import { Plus, Search, ChevronLeft, ChevronRight, Inbox, Trash2, MoreHorizontal, Pencil, FileText } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -107,8 +107,8 @@ export default function Expenses() {
   const [addOpen, setAddOpen] = React.useState(false);
   const VALID_TABS = ["one-time", "recurring"];
   const [activeTab, setActiveTabState] = React.useState(() => {
-    const t = searchParams.get("tab");
-    return VALID_TABS.includes(t) ? t : "one-time";
+    const tabParam = searchParams.get("tab");
+    return VALID_TABS.includes(tabParam) ? tabParam : "one-time";
   });
   const setActiveTab = (tab) => {
     setActiveTabState(tab);
@@ -148,7 +148,6 @@ export default function Expenses() {
   React.useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
     window.addEventListener("resize", handleResize);
-    console.log("[Expenses] Initializing at width:", window.innerWidth);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
@@ -261,7 +260,6 @@ export default function Expenses() {
     const next = new URLSearchParams();
     if (activeTab === "recurring") {
       next.set("tab", "recurring");
-      // Preserve recurring tab's own search and page state if present
       const currentSearch = searchParams.get("r_search");
       const currentPage = searchParams.get("r_page");
       if (currentSearch) next.set("r_search", currentSearch);
@@ -562,7 +560,6 @@ export default function Expenses() {
           </TabsList>
 
           <TabsContent value="one-time" className="space-y-6 mt-4">
-
             <Card className="shadow-sm">
               <CardHeader>
                 <CardTitle>{t("expenses.filtersTitle")}</CardTitle>
@@ -648,10 +645,8 @@ export default function Expenses() {
               </CardContent>
             </Card>
 
-            {/* ✅ Expenses Table */}
             <Card className="shadow-sm border-none sm:border bg-transparent sm:bg-card">
               <CardContent className="min-h-80 py-4 sm:py-6 px-0 sm:px-6">
-                {/* 📋 Universal List View (0-1023px) */}
                 <div className="space-y-0 lg:hidden text-muted-foreground transition-all duration-300">
                   {loading ? (
                     <div className="flex justify-center px-4 py-20">
@@ -734,7 +729,6 @@ export default function Expenses() {
                   )}
                 </div>
 
-                {/* 🖥️ Desktop Table View (>= 1024px) */}
                 <div className="hidden lg:block overflow-x-auto">
                   <div className="min-w-[800px] space-y-0">
                     <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,0.4fr)] items-center gap-x-4 border-b border-border px-page py-3 text-mobile-micro uppercase tracking-widest font-bold text-muted-foreground/50">
@@ -750,21 +744,23 @@ export default function Expenses() {
                         <LoadingSpinner className="h-8 w-8 text-primary" />
                       </div>
                     ) : expenses.length === 0 ? (
-                      <EmptyState
-                        inline
-                        description={t("expenses.noResults", { defaultValue: "No expenses found." })}
-                      />
+                      <div className="py-20">
+                        <EmptyState
+                          inline
+                          description={t("expenses.noResults", { defaultValue: "No expenses found." })}
+                        />
+                      </div>
                     ) : (
-                      <div>
+                      <div className="divide-y divide-border/30">
                         {expenses.map((e, index) => (
                           <div
                             key={e.id}
-                            className="grid grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,0.4fr)] items-center gap-x-4 border-b border-border px-page py-3 hover:bg-muted/50 dark:hover:bg-muted/30 active:bg-muted/70 dark:active:bg-muted/40 transition-colors duration-200 group"
+                            className="grid grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,0.4fr)] items-center gap-x-4 px-page py-3 hover:bg-muted/50 dark:hover:bg-muted/30 transition-colors duration-200 group"
                             style={{ animationDelay: `${index * 30}ms` }}
                           >
                             <div className="min-w-0">
                               <TitleTooltip title={e.title}>
-                                <div className="text-table-title font-semibold text-foreground truncate cursor-default">
+                                <div className="text-table-title font-semibold text-foreground truncate cursor-default leading-6">
                                   {e.title}
                                 </div>
                               </TitleTooltip>
@@ -774,7 +770,7 @@ export default function Expenses() {
                               <Badge
                                 variant="secondary"
                                 className={cn(
-                                  "px-2 py-0.5 rounded-full text-mobile-caption xl:text-xs 2xl:text-sm font-bold capitalize bg-muted/50 border-none shrink-0",
+                                  "px-2 py-0.5 rounded-full text-mobile-caption xl:text-xs font-bold capitalize bg-muted/50 border-none shrink-0",
                                   getCategoryColorClass(e.category)
                                 )}
                               >
@@ -799,10 +795,14 @@ export default function Expenses() {
                                 type="button"
                                 size="icon"
                                 variant="ghost"
-                                className="h-8 w-8 opacity-20 group-hover:opacity-100 transition-opacity hover:bg-muted"
-                                onClick={(event) => openExpenseActions(event, e)}
+                                className="h-8 w-8 rounded-full opacity-40 group-hover:opacity-100 transition-all hover:bg-muted"
+                                onPointerDown={(ev) => ev.stopPropagation()}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openExpenseActions(event, e);
+                                }}
                               >
-                                <MoreHorizontal className="h-4 w-4" />
+                                <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
                               </Button>
                             </div>
                           </div>
@@ -813,13 +813,15 @@ export default function Expenses() {
                 </div>
 
                 {totalPages > 1 && (
-                  <div className="mt-6 px-page">{paginationControls}</div>
+                  <div className="pt-6 sm:pt-8 border-t border-border/40 mt-6 sm:mt-8">
+                    {paginationControls}
+                  </div>
                 )}
               </CardContent>
             </Card>
           </TabsContent>
 
-          <TabsContent value="recurring" className="space-y-6 mt-4">
+          <TabsContent value="recurring" className="mt-4">
             <RecurringExpenses
               onAddClick={(fn) => { recurringAddRef.current = fn; }}
               onCountUpdate={setRecurringCount}
@@ -828,56 +830,41 @@ export default function Expenses() {
         </Tabs>
       </div>
 
-      {expenseMenuForId && expenseMenuPosition
-        ? createPortal(
-          <div
-            data-action-popover
-            className="fixed z-50 w-44 rounded-md border border-border bg-popover p-1 shadow-lg"
-            style={{ top: `${expenseMenuPosition.top}px`, left: `${expenseMenuPosition.left}px` }}
-          >
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted"
-              onClick={() => {
-                const expense = expenses.find((item) => item.id === expenseMenuForId);
-                setExpenseMenuForId(null);
-                setExpenseMenuPosition(null);
-                if (expense) openDescription(expense);
-              }}
-            >
-              <FileText className="h-4 w-4" />
-              {t("expenses.viewDescription", { defaultValue: "View description" })}
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted"
-              onClick={() => {
-                const expense = expenses.find((item) => item.id === expenseMenuForId);
-                setExpenseMenuForId(null);
-                setExpenseMenuPosition(null);
-                if (expense) openEdit(expense);
-              }}
-            >
-              <Pencil className="h-4 w-4" />
-              {t("common.edit", { defaultValue: "Edit" })}
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10"
-              onClick={() => {
-                const expense = expenses.find((item) => item.id === expenseMenuForId);
-                setExpenseMenuForId(null);
-                setExpenseMenuPosition(null);
-                if (expense) openDelete(expense);
-              }}
-            >
-              <Trash2 className="h-4 w-4" />
-              {t("common.delete", { defaultValue: "Delete" })}
-            </button>
-          </div>,
-          document.body
-        )
-        : null}
+      <ActionMenu
+        isOpen={Boolean(expenseMenuForId && expenseMenuPosition)}
+        position={expenseMenuPosition}
+        onClose={() => setExpenseMenuForId(null)}
+        zIndex={100}
+      >
+        <ActionMenuItem
+          icon={FileText}
+          label={t("expenses.description")}
+          onClick={() => {
+            const e = expenses.find(x => x.id === expenseMenuForId);
+            if (e) openDescription(e);
+            setExpenseMenuForId(null);
+          }}
+        />
+        <ActionMenuItem
+          icon={Pencil}
+          label={t("expenses.edit")}
+          onClick={() => {
+            const e = expenses.find(x => x.id === expenseMenuForId);
+            if (e) openEdit(e);
+            setExpenseMenuForId(null);
+          }}
+        />
+        <ActionMenuItem
+          icon={Trash2}
+          label={t("expenses.delete")}
+          variant="destructive"
+          onClick={() => {
+            const e = expenses.find(x => x.id === expenseMenuForId);
+            if (e) openDelete(e);
+            setExpenseMenuForId(null);
+          }}
+        />
+      </ActionMenu>
 
       {/* Add Dialog */}
       <Dialog
@@ -887,74 +874,72 @@ export default function Expenses() {
           if (!open) setActionError("");
         }}
       >
-        <DialogContent>
+        <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
             <DialogTitle>{t("expenses.addDialogTitle")}</DialogTitle>
             <DialogDescription>{t("expenses.addDialogDesc")}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-2.5">
-            <div className="space-y-1">
-              <label>{t("expenses.titleCol")}</label>
-              <div>
+          <div className="max-h-[60vh] overflow-y-auto pr-1">
+            <div className="grid gap-2.5 py-2">
+              <div className="grid gap-1.5">
+                <label className="text-xs font-semibold">{t("expenses.titleCol")}</label>
                 <Input value={addTitle}
                   onChange={(e) => { setAddTitle(e.target.value); setTouchedAdd(p => ({ ...p, title: true })); }}
                   onBlur={() => setTouchedAdd(p => ({ ...p, title: true }))}
+                  placeholder={t("expenses.titleCol")}
                   className={cn(addErrors.title ? "border-red-500 focus-visible:border-red-500" : "")} />
-                {addErrors.title && <p className="text-mobile-caption text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.title}</p>}
+                {addErrors.title && <p className="text-mobile-micro text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.title}</p>}
               </div>
-            </div>
-            <div className="space-y-1">
-              <label>{t("expenses.amountUzs")}</label>
-              <div>
-                <Input
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={15}
-                  value={addAmount}
-                  onChange={(e) => { setAddAmount(formatAmountInput(e.target.value)); setTouchedAdd(p => ({ ...p, amount: true })); }}
-                  onBlur={() => setTouchedAdd(p => ({ ...p, amount: true }))}
-                  onKeyDown={(e) => {
-                    if (e.key === "-" || e.key === "." || e.key.toLowerCase() === "e") {
-                      e.preventDefault();
-                    }
-                  }}
-                  className={cn(addErrors.amount ? "border-red-500 focus-visible:border-red-500" : "")}
-                />
-                {addErrors.amount && <p className="text-mobile-caption text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.amount}</p>}
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label>{t("expenses.category")}</label>
-              <div>
-                <Select value={addCategory || undefined} onValueChange={(v) => { setAddCategory(v); setTouchedAdd(p => ({ ...p, category: true })); }}>
-                  <SelectTrigger className={cn(selectTriggerClass, addErrors.category ? "border-red-500 focus-visible:border-red-500" : "")} onBlur={() => setTouchedAdd(p => ({ ...p, category: true }))}>
-                    <SelectValue placeholder={t("expenses.selectCategory")} />
-                  </SelectTrigger>
-                  <SelectContent className={selectContentClass} position="popper" side="bottom">
-                    {orderedCategories.map((c) => {
-                      const Icon = categoryIconMap[c] || Circle;
-                      return (
-                        <SelectItem key={c} value={c}>
-                          <div className="flex flex-col gap-1 py-1">
-                            <div className="flex items-center gap-2 font-medium">
-                              <Icon className="h-4 w-4 text-muted-foreground" />
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-semibold">{t("expenses.amountUzs")}</label>
+                  <div className="relative">
+                    <Input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={15}
+                      value={addAmount}
+                      onChange={(e) => { setAddAmount(formatAmountInput(e.target.value)); setTouchedAdd(p => ({ ...p, amount: true })); }}
+                      onBlur={() => setTouchedAdd(p => ({ ...p, amount: true }))}
+                      onKeyDown={(e) => {
+                        if (e.key === "-" || e.key === "." || e.key.toLowerCase() === "e") {
+                          e.preventDefault();
+                        }
+                      }}
+                      className={cn("pr-12", addErrors.amount ? "border-red-500 focus-visible:border-red-500" : "")}
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground/30">UZS</span>
+                    {addErrors.amount && <p className="text-mobile-micro text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.amount}</p>}
+                  </div>
+                </div>
+
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-semibold">{t("expenses.category")}</label>
+                  <Select value={addCategory || undefined} onValueChange={(v) => { setAddCategory(v); setTouchedAdd(p => ({ ...p, category: true })); }}>
+                    <SelectTrigger className={cn(selectTriggerClass, addErrors.category ? "border-red-500 focus-visible:border-red-500" : "")} onBlur={() => setTouchedAdd(p => ({ ...p, category: true }))}>
+                      <SelectValue placeholder={t("expenses.selectCategory")} />
+                    </SelectTrigger>
+                    <SelectContent className={selectContentClass} position="popper" side="bottom">
+                      {orderedCategories.map((c) => {
+                        const Icon = categoryIconMap[c] || Circle;
+                        return (
+                          <SelectItem key={c} value={c}>
+                            <div className="flex items-center gap-2">
+                              <Icon className="h-3.5 w-3.5 text-muted-foreground" />
                               <span>{tCategory(c)}</span>
                             </div>
-                            <span className="text-mobile-caption text-muted-foreground leading-tight">
-                              {t(`categories_desc.${c}`)}
-                            </span>
-                          </div>
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
-                {addErrors.category && <p className="text-mobile-micro text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.category}</p>}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                  {addErrors.category && <p className="text-mobile-micro text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.category}</p>}
+                </div>
               </div>
-            </div>
-            <div className="space-y-1">
-              <label>{t("expenses.date")}</label>
-              <div>
+
+              <div className="grid gap-1.5">
+                <label className="text-xs font-semibold">{t("expenses.date")}</label>
                 <Input
                   type="date"
                   min={MIN_EXPENSE_DATE}
@@ -964,22 +949,21 @@ export default function Expenses() {
                   onBlur={() => setTouchedAdd(p => ({ ...p, date: true }))}
                   className={cn(addErrors.date ? "border-red-500 focus-visible:border-red-500" : "")}
                 />
-                {addErrors.date && <p className="text-mobile-caption text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.date}</p>}
+                {addErrors.date && <p className="text-mobile-micro text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.date}</p>}
               </div>
-            </div>
-            <div className="space-y-1">
-              <label>
-                {t("expenses.description")} ({t("common.optional", { defaultValue: "Optional" })})
-              </label>
-              <div>
+
+              <div className="grid gap-1.5">
+                <label className="text-xs font-semibold">
+                  {t("expenses.description")} ({t("common.optional", { defaultValue: "Optional" })})
+                </label>
                 <Textarea
                   className={`resize-none overflow-y-auto ${addErrors.description ? "border-red-500 focus-visible:border-red-500" : ""}`}
                   value={addDescription}
                   onChange={(e) => { setAddDescription(e.target.value); setTouchedAdd(p => ({ ...p, description: true })); }}
                   onBlur={() => setTouchedAdd(p => ({ ...p, description: true }))}
                 />
-                {addErrors.description && <p className="text-mobile-caption text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.description}</p>}
-                {actionError && <p className="text-mobile-caption leading-4 text-red-500 font-medium ml-0.5 mt-1">{actionError}</p>}
+                {addErrors.description && <p className="text-mobile-micro text-red-500 font-medium ml-0.5 mt-0.5">{addErrors.description}</p>}
+                {actionError && <p className="text-mobile-micro leading-4 text-red-500 font-medium ml-0.5 mt-1">{actionError}</p>}
               </div>
             </div>
           </div>
@@ -1018,49 +1002,54 @@ export default function Expenses() {
           if (!open) setActionError("");
         }}
       >
-        <DialogContent>
+        <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
             <DialogTitle>{t("expenses.editDialogTitle")}</DialogTitle>
             <DialogDescription>{t("expenses.editDialogDesc")}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-2.5">
-            <div className="space-y-1">
-              <label>{t("expenses.titleCol")}</label>
-              <div>
+          <div className="max-h-[60vh] overflow-y-auto pr-1">
+            <div className="grid gap-2.5 py-2">
+              <div className="grid gap-1.5">
+                <label className="text-xs font-semibold">{t("expenses.titleCol")}</label>
                 <Input value={editTitle}
                   onChange={(e) => { setEditTitle(e.target.value); setTouchedEdit(p => ({ ...p, title: true })); }}
                   onBlur={() => setTouchedEdit(p => ({ ...p, title: true }))}
+                  placeholder={t("expenses.titleCol")}
                   className={cn(editErrors.title ? "border-red-500 focus-visible:border-red-500" : "")} />
-                {editErrors.title && <p className="text-mobile-caption text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.title}</p>}
+                {editErrors.title && <p className="text-mobile-micro text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.title}</p>}
               </div>
-            </div>
-            <div className="space-y-1">
-              <label>{t("expenses.amountUzs")}</label>
-              <div>
-                <Input
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={15}
-                  value={editAmount}
-                  onChange={(e) => { setEditAmount(formatAmountInput(e.target.value)); setTouchedEdit(p => ({ ...p, amount: true })); }}
-                  onBlur={() => setTouchedEdit(p => ({ ...p, amount: true }))}
-                  onKeyDown={(e) => {
-                    if (e.key === "-" || e.key === "." || e.key.toLowerCase() === "e") {
-                      e.preventDefault();
-                    }
-                  }}
-                  className={cn(editErrors.amount ? "border-red-500 focus-visible:border-red-500" : "")}
-                />
-                {editErrors.amount && <p className="text-mobile-caption text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.amount}</p>}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-semibold">{t("expenses.amountUzs")}</label>
+                  <div className="relative">
+                    <Input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={15}
+                      value={editAmount}
+                      onChange={(e) => { setEditAmount(formatAmountInput(e.target.value)); setTouchedEdit(p => ({ ...p, amount: true })); }}
+                      onBlur={() => setTouchedEdit(p => ({ ...p, amount: true }))}
+                      onKeyDown={(e) => {
+                        if (e.key === "-" || e.key === "." || e.key.toLowerCase() === "e") {
+                          e.preventDefault();
+                        }
+                      }}
+                      className={cn("pr-12", editErrors.amount ? "border-red-500 focus-visible:border-red-500" : "")}
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground/30">UZS</span>
+                    {editErrors.amount && <p className="text-mobile-micro text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.amount}</p>}
+                  </div>
+                </div>
+
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-semibold">{t("expenses.category")}</label>
+                  <Input className="h-9 bg-muted/50 cursor-not-allowed opacity-80" value={tCategory(editCategory) || ""} disabled readOnly />
+                </div>
               </div>
-            </div>
-            <div className="space-y-1">
-              <label>{t("expenses.category")}</label>
-              <Input className="bg-muted/50" value={tCategory(editCategory) || ""} disabled readOnly />
-            </div>
-            <div className="space-y-1">
-              <label>{t("expenses.date")}</label>
-              <div>
+
+              <div className="grid gap-1.5">
+                <label className="text-xs font-semibold">{t("expenses.date")}</label>
                 <Input
                   type="date"
                   min={MIN_EXPENSE_DATE}
@@ -1070,24 +1059,23 @@ export default function Expenses() {
                   onBlur={() => setTouchedEdit(p => ({ ...p, date: true }))}
                   className={cn(editErrors.date ? "border-red-500 focus-visible:border-red-500" : "")}
                 />
-                {editErrors.date && <p className="text-mobile-caption text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.date}</p>}
+                {editErrors.date && <p className="text-mobile-micro text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.date}</p>}
               </div>
-            </div>
-            <div className="space-y-1">
-              <label>
-                {t("expenses.description")} ({t("common.optional", { defaultValue: "Optional" })})
-              </label>
-              <div>
+
+              <div className="grid gap-1.5">
+                <label className="text-xs font-semibold">
+                  {t("expenses.description")} ({t("common.optional", { defaultValue: "Optional" })})
+                </label>
                 <Textarea
                   className={`resize-none overflow-y-auto ${editErrors.description ? "border-red-500 focus-visible:border-red-500" : ""}`}
                   value={editDescription}
                   onChange={(e) => { setEditDescription(e.target.value); setTouchedEdit(p => ({ ...p, description: true })); }}
                   onBlur={() => setTouchedEdit(p => ({ ...p, description: true }))}
                 />
-                {editErrors.description && <p className="text-mobile-caption text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.description}</p>}
+                {editErrors.description && <p className="text-mobile-micro text-red-500 font-medium ml-0.5 mt-0.5">{editErrors.description}</p>}
+                {actionError && <p className="text-mobile-micro leading-4 text-red-500 font-medium ml-0.5 mt-1">{actionError}</p>}
               </div>
             </div>
-            {actionError && <p className="text-sm text-red-600">{actionError}</p>}
           </div>
           <DialogFooter>
             <Button variant="outline" disabled={isEditing} onClick={() => setEditOpen(false)}>
@@ -1145,7 +1133,7 @@ export default function Expenses() {
               {descriptionTarget?.title || t("expenses.titleCol")}
             </DialogDescription>
           </DialogHeader>
-          <div className="max-h-[60vh] overflow-y-auto whitespace-pre-wrap wrap-break-word rounded-md border border-border bg-muted/30 p-3 text-sm text-foreground">
+          <div className="max-h-[60vh] overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 p-3 text-sm text-foreground">
             {descriptionTarget?.description || "___"}
           </div>
           <DialogFooter>
@@ -1158,7 +1146,3 @@ export default function Expenses() {
     </div>
   );
 }
-
-
-
-

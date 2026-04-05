@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { ActionMenu, ActionMenuItem } from "@/components/ActionMenu";
 import { Plus, Pencil, Trash2, Landmark, MoreHorizontal, FileText, ArrowUpRight, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
@@ -940,46 +940,43 @@ export default function Income() {
         </Card>
       </div>
 
-      {entryMenuForId && entryIds.has(entryMenuForId) && entryMenuPosition && selectedEntry
-        ? createPortal(
-          <div
-            data-action-popover
-            className="fixed z-50 w-44 rounded-md border border-border bg-popover p-1 shadow-lg"
-            style={{ top: `${entryMenuPosition.top}px`, left: `${entryMenuPosition.left}px` }}
-          >
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted"
-              onClick={() => openEntryNote(selectedEntry)}
-            >
-              <FileText className="h-4 w-4" /> {t("income.viewNote")}
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted"
-              onClick={() => {
-                setEntryMenuForId(null);
-                setEntryMenuPosition(null);
-                openEditEntry(selectedEntry);
-              }}
-            >
-              <Pencil className="h-4 w-4" /> {t("common.edit")}
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10"
-              onClick={() => {
-                setEntryMenuForId(null);
-                setEntryMenuPosition(null);
-                openDeleteEntry(selectedEntry);
-              }}
-            >
-              <Trash2 className="h-4 w-4" /> {t("common.delete")}
-            </button>
-          </div>,
-          document.body
-        )
-        : null}
+      <ActionMenu
+        isOpen={Boolean(entryMenuForId && entryIds.has(entryMenuForId) && entryMenuPosition && selectedEntry)}
+        position={entryMenuPosition}
+        onClose={() => {
+          setEntryMenuForId(null);
+          setEntryMenuPosition(null);
+        }}
+      >
+        <ActionMenuItem
+          icon={FileText}
+          label={t("income.viewNote")}
+          onClick={() => {
+            setEntryMenuForId(null);
+            setEntryMenuPosition(null);
+            openEntryNote(selectedEntry);
+          }}
+        />
+        <ActionMenuItem
+          icon={Pencil}
+          label={t("common.edit")}
+          onClick={() => {
+            setEntryMenuForId(null);
+            setEntryMenuPosition(null);
+            openEditEntry(selectedEntry);
+          }}
+        />
+        <ActionMenuItem
+          icon={Trash2}
+          label={t("common.delete")}
+          variant="destructive"
+          onClick={() => {
+            setEntryMenuForId(null);
+            setEntryMenuPosition(null);
+            openDeleteEntry(selectedEntry);
+          }}
+        />
+      </ActionMenu>
 
       <Dialog open={addSourceOpen} onOpenChange={setAddSourceOpen}>
         <DialogContent>

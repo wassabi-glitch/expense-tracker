@@ -1,6 +1,6 @@
 // Final UI refinement and stability check - v1.0.1
 import * as React from "react";
-import { createPortal } from "react-dom";
+import { ActionMenu, ActionMenuItem, ActionMenuDivider } from "@/components/ActionMenu";
 import { useQueryClient } from "@tanstack/react-query";
 import {
     Plus, Trash2, Pencil, MessageSquare, Search,
@@ -1021,55 +1021,42 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
             </Card>
 
             {/* Float menu for actions */}
-            {recurringMenuForId && recurringMenuPosition && (
-                createPortal(
-                    <div
-                        data-action-popover
-                        className="fixed z-[100] animate-in fade-in zoom-in-95 duration-200"
-                        style={{ top: recurringMenuPosition.top, left: recurringMenuPosition.left }}
-                    >
-                        <Card className="w-44 shadow-2xl border-border/50 overflow-hidden bg-popover/90 backdrop-blur-xl">
-                            <div className="p-1.5 space-y-0.5">
-                                <button
-                                    onClick={() => {
-                                        const e = expenses.find(x => x.id === recurringMenuForId);
-                                        if (e) openEdit(e);
-                                        setRecurringMenuForId(null);
-                                    }}
-                                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-muted text-foreground/80 hover:text-foreground"
-                                >
-                                    <Pencil className="h-4 w-4 text-blue-500/70" />
-                                    {t("expenses.edit")}
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        const e = expenses.find(x => x.id === recurringMenuForId);
-                                        if (e) openDelete(e);
-                                        setRecurringMenuForId(null);
-                                    }}
-                                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-red-500/10 text-red-600/80 hover:text-red-600"
-                                >
-                                    <Trash2 className="h-4 w-4 text-red-500/70" />
-                                    {t("expenses.delete")}
-                                </button>
-                                <div className="mx-2 my-1 border-t border-border/40" />
-                                <button
-                                    onClick={() => {
-                                        const e = expenses.find(x => x.id === recurringMenuForId);
-                                        if (e) openDesc(e);
-                                        setRecurringMenuForId(null);
-                                    }}
-                                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-muted text-foreground/80 hover:text-foreground"
-                                >
-                                    <FileText className="h-4 w-4 text-muted-foreground/60" />
-                                    {t("recurring.viewDetails")}
-                                </button>
-                            </div>
-                        </Card>
-                    </div>,
-                    document.body
-                )
-            )}
+            <ActionMenu
+                isOpen={Boolean(recurringMenuForId && recurringMenuPosition)}
+                position={recurringMenuPosition}
+                onClose={() => setRecurringMenuForId(null)}
+                zIndex={100}
+            >
+                <ActionMenuItem
+                    icon={Pencil}
+                    label={t("expenses.edit")}
+                    onClick={() => {
+                        const e = expenses.find(x => x.id === recurringMenuForId);
+                        if (e) openEdit(e);
+                        setRecurringMenuForId(null);
+                    }}
+                />
+                <ActionMenuItem
+                    icon={Trash2}
+                    label={t("expenses.delete")}
+                    variant="destructive"
+                    onClick={() => {
+                        const e = expenses.find(x => x.id === recurringMenuForId);
+                        if (e) openDelete(e);
+                        setRecurringMenuForId(null);
+                    }}
+                />
+                <ActionMenuDivider />
+                <ActionMenuItem
+                    icon={FileText}
+                    label={t("recurring.viewDescription")}
+                    onClick={() => {
+                        const e = expenses.find(x => x.id === recurringMenuForId);
+                        if (e) openDesc(e);
+                        setRecurringMenuForId(null);
+                    }}
+                />
+            </ActionMenu>
 
             {/* Dialogs */}
             <ConfirmDialog
@@ -1082,57 +1069,23 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                 variant="destructive"
             />
 
-            {/* Detailed Info Dialog */}
+            {/* Description Modal */}
             <Dialog open={descOpen} onOpenChange={setDescOpen}>
-                <DialogContent className="sm:max-w-[425px]">
+                <DialogContent>
                     <DialogHeader>
-                        <div className="flex items-center gap-3 mb-2">
-                            <div className={cn("h-10 w-10 rounded-xl flex items-center justify-center shadow-inner", getCategoryBgClass(descTarget?.category))}>
-                                {(() => {
-                                    const CategoryIcon = categoryIconMap[descTarget?.category] || Circle;
-                                    return <CategoryIcon className="h-5 w-5" />;
-                                })()}
-                            </div>
-                            <div>
-                                <DialogTitle className="text-xl">{descTarget?.title}</DialogTitle>
-                                <Badge variant="secondary" className="mt-1 font-bold">{tCategory(descTarget?.category)}</Badge>
-                            </div>
-                        </div>
+                        <DialogTitle>{t("expenses.description")}</DialogTitle>
+                        <DialogDescription>
+                            {descTarget?.title || t("expenses.titleCol")}
+                        </DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-4 py-2">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1">
-                                <p className="text-mobile-caption font-black uppercase tracking-widest text-muted-foreground/40">{t("recurring.frequency")}</p>
-                                <p className="font-bold text-foreground/80 capitalize">{t(`recurring.${descTarget?.frequency.toLowerCase()}`)}</p>
-                            </div>
-                            <div className="space-y-1">
-                                <p className="text-mobile-caption font-black uppercase tracking-widest text-muted-foreground/40">{t("recurring.nextDue")}</p>
-                                <p className="font-bold text-foreground/80">{formatDisplayDate(descTarget?.next_due_date, appLang)}</p>
-                            </div>
-                            <div className="space-y-1">
-                                <p className="text-mobile-caption font-black uppercase tracking-widest text-muted-foreground/40">{t("expenses.amount")}</p>
-                                <CurrencyAmount value={descTarget?.amount} format="display" className="font-black text-lg" />
-                            </div>
-                            <div className="space-y-1">
-                                <p className="text-mobile-caption font-black uppercase tracking-widest text-muted-foreground/40">{t("recurring.active")}</p>
-                                <Badge variant={descTarget?.is_active ? "success" : "secondary"} className="font-bold">
-                                    {descTarget?.is_active ? t("recurring.statusActive") : t("recurring.statusPaused")}
-                                </Badge>
-                            </div>
-                        </div>
-                        {descTarget?.description ? (
-                            <div className="space-y-2 pt-4 border-t border-border/40">
-                                <p className="text-mobile-caption font-black uppercase tracking-widest text-muted-foreground/40">{t("expenses.description")}</p>
-                                <p className="text-sm text-foreground/70 leading-relaxed whitespace-pre-wrap bg-muted/30 p-4 rounded-2xl border border-border/5">
-                                    {descTarget.description}
-                                </p>
-                            </div>
-                        ) : (
-                            <div className="pt-4 border-t border-border/40">
-                                <p className="text-xs italic text-muted-foreground/50">{t("expenses.noDescription")}</p>
-                            </div>
-                        )}
+                    <div className="max-h-[60vh] overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 p-3 text-sm text-foreground">
+                        {descTarget?.description || t("recurring.noDescription")}
                     </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDescOpen(false)}>
+                            {t("common.cancel")}
+                        </Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
 
@@ -1146,7 +1099,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                     {actionError && <p className="text-xs text-red-600 mb-2">{actionError}</p>}
                     <div className="grid gap-2.5 py-2">
                         <div className="grid gap-1.5">
-                            <label>{t("expenses.title")}</label>
+                            <label>{t("recurring.templateTitle")}</label>
                             <Input
                                 value={addTitle}
                                 onChange={(e) => setAddTitle(e.target.value)}
@@ -1228,7 +1181,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                         </div>
 
                         <div className="grid gap-1.5">
-                            <label>{t("expenses.description")} <span className="text-mobile-caption font-normal text-muted-foreground/50">({t("expenses.optional")})</span></label>
+                            <label>{t("expenses.description")} <span className="text-mobile-caption font-normal text-muted-foreground/50">({t("common.optional", { defaultValue: "Optional" })})</span></label>
                             <Textarea
                                 value={addDescription}
                                 onChange={(e) => setAddDescription(e.target.value)}
@@ -1260,7 +1213,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                     {editError && <p className="text-xs text-red-600 mb-2">{editError}</p>}
                     <div className="grid gap-2.5 py-2">
                         <div className="grid gap-1.5">
-                            <label>{t("expenses.title")}</label>
+                            <label>{t("recurring.templateTitle")}</label>
                             <Input
                                 value={editTitle}
                                 onChange={(e) => setEditTitle(e.target.value)}
@@ -1316,7 +1269,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                         </div>
 
                         <div className="grid gap-1.5">
-                            <label>{t("expenses.description")} <span className="text-mobile-caption font-normal text-muted-foreground/50">({t("expenses.optional")})</span></label>
+                            <label>{t("expenses.description")} <span className="text-mobile-caption font-normal text-muted-foreground/50">({t("common.optional", { defaultValue: "Optional" })})</span></label>
                             <Textarea
                                 value={editDescription}
                                 onChange={(e) => setEditDescription(e.target.value)}
