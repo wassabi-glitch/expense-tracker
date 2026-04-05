@@ -1162,6 +1162,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent className={selectContentClass}>
+                                        <SelectItem value="DAILY">{t("recurring.daily")}</SelectItem>
                                         <SelectItem value="WEEKLY">{t("recurring.weekly")}</SelectItem>
                                         <SelectItem value="MONTHLY">{t("recurring.monthly")}</SelectItem>
                                         <SelectItem value="YEARLY">{t("recurring.yearly")}</SelectItem>
