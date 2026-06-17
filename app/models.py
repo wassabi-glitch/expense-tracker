@@ -1053,8 +1053,8 @@ class Debt(Base):
     # Pre-tags for Cash-Basis Accounting
     expense_category = Column(Enum(ExpenseCategory), nullable=True)
     expense_subcategory_id = Column(Integer, ForeignKey("user_subcategories.id", ondelete="SET NULL"), nullable=True)
-    project_id = Column(Integer, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
-    project_subcategory_id = Column(Integer, ForeignKey("project_subcategories.id", ondelete="SET NULL"), nullable=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="SET NULL", use_alter=True, name="fk_debts_project_id"), nullable=True)
+    project_subcategory_id = Column(Integer, ForeignKey("project_subcategories.id", ondelete="SET NULL", use_alter=True, name="fk_debts_project_subcategory_id"), nullable=True)
     income_source_id = Column(Integer, ForeignKey("income_sources.id", ondelete="SET NULL"), nullable=True)
 
     expense_subcategory = relationship("UserSubcategory")
@@ -1275,7 +1275,7 @@ class InstallmentPlan(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    debt_id = Column(Integer, ForeignKey("debts.id", ondelete="SET NULL"), nullable=True)
+    debt_id = Column(Integer, ForeignKey("debts.id", ondelete="SET NULL", use_alter=True, name="fk_installment_plans_debt_id"), nullable=True)
     item_name = Column(String(100), nullable=False)
     store_or_bank_name = Column(String(100), nullable=True)
     plan_type = Column(
@@ -1298,8 +1298,8 @@ class InstallmentPlan(Base):
     start_date = Column(Date, nullable=False)
     expense_category = Column(Enum(ExpenseCategory), nullable=True)
     expense_subcategory_id = Column(Integer, ForeignKey("user_subcategories.id", ondelete="SET NULL"), nullable=True)
-    project_id = Column(Integer, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
-    project_subcategory_id = Column(Integer, ForeignKey("project_subcategories.id", ondelete="SET NULL"), nullable=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="SET NULL", use_alter=True, name="fk_installment_plans_project_id"), nullable=True)
+    project_subcategory_id = Column(Integer, ForeignKey("project_subcategories.id", ondelete="SET NULL", use_alter=True, name="fk_installment_plans_project_subcategory_id"), nullable=True)
     asset_id = Column(Integer, ForeignKey("assets.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
