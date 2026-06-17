@@ -16,7 +16,7 @@ def backfill_transaction_wallets():
         for table in tables:
             print(f"Backfilling {table}...")
             # Subquery finds the default wallet ID for the owner of each transaction
-            query = text(f"""  # nosec B608
+            query = text(f"""
                 UPDATE {table}
                 SET wallet_id = sub.id
                 FROM (
@@ -24,7 +24,7 @@ def backfill_transaction_wallets():
                 ) AS sub
                 WHERE {table}.owner_id = sub.owner_id
                 AND {table}.wallet_id IS NULL;
-            """)
+            """)  # nosec B608
             result = db.execute(query)
             print(f"Updated {result.rowcount} rows in {table}.")
         
