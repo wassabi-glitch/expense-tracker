@@ -1,11 +1,12 @@
 from datetime import date
 import logging
+from datetime import date
 
 from passlib.context import CryptContext
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import models
+from app.services.budget_service import get_budget_spent_amount
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +28,13 @@ def _calculate_spent(db: Session, owner_id: int, category: models.ExpenseCategor
     else:
         next_month_first_day = date(budget_year, budget_month + 1, 1)
 
-    total_spent = db.query(func.sum(models.Expense.amount)).filter(
-        models.Expense.owner_id == owner_id,
-        models.Expense.category == category,
-        models.Expense.date >= first_day,
-        models.Expense.date < next_month_first_day,
-    ).scalar() or 0
-    return int(total_spent)
+    return get_budget_spent_amount(
+        db,
+        owner_id,
+        category=category,
+        start_date=first_day,
+        end_date=next_month_first_day,
+    )
 
 
 def check_budget_alerts(db: Session, budget: models.Budget):

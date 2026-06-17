@@ -2,7 +2,9 @@ services:
   # The API already has volume mapping in the main docker-compose.yml.
   # We add the frontend mapping here for local development.
   frontend:
-    image: node:20-slim
+    build: null
+    image: docker.io/library/node:20-slim
+    pull_policy: always
     platform: linux/amd64
     volumes:
       - ./frontend:/app

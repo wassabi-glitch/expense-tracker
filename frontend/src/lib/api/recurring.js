@@ -20,7 +20,42 @@ export async function deleteRecurringExpense(id) {
     return response.data;
 }
 
-export async function patchRecurringActive(id, is_active) {
-    const response = await apiClient.patch(`/recurring/${id}/active`, { is_active });
+export async function patchRecurringActive(id, status) {
+    const response = await apiClient.patch(`/recurring/${id}/toggle`, { status });
+    return response.data;
+}
+
+export async function skipRecurringOccurrence(id) {
+    const response = await apiClient.patch(`/recurring/${id}/skip`);
+    return response.data;
+}
+
+export async function payNowRecurring(id) {
+    const response = await apiClient.post(`/recurring/${id}/pay-now`);
+    return response.data;
+}
+
+export async function changeRecurringWallet(id, walletId) {
+    const response = await apiClient.patch(`/recurring/${id}/change-wallet`, { wallet_id: walletId });
+    return response.data;
+}
+
+export async function getRecurringEvents(id) {
+    const response = await apiClient.get(`/recurring/${id}/events`);
+    return response.data;
+}
+
+export async function getRecurringProjections(id) {
+    const response = await apiClient.get(`/recurring/${id}/projections`);
+    return response.data;
+}
+
+export async function previewRecurringProjections(id, horizons) {
+    const response = await apiClient.post(`/recurring/${id}/projections/preview`, { horizons });
+    return response.data;
+}
+
+export async function saveRecurringProjectionHorizons(id, horizons) {
+    const response = await apiClient.put(`/recurring/${id}/projection-horizons`, { horizons });
     return response.data;
 }

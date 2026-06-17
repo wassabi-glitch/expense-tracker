@@ -1,0 +1,4 @@
+yeah there is a nuance to consider here with project subcats which is for isolated=false projects we cant really let user create subcategories inside the project, because with isolated=false projects they are linked with monthly budgets and thus their subcats as well.But yeah with isolated=true projects, we can allow any flexibility because they do not depend on monthly budgets.This is the point consider here
+
+
+yeah sure, let's execute from end to end. And yeah i noticed 1 thing as well which is for projects with isolated=false, the category limit user is going to set cannot be greater than monthly bduget category limit - spent amount.You know what i mean? can you pls come up with an example for that pls to better understand

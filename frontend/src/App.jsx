@@ -25,14 +25,19 @@ import VerifyEmail from "@/features/auth/VerifyEmail";
 import ResendVerification from "@/features/auth/ResendVerification";
 import Dashboard from "@/features/dashboard/Dashboard";
 import Expenses from "@/features/expenses/Expenses";
+import ExpenseDetails from "@/features/expenses/ExpenseDetails";
 import Income from "@/features/income/Income";
 import Budgets from "@/features/budgets/Budgets";
+import BudgetDetails from "@/features/budgets/BudgetDetails";
 import Analytics from "@/features/analytics/Analytics";
 import ExportPage from "@/features/expenses/ExportPage";
 import Settings from "@/features/settings/Settings";
 import Onboarding from "@/features/onboarding/Onboarding";
 import Savings from "@/features/savings/Savings";
 import Premium from "@/features/premium/Premium";
+import Obligations from "@/features/obligations/Obligations";
+import Wallets from "@/features/wallets/Wallets";
+import Assets from "@/features/assets/Assets";
 
 export default function App() {
   const authBootstrapQuery = useQuery({
@@ -72,13 +77,18 @@ export default function App() {
             <Route element={<Layout />}>
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/expenses" element={<Expenses />} />
+              <Route path="/expenses/:id" element={<ExpenseDetails />} />
               <Route path="/income" element={<Income />} />
               <Route path="/budgets" element={<Budgets />} />
+              <Route path="/budgets/:budgetYear/:budgetMonth/:category" element={<BudgetDetails />} />
               <Route path="/savings" element={<Savings />} />
+              <Route path="/debts" element={<Obligations />} />
               <Route path="/analytics" element={<Analytics />} />
               <Route path="/export" element={<ExportPage />} />
               <Route path="/premium" element={<Premium />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/wallets" element={<Wallets />} />
+              <Route path="/assets" element={<Assets />} />
             </Route>
           </Route>
         </Route>

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { getCurrentUser } from "@/lib/api";
-import { formatAmountInput } from "@/lib/format";
+import { formatAmountInput, formatUzs, parseAmountInput } from "@/lib/format";
 import {
     onboardingSchema,
     onboardingStepOneSchema,
@@ -35,10 +35,14 @@ export default function Onboarding() {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const [step, setStep] = useState(1);
-    const [lifeStatus, setLifeStatus] = useState("");
-    const [initialBalanceInput, setInitialBalanceInput] = useState("");
+    const [lifeStatuses, setLifeStatuses] = useState([]);
+    const [wallets, setWallets] = useState([{ name: "Cash", initial_balance: "0", color: "default" }]);
     const [status, setStatus] = useState("");
     const [fieldErrors, setFieldErrors] = useState({});
+
+    // Temporary inputs for 'Add Wallet' UI
+    const [newWalletName, setNewWalletName] = useState("");
+    const [newWalletBalance, setNewWalletBalance] = useState("");
 
     const userQuery = useQuery({
         queryKey: ["users", "me"],
@@ -49,37 +53,36 @@ export default function Onboarding() {
     const translateValidation = useCallback((message) => t(message, { defaultValue: message }), [t]);
 
     const stepOneParsed = useMemo(
-        () => onboardingStepOneSchema.safeParse({ life_status: lifeStatus }),
-        [lifeStatus]
+        () => onboardingStepOneSchema.safeParse({ life_statuses: lifeStatuses }),
+        [lifeStatuses]
     );
     const stepTwoParsed = useMemo(
-        () => onboardingStepTwoSchema.safeParse({ initial_balance: initialBalanceInput }),
-        [initialBalanceInput]
+        () => onboardingStepTwoSchema.safeParse({ wallets }),
+        [wallets]
     );
     const fullParsed = useMemo(
         () =>
             onboardingSchema.safeParse({
-                life_status: lifeStatus,
-                initial_balance: initialBalanceInput,
+                life_statuses: lifeStatuses,
+                wallets,
             }),
-        [lifeStatus, initialBalanceInput]
+        [lifeStatuses, wallets]
     );
 
     const stepOneIssue = useMemo(() => {
         if (stepOneParsed.success) return "";
-        const issue = stepOneParsed.error.issues.find((item) => item.path?.[0] === "life_status");
+        const issue = stepOneParsed.error.issues.find((item) => item.path?.[0] === "life_statuses");
         return issue ? translateValidation(issue.message) : "";
     }, [stepOneParsed, translateValidation]);
 
     const stepTwoIssue = useMemo(() => {
         if (stepTwoParsed.success) return "";
-        const issue = stepTwoParsed.error.issues.find((item) => item.path?.[0] === "initial_balance");
+        const issue = stepTwoParsed.error.issues.find((item) => item.path?.[0] === "wallets");
         return issue ? translateValidation(issue.message) : "";
     }, [stepTwoParsed, translateValidation]);
 
     const canContinueStepOne = stepOneParsed.success;
     const canSubmit = fullParsed.success && !isSubmitting;
-    const selectedLifeStatusLabel = LIFE_STATUS_CONFIG.find((item) => item.value === lifeStatus);
     const progressValue = (step / TOTAL_STEPS) * 100;
 
     if (userQuery.isPending) return null;
@@ -104,7 +107,7 @@ export default function Onboarding() {
 
         if (!stepOneParsed.success) {
             setFieldErrors({
-                life_status: stepOneIssue || t("onboarding.validation.lifeStatus.required", {
+                life_statuses: stepOneIssue || t("onboarding.validation.lifeStatus.required", {
                     defaultValue: "Please select your current situation.",
                 }),
             });
@@ -113,32 +116,48 @@ export default function Onboarding() {
         setStep(2);
     }
 
+    function handleAddWallet() {
+        if (!newWalletName.trim()) return;
+        setWallets([...wallets, { 
+            name: newWalletName, 
+            initial_balance: newWalletBalance || "0", 
+            color: "default" 
+        }]);
+        setNewWalletName("");
+        setNewWalletBalance("");
+    }
+
+    function removeWallet(index) {
+        setWallets(wallets.filter((_, i) => i !== index));
+    }
+
     async function handleSubmit(e) {
         e.preventDefault();
         setStatus("");
         setFieldErrors({});
 
         const parsed = onboardingSchema.safeParse({
-            life_status: lifeStatus,
-            initial_balance: initialBalanceInput,
+            life_statuses: lifeStatuses,
+            wallets,
         });
 
         if (!parsed.success) {
-            const nextErrors = {};
+            const newErrors = {};
             parsed.error.issues.forEach((issue) => {
-                const field = issue.path?.[0];
-                if (field && !nextErrors[field]) {
-                    nextErrors[field] = translateValidation(issue.message);
+                const path = issue.path[0];
+                if (path) {
+                    newErrors[path] = t(issue.message, { defaultValue: issue.message });
                 }
             });
-            setFieldErrors(nextErrors);
+            setFieldErrors(newErrors);
+            setStatus(t("onboarding.validation.fixErrors", { defaultValue: "Please fix the errors above before continuing." }));
             return;
         }
 
         try {
             await onboardingMutation.mutateAsync({
-                life_status: parsed.data.life_status,
-                initial_balance: parsed.data.initial_balance,
+                life_statuses: parsed.data.life_statuses,
+                wallets: parsed.data.wallets,
             });
             navigate("/dashboard", { replace: true });
         } catch (err) {
@@ -197,7 +216,7 @@ export default function Onboarding() {
 
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         {LIFE_STATUS_CONFIG.map((option) => {
-                            const selected = lifeStatus === option.value;
+                            const selected = lifeStatuses.includes(option.value);
                             return (
                                 <Button
                                     key={option.value}
@@ -205,9 +224,13 @@ export default function Onboarding() {
                                     variant={selected ? "default" : "outline"}
                                     className="h-11 justify-start"
                                     onClick={() => {
-                                        setLifeStatus(option.value);
+                                        if (selected) {
+                                            setLifeStatuses(lifeStatuses.filter(s => s !== option.value));
+                                        } else {
+                                            setLifeStatuses([...lifeStatuses, option.value]);
+                                        }
                                         setStatus("");
-                                        setFieldErrors((prev) => ({ ...prev, life_status: "" }));
+                                        setFieldErrors((prev) => ({ ...prev, life_statuses: "" }));
                                     }}
                                 >
                                     {t(option.labelKey, { defaultValue: option.fallback })}
@@ -217,9 +240,9 @@ export default function Onboarding() {
                     </div>
 
                     <div className="min-h-2.5">
-                        {!!(fieldErrors.life_status || stepOneIssue) && (
+                        {!!(fieldErrors.life_statuses || stepOneIssue) && (
                             <p className="text-xs text-red-500">
-                                {fieldErrors.life_status || stepOneIssue}
+                                {fieldErrors.life_statuses || stepOneIssue}
                             </p>
                         )}
                     </div>
@@ -237,68 +260,58 @@ export default function Onboarding() {
                     </div>
                 </form>
             ) : (
-                <form onSubmit={handleSubmit} className="space-y-3">
-                    <p className={STEP_QUESTION_CLASS}>
-                        {t("onboarding.step2.question", {
-                            defaultValue: "What is your current balance in UZS?",
-                        })}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                        {t("onboarding.step2.description", {
-                            defaultValue: "This helps us show a more accurate starting view and better recommendations from day one.",
-                        })}
-                    </p>
-
-                    {selectedLifeStatusLabel && (
-                        <p className="text-xs text-muted-foreground">
-                            {t("onboarding.selectedStatus", {
-                                defaultValue: "Selected: {{status}}",
-                                status: t(selectedLifeStatusLabel.labelKey, { defaultValue: selectedLifeStatusLabel.fallback }),
+                <div className="space-y-4">
+                    <div className="space-y-1">
+                        <p className={STEP_QUESTION_CLASS}>
+                            {t("onboarding.step2.question_wallets", {
+                                defaultValue: "Setup your physical wallets",
                             })}
                         </p>
-                    )}
-
-                    <div className="space-y-0.5">
-                        <Input
-                            id="initial-balance"
-                            type="text"
-                            inputMode="numeric"
-                            maxLength={15}
-                            value={initialBalanceInput}
-                            onChange={(e) => {
-                                setInitialBalanceInput(formatAmountInput(e.target.value, MAX_INCOME_AMOUNT_DIGITS));
-                                setStatus("");
-                                setFieldErrors((prev) => ({ ...prev, initial_balance: "" }));
-                            }}
-                            onKeyDown={(e) => {
-                                if (
-                                    e.key === "-" ||
-                                    e.key === "+" ||
-                                    e.key === "." ||
-                                    e.key.toLowerCase() === "e"
-                                ) {
-                                    e.preventDefault();
-                                }
-                            }}
-                            className={`${ONBOARDING_INPUT_CLASS} ${fieldErrors.initial_balance || (initialBalanceInput.trim().length > 0 && stepTwoIssue) ? "border-red-500 focus-visible:border-red-500" : ""}`}
-                            placeholder={t("onboarding.placeholder.initialBalance", {
-                                defaultValue: "Initial balance",
+                        <p className="text-xs text-muted-foreground">
+                            {t("onboarding.step2.description_wallets", {
+                                defaultValue: "Add cash, cards or bank accounts you want to track separately.",
                             })}
-                            required
-                        />
-                        <div className="min-h-2.5">
-                            {!!(fieldErrors.initial_balance || (initialBalanceInput.trim().length > 0 && stepTwoIssue)) && (
-                                <p className="text-xs text-red-500">
-                                    {fieldErrors.initial_balance || stepTwoIssue}
-                                </p>
-                            )}
+                        </p>
+                    </div>
+
+                    <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
+                        {wallets.map((w, idx) => (
+                            <div key={idx} className="flex items-center justify-between p-3 rounded-lg border bg-accent/30">
+                                <div>
+                                    <p className="text-sm font-semibold">{w.name}</p>
+                                    <p className="text-xs text-muted-foreground">{formatUzs(parseAmountInput(w.initial_balance))} UZS</p>
+                                </div>
+                                <Button variant="ghost" size="sm" onClick={() => removeWallet(idx)} disabled={wallets.length === 1}>
+                                    {t("common.remove")}
+                                </Button>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="p-4 rounded-xl border-2 border-dashed border-emerald-500/30 bg-emerald-500/5 space-y-3">
+                        <div className="grid grid-cols-2 gap-2">
+                             <Input 
+                                placeholder="Wallet Name (e.g. Card)" 
+                                value={newWalletName}
+                                onChange={e => setNewWalletName(e.target.value)}
+                             />
+                             <Input 
+                                placeholder="Balance" 
+                                type="text"
+                                inputMode="numeric"
+                                value={newWalletBalance}
+                                onChange={e => setNewWalletBalance(formatAmountInput(e.target.value, 15))}
+                             />
                         </div>
+                        <Button type="button" variant="outline" className="w-full h-9 text-xs" onClick={handleAddWallet}>
+                            {t("onboarding.action.addWallet", { defaultValue: "+ Add another wallet" })}
+                        </Button>
                     </div>
 
                     <Button
-                        className={`h-11 w-full ${DISABLED_BUTTON_CURSOR_CLASS}`}
-                        type="submit"
-                        disabled={!canSubmit}
+                        className={`h-11 w-full mt-4 ${DISABLED_BUTTON_CURSOR_CLASS}`}
+                        onClick={handleSubmit}
+                        disabled={!canSubmit || isSubmitting}
                     >
                         {isSubmitting ? (
                             <span
@@ -313,7 +326,7 @@ export default function Onboarding() {
                     <div className="min-h-2.5">
                         {!!status && <p className="text-xs text-center text-red-500">{status}</p>}
                     </div>
-                </form>
+                </div>
             )}
         </AuthFormCard>
     );

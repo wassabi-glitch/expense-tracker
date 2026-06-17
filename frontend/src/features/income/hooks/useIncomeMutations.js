@@ -16,7 +16,10 @@ import { localizeApiError } from "@/lib/errorMessages";
 async function invalidateIncomeDerivedQueries(queryClient) {
     await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["income"] }),
+        queryClient.invalidateQueries({ queryKey: ["money-in"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["wallets"] }),
         queryClient.invalidateQueries({ queryKey: ["analytics"] }),
         queryClient.invalidateQueries({ queryKey: ["notifications"] }),
     ]);

@@ -27,6 +27,9 @@ import {
   User,
   Sun,
   Moon,
+  HandCoins,
+  CreditCard,
+  BriefcaseBusiness,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getCurrentUser, logout } from "@/lib/api";
@@ -38,10 +41,13 @@ import flowLockupDark from "@/assets/brand/sarflog-flow-lockup-dark.svg";
 
 const mainNavItems = [
   { to: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
+  { to: "/wallets", labelKey: "nav.wallets", icon: CreditCard },
   { to: "/expenses", labelKey: "nav.expenses", icon: Receipt },
   { to: "/income", labelKey: "nav.income", icon: Landmark },
   { to: "/budgets", labelKey: "nav.budgets", icon: PiggyBank },
   { to: "/savings", labelKey: "nav.savings", icon: Wallet },
+  { to: "/assets", labelKey: "nav.assets", icon: BriefcaseBusiness },
+  { to: "/debts", labelKey: "nav.debts", icon: HandCoins },
   { to: "/analytics", labelKey: "nav.analytics", icon: LineChart },
 ];
 

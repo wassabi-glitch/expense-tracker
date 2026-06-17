@@ -48,7 +48,7 @@ def test_budget_alerts_thresholds(client, session):
     assert budget.last_notified_threshold == 90
 
     # 100% -> alert
-    create_expense(client, headers, title="Exp4", amount=20, category="Food")
+    create_expense(client, headers, title="Exp4", amount=10, category="Food")
     budget = _get_budget(session, user_id, models.ExpenseCategory.GROCERIES)
     check_budget_alerts(session, budget)
     session.commit()
@@ -62,7 +62,8 @@ def test_budget_alerts_reset_below_50(client, session):
     )
     create_budget(client, headers, category="Food", monthly_limit=100)
 
-    create_expense(client, headers, title="Exp1", amount=60, category="Food")
+    expense = create_expense(client, headers, title="Exp1", amount=60, category="Food")
+    assert expense.status_code == 201, expense.text
     user_id = _get_user_id(session, "alertuser2@example.com")
     budget = _get_budget(session, user_id, models.ExpenseCategory.GROCERIES)
     check_budget_alerts(session, budget)
@@ -70,13 +71,13 @@ def test_budget_alerts_reset_below_50(client, session):
     session.refresh(budget)
     assert budget.last_notified_threshold == 50
 
-    # Delete expense -> total 0, should reset to 0
-    expense = session.query(models.Expense).filter(
-        models.Expense.owner_id == user_id,
-        models.Expense.category == models.ExpenseCategory.GROCERIES,
-    ).first()
-    session.delete(expense)
-    session.commit()
+    # Refund enough to drop below 50%, then alert memory should reset.
+    refund = client.post(
+        f"/expenses/{expense.json()['id']}/refund",
+        json={"amount": 20},
+        headers=headers,
+    )
+    assert refund.status_code == 201, refund.text
 
     budget = _get_budget(session, user_id, models.ExpenseCategory.GROCERIES)
     check_budget_alerts(session, budget)

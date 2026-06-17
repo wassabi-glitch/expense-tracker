@@ -123,6 +123,7 @@ export default function Dashboard() {
     recentExpensesQuery,
     recurringExpensesQuery,
     trendQuery,
+    walletsQuery,
   } = useDashboardDataQuery({ monthStartIso, todayIso });
 
   const user = userQuery.data || null;
@@ -135,20 +136,22 @@ export default function Dashboard() {
       .slice(0, 5);
   }, [recurringExpensesQuery.data]);
   const trendData = trendQuery.data || EMPTY_ARRAY;
-  const summary = summaryQuery.data || {
-    income: 0,
-    spent: 0,
-    remaining: 0,
-    daily_average: 0,
-    overall_balance: 0,
-  };
-  const showZeroIncomeHint = !summaryQuery.isLoading && summary.income === 0;
+  const {
+    income = 0,
+    spent = 0,
+    remaining = 0,
+    daily_average = 0,
+    overall_balance = 0,
+    net_position = 0,
+  } = summaryQuery.data || {};
+  const showZeroIncomeHint = !summaryQuery.isLoading && income === 0;
   const loading =
     userQuery.isLoading ||
     summaryQuery.isLoading ||
     statsQuery.isLoading ||
     recentExpensesQuery.isLoading ||
-    recurringExpensesQuery.isLoading;
+    recurringExpensesQuery.isLoading ||
+    walletsQuery.isLoading;
   const trendLoading = trendQuery.isLoading;
   const firstError =
     userQuery.error ||
@@ -156,7 +159,8 @@ export default function Dashboard() {
     statsQuery.error ||
     recentExpensesQuery.error ||
     recurringExpensesQuery.error ||
-    trendQuery.error;
+    trendQuery.error ||
+    walletsQuery.error;
   const error = firstError ? localizeApiError(firstError?.message, t) || t("dashboard.loadError") : "";
 
   const derived = useMemo(() => {
@@ -186,64 +190,80 @@ export default function Dashboard() {
     };
   }, [stats]);
 
-  const statCards = [
-    {
-      label: t("dashboard.totalBalance", { defaultValue: "Total Balance" }),
-      rawValue: Math.abs(summary.overall_balance),
-      value: formatCompactUzs(Math.abs(summary.overall_balance)),
-      fullValue: formatUzs(Math.abs(summary.overall_balance)),
-      prefix: summary.overall_balance >= 0 ? "+" : "-",
-      hint: t("dashboard.totalBalanceHint"),
-      cardClassName: summary.overall_balance >= 0
-        ? "border-border bg-card transition-all duration-300 hover:border-primary/40 active:border-primary/40 hover:shadow-[0_0_15px_rgba(34,197,94,0.1)] active:shadow-[0_0_15px_rgba(34,197,94,0.1)] active:scale-[0.98]"
-        : "border-destructive/50 bg-card transition-all duration-300 hover:border-destructive active:border-destructive hover:shadow-[0_0_15px_rgba(239,68,68,0.1)] active:shadow-[0_0_15px_rgba(239,68,68,0.1)] active:scale-[0.98]",
-      titleClassName: summary.overall_balance >= 0 ? "text-muted-foreground" : "text-destructive",
-      iconClassName: "text-muted-foreground",
-      valueClassName: summary.overall_balance >= 0 ? "text-primary" : "text-destructive animate-pulse",
-      icon: Wallet,
-    },
-    {
-      label: t("dashboard.incomeThisMonth", { defaultValue: "Income This Month" }),
-      rawValue: summary.income,
-      value: formatCompactUzs(summary.income),
-      fullValue: formatUzs(summary.income),
-      prefix: "",
-      cardClassName: "border-border bg-card transition-all duration-300 hover:border-border/80 active:border-border/80 hover:shadow-sm active:shadow-sm active:scale-[0.98]",
-      titleClassName: "text-muted-foreground",
-      iconClassName: "text-muted-foreground",
-      hint: t("dashboard.incomeHint"),
-      valueClassName: "text-foreground",
-      icon: Wallet,
-    },
-    {
-      label: t("dashboard.spentThisMonth", { defaultValue: "Spent This Month" }),
-      rawValue: summary.spent,
-      value: formatCompactUzs(summary.spent),
-      fullValue: formatUzs(summary.spent),
-      prefix: "",
-      cardClassName: "border-border bg-card transition-all duration-300 hover:border-border/80 active:border-border/80 hover:shadow-sm active:shadow-sm active:scale-[0.98]",
-      titleClassName: "text-muted-foreground",
-      iconClassName: "text-muted-foreground",
-      hint: t("dashboard.spentHint"),
-      valueClassName: "text-foreground",
-      icon: TrendingUp,
-    },
-    {
-      label: t("dashboard.remainingThisMonth", { defaultValue: "Remaining This Month" }),
-      rawValue: Math.abs(summary.remaining),
-      value: formatCompactUzs(Math.abs(summary.remaining)),
-      fullValue: formatUzs(Math.abs(summary.remaining)),
-      prefix: summary.remaining >= 0 ? "+" : "-",
-      cardClassName: summary.remaining >= 0
-        ? "border-border bg-card transition-all duration-300 hover:border-primary/40 active:border-primary/40 hover:shadow-[0_0_15px_rgba(34,197,94,0.1)] active:shadow-[0_0_15px_rgba(34,197,94,0.1)] active:scale-[0.98]"
-        : "border-destructive/50 bg-card transition-all duration-300 hover:border-destructive active:border-destructive hover:shadow-[0_0_15px_rgba(239,68,68,0.1)] active:shadow-[0_0_15px_rgba(239,68,68,0.1)] active:scale-[0.98]",
-      valueClassName: summary.remaining >= 0 ? "text-primary" : "text-destructive animate-pulse",
-      titleClassName: summary.remaining >= 0 ? "text-muted-foreground" : "text-destructive",
-      iconClassName: "text-muted-foreground",
-      hint: t("dashboard.remainingHint"),
-      icon: summary.remaining >= 0 ? Layers : Wallet,
-    },
-  ];
+  const renderSummaryCards = () => (
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 sm:gap-4">
+      <Card className="border-emerald-500/20 bg-emerald-500/5 transition-all hover:bg-emerald-500/10 sm:col-span-2">
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardTitle className="text-sm font-medium">{t("dashboard.netPosition", { defaultValue: "Net Position (The Truth)" })}</CardTitle>
+          <InteractiveTooltip content={t("dashboard.netPositionHint", { defaultValue: "Total Wallets + Owed to me - I Owe. This is your true wealth." })}>
+             <Circle className="h-4 w-4 text-emerald-500" />
+          </InteractiveTooltip>
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold sm:text-3xl">
+            <CurrencyAmount amount={net_position} size="inherit" />
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+             {t("dashboard.physicalBalance", { defaultValue: "Physical Liquid: " })}
+             <CurrencyAmount amount={overall_balance} className="inline ml-1" />
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card className="transition-all hover:bg-accent/50">
+        <CardHeader className="flex flex-row items-center justify-between pb-1 sm:pb-2">
+          <CardTitle className="text-sm font-medium">{t("dashboard.monthIncome")}</CardTitle>
+          <TrendingUp className="h-4 w-4 text-emerald-500" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-xl font-bold sm:text-2xl">
+            <CurrencyAmount amount={income} size="inherit" />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="transition-all hover:bg-accent/50">
+        <CardHeader className="flex flex-row items-center justify-between pb-1 sm:pb-2">
+          <CardTitle className="text-sm font-medium text-destructive">{t("dashboard.monthSpent")}</CardTitle>
+          <Circle className="h-4 w-4 text-destructive" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-xl font-bold sm:text-2xl">
+            <CurrencyAmount amount={spent} size="inherit" />
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
+  const renderWallets = () => {
+    const wallets = Array.isArray(walletsQuery.data) ? walletsQuery.data : [];
+    if (wallets.length === 0) return null;
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold tracking-tight">{t("dashboard.myWallets", { defaultValue: "My Wallets" })}</h2>
+          <Button variant="ghost" size="sm" asChild>
+            <Link to="/more/wallets">{t("common.manage")}</Link>
+          </Button>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {wallets.map((wallet) => (
+            <Card key={wallet.id} className="relative overflow-hidden group hover:shadow-md transition-all h-24 sm:h-28">
+               <div className="absolute inset-x-0 bottom-0 h-1 bg-emerald-500/20 group-hover:bg-emerald-500/40 transition-colors" />
+               <CardContent className="p-3 sm:p-4 flex flex-col justify-between h-full">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider truncate">{wallet.name}</p>
+                  <p className="text-lg sm:text-xl font-bold">
+                    <CurrencyAmount amount={wallet.initial_balance} size="inherit" />
+                  </p>
+               </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
   const chartData = useMemo(() => {
     const endDate = toISODateInTimeZone();
@@ -309,103 +329,13 @@ export default function Dashboard() {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        {/* Stats Grid */}
-        <div className={cn(
-          "grid gap-4 xl:grid-cols-4 xl:gap-6 2xl:gap-8",
-          isMobile ? "grid-cols-1" : "grid-cols-2"
-        )}>
-          {statCards.map((s, i) => {
-            const Icon = s.icon;
-            const isTotalBalance = i === 0;
-            
-            // If mobile, we want Total Balance full width, and others in a special container?
-            // Wait, the user said "total balance card covers full screen ... and below it you display the rest of the 3 cards in 1 row make it scrollable sideways"
-            // This is easier to handle with a conditional outer wrap.
-            if (isMobile && !isTotalBalance) return null;
-
-            return (
-                <Card
-                  key={i}
-                  className={cn(
-                    "mobile-stat-card mobile-top-stat-card shadow-sm overflow-hidden relative transition-all duration-200 hover:shadow-md hover:bg-card/60 active:scale-[0.98] cursor-pointer",
-                    s.cardClassName,
-                    isMobile && isTotalBalance && "mobile-top-stat-inset"
-                  )}
-              >
-                <CardHeader className={cn(
-                  "flex flex-row items-center justify-between space-y-0 p-5 pb-1 w-full",
-                  isMobile && "pt-4"
-                )}>
-                  <CardTitle className={cn("text-refined-label", s.titleClassName)}>
-                    {s.label}
-                  </CardTitle>
-                  <Icon className={cn("size-icon-sm", s.iconClassName)} />
-                </CardHeader>
-                <CardContent className="px-5 pb-5 pt-1">
-                  <CurrencyAmount
-                    value={s.rawValue}
-                    prefix={s.prefix}
-                    format="compact"
-                    tooltip="always"
-                    className="flex items-baseline gap-1.5 flex-wrap text-left outline-none"
-                    valueClassName={cn("text-2xl lg:text-3xl font-bold tracking-tight tabular-nums break-words", s.valueClassName)}
-                    currencyClassName="text-mobile-caption md:text-xs lg:text-sm opacity-70"
-                    tooltipContent={`${s.prefix}${s.fullValue} UZS`}
-                  />
-                  {s.hint && (
-                    <p className="mt-3 text-ui-desc leading-relaxed text-muted-foreground/80 font-medium">
-                      {s.hint}
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-
-        {/* Mobile-only scrollable row for other cards */}
-        {isMobile && (
-          <div className="flex overflow-x-auto gap-4 mx-[calc(var(--page-px)*-1)] px-page pb-4 no-scrollbar scroll-smooth">
-            {statCards.slice(1).map((s, i) => {
-              const Icon = s.icon;
-              return (
-                <Card 
-                  key={i} 
-                  className={cn("mobile-stat-card mobile-top-stat-card shadow-sm overflow-hidden relative w-[calc(100vw-(var(--page-px)*2)-12px)] min-w-0 flex-shrink-0 transition-all duration-200 hover:shadow-md hover:bg-card/60 active:scale-[0.98] cursor-pointer", s.cardClassName)}
-                >
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 p-5 pt-4 pb-1 w-full">
-                    <CardTitle className={cn("text-refined-label", s.titleClassName)}>
-                      {s.label}
-                    </CardTitle>
-                    <Icon className={cn("size-icon-sm", s.iconClassName)} />
-                  </CardHeader>
-                  <CardContent className="px-5 pb-5 pt-1">
-                    <CurrencyAmount
-                      value={s.rawValue}
-                      prefix={s.prefix}
-                      format="compact"
-                      tooltip="always"
-                      className="flex items-baseline gap-1.5 flex-wrap text-left outline-none"
-                      valueClassName={cn("text-2xl font-bold tracking-tight tabular-nums break-words", s.valueClassName)}
-                      currencyClassName="text-mobile-caption md:text-xs lg:text-sm mt-auto mb-1 opacity-70"
-                      tooltipContent={`${s.prefix}${s.fullValue} UZS`}
-                    />
-                    {s.hint && (
-                      <p className="mt-3 text-ui-desc leading-relaxed text-muted-foreground/80 font-medium">
-                        {s.hint}
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
         {showZeroIncomeHint && (
           <p className="text-sm text-muted-foreground">{t("dashboard.zeroIncomeHint")}</p>
         )}
+        {renderSummaryCards()}
+        {renderWallets()}
 
-        <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-2 xl:gap-8 2xl:gap-10">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-2 xl:gap-8 2xl:gap-10">
           <Card className="shadow-sm flex flex-col h-full overflow-hidden">
             <CardHeader className="pb-4">
               <CardTitle>{t("dashboard.budgetStatus")}</CardTitle>

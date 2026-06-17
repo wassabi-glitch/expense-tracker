@@ -15,9 +15,81 @@ export {
 export { getHealth } from "./api/health";
 export { getCurrentUser, togglePremium, upsertOnboardingProfile, updateBudgetRolloverPreference } from "./api/users";
 export { getCategories } from "./api/meta";
-export { getBudgets, createBudget, updateBudget, deleteBudget } from "./api/budgets";
-export { getExpenses, deleteExpense, createExpense, updateExpense, exportExpensesCsv } from "./api/expenses";
-export { getRecurringExpenses, createRecurringExpense, updateRecurringExpense, deleteRecurringExpense, patchRecurringActive } from "./api/recurring";
+export {
+    getBudgets,
+    getBudgetDetail,
+    getBudgetMonthSummary,
+    getBudgetExpectedIncomes,
+    getBudgetSubcategories,
+    reallocateBudget,
+    createBudgetExpectedIncome,
+    updateBudgetExpectedIncome,
+    deleteBudgetExpectedIncome,
+    createBudgetSubcategory,
+    updateBudgetSubcategory,
+    reallocateBudgetSubcategory,
+    deleteBudgetSubcategory,
+    createBudget,
+    updateBudget,
+    deleteBudget,
+} from "./api/budgets";
+export {
+    getProjects,
+    createProject,
+    updateProject,
+    createProjectCategoryLimit,
+    updateProjectCategoryLimit,
+    deleteProjectCategoryLimit,
+    getProjectSubcategories,
+    createProjectSubcategory,
+    updateProjectSubcategory,
+    deleteProjectSubcategory,
+} from "./api/projects";
+export {
+    getExpenses,
+    getExpenseDetail,
+    deleteExpense,
+    createExpense,
+    updateExpense,
+    exportExpensesCsv,
+    refundExpense,
+    splitExpense,
+    markExpenseAsAsset,
+    markExpenseAsRecurring,
+    getExpenseMergeGroups,
+    createExpenseMergeGroup,
+    addExpensesToMergeGroup,
+    removeExpenseFromMergeGroup,
+} from "./api/expenses";
+export {
+    getActiveSessionDraft,
+    createSessionDraft,
+    updateSessionDraft,
+    pauseSessionDraft,
+    resumeSessionDraft,
+    abandonSessionDraft,
+    addSessionDraftItem,
+    updateSessionDraftItem,
+    deleteSessionDraftItem,
+    addSessionWalletAllocation,
+    updateSessionWalletAllocation,
+    deleteSessionWalletAllocation,
+    addSessionDraftSplit,
+    updateSessionDraftSplit,
+    deleteSessionDraftSplit,
+    finalizeSessionDraft,
+} from "./api/sessionDrafts";
+export {
+    getRecurringExpenses,
+    createRecurringExpense,
+    updateRecurringExpense,
+    deleteRecurringExpense,
+    patchRecurringActive,
+    skipRecurringOccurrence,
+    payNowRecurring,
+    changeRecurringWallet,
+    getRecurringEvents
+} from "./api/recurring";
 export { getThisMonthStats, getDashboardSummary, getDailyTrend, getAnalyticsHistory, getMonthToDateTrend, getCategoryBreakdown } from "./api/analytics";
 export {
     getIncomeSources,
@@ -29,7 +101,78 @@ export {
     createIncomeEntry,
     updateIncomeEntry,
     deleteIncomeEntry,
+    getMoneyIn,
 } from "./api/income";
-export { getSavingsSummary, depositToSavings, withdrawFromSavings } from "./api/savings";
-export { getGoals, createGoal, updateGoal, contributeToGoal, returnFromGoal, archiveGoal, restoreGoal, deleteGoal } from "./api/goals";
+export { getSavingsSummary } from "./api/savings";
+export {
+    getGoals,
+    getGoalFundingSummary,
+    getGoalActivity,
+    createGoal,
+    updateGoal,
+    contributeToGoal,
+    returnFromGoal,
+    consumeGoalAllocation,
+    moveGoalFunding,
+    useReserveGoal,
+    recordGoalPurchase,
+    recordGoalDebtPayment,
+    graduateGoalToProject,
+    releaseGoalToProject,
+    archiveGoal,
+    restoreGoal,
+    deleteGoal,
+} from "./api/goals";
 export { getNotifications, getUnreadCount, markNotificationsRead, markAllNotificationsRead, deleteNotification } from "./api/notifications";
+export {
+    getDebtsSummary,
+    getDebts,
+    getDebt,
+    getDebtDetails,
+    getDebtActions,
+    createDebt,
+    updateDebt,
+    deleteDebt,
+    getDebtPayments,
+    payWalletBackedObligation,
+    recordDebtPayment,
+    recordPayment,
+    updatePayment,
+    deleteTransaction,
+    addDebtCharge,
+    addCharge,
+    forgiveDebt,
+    forgiveDebtAmount,
+    settleDebt,
+    adjustDebtBalance,
+    reverseDebtLedgerEntry,
+    updateDebtFormalDetails,
+    generateInstallments,
+} from "./api/debts";
+export {
+    getInstallmentSummary,
+    getInstallmentPlans,
+    getInstallmentPlan,
+    getInstallmentPlanDetails,
+    createInstallmentPlan,
+    recordInstallmentPayment,
+    markInstallmentPaymentPaid,
+    writeOffInstallmentPayment,
+    undoInstallmentPaymentWriteOff,
+    undoLatestInstallmentPayment,
+    addInstallmentCharge,
+    deleteInstallmentPlan,
+} from "./api/installments";
+export {
+    getWallets,
+    getWalletTransactions,
+    createWallet,
+    updateWallet,
+    deleteWallet,
+    transferFunds,
+    setDefaultWallet,
+    recordWalletFee,
+    recordWalletInterest,
+    reconcileWalletBalance,
+} from "./api/wallets";
+export { getAssets, getAsset, createAsset, updateAsset, sellAsset, giftAsset, disposeAsset, markAssetLost } from "./api/assets";

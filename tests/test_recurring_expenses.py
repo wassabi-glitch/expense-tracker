@@ -1,13 +1,11 @@
 import pytest
 from datetime import date
 
-from tests.helpers import create_user_and_token, create_budget
+from tests.helpers import create_user_and_token, create_budget, user_timezone_today
 from app.main import app
 from app.session import get_db
 from app import models
 from app.scheduler import process_due_recurring_expenses
-
-pytestmark = pytest.mark.skip(reason="Temporarily disabled due to scheduler deadlock in CI")
 
 def _make_user_premium(email: str):
     override_db_factory = app.dependency_overrides.get(get_db)
@@ -35,6 +33,63 @@ def _get_test_db():
     db = next(db_gen)
     return db_gen, db
 
+
+def _default_wallet_id(email: str) -> int:
+    db_gen, db = _get_test_db()
+    try:
+        user = db.query(models.User).filter(models.User.email == email).first()
+        assert user is not None
+        wallet = db.query(models.Wallet).filter(
+            models.Wallet.owner_id == user.id,
+            models.Wallet.is_default == True,  # noqa: E712
+        ).first()
+        assert wallet is not None
+        return int(wallet.id)
+    finally:
+        db.close()
+        try:
+            next(db_gen)
+        except StopIteration:
+            pass
+
+
+def _create_recurring_row(
+    email: str,
+    *,
+    title: str = "Projection seed",
+    amount: int = 1000,
+    frequency: models.RecurringFrequency = models.RecurringFrequency.MONTHLY,
+    next_due_date: date | None = None,
+) -> int:
+    db_gen, db = _get_test_db()
+    try:
+        user = db.query(models.User).filter(models.User.email == email).first()
+        assert user is not None
+        due_date = next_due_date or user_timezone_today()
+        row = models.RecurringExpense(
+            owner_id=user.id,
+            title=title,
+            amount=amount,
+            category=models.ExpenseCategory.UTILITIES,
+            frequency=frequency,
+            start_date=due_date,
+            next_due_date=due_date,
+            status=models.RecurringStatus.ACTIVE,
+            wallet_id=_default_wallet_id(email),
+            cycle_behavior=models.CycleBehavior.FIXED,
+            original_due_day=due_date.day,
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return int(row.id)
+    finally:
+        db.close()
+        try:
+            next(db_gen)
+        except StopIteration:
+            pass
+
 def test_create_recurring_expense_premium(client):
     email = "req_usr@example.com"
     headers = create_user_and_token(client, "req_usr", email, "Password123!")
@@ -47,7 +102,8 @@ def test_create_recurring_expense_premium(client):
         "category": "Entertainment",
         "description": "Monthly subscription",
         "frequency": "MONTHLY",
-        "start_date": date.today().isoformat()
+        "start_date": date.today().isoformat(),
+        "wallet_id": _default_wallet_id(email),
     }
     
     res = client.post("/recurring/", json=payload, headers=headers)
@@ -57,7 +113,7 @@ def test_create_recurring_expense_premium(client):
     assert data["title"] == "Netflix"
     assert data["amount"] == 15000
     assert data["frequency"] == "MONTHLY"
-    assert data["is_active"] is True
+    assert data["status"] == "ACTIVE"
     assert isinstance(data["days_until_due"], int)
 
 def test_get_recurring_expenses_premium(client):
@@ -72,7 +128,8 @@ def test_get_recurring_expenses_premium(client):
             "amount": 1000,
             "category": "Utilities",
             "frequency": "MONTHLY",
-            "start_date": date.today().isoformat()
+            "start_date": date.today().isoformat(),
+            "wallet_id": _default_wallet_id(email),
         }, headers=headers)
         
     res = client.get("/recurring/", headers=headers)
@@ -92,7 +149,8 @@ def test_update_recurring_expense(client):
         "amount": 1000,
         "category": "Entertainment",
         "frequency": "MONTHLY",
-        "start_date": date.today().isoformat()
+        "start_date": date.today().isoformat(),
+        "wallet_id": _default_wallet_id(email),
     }, headers=headers)
     req_id = res.json()["id"]
     
@@ -121,13 +179,14 @@ def test_patch_recurring_expense_status(client):
         "amount": 5000,
         "category": "Utilities",
         "frequency": "MONTHLY",
-        "start_date": date.today().isoformat()
+        "start_date": date.today().isoformat(),
+        "wallet_id": _default_wallet_id(email),
     }, headers=headers)
     req_id = res.json()["id"]
     
-    patch_res = client.patch(f"/recurring/{req_id}/active", json={"is_active": False}, headers=headers)
+    patch_res = client.patch(f"/recurring/{req_id}/toggle", json={"status": "DISABLED"}, headers=headers)
     assert patch_res.status_code == 200
-    assert patch_res.json()["is_active"] is False
+    assert patch_res.json()["status"] == "DISABLED"
     assert isinstance(patch_res.json()["days_until_due"], int)
 
 def test_delete_recurring_expense(client):
@@ -141,7 +200,8 @@ def test_delete_recurring_expense(client):
         "amount": 5000,
         "category": "Utilities",
         "frequency": "MONTHLY",
-        "start_date": date.today().isoformat()
+        "start_date": date.today().isoformat(),
+        "wallet_id": _default_wallet_id(email),
     }, headers=headers)
     assert res.status_code == 201
     req_id = res.json()["id"]
@@ -165,7 +225,8 @@ def test_free_user_forbidden(client):
         "amount": 100,
         "category": "Utilities",
         "frequency": "MONTHLY",
-        "start_date": date.today().isoformat()
+        "start_date": date.today().isoformat(),
+        "wallet_id": _default_wallet_id(email),
     }, headers=headers)
     assert res.status_code == 403
 
@@ -182,6 +243,7 @@ def test_create_recurring_auto_creates_fallback_budget_when_no_history(client):
         "category": "Utilities",
         "frequency": "MONTHLY",
         "start_date": today.isoformat(),
+        "wallet_id": _default_wallet_id(email),
     }, headers=headers)
     assert res.status_code == 201
 
@@ -206,6 +268,7 @@ def test_create_recurring_auto_creates_fallback_budget_when_no_history(client):
             pass
 
 
+@pytest.mark.skip(reason="Temporarily disabled due to scheduler deadlock in CI")
 def test_scheduler_recreates_budget_after_manual_budget_and_expense_deletion(client):
     email = "req_recreate_after_delete@example.com"
     headers = create_user_and_token(client, "req_recreate_after_delete", email, "Password123!")
@@ -218,12 +281,17 @@ def test_scheduler_recreates_budget_after_manual_budget_and_expense_deletion(cli
         "category": "Utilities",
         "frequency": "DAILY",
         "start_date": today.isoformat(),
+        "wallet_id": _default_wallet_id(email),
     }, headers=headers)
     assert res.status_code == 201
 
     exp_list = client.get("/expenses/", headers=headers)
     assert exp_list.status_code == 200
-    items = exp_list.json().get("items", [])
+    items = [
+        item["expense"]
+        for item in exp_list.json().get("items", [])
+        if item.get("type") == "EXPENSE" and item.get("expense")
+    ]
     assert len(items) >= 1
     expense_id = items[0]["id"]
     del_exp = client.delete(f"/expenses/{expense_id}", headers=headers)
@@ -257,11 +325,18 @@ def test_scheduler_recreates_budget_after_manual_budget_and_expense_deletion(cli
         assert recreated_budget.auto_created is True
         assert recreated_budget.monthly_limit == 50000
 
-        recreated_expense_count = db.query(models.Expense).filter(
-            models.Expense.owner_id == user.id,
-            models.Expense.category == models.ExpenseCategory.UTILITIES,
-            models.Expense.date == today,
-        ).count()
+        recreated_expense_count = (
+            db.query(models.FinancialEvent)
+            .join(models.EntityLedger, models.EntityLedger.event_id == models.FinancialEvent.id)
+            .filter(
+                models.FinancialEvent.owner_id == user.id,
+                models.FinancialEvent.event_type == models.TransactionType.EXPENSE,
+                models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+                models.EntityLedger.category == models.ExpenseCategory.UTILITIES,
+                models.FinancialEvent.date == today,
+            )
+            .count()
+        )
         assert recreated_expense_count == 1
     finally:
         db.close()
@@ -269,3 +344,131 @@ def test_scheduler_recreates_budget_after_manual_budget_and_expense_deletion(cli
             next(db_gen)
         except StopIteration:
             pass
+
+
+def test_recurring_default_projections_match_frequency_horizons(client):
+    email = "req_projection_defaults@example.com"
+    headers = create_user_and_token(client, "req_projection_defaults", email, "Password123!")
+    _make_user_premium(email)
+    today = user_timezone_today()
+    daily_id = _create_recurring_row(
+        email,
+        title="Daily coffee",
+        amount=10_000,
+        frequency=models.RecurringFrequency.DAILY,
+        next_due_date=today,
+    )
+    monthly_id = _create_recurring_row(
+        email,
+        title="Monthly software",
+        amount=90_000,
+        frequency=models.RecurringFrequency.MONTHLY,
+        next_due_date=today,
+    )
+
+    daily = client.get(f"/recurring/{daily_id}/projections", headers=headers)
+    assert daily.status_code == 200, daily.text
+    daily_defaults = [
+        (item["unit"], item["value"], item["occurrence_count"], item["total_amount"])
+        for item in daily.json()["default_projections"]
+    ]
+    assert daily_defaults[:2] == [
+        ("days", 7, 7, 70_000),
+        ("days", 14, 14, 140_000),
+    ]
+    assert [(unit, value) for unit, value, _count, _total in daily_defaults] == [
+        ("days", 7),
+        ("days", 14),
+        ("months", 1),
+        ("months", 3),
+        ("months", 6),
+        ("months", 12),
+    ]
+
+    monthly = client.get(f"/recurring/{monthly_id}/projections", headers=headers)
+    assert monthly.status_code == 200, monthly.text
+    monthly_defaults = [
+        (item["unit"], item["value"], item["occurrence_count"], item["total_amount"])
+        for item in monthly.json()["default_projections"]
+    ]
+    assert monthly_defaults == [
+        ("months", 3, 3, 270_000),
+        ("months", 6, 6, 540_000),
+        ("months", 12, 12, 1_080_000),
+    ]
+
+
+def test_recurring_custom_projection_horizons_can_be_saved_and_previewed(client):
+    email = "req_projection_custom@example.com"
+    headers = create_user_and_token(client, "req_projection_custom", email, "Password123!")
+    _make_user_premium(email)
+    today = user_timezone_today()
+    recurring_id = _create_recurring_row(
+        email,
+        title="Weekly class",
+        amount=25_000,
+        frequency=models.RecurringFrequency.WEEKLY,
+        next_due_date=today,
+    )
+
+    saved = client.put(
+        f"/recurring/{recurring_id}/projection-horizons",
+        json={"horizons": [{"unit": "weeks", "value": 50}]},
+        headers=headers,
+    )
+    assert saved.status_code == 200, saved.text
+    custom = saved.json()["custom_projections"][0]
+    assert custom["source"] == "custom"
+    assert custom["unit"] == "weeks"
+    assert custom["value"] == 50
+    assert custom["label"] == "50 weeks"
+    assert custom["horizon_start"] == today.isoformat()
+    assert custom["occurrence_count"] == 50
+    assert custom["total_amount"] == 1_250_000
+
+    fetched = client.get(f"/recurring/{recurring_id}/projections", headers=headers)
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["custom_projections"][0]["unit"] == "weeks"
+    assert fetched.json()["custom_projections"][0]["value"] == 50
+
+    preview = client.post(
+        f"/recurring/{recurring_id}/projections/preview",
+        json={"horizons": [{"unit": "months", "value": 6}]},
+        headers=headers,
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["ad_hoc_projections"][0]["source"] == "ad_hoc"
+    assert preview.json()["ad_hoc_projections"][0]["unit"] == "months"
+
+    still_saved = client.get(f"/recurring/{recurring_id}/projections", headers=headers)
+    assert still_saved.json()["custom_projections"][0]["unit"] == "weeks"
+
+
+def test_recurring_custom_projection_validation_allows_practical_caps(client):
+    email = "req_projection_caps@example.com"
+    headers = create_user_and_token(client, "req_projection_caps", email, "Password123!")
+    _make_user_premium(email)
+    today = user_timezone_today()
+    daily_id = _create_recurring_row(
+        email,
+        title="Daily habit",
+        amount=1_000,
+        frequency=models.RecurringFrequency.DAILY,
+        next_due_date=today,
+    )
+
+    allowed = client.post(
+        f"/recurring/{daily_id}/projections/preview",
+        json={"horizons": [{"unit": "days", "value": 299}]},
+        headers=headers,
+    )
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["ad_hoc_projections"][0]["occurrence_count"] == 299
+
+    rejected = client.post(
+        f"/recurring/{daily_id}/projections/preview",
+        json={"horizons": [{"unit": "days", "value": 5000}]},
+        headers=headers,
+    )
+    assert rejected.status_code == 400
+    assert rejected.json()["detail"] == "recurring.projection_horizon_too_large"

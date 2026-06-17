@@ -5,7 +5,10 @@ import {
     deleteRecurringExpense,
     patchRecurringActive,
     updateRecurringExpense,
-} from "@/lib/api";
+    skipRecurringOccurrence,
+    payNowRecurring,
+    changeRecurringWallet,
+} from "@/lib/api/recurring";
 import { useToast } from "@/lib/context/ToastContext";
 import { formatUzs } from "@/lib/format";
 import { localizeApiError } from "@/lib/errorMessages";
@@ -82,12 +85,82 @@ export function useDeleteRecurringMutation() {
 export function useToggleRecurringMutation() {
     const { t } = useTranslation();
     const toast = useToast();
+    const queryClient = useQueryClient();
 
     return useMutation({
-        mutationFn: ({ id, is_active }) => patchRecurringActive(id, is_active),
+        mutationFn: ({ id, status }) => patchRecurringActive(id, status),
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["recurring", "list"] }),
+                queryClient.invalidateQueries({ queryKey: ["dashboard", "recurring"] }),
+            ]);
+        },
         onError: (error) => {
             const msg = localizeApiError(error.message, t) || error.message;
             toast.error(t("toasts.recurring.failedToToggle"), msg);
+        },
+    });
+}
+
+export function useSkipRecurringMutation() {
+    const { t } = useTranslation();
+    const queryClient = useQueryClient();
+    const toast = useToast();
+
+    return useMutation({
+        mutationFn: skipRecurringOccurrence,
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["recurring", "list"] }),
+                queryClient.invalidateQueries({ queryKey: ["dashboard", "recurring"] }),
+            ]);
+            toast.success(t("toasts.recurring.skipped"));
+        },
+        onError: (error) => {
+            const msg = localizeApiError(error.message, t) || error.message;
+            toast.error(t("toasts.recurring.failedToSkip"), msg);
+        },
+    });
+}
+
+export function usePayNowRecurringMutation() {
+    const { t } = useTranslation();
+    const queryClient = useQueryClient();
+    const toast = useToast();
+
+    return useMutation({
+        mutationFn: payNowRecurring,
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["recurring", "list"] }),
+                queryClient.invalidateQueries({ queryKey: ["dashboard", "recurring"] }),
+                queryClient.invalidateQueries({ queryKey: ["wallets"] }), // Important: wallet balance changed!
+            ]);
+            toast.success(t("toasts.recurring.paidNow"));
+        },
+        onError: (error) => {
+            const msg = localizeApiError(error.message, t) || error.message;
+            toast.error(t("toasts.recurring.failedToPayNow"), msg);
+        },
+    });
+}
+
+export function useChangeRecurringWalletMutation() {
+    const { t } = useTranslation();
+    const queryClient = useQueryClient();
+    const toast = useToast();
+
+    return useMutation({
+        mutationFn: ({ id, walletId }) => changeRecurringWallet(id, walletId),
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["recurring", "list"] }),
+            ]);
+            toast.success(t("toasts.recurring.walletChanged"));
+        },
+        onError: (error) => {
+            const msg = localizeApiError(error.message, t) || error.message;
+            toast.error(t("toasts.recurring.failedToChangeWallet"), msg);
         },
     });
 }

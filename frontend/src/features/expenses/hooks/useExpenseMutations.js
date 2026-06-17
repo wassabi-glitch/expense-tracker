@@ -1,9 +1,150 @@
 import { useTranslation } from "react-i18next";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { createExpense, deleteExpense, updateExpense } from "@/lib/api";
+import {
+    createExpense,
+    deleteExpense,
+    updateExpense,
+    refundExpense,
+    splitExpense,
+    markExpenseAsAsset,
+    markExpenseAsRecurring,
+    createExpenseMergeGroup,
+    addExpensesToMergeGroup,
+    removeExpenseFromMergeGroup,
+} from "@/lib/api";
 import { useToast } from "@/lib/context/ToastContext";
-import { formatUzs } from "@/lib/format";
 import { localizeApiError } from "@/lib/errorMessages";
+
+// ... (keep helper functions)
+
+export function useRefundExpenseMutation() {
+    const { t } = useTranslation();
+    const queryClient = useQueryClient();
+    const toast = useToast();
+
+    return useMutation({
+        mutationFn: (payload) => refundExpense(payload),
+        onSuccess: () => {},
+        onError: (error) => {
+            const msg = localizeApiError(error.message, t) || error.message;
+            toast.error(t("toasts.expense.failedToRefund", { defaultValue: "Failed to Refund" }), msg);
+        },
+        onSettled: async () => {
+            await invalidateExpenseDerivedQueries(queryClient);
+            // Also invalidate wallets as money moved back
+            await queryClient.invalidateQueries({ queryKey: ["wallets"] });
+        },
+    });
+}
+
+export function useSplitExpenseMutation() {
+    const { t } = useTranslation();
+    const queryClient = useQueryClient();
+    const toast = useToast();
+
+    return useMutation({
+        mutationFn: (payload) => splitExpense(payload),
+        onError: (error) => {
+            const msg = localizeApiError(error.message, t) || error.message;
+            toast.error(t("toasts.expense.failedToUpdate", { defaultValue: "Failed to update expense" }), msg);
+        },
+        onSettled: async () => {
+            await invalidateExpenseDerivedQueries(queryClient);
+        },
+    });
+}
+
+export function useMarkExpenseAsAssetMutation() {
+    const { t } = useTranslation();
+    const queryClient = useQueryClient();
+    const toast = useToast();
+
+    return useMutation({
+        mutationFn: (payload) => markExpenseAsAsset(payload),
+        onError: (error) => {
+            const msg = localizeApiError(error.message, t) || error.message;
+            toast.error(t("assets.toastCreateFailed", { defaultValue: "Failed to create asset" }), msg);
+        },
+        onSettled: async () => {
+            await Promise.all([
+                invalidateExpenseDerivedQueries(queryClient),
+                queryClient.invalidateQueries({ queryKey: ["assets"] }),
+            ]);
+        },
+    });
+}
+
+export function useMarkExpenseAsRecurringMutation() {
+    const { t } = useTranslation();
+    const queryClient = useQueryClient();
+    const toast = useToast();
+
+    return useMutation({
+        mutationFn: (payload) => markExpenseAsRecurring(payload),
+        onError: (error) => {
+            const msg = localizeApiError(error.message, t) || error.message;
+            toast.error(t("toasts.recurring.failedToCreate", { defaultValue: "Failed to create recurring expense" }), msg);
+        },
+        onSettled: async () => {
+            await Promise.all([
+                invalidateExpenseDerivedQueries(queryClient),
+                queryClient.invalidateQueries({ queryKey: ["recurring", "list"] }),
+                queryClient.invalidateQueries({ queryKey: ["dashboard", "recurring"] }),
+            ]);
+        },
+    });
+}
+
+export function useCreateExpenseMergeGroupMutation() {
+    const { t } = useTranslation();
+    const queryClient = useQueryClient();
+    const toast = useToast();
+
+    return useMutation({
+        mutationFn: (payload) => createExpenseMergeGroup(payload),
+        onError: (error) => {
+            const msg = localizeApiError(error.message, t) || error.message;
+            toast.error(t("expenses.mergeFailed", { defaultValue: "Failed to create merge group" }), msg);
+        },
+        onSettled: async () => {
+            await invalidateExpenseDerivedQueries(queryClient);
+        },
+    });
+}
+
+export function useAddExpensesToMergeGroupMutation() {
+    const { t } = useTranslation();
+    const queryClient = useQueryClient();
+    const toast = useToast();
+
+    return useMutation({
+        mutationFn: ({ groupId, payload }) => addExpensesToMergeGroup(groupId, payload),
+        onError: (error) => {
+            const msg = localizeApiError(error.message, t) || error.message;
+            toast.error(t("expenses.mergeFailed", { defaultValue: "Failed to update merge group" }), msg);
+        },
+        onSettled: async () => {
+            await invalidateExpenseDerivedQueries(queryClient);
+        },
+    });
+}
+
+export function useRemoveExpenseFromMergeGroupMutation() {
+    const { t } = useTranslation();
+    const queryClient = useQueryClient();
+    const toast = useToast();
+
+    return useMutation({
+        mutationFn: ({ groupId, expenseId }) => removeExpenseFromMergeGroup(groupId, expenseId),
+        onError: (error) => {
+            const msg = localizeApiError(error.message, t) || error.message;
+            toast.error(t("expenses.mergeFailed", { defaultValue: "Failed to update merge group" }), msg);
+        },
+        onSettled: async () => {
+            await invalidateExpenseDerivedQueries(queryClient);
+        },
+    });
+}
 
 function toAmount(value) {
     const n = Number(value);
@@ -48,9 +189,12 @@ async function invalidateExpenseDerivedQueries(queryClient) {
     await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["expenses"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["wallets"] }),
         queryClient.invalidateQueries({ queryKey: ["analytics"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
         queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+        queryClient.invalidateQueries({ queryKey: ["debts"] }),
     ]);
 }
 
@@ -74,12 +218,7 @@ export function useCreateExpenseMutation() {
             const msg = localizeApiError(error.message, t) || error.message;
             toast.error(t("toasts.expense.failedToCreate"), msg);
         },
-        onSuccess: (data) => {
-            toast.success(
-                t("toasts.expense.created"),
-                t("toasts.expense.created_detail", { title: data.title, amount: formatUzs(data.amount) })
-            );
-        },
+        onSuccess: () => {},
         onSettled: async () => {
             await invalidateExpenseDerivedQueries(queryClient);
         },
@@ -93,13 +232,9 @@ export function useUpdateExpenseMutation() {
 
     return useMutation({
         mutationFn: ({ id, payload }) => updateExpense(id, payload),
-        onMutate: async ({ id, payload }) => {
+        onMutate: async () => {
             await queryClient.cancelQueries({ queryKey: ["dashboard", "summary"] });
             const previousSummaries = queryClient.getQueriesData({ queryKey: ["dashboard", "summary"] });
-            const previousAmount = findExpenseAmountInCache(queryClient, id);
-            const nextAmount = toAmount(payload?.amount);
-            const deltaSpent = previousAmount === null ? 0 : nextAmount - previousAmount;
-            applySummaryDelta(queryClient, deltaSpent);
             return { previousSummaries };
         },
         onError: (error, _variables, context) => {
@@ -109,12 +244,7 @@ export function useUpdateExpenseMutation() {
             const msg = localizeApiError(error.message, t) || error.message;
             toast.error(t("toasts.expense.failedToUpdate"), msg);
         },
-        onSuccess: (data) => {
-            toast.success(
-                t("toasts.expense.updated"),
-                t("toasts.expense.updated_detail", { title: data.title, amount: formatUzs(data.amount) })
-            );
-        },
+        onSuccess: () => {},
         onSettled: async () => {
             await invalidateExpenseDerivedQueries(queryClient);
         },
@@ -143,9 +273,7 @@ export function useDeleteExpenseMutation() {
             const msg = localizeApiError(error.message, t) || error.message;
             toast.error(t("toasts.expense.failedToDelete"), msg);
         },
-        onSuccess: () => {
-            toast.success(t("toasts.expense.deleted"));
-        },
+        onSuccess: () => {},
         onSettled: async () => {
             await invalidateExpenseDerivedQueries(queryClient);
         },

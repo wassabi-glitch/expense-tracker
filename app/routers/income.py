@@ -3,12 +3,15 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
+from app.redis_rate_limiter import consume_token_bucket
+from app.timezone import get_effective_user_timezone, today_in_tz
 from .. import models, oauth2, schemas
 from ..session import get_db
-from app.timezone import get_effective_user_timezone, today_in_tz
-from app.redis_rate_limiter import consume_token_bucket
+from ..services.debt_service import reconcile_debt
+from ..services.wallet_service import WalletService
+from .wallets import _get_owned_wallet_or_404
 
 INCOME_SOURCE_LIMIT = 20
 INCOME_ENTRY_MONTH_LIMIT = 300
@@ -20,6 +23,19 @@ INCOME_ENTRY_WRITE_REFILL_RATE = 20 / 60
 router = APIRouter(
     prefix="/income",
     tags=["Income"],
+)
+
+money_in_router = APIRouter(
+    prefix="/money-in",
+    tags=["Money In"],
+)
+
+MONEY_IN_EVENT_TYPES = (
+    models.TransactionType.INCOME,
+    models.TransactionType.REFUND,
+    models.TransactionType.DEBT_SETTLEMENT,
+    models.TransactionType.ADJUSTMENT,
+    models.TransactionType.NEUTRAL_FLOW,
 )
 
 
@@ -89,15 +105,210 @@ def _ensure_source_belongs_to_user(db: Session, user_id: int, source_id: int | N
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="income.source_inactive")
 
 
-def _get_owned_entry_or_404(db: Session, user_id: int, entry_id: int) -> models.IncomeEntry:
-    entry = (
-        db.query(models.IncomeEntry)
+def _income_event_query(db: Session, user_id: int):
+    return (
+        db.query(models.FinancialEvent)
+        .options(
+            selectinload(models.FinancialEvent.wallet_legs).selectinload(models.WalletLedger.wallet),
+            selectinload(models.FinancialEvent.entity_legs).selectinload(models.EntityLedger.income_source),
+        )
         .filter(
-            models.IncomeEntry.id == entry_id,
-            models.IncomeEntry.owner_id == user_id,
+            models.FinancialEvent.owner_id == user_id,
+            models.FinancialEvent.event_type == models.TransactionType.INCOME,
+            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+        )
+    )
+
+
+def _primary_income_entity_leg(event: models.FinancialEvent) -> models.EntityLedger | None:
+    for leg in event.entity_legs:
+        if leg.income_source_id is not None:
+            return leg
+    return event.entity_legs[0] if event.entity_legs else None
+
+
+def _income_amount(event: models.FinancialEvent) -> int:
+    return int(sum(max(0, int(leg.amount or 0)) for leg in event.wallet_legs))
+
+
+def _income_wallet_allocations_out(event: models.FinancialEvent) -> list[schemas.IncomeWalletAllocationOut]:
+    return [
+        schemas.IncomeWalletAllocationOut(
+            wallet_id=int(leg.wallet_id),
+            amount=int(leg.amount or 0),
+            wallet=schemas.WalletOut.model_validate(leg.wallet) if leg.wallet else None,
+        )
+        for leg in event.wallet_legs
+        if int(leg.amount or 0) > 0
+    ]
+
+
+def _income_primary_wallet_id(event: models.FinancialEvent) -> int | None:
+    positive_legs = [leg for leg in event.wallet_legs if int(leg.amount or 0) > 0]
+    return int(positive_legs[0].wallet_id) if len(positive_legs) == 1 else None
+
+
+def _build_income_entry_out(event: models.FinancialEvent) -> schemas.IncomeEntryOut:
+    entity_leg = _primary_income_entity_leg(event)
+    return schemas.IncomeEntryOut(
+        id=event.id,
+        owner_id=event.owner_id,
+        amount=_income_amount(event),
+        date=event.date,
+        note=event.description,
+        source_id=entity_leg.income_source_id if entity_leg else None,
+        wallet_id=_income_primary_wallet_id(event),
+        wallet_allocations=_income_wallet_allocations_out(event),
+        created_at=event.created_at,
+        updated_at=event.created_at,
+    )
+
+
+def _default_wallet_or_400(db: Session, user_id: int) -> models.Wallet:
+    wallet = (
+        db.query(models.Wallet)
+        .filter(
+            models.Wallet.owner_id == user_id,
+            models.Wallet.is_default == True,
         )
         .first()
     )
+    if wallet is None:
+        wallet = db.query(models.Wallet).filter(models.Wallet.owner_id == user_id).first()
+    if wallet is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="wallets.at_least_one_required")
+    return wallet
+
+
+def _resolve_income_wallet_allocations(
+    db: Session,
+    user_id: int,
+    *,
+    amount: int,
+    wallet_id: int | None,
+    wallet_allocations: list[schemas.IncomeWalletAllocationIn],
+    existing_event: models.FinancialEvent | None = None,
+) -> list[tuple[models.Wallet, int]]:
+    if wallet_allocations:
+        requested = [(int(item.wallet_id), int(item.amount)) for item in wallet_allocations]
+    elif wallet_id is not None:
+        requested = [(int(wallet_id), int(amount))]
+    elif existing_event is not None:
+        existing_positive = [
+            (int(leg.wallet_id), int(leg.amount or 0))
+            for leg in existing_event.wallet_legs
+            if int(leg.amount or 0) > 0
+        ]
+        if len(existing_positive) != 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="income.wallet_allocations_required_for_complex_entry",
+            )
+        requested = [(existing_positive[0][0], int(amount))]
+    else:
+        requested = [(int(_default_wallet_or_400(db, user_id).id), int(amount))]
+
+    if not requested:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="income.wallet_allocations_required")
+
+    allocation_total = sum(item_amount for _, item_amount in requested)
+    if allocation_total != int(amount):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="income.wallet_allocation_total_mismatch")
+
+    seen_wallet_ids: set[int] = set()
+    resolved: list[tuple[models.Wallet, int]] = []
+    for requested_wallet_id, requested_amount in requested:
+        if requested_wallet_id in seen_wallet_ids:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="income.wallet_allocation_duplicate")
+        seen_wallet_ids.add(requested_wallet_id)
+
+        wallet = _get_owned_wallet_or_404(db, user_id, requested_wallet_id)
+        if not wallet.is_active:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="wallets.archived_locked")
+        resolved.append((wallet, int(requested_amount)))
+
+    return resolved
+
+
+def _record_income_event(
+    db: Session,
+    *,
+    owner_id: int,
+    amount: int,
+    source_id: int | None,
+    note: str | None,
+    income_date: date,
+    wallet_allocations: list[tuple[models.Wallet, int]],
+) -> models.FinancialEvent:
+    event = models.FinancialEvent(
+        owner_id=owner_id,
+        title="Income",
+        description=note,
+        event_type=models.TransactionType.INCOME,
+        date=income_date,
+    )
+    db.add(event)
+    db.flush()
+
+    for wallet, allocation_amount in wallet_allocations:
+        WalletService.adjust_balance(db, wallet.id, int(allocation_amount), models.TransactionType.INCOME)
+        db.add(
+            models.WalletLedger(
+                owner_id=owner_id,
+                event_id=event.id,
+                wallet_id=wallet.id,
+                amount=int(allocation_amount),
+            )
+        )
+
+    db.add(
+        models.EntityLedger(
+            event_id=event.id,
+            amount=int(amount),
+            income_source_id=source_id,
+        )
+    )
+    db.flush()
+    return event
+
+
+def _replace_income_event_legs(
+    db: Session,
+    event: models.FinancialEvent,
+    *,
+    amount: int,
+    source_id: int | None,
+    wallet_allocations: list[tuple[models.Wallet, int]],
+) -> None:
+    for leg in list(event.wallet_legs):
+        WalletService.adjust_balance(db, leg.wallet_id, -int(leg.amount or 0), models.TransactionType.INCOME)
+        db.delete(leg)
+    for leg in list(event.entity_legs):
+        db.delete(leg)
+    db.flush()
+
+    for wallet, allocation_amount in wallet_allocations:
+        WalletService.adjust_balance(db, wallet.id, int(allocation_amount), models.TransactionType.INCOME)
+        db.add(
+            models.WalletLedger(
+                owner_id=event.owner_id,
+                event_id=event.id,
+                wallet_id=wallet.id,
+                amount=int(allocation_amount),
+            )
+        )
+
+    db.add(
+        models.EntityLedger(
+            event_id=event.id,
+            amount=int(amount),
+            income_source_id=source_id,
+        )
+    )
+
+
+def _get_owned_entry_or_404(db: Session, user_id: int, entry_id: int) -> models.FinancialEvent:
+    entry = _income_event_query(db, user_id).filter(models.FinancialEvent.id == entry_id).first()
     if not entry:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="income.entry_not_found")
     return entry
@@ -112,6 +323,224 @@ def _validate_entry_date_in_current_month(entry_date: date, today: date) -> None
         )
 
 
+def _money_in_event_query(db: Session, user_id: int):
+    return (
+        db.query(models.FinancialEvent)
+        .options(
+            selectinload(models.FinancialEvent.wallet_legs).selectinload(models.WalletLedger.wallet),
+            selectinload(models.FinancialEvent.entity_legs).selectinload(models.EntityLedger.income_source),
+        )
+        .filter(
+            models.FinancialEvent.owner_id == user_id,
+            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+            models.FinancialEvent.event_type.in_(MONEY_IN_EVENT_TYPES),
+        )
+    )
+
+
+def _positive_wallet_legs(event: models.FinancialEvent) -> list[models.WalletLedger]:
+    return [leg for leg in event.wallet_legs if int(leg.amount or 0) > 0]
+
+
+def _money_in_amount(event: models.FinancialEvent) -> int:
+    return int(sum(int(leg.amount or 0) for leg in _positive_wallet_legs(event)))
+
+
+def _money_in_wallets_out(event: models.FinancialEvent) -> list[schemas.MoneyInWalletOut]:
+    return [
+        schemas.MoneyInWalletOut(
+            wallet_id=int(leg.wallet_id),
+            wallet_name=leg.wallet.name if leg.wallet else "Wallet",
+            amount=int(leg.amount or 0),
+        )
+        for leg in _positive_wallet_legs(event)
+    ]
+
+
+def _money_in_primary_entity(event: models.FinancialEvent) -> models.EntityLedger | None:
+    for leg in event.entity_legs:
+        if leg.income_source_id is not None or leg.debt_id is not None or leg.installment_plan_id is not None:
+            return leg
+    return event.entity_legs[0] if event.entity_legs else None
+
+
+def _money_in_debt_id(event: models.FinancialEvent) -> int | None:
+    for leg in event.entity_legs:
+        if leg.debt_id is not None:
+            return int(leg.debt_id)
+    return None
+
+
+def _classify_money_in_event(
+    event: models.FinancialEvent,
+    *,
+    asset: models.Asset | None,
+    debt: models.Debt | None,
+) -> tuple[schemas.MoneyInKind, bool, str | None]:
+    if event.event_type == models.TransactionType.REFUND:
+        return schemas.MoneyInKind.RETURNED, False, "expense_refund"
+
+    if event.event_type == models.TransactionType.ADJUSTMENT:
+        return schemas.MoneyInKind.ADJUSTMENT, False, "wallet_adjustment"
+
+    if event.event_type == models.TransactionType.NEUTRAL_FLOW:
+        return schemas.MoneyInKind.RETURNED, False, "neutral_flow"
+
+    if event.event_type == models.TransactionType.DEBT_SETTLEMENT:
+        if event.reference_type == models.ReferenceType.LOAN_DISBURSEMENT:
+            return schemas.MoneyInKind.BORROWED, False, "debt"
+        if debt is not None and debt.debt_type == models.DebtType.OWING and _money_in_amount(event) > 0:
+            return schemas.MoneyInKind.BORROWED, False, "debt"
+        if event.reference_type in (models.ReferenceType.DEBT_INCOME, models.ReferenceType.DEBT_CHARGE):
+            return schemas.MoneyInKind.INCOME, True, "debt"
+        return schemas.MoneyInKind.RETURNED, False, "debt"
+
+    if asset is not None or event.reference_type == models.ReferenceType.ASSET_SALE:
+        return schemas.MoneyInKind.SOLD, False, "asset"
+
+    return schemas.MoneyInKind.INCOME, True, "income"
+
+
+def _build_money_in_item(
+    event: models.FinancialEvent,
+    *,
+    asset: models.Asset | None,
+    debt: models.Debt | None,
+) -> schemas.MoneyInItemOut | None:
+    amount = _money_in_amount(event)
+    if amount <= 0:
+        return None
+
+    entity = _money_in_primary_entity(event)
+    kind, counts_as_income, domain = _classify_money_in_event(event, asset=asset, debt=debt)
+    source_id = int(entity.income_source_id) if entity and entity.income_source_id else None
+    source_name = None
+    if entity and entity.income_source is not None:
+        source_name = entity.income_source.name
+    elif debt is not None:
+        source_name = debt.counterparty_name
+    elif asset is not None:
+        source_name = asset.title
+
+    return schemas.MoneyInItemOut(
+        id=int(event.id),
+        title=event.title,
+        description=event.description,
+        amount=amount,
+        currency="UZS",
+        date=event.date,
+        created_at=event.created_at,
+        kind=kind,
+        counts_as_income=counts_as_income,
+        event_type=event.event_type,
+        reference_type=event.reference_type,
+        source_id=source_id,
+        source_name=source_name,
+        debt_id=int(debt.id) if debt is not None else None,
+        asset_id=int(asset.id) if asset is not None else None,
+        linked_event_id=int(event.linked_event_id) if event.linked_event_id is not None else None,
+        wallet_allocations=_money_in_wallets_out(event),
+        read_only=True,
+        original_domain=domain,
+    )
+
+
+def _money_in_matches_search(item: schemas.MoneyInItemOut, search: str | None) -> bool:
+    needle = (search or "").strip().casefold()
+    if not needle:
+        return True
+
+    haystack = [
+        item.title,
+        item.description,
+        item.source_name,
+        item.kind.value,
+        item.event_type.value if item.event_type else None,
+        str(item.reference_type) if item.reference_type else None,
+        item.original_domain.replace("_", " ") if item.original_domain else None,
+        f"debt {item.debt_id}" if item.debt_id else None,
+        f"asset {item.asset_id}" if item.asset_id else None,
+    ]
+    haystack.extend(wallet.wallet_name for wallet in item.wallet_allocations)
+    return any(needle in str(value).casefold() for value in haystack if value)
+
+
+@money_in_router.get("", response_model=schemas.PaginatedMoneyInOut)
+def list_money_in(
+    limit: int = Query(default=20, ge=1, le=100),
+    skip: int = Query(default=0, ge=0),
+    kind: schemas.MoneyInKind = Query(default=schemas.MoneyInKind.ALL),
+    search: str | None = Query(default=None, max_length=100),
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+):
+    if (start_date is None) ^ (end_date is None):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="money_in.date_range_both_required")
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="money_in.start_after_end")
+
+    query = _money_in_event_query(db, current_user.id)
+    if start_date is not None:
+        query = query.filter(models.FinancialEvent.date >= start_date)
+    if end_date is not None:
+        query = query.filter(models.FinancialEvent.date <= end_date)
+
+    events = query.order_by(models.FinancialEvent.date.desc(), models.FinancialEvent.id.desc()).all()
+
+    sale_event_ids = {int(event.id) for event in events if event.event_type == models.TransactionType.INCOME}
+    assets_by_sale_event_id: dict[int, models.Asset] = {}
+    if sale_event_ids:
+        assets_by_sale_event_id = {
+            int(asset.sale_event_id): asset
+            for asset in db.query(models.Asset)
+            .filter(
+                models.Asset.owner_id == current_user.id,
+                models.Asset.sale_event_id.in_(sale_event_ids),
+            )
+            .all()
+            if asset.sale_event_id is not None
+        }
+
+    debt_ids = {
+        debt_id
+        for event in events
+        for debt_id in [_money_in_debt_id(event)]
+        if debt_id is not None
+    }
+    debts_by_id: dict[int, models.Debt] = {}
+    if debt_ids:
+        debts_by_id = {
+            int(debt.id): debt
+            for debt in db.query(models.Debt)
+            .filter(
+                models.Debt.owner_id == current_user.id,
+                models.Debt.id.in_(debt_ids),
+            )
+            .all()
+        }
+
+    items: list[schemas.MoneyInItemOut] = []
+    for event in events:
+        item = _build_money_in_item(
+            event,
+            asset=assets_by_sale_event_id.get(int(event.id)),
+            debt=debts_by_id.get(_money_in_debt_id(event)),
+        )
+        if item is None:
+            continue
+        if kind != schemas.MoneyInKind.ALL and item.kind != kind:
+            continue
+        if not _money_in_matches_search(item, search):
+            continue
+        items.append(item)
+
+    items.sort(key=lambda item: (item.date, item.created_at, item.id), reverse=True)
+    total = len(items)
+    return schemas.PaginatedMoneyInOut(total=total, items=items[skip:skip + limit])
+
+
 @router.get("/sources", response_model=List[schemas.IncomeSourceOut])
 def list_income_sources(
     include_inactive: bool = Query(default=False),
@@ -121,7 +550,6 @@ def list_income_sources(
     query = db.query(models.IncomeSource).filter(models.IncomeSource.owner_id == current_user.id)
     if not include_inactive:
         query = query.filter(models.IncomeSource.is_active.is_(True))
-    # Stable ordering: created_at ties are possible (same-second inserts), so add id as a tiebreaker.
     return query.order_by(models.IncomeSource.created_at.desc(), models.IncomeSource.id.desc()).all()
 
 
@@ -140,12 +568,10 @@ def create_income_source(
         db.query(func.count(models.IncomeSource.id))
         .filter(models.IncomeSource.owner_id == current_user.id)
         .scalar()
-    ) or 0
+        or 0
+    )
     if int(source_count) >= INCOME_SOURCE_LIMIT:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="income.source_limit_reached",
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="income.source_limit_reached")
 
     existing = (
         db.query(models.IncomeSource)
@@ -158,11 +584,7 @@ def create_income_source(
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="income.source_exists")
 
-    source = models.IncomeSource(
-        owner_id=current_user.id,
-        name=payload.name,
-        is_active=True,
-    )
+    source = models.IncomeSource(owner_id=current_user.id, name=payload.name, is_active=True)
     db.add(source)
     db.commit()
     db.refresh(source)
@@ -251,23 +673,25 @@ def list_income_entries(
     if start_date and end_date and start_date > end_date:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="income.start_after_end")
 
-    query = db.query(models.IncomeEntry).filter(models.IncomeEntry.owner_id == current_user.id)
+    events = _income_event_query(db, current_user.id).all()
+    items: list[schemas.IncomeEntryOut] = []
+
     if source_id is not None:
         _get_owned_source_or_404(db, current_user.id, source_id)
-        query = query.filter(models.IncomeEntry.source_id == source_id)
-    if start_date is not None:
-        query = query.filter(models.IncomeEntry.date >= start_date)
-    if end_date is not None:
-        query = query.filter(models.IncomeEntry.date <= end_date)
 
-    total = query.count()
-    items = (
-        query.order_by(models.IncomeEntry.date.desc(), models.IncomeEntry.created_at.desc())
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
-    return {"total": total, "items": items}
+    for event in events:
+        entry = _build_income_entry_out(event)
+        if source_id is not None and entry.source_id != source_id:
+            continue
+        if start_date is not None and entry.date < start_date:
+            continue
+        if end_date is not None and entry.date > end_date:
+            continue
+        items.append(entry)
+
+    items.sort(key=lambda item: (item.date, item.created_at), reverse=True)
+    total = len(items)
+    return {"total": total, "items": items[skip:skip + limit]}
 
 
 @router.post("/entries", response_model=schemas.IncomeEntryOut, status_code=status.HTTP_201_CREATED)
@@ -288,31 +712,40 @@ def create_income_entry(
     _ensure_source_belongs_to_user(db, current_user.id, payload.source_id)
 
     month_entry_count = (
-        db.query(func.count(models.IncomeEntry.id))
+        db.query(func.count(models.FinancialEvent.id))
         .filter(
-            models.IncomeEntry.owner_id == current_user.id,
-            models.IncomeEntry.date >= current_month_start,
-            models.IncomeEntry.date <= today,
+            models.FinancialEvent.owner_id == current_user.id,
+            models.FinancialEvent.event_type == models.TransactionType.INCOME,
+            models.FinancialEvent.date >= current_month_start,
+            models.FinancialEvent.date <= today,
         )
         .scalar()
-    ) or 0
-    if int(month_entry_count) >= INCOME_ENTRY_MONTH_LIMIT:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="income.entry_month_limit_reached",
-        )
-
-    entry = models.IncomeEntry(
-        owner_id=current_user.id,
-        source_id=payload.source_id,
-        amount=payload.amount,
-        note=payload.note,
-        date=payload.date,
+        or 0
     )
-    db.add(entry)
+    if int(month_entry_count) >= INCOME_ENTRY_MONTH_LIMIT:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="income.entry_month_limit_reached")
+
+    wallet_allocations = _resolve_income_wallet_allocations(
+        db=db,
+        user_id=current_user.id,
+        amount=int(payload.amount),
+        wallet_id=payload.wallet_id,
+        wallet_allocations=payload.wallet_allocations,
+    )
+
+    entry = _record_income_event(
+        db,
+        owner_id=current_user.id,
+        amount=int(payload.amount),
+        source_id=payload.source_id,
+        note=payload.note,
+        income_date=payload.date,
+        wallet_allocations=wallet_allocations,
+    )
+
     db.commit()
-    db.refresh(entry)
-    return entry
+    created = _get_owned_entry_or_404(db, current_user.id, entry.id)
+    return _build_income_entry_out(created)
 
 
 @router.put("/entries/{entry_id}", response_model=schemas.IncomeEntryOut)
@@ -331,14 +764,32 @@ def update_income_entry(
     _ensure_source_belongs_to_user(db, current_user.id, payload.source_id)
     entry = _get_owned_entry_or_404(db, current_user.id, entry_id)
 
-    entry.source_id = payload.source_id
-    entry.amount = payload.amount
-    entry.note = payload.note
+    wallet_allocations = _resolve_income_wallet_allocations(
+        db=db,
+        user_id=current_user.id,
+        amount=int(payload.amount),
+        wallet_id=payload.wallet_id,
+        wallet_allocations=payload.wallet_allocations,
+        existing_event=entry,
+    )
+
+    debt_ids_to_reconcile = {int(leg.debt_id) for leg in entry.entity_legs if leg.debt_id}
+    _replace_income_event_legs(
+        db,
+        entry,
+        amount=int(payload.amount),
+        source_id=payload.source_id,
+        wallet_allocations=wallet_allocations,
+    )
+    entry.description = payload.note
     entry.date = payload.date
 
+    for debt_id in debt_ids_to_reconcile:
+        reconcile_debt(db, debt_id)
+
     db.commit()
-    db.refresh(entry)
-    return entry
+    updated = _get_owned_entry_or_404(db, current_user.id, entry.id)
+    return _build_income_entry_out(updated)
 
 
 @router.delete("/entries/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -352,7 +803,15 @@ def delete_income_entry(
     for k, v in rate_headers.items():
         response.headers[k] = v
     entry = _get_owned_entry_or_404(db, current_user.id, entry_id)
+    debt_ids_to_reconcile = {int(leg.debt_id) for leg in entry.entity_legs if leg.debt_id}
+
+    for wallet_leg in list(entry.wallet_legs):
+        WalletService.adjust_balance(db, wallet_leg.wallet_id, -int(wallet_leg.amount or 0), models.TransactionType.INCOME)
     db.delete(entry)
+
+    for debt_id in debt_ids_to_reconcile:
+        reconcile_debt(db, debt_id)
+
     db.commit()
     response.status_code = status.HTTP_204_NO_CONTENT
     return None

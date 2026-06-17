@@ -17,9 +17,11 @@ export function ConfirmDialog({
     onConfirm,
     confirmText,
     cancelText,
+    confirmVariant = "destructive",
     isConfirming = false,
     confirmDisabled = false,
     error = "",
+    children,
 }) {
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -28,6 +30,7 @@ export function ConfirmDialog({
                     <DialogTitle>{title}</DialogTitle>
                     <DialogDescription>{description}</DialogDescription>
                 </DialogHeader>
+                {children}
                 {error && <p className="text-sm text-red-600">{error}</p>}
                 <DialogFooter>
                     <Button
@@ -40,7 +43,7 @@ export function ConfirmDialog({
                     </Button>
                     <Button
                         type="button"
-                        variant="destructive"
+                        variant={confirmVariant}
                         onClick={onConfirm}
                         disabled={isConfirming || confirmDisabled}
                     >

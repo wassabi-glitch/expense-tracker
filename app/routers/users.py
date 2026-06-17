@@ -24,34 +24,21 @@ router = APIRouter(
 DUMMY_PASSWORD_HASH = utils.hash_password("dummy-password-not-used")
 
 
-def _default_income_sources_for_status(life_status: models.LifeStatus) -> list[str]:
+def _default_income_sources_for_statuses(life_statuses: list[models.LifeStatus]) -> list[str]:
     mapping = {
-        models.LifeStatus.STUDENT: [
-            "Allowance",
-            "Scholarship",
-            "Part-time work",
-        ],
-        models.LifeStatus.EMPLOYED: [
-            "Salary",
-            "Bonus",
-            "Side income",
-        ],
-        models.LifeStatus.SELF_EMPLOYED: [
-            "Client payment",
-            "Freelance work",
-            "Project income",
-        ],
-        models.LifeStatus.BUSINESS_OWNER: [
-            "Business income",
-            "Other revenue",
-        ],
-        models.LifeStatus.UNEMPLOYED: [
-            "Support",
-            "Temporary income",
-            "Other income",
-        ],
+        models.LifeStatus.STUDENT: ["Allowance", "Scholarship", "Part-time work"],
+        models.LifeStatus.EMPLOYED: ["Salary", "Bonus", "Side income"],
+        models.LifeStatus.SELF_EMPLOYED: ["Client payment", "Freelance work", "Project income"],
+        models.LifeStatus.BUSINESS_OWNER: ["Business income", "Other revenue"],
+        models.LifeStatus.UNEMPLOYED: ["Support", "Temporary income", "Other income"],
     }
-    return mapping.get(life_status, ["Other income"])
+    sources = set()
+    for status in life_statuses:
+        sources.update(mapping.get(status, ["Other income"]))
+    
+    if not sources:
+        sources.add("Other income")
+    return list(sources)
 
 
 def build_user_out(user: models.User) -> schemas.UserOut:
@@ -176,6 +163,17 @@ def create_user(
     return build_user_out(new_user)
 
 
+def _sync_user_timezone(db: Session, user: models.User, x_timezone: str | None) -> None:
+    """
+    Compares the browser timezone (from header) with the stored preference.
+    Updates the DB if they differ to ensure background tasks (scheduler) stay accurate.
+    """
+    detected_tz = str(_safe_zoneinfo((x_timezone or "").strip() or None))
+    if detected_tz and user.timezone != detected_tz:
+        user.timezone = detected_tz
+        db.commit()
+
+
 @router.post('/sign-in')
 def login(
     response: Response,
@@ -234,11 +232,8 @@ def login(
 
     ensure_local_identity(db, user)
 
-    # Save the browser timezone so the scheduler can use the correct local date per user
-    detected_tz = str(_safe_zoneinfo((x_timezone or "").strip() or None))
-    if detected_tz and user.timezone != detected_tz:
-        user.timezone = detected_tz
-        db.commit()
+    # Sync timezone preference
+    _sync_user_timezone(db, user, x_timezone)
 
     # 3. Create BOTH tokens
     access_token = oauth2.create_access_token(data={"user_id": user.id})
@@ -252,7 +247,14 @@ def login(
 
 
 @router.get("/me", response_model=schemas.UserOut)
-def get_me(current_user: models.User = Depends(oauth2.get_current_user)):
+def get_me(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    x_timezone: str | None = Header(default=None, alias="X-Timezone"),
+):
+    # Proactive Sync: Update DB if user traveled to a new country
+    _sync_user_timezone(db, current_user, x_timezone)
+    
     return build_user_out(current_user)
 
 
@@ -290,7 +292,10 @@ def upsert_onboarding_profile(
     payload: schemas.UserOnboardingUpsert,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
+    x_timezone: str | None = Header(default=None, alias="X-Timezone"),
 ):
+    # Ensure timezone is captured during initial setup
+    _sync_user_timezone(db, current_user, x_timezone)
     profile = (
         db.query(models.UserProfile)
         .filter(models.UserProfile.user_id == current_user.id)
@@ -300,17 +305,49 @@ def upsert_onboarding_profile(
     if profile is None:
         profile = models.UserProfile(
             user_id=current_user.id,
-            life_status=payload.life_status,
+            life_statuses=payload.life_statuses,
             monthly_income_amount=0,
-            initial_balance=payload.initial_balance,
+            initial_balance=0, # Deprecated
             budget_rollover_enabled=True,
             onboarding_completed_at=datetime.now(timezone.utc),
         )
         db.add(profile)
     else:
-        profile.life_status = payload.life_status
-        profile.initial_balance = payload.initial_balance
+        profile.life_statuses = payload.life_statuses
         profile.onboarding_completed_at = datetime.now(timezone.utc)
+
+    # Wallet Creation
+    # Clear existing if any (re-onboarding) to ensure clean state
+    db.query(models.Wallet).filter(models.Wallet.owner_id == current_user.id).delete()
+    
+    for i, wallet_data in enumerate(payload.wallets):
+        is_val_default = (i == 0)
+        new_wallet = models.Wallet(
+            owner_id=current_user.id,
+            name=wallet_data.name,
+            wallet_type=wallet_data.wallet_type,
+            accounting_type=wallet_data.accounting_type,
+            initial_balance=wallet_data.initial_balance,
+            current_balance=wallet_data.initial_balance,
+            has_overdraft=wallet_data.has_overdraft,
+            overdraft_limit=wallet_data.overdraft_limit,
+            credit_limit=wallet_data.credit_limit,
+            allow_overlimit=wallet_data.allow_overlimit,
+            color=wallet_data.color,
+            currency=wallet_data.currency,
+            can_fund_goals=(
+                False
+                if wallet_data.wallet_type == models.WalletType.CREDIT
+                or wallet_data.accounting_type != models.AccountingType.ASSET
+                else (
+                    bool(wallet_data.can_fund_goals)
+                    if wallet_data.can_fund_goals is not None
+                    else wallet_data.wallet_type == models.WalletType.SAVINGS
+                )
+            ),
+            is_default=is_val_default
+        )
+        db.add(new_wallet)
 
     existing_sources = (
         db.query(models.IncomeSource)
@@ -319,7 +356,7 @@ def upsert_onboarding_profile(
     )
     existing_by_name = {source.name.lower(): source for source in existing_sources}
 
-    for source_name in _default_income_sources_for_status(payload.life_status):
+    for source_name in _default_income_sources_for_statuses(payload.life_statuses):
         existing_source = existing_by_name.get(source_name.lower())
         if existing_source is None:
             db.add(

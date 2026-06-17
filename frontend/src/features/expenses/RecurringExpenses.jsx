@@ -1,10 +1,11 @@
 // Final UI refinement and stability check - v1.0.1
 import * as React from "react";
 import { ActionMenu, ActionMenuItem, ActionMenuDivider } from "@/components/ActionMenu";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     Plus, Trash2, Pencil, MessageSquare, Search,
-    ChevronLeft, ChevronRight, Circle, MoreHorizontal, Crown, FileText
+    ChevronLeft, ChevronRight, Circle, MoreHorizontal, Crown, FileText,
+    SkipForward, Zap, Wallet, History, BarChart3
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -32,10 +33,20 @@ import { useRecurringDataQuery } from "./hooks/useRecurringDataQuery";
 import { useRecurringCategoriesQuery } from "./hooks/useRecurringCategoriesQuery";
 import {
     useCreateRecurringMutation,
+    useUpdateRecurringMutation,
     useDeleteRecurringMutation,
     useToggleRecurringMutation,
-    useUpdateRecurringMutation,
+    useSkipRecurringMutation,
+    usePayNowRecurringMutation,
+    useChangeRecurringWalletMutation
 } from "./hooks/useRecurringMutations";
+import { getWallets } from "@/lib/api";
+import {
+    getRecurringProjections,
+    previewRecurringProjections,
+    saveRecurringProjectionHorizons,
+} from "@/lib/api/recurring";
+import { RecurringHistoryModal } from "./components/RecurringHistoryModal";
 
 import i18n from "../../i18n";
 
@@ -49,6 +60,16 @@ const _formatDisplayDateLocal = (dateStr) => formatDisplayDate(dateStr, _getAppL
 // Title | Category | Frequency | Next Due | Amount | Active | Actions
 const COL = "grid grid-cols-[minmax(0,1.75fr)_minmax(0,1.25fr)_minmax(0,1.05fr)_minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,0.6fr)_minmax(0,0.25fr)] items-center gap-x-2 px-3";
 const EMPTY_ARRAY = [];
+const PROJECTION_UNITS_BY_FREQUENCY = {
+    ONE_TIME: ["occurrences"],
+    DAILY: ["days", "weeks", "months", "years"],
+    WEEKLY: ["weeks", "months", "years"],
+    BIWEEKLY: ["weeks", "months", "years"],
+    MONTHLY: ["months", "years"],
+    QUARTERLY: ["quarters", "months", "years"],
+    SEMI_ANNUALLY: ["half_years", "months", "years"],
+    YEARLY: ["years", "months"],
+};
 
 export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
     const { t } = useTranslation();
@@ -74,6 +95,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
     const [editTitle, setEditTitle] = React.useState("");
     const [editAmount, setEditAmount] = React.useState("");
     const [editCategory, setEditCategory] = React.useState("");
+    const [editWalletId, setEditWalletId] = React.useState("");
     const [editDescription, setEditDescription] = React.useState("");
 
     // Description preview
@@ -81,6 +103,23 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
     const [descTarget, setDescTarget] = React.useState(null);
     const [recurringMenuForId, setRecurringMenuForId] = React.useState(null);
     const [recurringMenuPosition, setRecurringMenuPosition] = React.useState(null);
+
+    // Quick Change Wallet
+    const [changeWalletOpen, setChangeWalletOpen] = React.useState(false);
+    const [changeWalletTarget, setChangeWalletTarget] = React.useState(null);
+    const [newWalletId, setNewWalletId] = React.useState("");
+
+    // History Diary
+    const [historyOpen, setHistoryOpen] = React.useState(false);
+    const [historyTarget, setHistoryTarget] = React.useState(null);
+
+    // Cost projections
+    const [projectionOpen, setProjectionOpen] = React.useState(false);
+    const [projectionTarget, setProjectionTarget] = React.useState(null);
+    const [projectionUnit, setProjectionUnit] = React.useState("months");
+    const [projectionValue, setProjectionValue] = React.useState("6");
+    const [projectionError, setProjectionError] = React.useState("");
+    const [previewRows, setPreviewRows] = React.useState([]);
 
     // Inline toggle saving
     const [togglingId, setTogglingId] = React.useState(null);
@@ -106,6 +145,8 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
     const [addCategory, setAddCategory] = React.useState("");
     const [addFrequency, setAddFrequency] = React.useState("MONTHLY");
     const [addStartDate, setAddStartDate] = React.useState("");
+    const [addWalletId, setAddWalletId] = React.useState("");
+    const [addCycleBehavior, setAddCycleBehavior] = React.useState("FIXED");
     const [addDescription, setAddDescription] = React.useState("");
 
     const [touchedAdd, setTouchedAdd] = React.useState({});
@@ -129,7 +170,23 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
     }, [todayISO]);
     const { userQuery, recurringQuery, isPremium } = useRecurringDataQuery();
     const categoriesQuery = useRecurringCategoriesQuery(isPremium);
+    const walletsQuery = useQuery({ queryKey: ["wallets"], queryFn: getWallets, enabled: isPremium });
+    const projectionQuery = useQuery({
+        queryKey: ["recurring", projectionTarget?.id, "projections"],
+        queryFn: () => getRecurringProjections(projectionTarget.id),
+        enabled: isPremium && projectionOpen && Boolean(projectionTarget?.id),
+    });
+    const previewProjectionMutation = useMutation({
+        mutationFn: ({ id, horizons }) => previewRecurringProjections(id, horizons),
+    });
+    const saveProjectionMutation = useMutation({
+        mutationFn: ({ id, horizons }) => saveRecurringProjectionHorizons(id, horizons),
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: ["recurring", projectionTarget?.id, "projections"] });
+        },
+    });
     const loading = userQuery.isLoading || (isPremium && (recurringQuery.isLoading || categoriesQuery.isLoading));
+    const walletRows = Array.isArray(walletsQuery.data) ? walletsQuery.data : EMPTY_ARRAY;
     
     // Safety check: ensure recurringQuery.data is an array before mapping
     const expenses = Array.isArray(recurringQuery.data) ? recurringQuery.data : EMPTY_ARRAY;
@@ -202,6 +259,9 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
     const editRecurringMutation = useUpdateRecurringMutation();
     const deleteRecurringMutation = useDeleteRecurringMutation();
     const toggleRecurringMutation = useToggleRecurringMutation();
+    const skipMutation = useSkipRecurringMutation();
+    const payNowMutation = usePayNowRecurringMutation();
+    const changeWalletMutation = useChangeRecurringWalletMutation();
 
     const isAdding = addRecurringMutation.isPending;
     const isEditing = editRecurringMutation.isPending;
@@ -218,10 +278,10 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
         const previous = queryClient.getQueryData(["recurring", "list"]) || EMPTY_ARRAY;
         queryClient.setQueryData(
             ["recurring", "list"],
-            previous.map((r) => (r.id === e.id ? { ...r, is_active: newValue } : r)),
+            previous.map((r) => (r.id === e.id ? { ...r, status: newValue ? "ACTIVE" : "DISABLED" } : r)),
         );
         try {
-            await toggleRecurringMutation.mutateAsync({ id: e.id, is_active: newValue });
+            await toggleRecurringMutation.mutateAsync({ id: e.id, status: newValue ? "ACTIVE" : "DISABLED" });
         } catch (err) {
             queryClient.setQueryData(["recurring", "list"], previous);
 
@@ -264,6 +324,12 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
         setActionError(""); setTouchedAdd({});
         setAddTitle(""); setAddAmount(""); setAddCategory("");
         setAddFrequency("MONTHLY"); setAddStartDate(todayISO); setAddDescription("");
+        setAddCycleBehavior("FIXED");
+
+        // Preselect the default wallet automatically
+        const defaultWallet = walletRows.find(w => w.is_default);
+        setAddWalletId(defaultWallet ? String(defaultWallet.id) : "");
+        
         setAddOpen(true);
     };
 
@@ -272,6 +338,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
         setEditTitle(e.title);
         setEditAmount(formatAmountInput(String(e.amount)));
         setEditCategory(e.category);
+        setEditWalletId(e.wallet_id ? String(e.wallet_id) : "");
         setEditDescription(e.description || "");
         setEditOpen(true);
     };
@@ -294,7 +361,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
         const button = event.currentTarget;
         const rect = button instanceof HTMLElement ? button.getBoundingClientRect() : null;
         const menuWidth = 176;
-        const menuHeight = 120;
+        const menuHeight = 168;
         const viewportPadding = 8;
         setRecurringMenuForId((prev) => {
             if (prev === recurringExpense.id) {
@@ -314,8 +381,8 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
     };
 
     const editExpenseParsed = React.useMemo(() => recurringExpenseUpdateFormSchema.safeParse({
-        title: editTitle, amount: editAmount, category: editCategory, description: editDescription,
-    }), [editTitle, editAmount, editCategory, editDescription]);
+        title: editTitle, amount: editAmount, category: editCategory, wallet_id: editWalletId ? Number(editWalletId) : null, description: editDescription,
+    }), [editTitle, editAmount, editCategory, editWalletId, editDescription]);
 
     const editErrors = React.useMemo(() => {
         if (editExpenseParsed.success) return {};
@@ -343,6 +410,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                     title: parsed.data.title,
                     amount: parsed.data.amount,
                     category: parsed.data.category,
+                    wallet_id: parsed.data.wallet_id,
                     description: parsed.data.description ?? null,
                 },
             });
@@ -354,8 +422,11 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
 
     const addExpenseParsed = React.useMemo(() => recurringExpenseFormSchema.safeParse({
         title: addTitle, amount: addAmount, category: addCategory,
-        frequency: addFrequency, start_date: addStartDate, description: addDescription,
-    }), [addTitle, addAmount, addCategory, addFrequency, addStartDate, addDescription]);
+        frequency: addFrequency, start_date: addStartDate, 
+        wallet_id: addWalletId ? Number(addWalletId) : null, 
+        cycle_behavior: addCycleBehavior,
+        description: addDescription,
+    }), [addTitle, addAmount, addCategory, addFrequency, addStartDate, addWalletId, addCycleBehavior, addDescription]);
 
     const addErrors = React.useMemo(() => {
         if (addExpenseParsed.success) return {};
@@ -380,7 +451,9 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
             await addRecurringMutation.mutateAsync({
                 title: parsed.data.title, amount: parsed.data.amount,
                 category: parsed.data.category, frequency: parsed.data.frequency,
-                start_date: parsed.data.start_date, description: parsed.data.description ?? null,
+                start_date: parsed.data.start_date, wallet_id: parsed.data.wallet_id,
+                cycle_behavior: parsed.data.cycle_behavior,
+                description: parsed.data.description ?? null,
             });
             setAddOpen(false);
         } catch (e) {
@@ -391,8 +464,126 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
         }
     };
 
+    const handleSkip = async (id) => {
+        try {
+            await skipMutation.mutateAsync(id);
+            setRecurringMenuForId(null);
+        } catch (e) {
+            setError(localizeApiError(e?.message, t) || e?.message || t("recurring.skipFailed"));
+        }
+    };
+
+    const handlePayNow = async (id) => {
+        try {
+            await payNowMutation.mutateAsync(id);
+            setRecurringMenuForId(null);
+        } catch (e) {
+            setError(localizeApiError(e?.message, t) || e?.message || t("recurring.payNowFailed"));
+        }
+    };
+
+    const handleChangeWallet = async () => {
+        if (!changeWalletTarget || !newWalletId) return;
+        try {
+            await changeWalletMutation.mutateAsync({ 
+                id: changeWalletTarget.id, 
+                walletId: Number(newWalletId) 
+            });
+            setChangeWalletOpen(false);
+            setChangeWalletTarget(null);
+        } catch (e) {
+            setError(localizeApiError(e?.message, t) || e?.message || t("recurring.changeWalletFailed"));
+        }
+    };
+
+    const openChangeWallet = (e) => {
+        setChangeWalletTarget(e);
+        setNewWalletId(e.wallet_id ? String(e.wallet_id) : "");
+        setChangeWalletOpen(true);
+    };
+
+    const getProjectionUnitOptions = (frequency) => (
+        PROJECTION_UNITS_BY_FREQUENCY[frequency] || ["months", "years"]
+    );
+
+    const openProjections = (e) => {
+        const units = getProjectionUnitOptions(e.frequency);
+        setProjectionTarget(e);
+        setProjectionUnit(units[0] || "months");
+        setProjectionValue(e.frequency === "ONE_TIME" ? "1" : "6");
+        setProjectionError("");
+        setPreviewRows([]);
+        setProjectionOpen(true);
+    };
+
+    const buildProjectionHorizonPayload = () => [{
+        unit: projectionUnit,
+        value: Number(projectionValue),
+    }];
+
+    const handlePreviewProjection = async () => {
+        if (!projectionTarget) return;
+        setProjectionError("");
+        try {
+            const result = await previewProjectionMutation.mutateAsync({
+                id: projectionTarget.id,
+                horizons: buildProjectionHorizonPayload(),
+            });
+            setPreviewRows(result.ad_hoc_projections || []);
+        } catch (e) {
+            setProjectionError(localizeApiError(e?.message, t) || e?.message || t("recurring.projectionFailed", { defaultValue: "Projection failed" }));
+        }
+    };
+
+    const handleSaveProjection = async () => {
+        if (!projectionTarget) return;
+        setProjectionError("");
+        try {
+            await saveProjectionMutation.mutateAsync({
+                id: projectionTarget.id,
+                horizons: buildProjectionHorizonPayload(),
+            });
+            setPreviewRows([]);
+        } catch (e) {
+            setProjectionError(localizeApiError(e?.message, t) || e?.message || t("recurring.projectionSaveFailed", { defaultValue: "Could not save projection" }));
+        }
+    };
+
     const selectTriggerClass = "w-full bg-white text-black dark:bg-black dark:text-white dark:hover:bg-black";
     const selectContentClass = "max-h-[190px] overflow-y-auto bg-white text-black dark:bg-black dark:text-white";
+
+    const renderProjectionRows = (rows) => {
+        if (!Array.isArray(rows) || rows.length === 0) {
+            return (
+                <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+                    {t("recurring.noProjectionRows", { defaultValue: "No projections" })}
+                </div>
+            );
+        }
+        return (
+            <div className="divide-y divide-border rounded-md border border-border">
+                {rows.map((row) => (
+                    <div key={`${row.source}-${row.unit}-${row.value}`} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-3 py-2">
+                        <div className="min-w-0">
+                            <div className="text-sm font-semibold text-foreground">{row.label}</div>
+                            <div className="text-xs text-muted-foreground">
+                                {row.occurrence_count} {t("recurring.occurrences", { defaultValue: "occurrences" })}
+                            </div>
+                        </div>
+                        <CurrencyAmount
+                            value={row.total_amount}
+                            format="display"
+                            className="text-sm font-bold tabular-nums"
+                            currencyClassName="text-xs text-muted-foreground ml-1"
+                        />
+                        <Badge variant="secondary" className="rounded-md text-[10px] uppercase">
+                            {row.source}
+                        </Badge>
+                    </div>
+                ))}
+            </div>
+        );
+    };
 
 
     if (userQuery.isLoading) {
@@ -480,15 +671,25 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                                 <Icon className="h-[50%] w-[50%]" />
                                             </div>
 
-                                            <div className="flex items-center gap-0.5 bg-card/60 backdrop-blur-sm rounded-full border border-border/60 px-0.5 py-0.5 shadow-sm" data-action-popover>
-                                                <Switch
-                                                    size="xs"
-                                                    className="origin-right scale-75 active:scale-[0.7]"
-                                                    checked={e.is_active}
-                                                    onCheckedChange={(val) => handleInlineToggle(e, val)}
-                                                    disabled={toggleCooldown || togglingId === e.id}
-                                                    onPointerDown={(ev) => ev.stopPropagation()}
-                                                />
+                                            <div className="flex items-center gap-2 bg-card/60 backdrop-blur-sm rounded-full border border-border/60 px-2 py-0.5 shadow-sm" data-action-popover>
+                                                <div className="flex flex-col items-center">
+                                                    <Switch
+                                                        size="xs"
+                                                        className="origin-right scale-75 active:scale-[0.7]"
+                                                        checked={e.status === "ACTIVE"}
+                                                        onCheckedChange={(val) => handleInlineToggle(e, val)}
+                                                        disabled={toggleCooldown || togglingId === e.id || e.frequency === "ONE_TIME"}
+                                                        onPointerDown={(ev) => ev.stopPropagation()}
+                                                    />
+                                                    {e.frequency === "ONE_TIME" && e.status === "DISABLED" ? (
+                                                        <span className="text-[8px] text-green-600 font-bold uppercase mt-0.5">Paid</span>
+                                                    ) : (
+                                                        <>
+                                                            {e.failing_due_date && <span className="text-[8px] text-red-600 font-bold uppercase animate-pulse mt-0.5">Failing</span>}
+                                                            {e.status === "DISABLED" && <span className="text-[8px] text-slate-400 font-bold uppercase mt-0.5 leading-none">Off</span>}
+                                                        </>
+                                                    )}
+                                                </div>
                                                 <div className="w-[1px] h-3 bg-border/80 mx-0.5"></div>
                                                 <Button
                                                     size="icon"
@@ -585,13 +786,17 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                             </div>
                                             <div className="flex flex-col items-end gap-1.5" data-action-popover>
                                                 <div className="flex items-center gap-3">
-                                                    <Switch
-                                                        size="sm"
-                                                        checked={e.is_active}
-                                                        onCheckedChange={(val) => handleInlineToggle(e, val)}
-                                                        disabled={toggleCooldown || togglingId === e.id}
-                                                        onPointerDown={(ev) => ev.stopPropagation()}
-                                                    />
+                                                    <div className="flex flex-col items-center">
+                                                        <Switch
+                                                            size="sm"
+                                                            checked={e.status === "ACTIVE"}
+                                                            onCheckedChange={(val) => handleInlineToggle(e, val)}
+                                                            disabled={toggleCooldown || togglingId === e.id}
+                                                            onPointerDown={(ev) => ev.stopPropagation()}
+                                                        />
+                                                        {e.failing_due_date && <span className="text-[8px] text-red-600 font-bold uppercase animate-pulse mt-0.5">Failing</span>}
+                                                        {e.status === "DISABLED" && <span className="text-[8px] text-slate-400 font-bold uppercase mt-0.5">{e.frequency === "ONE_TIME" ? "" : "Disabled"}</span>}
+                                                    </div>
                                                     <Button
                                                         type="button"
                                                         size="icon"
@@ -705,14 +910,17 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                                     </p>
                                                 </div>
                                                 <div className="flex items-center gap-2" data-action-popover>
-                                                    <Switch
-                                                        size="sm"
-                                                        checked={e.is_active}
-                                                        onCheckedChange={(val) => handleInlineToggle(e, val)}
-                                                        disabled={toggleCooldown || togglingId === e.id}
-                                                        onPointerDown={(ev) => ev.stopPropagation()}
-                                                        className="scale-75"
-                                                    />
+                                                    <div className="flex flex-col items-center">
+                                                        <Switch
+                                                            size="sm"
+                                                            checked={e.status === "ACTIVE"}
+                                                            onCheckedChange={(val) => handleInlineToggle(e, val)}
+                                                            disabled={toggleCooldown || togglingId === e.id}
+                                                            onPointerDown={(ev) => ev.stopPropagation()}
+                                                            className="scale-75"
+                                                        />
+
+                                                    </div>
                                                     <Button
                                                         type="button"
                                                         size="icon"
@@ -735,115 +943,8 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                         )}
                     </div>
 
-                    {/* 🎨 LG Gallery View (1024px - 1279px) */}
-                    <div className="hidden lg:grid xl:hidden lg:grid-cols-2 gap-6 pt-2">
-                        {loading ? (
-                            <div className="col-span-full flex justify-center py-20">
-                                <LoadingSpinner className="h-8 w-8 text-primary" />
-                            </div>
-                        ) : expenses.length === 0 ? (
-                            <div className="col-span-full">
-                                <EmptyState inline description={t("recurring.emptyDesc")} />
-                            </div>
-                        ) : (
-                            pagedExpenses.map((e, index) => {
-                                const Icon = categoryIconMap[e.category] || Circle;
-                                const bgClass = getCategoryBgClass(e.category);
-                                return (
-                                    <div
-                                        key={e.id}
-                                        className={cn(
-                                            "group relative flex flex-col justify-between bg-card/40 border border-border/50 rounded-2xl p-6 transition-all duration-300",
-                                            "hover:bg-card hover:shadow-2xl hover:-translate-y-1 hover:border-border/80",
-                                            "active:scale-[0.98] [&:has([data-action-popover]:active)]:scale-100",
-                                            "animate-in fade-in zoom-in-95 duration-500 fill-both"
-                                        )}
-                                        style={{ animationDelay: `${index * 50}ms` }}
-                                    >
-                                        <div className="flex items-center justify-between mb-5">
-                                            <div className="flex items-center gap-3">
-                                                <div className={cn("h-10 w-10 rounded-xl flex items-center justify-center shadow-inner", bgClass)}>
-                                                    <Icon className="h-5 w-5" />
-                                                </div>
-                                                <Badge
-                                                    variant="secondary"
-                                                    className={cn(
-                                                        "px-2.5 py-0.5 text-mobile-caption font-bold capitalize bg-muted/50 border-none shrink-0",
-                                                        getCategoryColorClass(e.category)
-                                                    )}
-                                                >
-                                                    {tCategory(e.category)}
-                                                </Badge>
-                                            </div>
-                                            <div className="flex flex-col items-end gap-1.5" data-action-popover>
-                                                <div className="flex items-center gap-3">
-                                                    <Switch
-                                                        size="sm"
-                                                        checked={e.is_active}
-                                                        onCheckedChange={(val) => handleInlineToggle(e, val)}
-                                                        disabled={toggleCooldown || togglingId === e.id}
-                                                        onPointerDown={(ev) => ev.stopPropagation()}
-                                                    />
-                                                    <Button
-                                                        type="button"
-                                                        size="icon"
-                                                        variant="ghost"
-                                                        className="h-8 w-8 rounded-full opacity-40 group-hover:opacity-100 transition-all hover:bg-muted"
-                                                        onPointerDown={(ev) => ev.stopPropagation()}
-                                                        onClick={(event) => {
-                                                            event.stopPropagation();
-                                                            openRecurringActions(event, e);
-                                                        }}
-                                                    >
-                                                        <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-                                                    </Button>
-                                                </div>
-                                            </div>
-                                        </div>
 
-                                        <div className="space-y-4">
-                                            <div className="space-y-1 min-w-0">
-                                                <TitleTooltip title={e.title}>
-                                                    <div className="font-bold text-xl tracking-tight text-foreground truncate cursor-default">
-                                                        {e.title}
-                                                    </div>
-                                                </TitleTooltip>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-mobile-caption font-bold uppercase tracking-wider text-muted-foreground/40 flex items-center gap-1.5">
-                                                        {t(`recurring.${e.frequency.toLowerCase()}`)}
-                                                    </span>
-                                                </div>
-                                            </div>
-
-                                            <div className="flex items-center justify-between py-3 px-4 bg-muted/30 rounded-xl border border-border/5">
-                                                <div className="flex flex-col">
-                                                    <span className="text-mobile-micro font-black uppercase tracking-widest text-muted-foreground/40 leading-none mb-1">
-                                                        {t("recurring.nextDue")}
-                                                    </span>
-                                                    <span className="text-sm font-bold text-foreground/80">
-                                                        {formatDisplayDate(e.next_due_date, appLang)}
-                                                    </span>
-                                                </div>
-                                                <div className="flex flex-col text-right">
-                                                    <span className="text-mobile-micro font-black uppercase tracking-widest text-muted-foreground/40 leading-none mb-1">
-                                                        {t("expenses.amount")}
-                                                    </span>
-                                                    <CurrencyAmount
-                                                        value={e.amount}
-                                                        format="display"
-                                                        className="text-lg font-black text-foreground tabular-nums tracking-tight"
-                                                        currencyClassName="text-mobile-caption font-bold opacity-40 ml-1.5"
-                                                    />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })
-                        )}
-                    </div>
-
-                    <div className="hidden xl:block overflow-x-auto">
+                    <div className="hidden lg:block overflow-x-auto">
                         <div className="min-w-[860px] space-y-0">
                             {/* Header row */}
                             <div className={`${COL} border-b border-border py-3 text-mobile-micro uppercase tracking-widest font-bold text-muted-foreground/50`}>
@@ -888,7 +989,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                         </div>
 
                                         <div className="text-center">
-                                            <Badge variant="secondary" className={cn("px-2 py-0.5 rounded-full text-mobile-caption xl:text-xs 2xl:text-sm font-bold capitalize bg-muted/50 border-none shrink-0", getCategoryColorClass(e.category))}>
+                                            <Badge variant="secondary" className={cn("px-2 py-0.5 rounded-full text-mobile-caption xl:text-xs font-bold capitalize bg-muted/50 border-none shrink-0", getCategoryColorClass(e.category))}>
                                                 {tCategory(e.category)}
                                             </Badge>
                                         </div>
@@ -901,10 +1002,10 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                         </div>
 
                                         {/* Next Due */}
-                                        <div className="text-center">
-                                            <span className="text-table-detail font-medium text-foreground/80">
-                                                {formatDisplayDate(e.next_due_date, appLang)}
-                                            </span>
+                                        <div className="text-center text-table-detail text-muted-foreground font-medium">
+                                            {e.frequency === "ONE_TIME" && e.status === "DISABLED" 
+                                               ? <span className="text-green-600 font-black uppercase text-[10px] tracking-widest">{t("recurring.settled", { defaultValue: "Settled" })}</span>
+                                               : _formatDisplayDateLocal(e.next_due_date)}
                                         </div>
 
                                         {/* Amount */}
@@ -912,20 +1013,28 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                             <CurrencyAmount
                                                 value={e.amount}
                                                 format="display"
-                                                className="flex justify-end gap-1 items-baseline text-table-amount font-black text-foreground tabular-nums tracking-tight"
-                                                currencyClassName="text-table-detail font-bold opacity-40 ml-0.5"
+                                                className="flex justify-end gap-1 items-baseline text-table-amount font-bold tabular-nums text-foreground"
+                                                currencyClassName="text-muted-foreground/70 font-medium ml-0.5"
                                             />
                                         </div>
 
                                         {/* Active */}
                                         <div className="flex justify-center" data-action-popover>
-                                            <Switch
-                                                size="xs"
-                                                checked={e.is_active}
-                                                onCheckedChange={(val) => handleInlineToggle(e, val)}
-                                                disabled={toggleCooldown || togglingId === e.id}
-                                                onPointerDown={(ev) => ev.stopPropagation()}
-                                            />
+                                            <div className="flex flex-col items-center gap-1">
+                                                <Switch
+                                                    size="xs"
+                                                    checked={e.status === "ACTIVE"}
+                                                    onCheckedChange={(val) => handleInlineToggle(e, val)}
+                                                    disabled={toggleCooldown || togglingId === e.id || e.frequency === "ONE_TIME"}
+                                                    onPointerDown={(ev) => ev.stopPropagation()}
+                                                />
+                                                {e.frequency === "ONE_TIME" && e.status === "DISABLED" ? null : (
+                                                    <>
+                                                       {e.failing_due_date && <span className="text-[8px] text-red-600 font-bold uppercase animate-pulse mt-0.5">Failing</span>}
+                                                       {e.status === "DISABLED" && <span className="text-[8px] text-slate-400 font-bold uppercase mt-0.5 leading-none">Off</span>}
+                                                    </>
+                                                )}
+                                            </div>
                                         </div>
 
                                         {/* Actions */}
@@ -980,7 +1089,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                     </div>
 
                     {/* Pagination for Gallery/List Views */}
-                    <div className="xl:hidden">
+                    <div className="lg:hidden">
                         {totalPages > 1 && (
                             <div className="flex items-center justify-between pt-8 border-t border-border/40 mt-6">
                                 <p className="text-muted-foreground transition-all duration-200 text-pag font-medium">
@@ -1027,36 +1136,95 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                 onClose={() => setRecurringMenuForId(null)}
                 zIndex={100}
             >
-                <ActionMenuItem
-                    icon={Pencil}
-                    label={t("expenses.edit")}
-                    onClick={() => {
-                        const e = expenses.find(x => x.id === recurringMenuForId);
-                        if (e) openEdit(e);
-                        setRecurringMenuForId(null);
-                    }}
-                />
-                <ActionMenuItem
-                    icon={Trash2}
-                    label={t("expenses.delete")}
-                    variant="destructive"
-                    onClick={() => {
-                        const e = expenses.find(x => x.id === recurringMenuForId);
-                        if (e) openDelete(e);
-                        setRecurringMenuForId(null);
-                    }}
-                />
-                <ActionMenuDivider />
-                <ActionMenuItem
-                    icon={FileText}
-                    label={t("recurring.viewDescription")}
-                    onClick={() => {
-                        const e = expenses.find(x => x.id === recurringMenuForId);
-                        if (e) openDesc(e);
-                        setRecurringMenuForId(null);
-                    }}
-                />
-            </ActionMenu>
+                {(() => {
+                    const e = expenses.find(x => x.id === recurringMenuForId);
+                    if (!e) return null;
+
+                    const isFuture = e.next_due_date > todayISO;
+                    const isFailed = Boolean(e.failing_due_date);
+                    const isDue = e.next_due_date <= todayISO;
+                    
+                    // Rules:
+                    // 1. Payable if it's currently failing OR it's due today/overdue.
+                    // 2. Cannot pay if DISABLED.
+                    const isPayable = (isFailed || (e.status === "ACTIVE" && isDue)) && e.status !== "DISABLED";
+                    
+                    // 3. Skippable if it's currently due (to jump past it).
+                    const isSkippable = isDue && e.status !== "DISABLED";
+
+                    return (
+                        <>
+                            <ActionMenuItem
+                                icon={SkipForward}
+                                label={isFuture ? t("recurring.skipFuture", { defaultValue: "Skip Next occurrence" }) : t("recurring.skipOccurrence", { defaultValue: "Skip this time" })}
+                                onClick={() => handleSkip(e.id)}
+                                disabled={!isSkippable}
+                                className={!isSkippable ? "opacity-30 grayscale" : ""}
+                            />
+                            <ActionMenuItem
+                                icon={Zap}
+                                label={t("recurring.payNow", { defaultValue: "Pay Now" })}
+                                                onClick={() => handlePayNow(e.id)}
+                                                disabled={!isPayable}
+                                                className={!isPayable ? "opacity-30 grayscale" : ""}
+                                            />
+                                            <ActionMenuDivider />
+                                            <ActionMenuItem
+                                                icon={Wallet}
+                                                label={t("recurring.changeWallet", { defaultValue: "Change Wallet" })}
+                                                onClick={() => {
+                                                    openChangeWallet(e);
+                                                    setRecurringMenuForId(null);
+                                                }}
+                                            />
+                                            <ActionMenuItem
+                                                icon={History}
+                                                label={t("recurring.viewHistory", { defaultValue: "View History" })}
+                                                onClick={() => {
+                                                    setHistoryTarget(e);
+                                                    setHistoryOpen(true);
+                                                    setRecurringMenuForId(null);
+                                                }}
+                                            />
+                                            <ActionMenuItem
+                                                icon={BarChart3}
+                                                label={t("recurring.costProjection", { defaultValue: "Cost Projection" })}
+                                                onClick={() => {
+                                                    openProjections(e);
+                                                    setRecurringMenuForId(null);
+                                                }}
+                                            />
+                                            <ActionMenuItem
+                                                icon={Pencil}
+                                                label={t("common.edit", { defaultValue: "Edit" })}
+                                                onClick={() => {
+                                                    openEdit(e);
+                                                    setRecurringMenuForId(null);
+                                                }}
+                                            />
+                                            <ActionMenuItem
+                                                icon={Trash2}
+                                                label={t("common.delete", { defaultValue: "Delete" })}
+                                                variant="destructive"
+                                                onClick={() => {
+                                                    openDelete(e);
+                                                    setRecurringMenuForId(null);
+                                                }}
+                                            />
+                                        </>
+                                    );
+                                })()}
+                                <ActionMenuDivider />
+                                <ActionMenuItem
+                                    icon={FileText}
+                                    label={t("recurring.viewDescription")}
+                                    onClick={() => {
+                                        const e = expenses.find(x => x.id === recurringMenuForId);
+                                        if (e) openDesc(e);
+                                        setRecurringMenuForId(null);
+                                    }}
+                                />
+                            </ActionMenu>
 
             {/* Dialogs */}
             <ConfirmDialog
@@ -1117,6 +1285,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                     <Input
                                         type="text"
                                         value={addAmount}
+                                        maxLength={15}
                                         onChange={(e) => setAddAmount(formatAmountInput(e.target.value))}
                                         onBlur={() => setTouchedAdd(prev => ({ ...prev, amount: true }))}
                                         placeholder="0"
@@ -1162,9 +1331,13 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent className={selectContentClass}>
+                                        <SelectItem value="ONE_TIME">{t("recurring.oneTime", { defaultValue: "One-Time" })}</SelectItem>
                                         <SelectItem value="DAILY">{t("recurring.daily")}</SelectItem>
                                         <SelectItem value="WEEKLY">{t("recurring.weekly")}</SelectItem>
+                                        <SelectItem value="BIWEEKLY">{t("recurring.biweekly", { defaultValue: "Bi-Weekly" })}</SelectItem>
                                         <SelectItem value="MONTHLY">{t("recurring.monthly")}</SelectItem>
+                                        <SelectItem value="QUARTERLY">{t("recurring.quarterly", { defaultValue: "Quarterly" })}</SelectItem>
+                                        <SelectItem value="SEMI_ANNUALLY">{t("recurring.semiAnnually", { defaultValue: "Semi-Annually" })}</SelectItem>
                                         <SelectItem value="YEARLY">{t("recurring.yearly")}</SelectItem>
                                     </SelectContent>
                                 </Select>
@@ -1178,6 +1351,39 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                     onChange={(e) => setAddStartDate(e.target.value)}
                                     className="dark:color-scheme-dark"
                                 />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="grid gap-1.5">
+                                <label>{t("wallet.label", { defaultValue: "Wallet / Card" })}</label>
+                                <Select
+                                    value={String(addWalletId)}
+                                    onValueChange={setAddWalletId}
+                                >
+                                    <SelectTrigger className={cn(selectTriggerClass, addErrors.wallet_id && "border-red-500 focus-visible:ring-red-500")}>
+                                        <SelectValue placeholder={t("wallet.placeholder", { defaultValue: "Select Wallet" })} />
+                                    </SelectTrigger>
+                                    <SelectContent className={selectContentClass}>
+                                        {walletRows.filter(w => w.is_active).map(w => (
+                                            <SelectItem key={w.id} value={String(w.id)}>{w.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                {addErrors.wallet_id && <p className="text-mobile-micro text-red-500 font-medium">{addErrors.wallet_id}</p>}
+                            </div>
+
+                            <div className="grid gap-1.5">
+                                <label>{t("recurring.cycleBehavior", { defaultValue: "Cycle Behavior" })}</label>
+                                <Select value={addCycleBehavior} onValueChange={setAddCycleBehavior}>
+                                    <SelectTrigger className={selectTriggerClass}>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent className={selectContentClass}>
+                                        <SelectItem value="FIXED">{t("recurring.fixed", { defaultValue: "Fixed (Calendar)" })}</SelectItem>
+                                        <SelectItem value="FLEXIBLE">{t("recurring.flexible", { defaultValue: "Flexible (Relative)" })}</SelectItem>
+                                    </SelectContent>
+                                </Select>
                             </div>
                         </div>
 
@@ -1232,6 +1438,7 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                                     <Input
                                         type="text"
                                         value={editAmount}
+                                        maxLength={15}
                                         onChange={(e) => setEditAmount(formatAmountInput(e.target.value))}
                                         onBlur={() => setTouchedEdit(prev => ({ ...prev, amount: true }))}
                                         placeholder="0"
@@ -1270,6 +1477,24 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                         </div>
 
                         <div className="grid gap-1.5">
+                            <label>{t("wallet.label", { defaultValue: "Wallet / Card" })}</label>
+                            <Select
+                                value={String(editWalletId)}
+                                onValueChange={setEditWalletId}
+                            >
+                                <SelectTrigger className={cn(selectTriggerClass, editErrors.wallet_id && "border-red-500 focus-visible:ring-red-500")}>
+                                    <SelectValue placeholder={t("wallet.placeholder", { defaultValue: "Select Wallet" })} />
+                                </SelectTrigger>
+                                <SelectContent className={selectContentClass}>
+                                    {walletRows.filter(w => w.is_active).map(w => (
+                                        <SelectItem key={w.id} value={String(w.id)}>{w.name}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            {editErrors.wallet_id && <p className="text-mobile-micro text-red-500 font-medium">{editErrors.wallet_id}</p>}
+                        </div>
+
+                        <div className="grid gap-1.5">
                             <label>{t("expenses.description")} <span className="text-mobile-caption font-normal text-muted-foreground/50">({t("common.optional", { defaultValue: "Optional" })})</span></label>
                             <Textarea
                                 value={editDescription}
@@ -1291,8 +1516,146 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Quick Change Wallet Dialog */}
+            <Dialog open={changeWalletOpen} onOpenChange={setChangeWalletOpen}>
+                <DialogContent className="sm:max-w-[400px]">
+                    <DialogHeader>
+                        <DialogTitle>{t("recurring.changeWalletTitle", { defaultValue: "Change Wallet" })}</DialogTitle>
+                        <DialogDescription>
+                            {t("recurring.changeWalletDesc", { defaultValue: "Pick a new wallet for this subscription." })}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <Select
+                            value={String(newWalletId)}
+                            onValueChange={setNewWalletId}
+                        >
+                            <SelectTrigger className={selectTriggerClass}>
+                                <SelectValue placeholder={t("wallet.placeholder")} />
+                            </SelectTrigger>
+                            <SelectContent className={selectContentClass}>
+                                {walletRows.filter(w => w.is_active).map(w => (
+                                    <SelectItem key={w.id} value={String(w.id)}>{w.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setChangeWalletOpen(false)}>{t("common.cancel")}</Button>
+                        <Button onClick={handleChangeWallet} disabled={!newWalletId || changeWalletMutation.isPending}>
+                            {changeWalletMutation.isPending && <LoadingSpinner className="mr-2 h-4 w-4" />}
+                            {t("common.save", { defaultValue: "Save" })}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Projection Dialog */}
+            <Dialog open={projectionOpen} onOpenChange={(open) => {
+                setProjectionOpen(open);
+                if (!open) {
+                    setProjectionTarget(null);
+                    setProjectionError("");
+                    setPreviewRows([]);
+                }
+            }}>
+                <DialogContent className="sm:max-w-[620px]">
+                    <DialogHeader>
+                        <DialogTitle>{t("recurring.costProjection", { defaultValue: "Cost Projection" })}</DialogTitle>
+                        <DialogDescription>
+                            {projectionTarget?.title || t("recurring.templateTitle")}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {projectionError && <p className="text-xs text-red-600">{projectionError}</p>}
+
+                    {projectionQuery.isLoading ? (
+                        <div className="flex justify-center py-8">
+                            <LoadingSpinner className="h-6 w-6" />
+                        </div>
+                    ) : (
+                        <div className="max-h-[68vh] space-y-4 overflow-y-auto pr-1">
+                            <section className="space-y-2">
+                                <h4 className="text-sm font-semibold">{t("recurring.defaultProjections", { defaultValue: "Default" })}</h4>
+                                {renderProjectionRows(projectionQuery.data?.default_projections)}
+                            </section>
+
+                            <section className="space-y-2">
+                                <h4 className="text-sm font-semibold">{t("recurring.customProjections", { defaultValue: "Custom" })}</h4>
+                                {renderProjectionRows(projectionQuery.data?.custom_projections)}
+                            </section>
+
+                            {previewRows.length > 0 && (
+                                <section className="space-y-2">
+                                    <h4 className="text-sm font-semibold">{t("recurring.previewProjection", { defaultValue: "Preview" })}</h4>
+                                    {renderProjectionRows(previewRows)}
+                                </section>
+                            )}
+
+                            <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-3 rounded-md border border-border bg-muted/20 p-3">
+                                <div className="grid gap-1.5">
+                                    <label>{t("recurring.projectionUnit", { defaultValue: "Unit" })}</label>
+                                    <Select value={projectionUnit} onValueChange={setProjectionUnit}>
+                                        <SelectTrigger className={selectTriggerClass}>
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent className={selectContentClass}>
+                                            {getProjectionUnitOptions(projectionTarget?.frequency).map((unit) => (
+                                                <SelectItem key={unit} value={unit}>
+                                                    {t(`recurring.projectionUnits.${unit}`, { defaultValue: unit.replace("_", " ") })}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="grid gap-1.5">
+                                    <label>{t("recurring.projectionValue", { defaultValue: "Value" })}</label>
+                                    <Input
+                                        type="number"
+                                        min="1"
+                                        value={projectionValue}
+                                        onChange={(e) => setProjectionValue(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setProjectionOpen(false)}>
+                            {t("common.cancel")}
+                        </Button>
+                        <Button
+                            variant="outline"
+                            onClick={handlePreviewProjection}
+                            disabled={!projectionTarget || previewProjectionMutation.isPending}
+                        >
+                            {previewProjectionMutation.isPending && <LoadingSpinner className="mr-2 h-4 w-4" />}
+                            <BarChart3 className="mr-2 h-4 w-4" />
+                            {t("recurring.preview", { defaultValue: "Preview" })}
+                        </Button>
+                        <Button
+                            onClick={handleSaveProjection}
+                            disabled={!projectionTarget || saveProjectionMutation.isPending}
+                        >
+                            {saveProjectionMutation.isPending && <LoadingSpinner className="mr-2 h-4 w-4" />}
+                            <Plus className="mr-2 h-4 w-4" />
+                            {t("common.save", { defaultValue: "Save" })}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* History Modal */}
+            <RecurringHistoryModal
+                isOpen={historyOpen}
+                onClose={() => {
+                    setHistoryOpen(false);
+                    setHistoryTarget(null);
+                }}
+                recurringExpense={historyTarget}
+            />
         </div>
     );
 }
-
-

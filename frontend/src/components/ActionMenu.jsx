@@ -1,6 +1,7 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export function ActionMenu({ isOpen, position, onClose, children, zIndex = 150 }) {
   React.useEffect(() => {
@@ -20,7 +21,7 @@ export function ActionMenu({ isOpen, position, onClose, children, zIndex = 150 }
   return createPortal(
     <div
       data-action-popover
-      className="fixed w-44 rounded-md border border-border bg-popover p-1 shadow-lg animate-in fade-in zoom-in-95 duration-200"
+      className="fixed w-60 rounded-md border border-border bg-popover p-1 shadow-lg animate-in fade-in zoom-in-95 duration-200"
       style={{ top: `${position.top}px`, left: `${position.left}px`, zIndex }}
     >
       {children}
@@ -29,23 +30,42 @@ export function ActionMenu({ isOpen, position, onClose, children, zIndex = 150 }
   );
 }
 
-export function ActionMenuItem({ icon: Icon, label, onClick, variant = "default", className }) {
+export function ActionMenuItem({ icon: Icon, label, onClick, variant = "default", className, disabled, disabledReason }) {
   const isDestructive = variant === "destructive";
-  return (
+  const button = (
     <button
       type="button"
+      disabled={disabled}
       className={cn(
-        "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm transition-colors cursor-pointer",
-        isDestructive
-          ? "text-destructive hover:bg-destructive/10"
-          : "hover:bg-muted text-foreground hover:text-foreground",
+        "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm transition-colors",
+        disabled ? "opacity-40 grayscale cursor-not-allowed select-none" : "cursor-pointer",
+        !disabled && (isDestructive ? "text-destructive hover:bg-destructive/10" : "hover:bg-muted text-foreground"),
         className
       )}
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
     >
       {Icon && <Icon className="h-4 w-4 shrink-0" />} {label}
     </button>
   );
+
+  if (disabled && disabledReason) {
+    return (
+      <TooltipProvider>
+        <Tooltip delayDuration={0}>
+          <TooltipTrigger asChild>
+            <span className="block w-full cursor-not-allowed">
+              <span className="block w-full pointer-events-none">{button}</span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="left" align="center" className="max-w-[200px] text-center z-[200]">
+            <p className="text-xs">{disabledReason}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+
+  return button;
 }
 
 export function ActionMenuDivider() {

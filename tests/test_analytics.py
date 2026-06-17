@@ -38,40 +38,30 @@ def test_analytics_history(client, session):
         category_label = models.ExpenseCategory.GROCERIES.value
 
     # History endpoint only needs expenses by owner; no budget linkage needed.
-    session.execute(
-        text(
-            """
-            INSERT INTO expenses (title, amount, category, description, owner_id, budget_id, date)
-            VALUES (:title, :amount, :category, :description, :owner_id, :budget_id, :date)
-            """
+    wallet = session.query(models.Wallet).filter(models.Wallet.owner_id == user.id).first()
+    
+    session.add_all([
+        models.Transaction(
+            owner_id=user.id,
+            wallet_id=wallet.id,
+            transaction_type=models.TransactionType.EXPENSE,
+            description="Item One",
+            amount=10,
+            category=models.ExpenseCategory.GROCERIES,
+            date=today,
+            currency="UZS",
         ),
-        {
-            "title": "Item One",
-            "amount": 10,
-            "category": category_label,
-            "description": "test",
-            "owner_id": user.id,
-            "budget_id": None,
-            "date": today,
-        },
-    )
-    session.execute(
-        text(
-            """
-            INSERT INTO expenses (title, amount, category, description, owner_id, budget_id, date)
-            VALUES (:title, :amount, :category, :description, :owner_id, :budget_id, :date)
-            """
-        ),
-        {
-            "title": "Item Two",
-            "amount": 20,
-            "category": category_label,
-            "description": "test",
-            "owner_id": user.id,
-            "budget_id": None,
-            "date": today,
-        },
-    )
+        models.Transaction(
+            owner_id=user.id,
+            wallet_id=wallet.id,
+            transaction_type=models.TransactionType.EXPENSE,
+            description="Item Two",
+            amount=20,
+            category=models.ExpenseCategory.GROCERIES,
+            date=today,
+            currency="UZS",
+        )
+    ])
     session.commit()
 
     res = client.get("/analytics/history", headers=headers)
@@ -241,14 +231,14 @@ def test_dashboard_summary_positive_remaining(client):
     onboard = client.post(
         "/users/me/onboarding",
         json={
-            "life_status": "employed",
-            "initial_balance": 1_000_000,
+            "life_statuses": ["employed"],
+            "wallets": [{"name": "Cash", "initial_balance": 1_000_000}],
         },
         headers=headers,
     )
     assert onboard.status_code == 200
 
-    create_budget(client, headers, category="Food", monthly_limit=2_000_000)
+    create_budget(client, headers, category="Food", monthly_limit=500_000)
     created = create_expense(client, headers, title="Food", amount=250_000, category="Food")
     assert created.status_code == 201
 
@@ -271,14 +261,14 @@ def test_dashboard_summary_negative_remaining(client):
     onboard = client.post(
         "/users/me/onboarding",
         json={
-            "life_status": "self_employed",
-            "initial_balance": 100_000,
+            "life_statuses": ["self_employed"],
+            "wallets": [{"name": "Cash", "initial_balance": 500_000}],
         },
         headers=headers,
     )
     assert onboard.status_code == 200
 
-    create_budget(client, headers, category="Food", monthly_limit=2_000_000)
+    create_budget(client, headers, category="Food", monthly_limit=400_000)
     created = create_expense(client, headers, title="Food", amount=360_000, category="Food")
     assert created.status_code == 201
 
@@ -289,5 +279,5 @@ def test_dashboard_summary_negative_remaining(client):
     assert data["income"] == 0
     assert data["spent"] == 360_000
     assert data["remaining"] == -360_000
-    assert data["overall_balance"] == -260_000
+    assert data["overall_balance"] == 140_000
     assert data["daily_average"] == round(360_000 / max(1, date.today().day))

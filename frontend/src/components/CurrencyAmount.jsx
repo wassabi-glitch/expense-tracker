@@ -9,7 +9,7 @@ import {
   isCompactUzsValue,
 } from "@/lib/format";
 
-const CURRENCY_LABEL_CLASS = "text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70";
+const CURRENCY_LABEL_CLASS = "ml-2 text-[8px] font-black uppercase tracking-[0.15em] opacity-80";
 
 function isMobileViewport() {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
@@ -18,23 +18,23 @@ function isMobileViewport() {
 
 function getFormattedAmount(value, format = "full") {
   if (isMobileViewport()) {
-    if (format === "compact" || format === "display" || format === "full") {
+    if (format === "compact" || format === "full") {
       return formatCompactUzsFromMillion(value);
     }
   }
-  if (format === "compact") return formatCompactUzs(value);
   if (format === "display") return formatAmountDisplay(value);
+  if (format === "compact") return formatCompactUzs(value);
   return formatUzs(value);
 }
 
 function usesCompactAmount(value, format = "full") {
   if (isMobileViewport()) {
-    if (format === "compact" || format === "display" || format === "full") {
+    if (format === "compact" || format === "full") {
       return isCompactMobileAmountValue(value);
     }
   }
-  if (format === "compact") return isCompactUzsValue(value);
   if (format === "display") return isCompactAmountDisplayValue(value);
+  if (format === "compact") return isCompactUzsValue(value);
   return false;
 }
 

@@ -13,27 +13,27 @@ export const LIFE_STATUS_OPTIONS = [
 ];
 
 export const onboardingStepOneSchema = z.object({
-  life_status: z.enum(LIFE_STATUS_OPTIONS, {
-    message: "onboarding.validation.lifeStatus.required",
-  }),
+  life_statuses: z.array(z.enum(LIFE_STATUS_OPTIONS)).min(1, "onboarding.validation.lifeStatus.required"),
 });
 
-export const onboardingStepTwoSchema = z.object({
+export const walletSchema = z.object({
+  name: z.string().min(1, "onboarding.validation.walletName.required").max(50),
   initial_balance: z.preprocess(
     (value) => String(value ?? "").trim().replace(/\s+/g, ""),
     z
       .string()
       .refine((v) => v.length > 0, "onboarding.validation.initialBalance.required")
       .refine((v) => /^\d+$/.test(v), "onboarding.validation.initialBalance.invalid")
-      .refine(
-        (v) =>
-          v.length < MAX_INCOME_AMOUNT_STR.length ||
-          (v.length === MAX_INCOME_AMOUNT_STR.length && v <= MAX_INCOME_AMOUNT_STR),
-        "onboarding.validation.initialBalance.max"
-      )
       .transform((v) => Number(v))
-      .refine((v) => Number.isSafeInteger(v) && v >= 0, "onboarding.validation.initialBalance.invalid")
   ),
+  color: z.string().default("default"),
 });
 
-export const onboardingSchema = onboardingStepOneSchema.extend(onboardingStepTwoSchema.shape);
+export const onboardingStepTwoSchema = z.object({
+  wallets: z.array(walletSchema).min(1, "onboarding.validation.wallets.required").max(20),
+});
+
+export const onboardingSchema = z.object({
+  ...onboardingStepOneSchema.shape,
+  ...onboardingStepTwoSchema.shape,
+});
