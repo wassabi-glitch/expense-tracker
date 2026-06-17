@@ -20,7 +20,29 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    # Create debts table using raw SQL (enum types already exist)
+    # Create ENUM types first
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE debttype AS ENUM ('OWED', 'OWING');
+        EXCEPTION WHEN duplicate_object THEN null; END $$;
+        
+        DO $$ BEGIN
+            CREATE TYPE debtstatus AS ENUM ('ACTIVE', 'OVERDUE', 'DEFAULTED', 'IN_COLLECTION', 'PAID', 'SETTLED', 'FORGIVEN', 'WRITTEN_OFF', 'ARCHIVED');
+        EXCEPTION WHEN duplicate_object THEN null; END $$;
+        
+        DO $$ BEGIN
+            CREATE TYPE installmentfrequency AS ENUM ('WEEKLY', 'BIWEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY', 'CUSTOM');
+        EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+        DO $$ BEGIN
+            CREATE TYPE debtpaymenttype AS ENUM ('PRINCIPAL', 'CHARGE');
+        EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+        DO $$ BEGIN
+            CREATE TYPE debtpaymentstatus AS ENUM ('PENDING', 'PARTIAL', 'PAID', 'SKIPPED');
+        EXCEPTION WHEN duplicate_object THEN null; END $$;
+    """)
+    # Create debts table using raw SQL
     op.execute("""
         CREATE TABLE debts (
             id SERIAL PRIMARY KEY,
