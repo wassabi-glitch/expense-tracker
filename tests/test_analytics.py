@@ -1,7 +1,5 @@
 from datetime import date, timedelta
 from tests.helpers import create_user_and_token, create_budget, create_expense
-from app import models
-from sqlalchemy import text
 
 
 def test_analytics_history(client, session):
@@ -9,70 +7,10 @@ def test_analytics_history(client, session):
         client, "analyticsuser", "analyticsuser@example.com", "Password123!"
     )
 
-    # Add two expenses directly to avoid budget-lookup coupling in this analytics test.
-    user = session.query(models.User).filter(
-        models.User.email == "analyticsuser@example.com"
-    ).first()
-    assert user is not None
-
-    today = date.today()
-    # Resolve a valid DB enum label at runtime to avoid value/name mismatch
-    # across environments (e.g. "Groceries" vs "GROCERIES").
-    category_label = None
-    try:
-        category_label = session.execute(
-            text(
-                """
-                SELECT e.enumlabel
-                FROM pg_type t
-                JOIN pg_enum e ON t.oid = e.enumtypid
-                WHERE t.typname = 'expensecategory'
-                ORDER BY e.enumsortorder
-                LIMIT 1
-                """
-            )
-        ).scalar()
-    except Exception:
-        category_label = None
-    if not category_label:
-        category_label = models.ExpenseCategory.GROCERIES.value
-
-    # History endpoint only needs expenses by owner; no budget linkage needed.
-    session.execute(
-        text(
-            """
-            INSERT INTO expenses (title, amount, category, description, owner_id, budget_id, date)
-            VALUES (:title, :amount, :category, :description, :owner_id, :budget_id, :date)
-            """
-        ),
-        {
-            "title": "Item One",
-            "amount": 10,
-            "category": category_label,
-            "description": "test",
-            "owner_id": user.id,
-            "budget_id": None,
-            "date": today,
-        },
-    )
-    session.execute(
-        text(
-            """
-            INSERT INTO expenses (title, amount, category, description, owner_id, budget_id, date)
-            VALUES (:title, :amount, :category, :description, :owner_id, :budget_id, :date)
-            """
-        ),
-        {
-            "title": "Item Two",
-            "amount": 20,
-            "category": category_label,
-            "description": "test",
-            "owner_id": user.id,
-            "budget_id": None,
-            "date": today,
-        },
-    )
-    session.commit()
+    # Add two expenses.
+    create_budget(client, headers, category="Food", monthly_limit=50000)
+    create_expense(client, headers, title="Item One", amount=10, category="Food")
+    create_expense(client, headers, title="Item Two", amount=20, category="Food")
 
     res = client.get("/analytics/history", headers=headers)
     assert res.status_code == 200
@@ -241,14 +179,14 @@ def test_dashboard_summary_positive_remaining(client):
     onboard = client.post(
         "/users/me/onboarding",
         json={
-            "life_status": "employed",
-            "initial_balance": 1_000_000,
+            "life_statuses": ["employed"],
+            "wallets": [{"name": "Cash", "initial_balance": 1_000_000}],
         },
         headers=headers,
     )
     assert onboard.status_code == 200
 
-    create_budget(client, headers, category="Food", monthly_limit=2_000_000)
+    create_budget(client, headers, category="Food", monthly_limit=500_000)
     created = create_expense(client, headers, title="Food", amount=250_000, category="Food")
     assert created.status_code == 201
 
@@ -271,14 +209,14 @@ def test_dashboard_summary_negative_remaining(client):
     onboard = client.post(
         "/users/me/onboarding",
         json={
-            "life_status": "self_employed",
-            "initial_balance": 100_000,
+            "life_statuses": ["self_employed"],
+            "wallets": [{"name": "Cash", "initial_balance": 500_000}],
         },
         headers=headers,
     )
     assert onboard.status_code == 200
 
-    create_budget(client, headers, category="Food", monthly_limit=2_000_000)
+    create_budget(client, headers, category="Food", monthly_limit=400_000)
     created = create_expense(client, headers, title="Food", amount=360_000, category="Food")
     assert created.status_code == 201
 
@@ -289,5 +227,5 @@ def test_dashboard_summary_negative_remaining(client):
     assert data["income"] == 0
     assert data["spent"] == 360_000
     assert data["remaining"] == -360_000
-    assert data["overall_balance"] == -260_000
+    assert data["overall_balance"] == 140_000
     assert data["daily_average"] == round(360_000 / max(1, date.today().day))

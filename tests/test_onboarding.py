@@ -18,16 +18,21 @@ def test_me_requires_onboarding_until_profile_completed(client):
     onboard_res = client.post(
         "/users/me/onboarding",
         json={
-            "life_status": "employed",
-            "initial_balance": 5000000,
+            "life_statuses": ["employed"],
+            "wallets": [{
+                "name": "Main Wallet",
+                "initial_balance": 5000000,
+                "wallet_type": "DEBIT",
+                "color": "blue"
+            }],
         },
         headers=headers,
     )
     assert onboard_res.status_code == 200
     onboard_data = onboard_res.json()
     assert onboard_data["needs_onboarding"] is False
-    assert onboard_data["profile"]["life_status"] == "employed"
-    assert onboard_data["profile"]["initial_balance"] == 5000000
+    assert "employed" in onboard_data["profile"]["life_statuses"]
+    assert onboard_data["profile"]["initial_balance"] == 0 # Legacy field is 0
     assert onboard_data["profile"]["monthly_income_amount"] == 0
     assert onboard_data["profile"]["budget_rollover_enabled"] is True
     assert onboard_data["profile"]["onboarding_completed_at"] is not None
@@ -35,7 +40,7 @@ def test_me_requires_onboarding_until_profile_completed(client):
     me_after = client.get("/users/me", headers=headers)
     assert me_after.status_code == 200
     assert me_after.json()["needs_onboarding"] is False
-    assert me_after.json()["profile"]["life_status"] == "employed"
+    assert "employed" in me_after.json()["profile"]["life_statuses"]
 
 
 def test_onboarding_upsert_updates_existing_profile(client, session):
@@ -49,8 +54,8 @@ def test_onboarding_upsert_updates_existing_profile(client, session):
     first = client.post(
         "/users/me/onboarding",
         json={
-            "life_status": "student",
-            "initial_balance": 100000,
+            "life_statuses": ["student"],
+            "wallets": [{"name": "Student Wallet", "initial_balance": 100000}],
         },
         headers=headers,
     )
@@ -59,19 +64,18 @@ def test_onboarding_upsert_updates_existing_profile(client, session):
     second = client.post(
         "/users/me/onboarding",
         json={
-            "life_status": "self_employed",
-            "initial_balance": 200000,
+            "life_statuses": ["self_employed"],
+            "wallets": [{"name": "Business Wallet", "initial_balance": 200000}],
         },
         headers=headers,
     )
     assert second.status_code == 200
     second_data = second.json()
-    assert second_data["profile"]["life_status"] == "self_employed"
-    assert second_data["profile"]["initial_balance"] == 200000
+    assert "self_employed" in second_data["profile"]["life_statuses"]
 
     profiles = session.query(models.UserProfile).all()
     assert len(profiles) == 1
-    entries = session.query(models.IncomeEntry).all()
+    entries = session.query(models.FinancialEvent).filter(models.FinancialEvent.event_type == models.TransactionType.INCOME).all()
     assert len(entries) == 0
 
 
@@ -86,8 +90,8 @@ def test_onboarding_creates_status_based_income_sources_without_entries(client):
     onboard = client.post(
         "/users/me/onboarding",
         json={
-            "life_status": "student",
-            "initial_balance": 2500000,
+            "life_statuses": ["student"],
+            "wallets": [{"name": "Cache", "initial_balance": 2500000}],
         },
         headers=headers,
     )
@@ -135,7 +139,7 @@ def test_budget_rollover_preference_update_for_premium_user(client, session):
 
     onboard = client.post(
         "/users/me/onboarding",
-        json={"life_status": "employed", "initial_balance": 100000},
+        json={"life_statuses": ["employed"], "wallets": [{"name": "Main", "initial_balance": 100000}]},
         headers=headers,
     )
     assert onboard.status_code == 200
@@ -164,7 +168,7 @@ def test_budget_rollover_preference_requires_premium(client):
 
     onboard = client.post(
         "/users/me/onboarding",
-        json={"life_status": "employed", "initial_balance": 100000},
+        json={"life_statuses": ["employed"], "wallets": [{"name": "Main", "initial_balance": 100000}]},
         headers=headers,
     )
     assert onboard.status_code == 200

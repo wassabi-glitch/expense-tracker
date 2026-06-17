@@ -56,5 +56,6 @@ export const incomeEntryFormSchema = z.object({
   amount: amountSchema,
   date: dateSchema,
   note: noteSchema,
+  wallet_id: z.number().int().optional().nullable(),
 });
 

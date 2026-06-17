@@ -1,20 +1,79 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from sqlalchemy import func
 from datetime import date, timedelta, tzinfo
 from typing import List
 
-from app import schemas
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import and_, case, func
+from sqlalchemy.orm import Session
+
+from app import models, oauth2, schemas
+from app.savings_balances import get_total_balance
+from app.services.budget_service import get_budget_spent_amount, normal_monthly_budget_impact_filters
 from app.session import get_db
 from app.timezone import get_effective_user_timezone, today_in_tz
-from .. import models, oauth2
 
 router = APIRouter(
     prefix="/analytics",
-    tags=["Analytics"]
+    tags=["Analytics"],
 )
 
 MIN_ANALYTICS_DATE = date(2020, 1, 1)
+
+
+def _expense_signed_amount():
+    return case(
+        (
+            and_(
+                models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+                models.FinancialEvent.event_type == models.TransactionType.EXPENSE,
+            ),
+            models.EntityLedger.amount,
+        ),
+        (
+            and_(
+                models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+                models.FinancialEvent.event_type == models.TransactionType.REFUND,
+            ),
+            -models.EntityLedger.amount,
+        ),
+        else_=0,
+    )
+
+
+def _expense_base_query(db: Session, user_id: int):
+    return (
+        db.query(models.EntityLedger, models.FinancialEvent)
+        .join(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
+        .filter(
+            models.FinancialEvent.owner_id == user_id,
+            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+            models.FinancialEvent.event_type.in_([
+                models.TransactionType.EXPENSE,
+                models.TransactionType.REFUND,
+            ]),
+            models.EntityLedger.category.isnot(None),
+        )
+    )
+
+
+def _income_total_for_range(
+    db: Session,
+    user_id: int,
+    start_date: date,
+    end_date: date,
+) -> int:
+    total = (
+        db.query(func.coalesce(func.sum(models.WalletLedger.amount), 0))
+        .join(models.FinancialEvent, models.FinancialEvent.id == models.WalletLedger.event_id)
+        .filter(
+            models.FinancialEvent.owner_id == user_id,
+            models.FinancialEvent.event_type == models.TransactionType.INCOME,
+            models.FinancialEvent.date >= start_date,
+            models.FinancialEvent.date <= end_date,
+        )
+        .scalar()
+        or 0
+    )
+    return int(total)
 
 
 @router.get("/this-month-stats", response_model=schemas.ExpenseStats)
@@ -25,51 +84,65 @@ def get_this_month_stats(
 ):
     today = today_in_tz(user_tz)
     current_month_start = today.replace(day=1)
+    next_month_start = date(today.year + 1, 1, 1) if today.month == 12 else date(today.year, today.month + 1, 1)
+    signed_amount = _expense_signed_amount()
 
-    stats_query = db.query(
-        func.sum(models.Expense.amount).label("total"),
-        func.avg(models.Expense.amount).label("average"),
-        func.max(models.Expense.amount).label("max"),
-        func.min(models.Expense.amount).label("min"),
-    ).filter(
-        models.Expense.owner_id == current_user.id,
-        models.Expense.date >= current_month_start,
+    stats = (
+        db.query(
+            func.coalesce(func.sum(signed_amount), 0).label("total"),
+            func.coalesce(func.avg(signed_amount), 0).label("average"),
+            func.coalesce(func.max(signed_amount), 0).label("max"),
+            func.coalesce(func.min(signed_amount), 0).label("min"),
+        )
+        .select_from(models.EntityLedger)
+        .join(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
+        .outerjoin(models.Project, models.Project.id == models.EntityLedger.project_id)
+        .filter(
+            models.FinancialEvent.owner_id == current_user.id,
+            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+            models.FinancialEvent.event_type.in_([
+                models.TransactionType.EXPENSE,
+                models.TransactionType.REFUND,
+            ]),
+            models.FinancialEvent.date >= current_month_start,
+            models.FinancialEvent.date < next_month_start,
+            models.EntityLedger.category.isnot(None),
+            *normal_monthly_budget_impact_filters(),
+        )
+        .first()
     )
 
-    if today.month == 12:
-        next_month_start = date(today.year + 1, 1, 1)
-    else:
-        next_month_start = date(today.year, today.month + 1, 1)
-
-    category_breakdown_query = db.query(
-        models.Budget.category,
-        models.Budget.monthly_limit,
-        func.coalesce(func.sum(models.Expense.amount), 0).label("total"),
-        func.count(models.Expense.id).label("count"),
-    ).outerjoin(
-        models.Expense,
-        (models.Expense.budget_id == models.Budget.id)
-        & (models.Expense.owner_id == current_user.id)
-        & (models.Expense.date >= current_month_start)
-        & (models.Expense.date < next_month_start),
-    ).filter(
-        models.Budget.owner_id == current_user.id,
-        models.Budget.budget_year == today.year,
-        models.Budget.budget_month == today.month,
-    ).group_by(
-        models.Budget.category,
-        models.Budget.monthly_limit,
+    breakdown_rows = (
+        db.query(
+            models.Budget.category,
+            models.Budget.monthly_limit,
+            func.coalesce(func.sum(signed_amount), 0).label("total"),
+            func.count(models.EntityLedger.id).label("count"),
+        )
+        .outerjoin(models.EntityLedger, models.EntityLedger.budget_id == models.Budget.id)
+        .outerjoin(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
+        .outerjoin(models.Project, models.Project.id == models.EntityLedger.project_id)
+        .filter(
+            models.Budget.owner_id == current_user.id,
+            models.Budget.budget_year == today.year,
+            models.Budget.budget_month == today.month,
+        )
+        .group_by(models.Budget.category, models.Budget.monthly_limit)
+        .all()
     )
-
-    stats = stats_query.first()
-    category_breakdown = category_breakdown_query.all()
 
     enhanced_breakdown = []
-    for category, monthly_limit, total, count in category_breakdown:
-        category_name = category.value if hasattr(
-            category, "value") else category
-        percentage_used = round((total / monthly_limit)
-                                * 100, 2) if monthly_limit > 0 else 0
+    for category, monthly_limit, _total, count in breakdown_rows:
+        category_name = category.value if hasattr(category, "value") else category
+        limit_value = int(monthly_limit or 0)
+        total_value = get_budget_spent_amount(
+            db,
+            current_user.id,
+            category=category,
+            start_date=current_month_start,
+            end_date=next_month_start,
+        )
+        percentage_used = round((total_value / limit_value) * 100, 2) if limit_value > 0 else 0
 
         if percentage_used >= 100:
             budget_status = schemas.BudgetStatus.Over_limit
@@ -83,19 +156,19 @@ def get_this_month_stats(
         enhanced_breakdown.append(
             {
                 "category": category_name,
-                "total": int(total),
-                "count": int(count),
-                "budget_limit": int(monthly_limit),
-                "remaining": int(max(0, monthly_limit - total)),
+                "total": total_value,
+                "count": int(count or 0),
+                "budget_limit": limit_value,
+                "remaining": int(max(0, limit_value - total_value)),
                 "percentage_used": round(percentage_used, 1),
-                "is_over_budget": total > monthly_limit,
+                "is_over_budget": total_value > limit_value,
                 "budget_status": budget_status,
             }
         )
 
     return {
         "total_expenses": int(stats.total or 0),
-        "average_expenses": stats.average or 0,
+        "average_expenses": float(stats.average or 0),
         "max_expenses": int(stats.max or 0),
         "min_expenses": int(stats.min or 0),
         "category_breakdown": enhanced_breakdown,
@@ -110,46 +183,31 @@ def get_dashboard_summary(
 ):
     today = today_in_tz(user_tz)
     current_month_start = today.replace(day=1)
+    signed_amount = _expense_signed_amount()
 
     spent = (
-        db.query(func.coalesce(func.sum(models.Expense.amount), 0))
+        db.query(func.coalesce(func.sum(signed_amount), 0))
+        .select_from(models.EntityLedger)
+        .join(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
         .filter(
-            models.Expense.owner_id == current_user.id,
-            models.Expense.date >= current_month_start,
-            models.Expense.date <= today,
+            models.FinancialEvent.owner_id == current_user.id,
+            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+            models.FinancialEvent.event_type.in_([
+                models.TransactionType.EXPENSE,
+                models.TransactionType.REFUND,
+            ]),
+            models.FinancialEvent.date >= current_month_start,
+            models.FinancialEvent.date <= today,
+            models.EntityLedger.category.isnot(None),
         )
         .scalar()
-    ) or 0
-
-    month_income_total, _month_income_count = (
-        db.query(
-            func.coalesce(func.sum(models.IncomeEntry.amount), 0),
-            func.count(models.IncomeEntry.id),
-        )
-        .filter(
-            models.IncomeEntry.owner_id == current_user.id,
-            models.IncomeEntry.date >= current_month_start,
-            models.IncomeEntry.date <= today,
-        )
-        .first()
+        or 0
     )
-    income = int(month_income_total or 0)
+
+    income = _income_total_for_range(db, current_user.id, current_month_start, today)
     spent_int = int(spent)
     remaining = income - spent_int
-
-    overall_income_total = (
-        db.query(func.coalesce(func.sum(models.IncomeEntry.amount), 0))
-        .filter(models.IncomeEntry.owner_id == current_user.id)
-        .scalar()
-    ) or 0
-    overall_spent_total = (
-        db.query(func.coalesce(func.sum(models.Expense.amount), 0))
-        .filter(models.Expense.owner_id == current_user.id)
-        .scalar()
-    ) or 0
-    initial_balance = int(getattr(current_user.profile, "initial_balance", 0) or 0)
-    overall_balance = initial_balance + int(overall_income_total) - int(overall_spent_total)
-
+    overall_balance = get_total_balance(db, current_user.id)
     elapsed_days = max(today.day, 1)
     daily_average = round(spent_int / elapsed_days) if elapsed_days else 0
 
@@ -165,23 +223,107 @@ def get_dashboard_summary(
 @router.get("/history", response_model=schemas.AnalyticsHistory)
 def get_historical_stats(
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(oauth2.get_current_user)
+    current_user: models.User = Depends(oauth2.get_current_user),
 ):
-    stats = db.query(
-        func.sum(models.Expense.amount).label("total_spent"),
-        func.avg(models.Expense.amount).label("average_transaction"),
-        func.count(models.Expense.id).label("total_transactions"),
-        func.min(models.Expense.date).label("first_expense_date")
-    ).filter(
-        models.Expense.owner_id == current_user.id
-    ).first()
+    signed_amount = _expense_signed_amount()
+    stats = (
+        db.query(
+            func.coalesce(func.sum(signed_amount), 0).label("total_spent"),
+            func.coalesce(func.avg(signed_amount), 0).label("average_transaction"),
+            func.count(models.EntityLedger.id).label("total_transactions"),
+            func.min(models.FinancialEvent.date).label("first_expense_date"),
+        )
+        .select_from(models.EntityLedger)
+        .join(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
+        .filter(
+            models.FinancialEvent.owner_id == current_user.id,
+            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+            models.FinancialEvent.event_type.in_([
+                models.TransactionType.EXPENSE,
+                models.TransactionType.REFUND,
+            ]),
+            models.EntityLedger.category.isnot(None),
+        )
+        .first()
+    )
 
     return {
         "total_spent_lifetime": int(stats.total_spent or 0),
-        "average_transaction": round(stats.average_transaction or 0),
-        "total_transaction": stats.total_transactions or 0,
-        "member_since": stats.first_expense_date
+        "average_transaction": float(round(stats.average_transaction or 0, 2)),
+        "total_transaction": int(stats.total_transactions or 0),
+        "member_since": stats.first_expense_date,
     }
+
+
+def _resolve_trend_range(
+    *,
+    today: date,
+    days: int,
+    start_date: date | None,
+    end_date: date | None,
+) -> tuple[date, date]:
+    if (start_date is None) ^ (end_date is None):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="analytics.range_both_or_days_required",
+        )
+
+    if start_date and end_date:
+        if start_date < MIN_ANALYTICS_DATE or end_date < MIN_ANALYTICS_DATE:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="analytics.date_too_early")
+        if end_date > today:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="analytics.end_date_in_future")
+        if start_date > end_date:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="analytics.start_after_end")
+        if (end_date - start_date).days + 1 > 366:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="analytics.range_too_large")
+        return start_date, end_date
+
+    if days > 366:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="analytics.range_too_large")
+    if days < 1:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="analytics.days_min_1")
+    return today - timedelta(days=days - 1), today
+
+
+def _daily_amounts(
+    db: Session,
+    user_id: int,
+    start_date: date,
+    end_date: date,
+) -> list[dict]:
+    signed_amount = _expense_signed_amount()
+    results = (
+        db.query(
+            models.FinancialEvent.date,
+            func.coalesce(func.sum(signed_amount), 0).label("total"),
+        )
+        .select_from(models.EntityLedger)
+        .join(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
+        .filter(
+            models.FinancialEvent.owner_id == user_id,
+            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+            models.FinancialEvent.event_type.in_([
+                models.TransactionType.EXPENSE,
+                models.TransactionType.REFUND,
+            ]),
+            models.FinancialEvent.date >= start_date,
+            models.FinancialEvent.date <= end_date,
+            models.EntityLedger.category.isnot(None),
+        )
+        .group_by(models.FinancialEvent.date)
+        .order_by(models.FinancialEvent.date.asc())
+        .all()
+    )
+
+    spending_dict = {row.date: int(row.total or 0) for row in results}
+    return [
+        {
+            "date": start_date + timedelta(days=i),
+            "amount": spending_dict.get(start_date + timedelta(days=i), 0),
+        }
+        for i in range((end_date - start_date).days + 1)
+    ]
 
 
 @router.get("/daily-trend", response_model=List[schemas.DailyTrendItem])
@@ -194,87 +336,13 @@ def get_daily_trend(
     user_tz: tzinfo = Depends(get_effective_user_timezone),
 ):
     today = today_in_tz(user_tz)
-    if (start_date is None) ^ (end_date is None):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="analytics.range_both_or_days_required"
-        )
-
-    if start_date and end_date:
-        if start_date < MIN_ANALYTICS_DATE or end_date < MIN_ANALYTICS_DATE:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="analytics.date_too_early"
-            )
-        if end_date > today:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="analytics.end_date_in_future"
-            )
-        if start_date > end_date:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="analytics.start_after_end"
-            )
-        if (end_date - start_date).days + 1 > 366:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="analytics.range_too_large"
-            )
-    else:
-        if days > 366:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="analytics.range_too_large"
-            )
-        if days < 1:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="analytics.days_min_1"
-            )
-        start_date = today - timedelta(days=days - 1)
-        end_date = today
-
-    first_expense = db.query(func.min(models.Expense.date)).filter(
-        models.Expense.owner_id == current_user.id
-    ).scalar()
-
-    if first_expense:
-        user_start_date = min(current_user.created_at.date(), first_expense)
-    else:
-        user_start_date = current_user.created_at.date()
-
-    if start_date < user_start_date:
-        start_date = user_start_date
-
-    results = db.query(
-        models.Expense.date,
-        func.sum(models.Expense.amount).label("total")
-    ).filter(
-        models.Expense.owner_id == current_user.id,
-        models.Expense.date >= start_date,
-        models.Expense.date <= end_date,
-    ).group_by(
-        models.Expense.date
-    ).order_by(
-        models.Expense.date.asc()
-    ).all()
-
-    spending_dict = {row.date: row.total for row in results}
-    filled_data = []
-
-    actual_days_count = (end_date - start_date).days + 1
-
-    for i in range(actual_days_count):
-        current_date = start_date + timedelta(days=i)
-        amount = spending_dict.get(current_date, 0)
-
-        filled_data.append({
-            "date": current_date,
-            "amount": int(amount)
-        })
-
-    return filled_data
+    start_date, end_date = _resolve_trend_range(
+        today=today,
+        days=days,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    return _daily_amounts(db, current_user.id, start_date, end_date)
 
 
 @router.get("/month-to-date-trend", response_model=List[schemas.DailyTrendItem])
@@ -284,46 +352,8 @@ def get_month_to_date_trend(
     user_tz: tzinfo = Depends(get_effective_user_timezone),
 ):
     today = today_in_tz(user_tz)
-    month_start = today.replace(day=1)
-
-    first_expense = db.query(func.min(models.Expense.date)).filter(
-        models.Expense.owner_id == current_user.id
-    ).scalar()
-
-    if first_expense:
-        user_start_date = min(current_user.created_at.date(), first_expense)
-    else:
-        user_start_date = current_user.created_at.date()
-
-    start_date = max(month_start, user_start_date)
-    end_date = today
-
-    results = db.query(
-        models.Expense.date,
-        func.sum(models.Expense.amount).label("total")
-    ).filter(
-        models.Expense.owner_id == current_user.id,
-        models.Expense.date >= start_date,
-        models.Expense.date <= end_date,
-    ).group_by(
-        models.Expense.date
-    ).order_by(
-        models.Expense.date.asc()
-    ).all()
-
-    spending_dict = {row.date: row.total for row in results}
-    filled_data = []
-    actual_days_count = (end_date - start_date).days + 1
-
-    for i in range(actual_days_count):
-        current_date = start_date + timedelta(days=i)
-        amount = spending_dict.get(current_date, 0)
-        filled_data.append({
-            "date": current_date,
-            "amount": int(amount)
-        })
-
-    return filled_data
+    start_date = today.replace(day=1)
+    return _daily_amounts(db, current_user.id, start_date, today)
 
 
 @router.get("/category-breakdown", response_model=List[schemas.CategoryBreakdownItem])
@@ -345,52 +375,43 @@ def get_category_breakdown(
 
     if start_date and end_date:
         if start_date < MIN_ANALYTICS_DATE or end_date < MIN_ANALYTICS_DATE:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="analytics.date_too_early",
-            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="analytics.date_too_early")
         if end_date > today:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="analytics.end_date_in_future",
-            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="analytics.end_date_in_future")
         if start_date > end_date:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="analytics.start_after_end",
-            )
-    elif days is not None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="analytics.start_after_end")
+    else:
         if days < 1:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="analytics.days_min_1",
-            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="analytics.days_min_1")
         if days > 366:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="analytics.range_too_large",
-            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="analytics.range_too_large")
         start_date = today - timedelta(days=days - 1)
         end_date = today
 
-    query = db.query(
-        models.Expense.category,
-        func.coalesce(func.sum(models.Expense.amount), 0).label("total"),
-        func.count(models.Expense.id).label("count"),
-    ).filter(
-        models.Expense.owner_id == current_user.id
+    signed_amount = _expense_signed_amount()
+    results = (
+        db.query(
+            models.EntityLedger.category,
+            func.coalesce(func.sum(signed_amount), 0).label("total"),
+            func.count(models.EntityLedger.id).label("count"),
+        )
+        .select_from(models.EntityLedger)
+        .join(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
+        .filter(
+            models.FinancialEvent.owner_id == current_user.id,
+            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+            models.FinancialEvent.event_type.in_([
+                models.TransactionType.EXPENSE,
+                models.TransactionType.REFUND,
+            ]),
+            models.FinancialEvent.date >= start_date,
+            models.FinancialEvent.date <= end_date,
+            models.EntityLedger.category.isnot(None),
+        )
+        .group_by(models.EntityLedger.category)
+        .order_by(func.coalesce(func.sum(signed_amount), 0).desc())
+        .all()
     )
-
-    if start_date:
-        query = query.filter(models.Expense.date >= start_date)
-    if end_date:
-        query = query.filter(models.Expense.date <= end_date)
-
-    results = query.group_by(
-        models.Expense.category
-    ).order_by(
-        func.sum(models.Expense.amount).desc()
-    ).all()
 
     return [
         {

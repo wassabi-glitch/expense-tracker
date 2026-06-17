@@ -52,3 +52,8 @@ export async function deleteIncomeEntry(entryId) {
     const response = await apiClient.delete(`/income/entries/${entryId}`);
     return response.data;
 }
+
+export async function getMoneyIn(params = {}) {
+    const response = await apiClient.get("/money-in", { params: compactParams(params) });
+    return response.data;
+}

@@ -37,6 +37,7 @@ export function ToastProvider({ children }) {
         error: (title, description) => addToast({ title, description, type: "error", duration: 8000 }),
         warning: (title, description) => addToast({ title, description, type: "warning" }),
         info: (title, description) => addToast({ title, description, type: "info" }),
+        neutral: (title, description) => addToast({ title, description, type: "neutral" }),
         budgetAlert: (title, description, priority = "warning") => addToast({ title, description, type: priority }),
         custom: (options) => addToast(options),
     };
@@ -71,6 +72,7 @@ function Toast({ toast, onDismiss }) {
         high: <AlertTriangle className="h-5 w-5 text-orange-500" />,
         medium: <AlertTriangle className="h-5 w-5 text-yellow-500" />,
         low: <Info className="h-5 w-5 text-blue-400" />,
+        neutral: <Info className="h-5 w-5 text-slate-400" />,
     };
 
     const bgColors = {
@@ -82,6 +84,7 @@ function Toast({ toast, onDismiss }) {
         high: "border-orange-500/50 bg-orange-100 dark:bg-orange-950 dark:border-orange-700",
         medium: "border-yellow-500/50 bg-yellow-100 dark:bg-yellow-950 dark:border-yellow-700",
         low: "border-blue-500/50 bg-blue-100 dark:bg-blue-950 dark:border-blue-700",
+        neutral: "border-slate-500/30 bg-slate-100 dark:bg-slate-900 dark:border-slate-800",
     };
 
     const icon = icons[toast.type] || icons.info;

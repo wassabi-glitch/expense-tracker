@@ -8,18 +8,24 @@ const EN_MONTHS_LONG = ["January", "February", "March", "April", "May", "June", 
 
 export const getAppLang = (i18n) => String(i18n?.resolvedLanguage || i18n?.language || "en").toLowerCase();
 
-export const getDateLocale = (appLang) =>
-    appLang.startsWith("uz") ? "uz-UZ" : appLang.startsWith("ru") ? "ru-RU" : "en-US";
+const normalizeAppLang = (appLang) => String(appLang || "en").toLowerCase();
+
+export const getDateLocale = (appLang) => {
+    const lang = normalizeAppLang(appLang);
+    return lang.startsWith("uz") ? "uz-UZ" : lang.startsWith("ru") ? "ru-RU" : "en-US";
+};
 
 export const getFallbackMonthsShort = (appLang) => {
-    if (appLang.startsWith("uz")) return UZ_MONTHS_SHORT;
-    if (appLang.startsWith("ru")) return RU_MONTHS_SHORT;
+    const lang = normalizeAppLang(appLang);
+    if (lang.startsWith("uz")) return UZ_MONTHS_SHORT;
+    if (lang.startsWith("ru")) return RU_MONTHS_SHORT;
     return EN_MONTHS_SHORT;
 };
 
 export const getFallbackMonthsLong = (appLang) => {
-    if (appLang.startsWith("uz")) return UZ_MONTHS_LONG;
-    if (appLang.startsWith("ru")) return RU_MONTHS_LONG;
+    const lang = normalizeAppLang(appLang);
+    if (lang.startsWith("uz")) return UZ_MONTHS_LONG;
+    if (lang.startsWith("ru")) return RU_MONTHS_LONG;
     return EN_MONTHS_LONG;
 };
 
@@ -36,27 +42,45 @@ export const formatUzsCard = (value) => {
 };
 
 export const formatCompactUzs = (value) => {
-    const num = Math.abs(Number(value || 0));
-    if (num >= 1_000_000_000_000) return `${(num / 1_000_000_000_000).toFixed(3).replace(/\.?0+$/, "")}T`;
-    if (num >= 1_000_000_000) return `${(num / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
-    if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-    if (num >= 1_000) return `${(num / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
-    return num;
+    const originalNum = Number(value || 0);
+    const num = Math.abs(originalNum);
+    const sign = originalNum < 0 ? "-" : "";
+    
+    let result;
+    if (num >= 1_000_000_000_000) result = `${(num / 1_000_000_000_000).toFixed(3).replace(/\.?0+$/, "")}T`;
+    else if (num >= 1_000_000_000) result = `${(num / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
+    else if (num >= 1_000_000) result = `${(num / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+    else if (num >= 1_000) result = `${(num / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+    else result = num;
+
+    return `${sign}${result}`;
 };
 
 export const formatCompactUzsFromMillion = (value) => {
-    const num = Math.abs(Number(value || 0));
-    if (num >= 1_000_000_000_000) return `${(num / 1_000_000_000_000).toFixed(3).replace(/\.?0+$/, "")}T`;
-    if (num >= 1_000_000_000) return `${(num / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
-    if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-    return formatUzs(num);
+    const originalNum = Number(value || 0);
+    const num = Math.abs(originalNum);
+    const sign = originalNum < 0 ? "-" : "";
+
+    let result;
+    if (num >= 1_000_000_000_000) result = `${(num / 1_000_000_000_000).toFixed(3).replace(/\.?0+$/, "")}T`;
+    else if (num >= 1_000_000_000) result = `${(num / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
+    else if (num >= 1_000_000) result = `${(num / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+    else result = formatUzs(num);
+
+    return `${sign}${result}`;
 };
 
 export const formatAmountDisplay = (value) => {
-    const num = Math.abs(Number(value || 0));
-    if (num >= 1_000_000_000_000) return `${(num / 1_000_000_000_000).toFixed(3).replace(/\.?0+$/, "")}T`;
-    if (num >= 1_000_000_000) return `${(num / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
-    return formatUzs(num);
+    const originalNum = Number(value || 0);
+    const num = Math.abs(originalNum);
+    const sign = originalNum < 0 ? "-" : "";
+
+    let result;
+    if (num >= 1_000_000_000_000) result = `${(num / 1_000_000_000_000).toFixed(3).replace(/\.?0+$/, "")}T`;
+    else if (num >= 1_000_000_000) result = `${(num / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
+    else result = formatUzs(num);
+
+    return `${sign}${result}`;
 };
 
 export const isCompactUzsValue = (value) => Math.abs(Number(value || 0)) >= 1_000;
@@ -64,7 +88,11 @@ export const isCompactMobileAmountValue = (value) => Math.abs(Number(value || 0)
 
 export const isCompactAmountDisplayValue = (value) => Math.abs(Number(value || 0)) >= 1_000_000_000;
 
-export const formatAmountInput = (raw, maxDigits = 15) => {
+export const parseAmountInput = (val) => {
+    return Number(String(val || "").replace(/\s/g, ""));
+};
+
+export const formatAmountInput = (raw, maxDigits = 12) => {
     const digits = String(raw ?? "").replace(/\D/g, "").slice(0, maxDigits);
     if (!digits) return "";
     const normalized = digits.replace(/^0+(?=\d)/, "");
@@ -87,6 +115,50 @@ export const formatDisplayDate = (value, appLang) => {
         const fallbackMonths = getFallbackMonthsShort(appLang);
         return `${fallbackMonths[m - 1]} ${d}, ${y}`;
     }
+    return formatted;
+};
+
+/**
+ * Formats an absolute timestamp (UTC ISO string) into the user's local time.
+ * e.g. "April 29, 10:44 PM" or "29 Apr, 2026 22:44"
+ */
+export const formatDisplayDateTime = (isoString, appLang) => {
+    if (!isoString) return "-";
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return isoString;
+
+    const lang = normalizeAppLang(appLang);
+    const dateLocale = getDateLocale(appLang);
+    
+    // We use a natural layout: Month Day, Year, HH:MM
+    const options = {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: lang.startsWith("en"), // Use 12h for English, 24h for RU/UZ
+    };
+
+    const formatted = new Intl.DateTimeFormat(dateLocale, options).format(date);
+
+    // Handle Intl fallbacks for older environments or specific locales (e.g. M04)
+    if (/M\d{2}/.test(formatted)) {
+        const fallbackMonths = getFallbackMonthsShort(appLang);
+        const y = date.getFullYear();
+        const m = date.getMonth();
+        const d = date.getDate();
+        const hh = String(date.getHours()).padStart(2, "0");
+        const mm = String(date.getMinutes()).padStart(2, "0");
+        
+        if (appLang.startsWith("en")) {
+            const h12 = date.getHours() % 12 || 12;
+            const ampm = date.getHours() >= 12 ? "PM" : "AM";
+            return `${fallbackMonths[m]} ${d}, ${y} ${h12}:${mm} ${ampm}`;
+        }
+        return `${d} ${fallbackMonths[m]}, ${y} ${hh}:${mm}`;
+    }
+    
     return formatted;
 };
 

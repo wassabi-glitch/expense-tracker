@@ -7,7 +7,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 import logging
 
 from app.session import get_db
-from app.routers import users, expenses, budget, analytics, auth, oauth_google, recurring, income, savings, goals, payments, notifications
+from app.routers import users, expenses, budget, analytics, auth, oauth_google, recurring, income, savings, goals, payments, notifications, debts, installments, wallets, assets, projects
 from .models import ExpenseCategory
 from config import settings
 
@@ -114,7 +114,11 @@ def health_check(db: Session = Depends(get_db)):
 
 @app.get("/meta/categories", tags=["Meta"])
 def get_categories():
-    return [category.value for category in ExpenseCategory]
+    return [
+        category.value
+        for category in ExpenseCategory
+        if category != ExpenseCategory.INSTALLMENTS_DEBT
+    ]
 
 
 # Include Routers
@@ -126,7 +130,13 @@ app.include_router(budget.router)
 app.include_router(analytics.router)
 app.include_router(recurring.router)
 app.include_router(income.router)
+app.include_router(income.money_in_router)
 app.include_router(savings.router)
 app.include_router(goals.router)
 app.include_router(payments.router)
 app.include_router(notifications.router)
+app.include_router(debts.router)
+app.include_router(installments.router)
+app.include_router(wallets.router)
+app.include_router(assets.router)
+app.include_router(projects.router)

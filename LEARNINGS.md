@@ -579,6 +579,11 @@ Example row:
   - We hit multiple cases where source code was correct but running API still used old logic.
 
 ### Testing / Verification Lessons
+- This project is Docker-first for integrated verification.
+  - Frontend, backend/API, database, and Redis all run in Docker.
+  - Redis-dependent suites must be run inside Docker, not from the local venv.
+  - Use `docker compose exec api pytest ...` for backend tests that need Redis, DB, or the running app container environment.
+  - Use local venv pytest only for narrow non-Redis checks when the test is known to be independent of Docker services.
 - Goal tests should cover:
   - contribute
   - return
@@ -587,9 +592,7 @@ Example row:
   - permanent delete
   - deadline state transitions
   - timezone-sensitive deadline behavior
-- Current environment caveat:
-  - tests depend on Redis host resolution (`redis:6379`)
-  - frontend build catches JSX/runtime import issues, but backend behavior still needs live API restart or working test infra
+- Frontend build catches JSX/runtime import issues, but backend behavior still needs the Docker API container restarted or tested inside Docker when route code changes.
 
 ### Future Guardrails
 - Keep savings/goal balances derived, not duplicated in multiple stored fields.

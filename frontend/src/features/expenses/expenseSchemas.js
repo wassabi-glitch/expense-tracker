@@ -48,21 +48,35 @@ const descriptionSchema = z
   .nullable()
   .optional();
 
+const splitItemSchema = z.object({
+  contact_name: z.string().trim().min(1, "expenses.splitNameRequired"),
+  amount: coercePositiveInteger,
+});
+
 export const expenseFormSchema = z.object({
   title: titleSchema,
   amount: coercePositiveInteger,
   category: categorySchema,
   date: dateSchema,
+  wallet_id: z.number().int().optional().nullable(),
   description: z.preprocess(
     (value) => (value == null ? "" : value),
     descriptionSchema
   ),
+  splits: z.array(splitItemSchema).optional(),
+}).refine(data => {
+  if (data.splits && data.splits.length > 0) {
+    const totalSplitAmt = data.splits.reduce((sum, s) => sum + (s.amount || 0), 0);
+    return totalSplitAmt <= data.amount;
+  }
+  return true;
+}, {
+  message: "expenses.splitExceedsTotal",
+  path: ["splits_total"]
 });
 
 export const expenseUpdateFormSchema = z.object({
   title: titleSchema,
-  amount: coercePositiveInteger,
-  date: dateSchema,
   description: z.preprocess(
     (value) => (value == null ? "" : value),
     descriptionSchema
@@ -73,7 +87,7 @@ export const recurringExpenseFormSchema = z.object({
   title: titleSchema,
   amount: coercePositiveInteger,
   category: categorySchema,
-  frequency: z.enum(["DAILY", "WEEKLY", "MONTHLY", "YEARLY"], {
+  frequency: z.enum(["DAILY", "WEEKLY", "MONTHLY", "YEARLY", "ONE_TIME", "BIWEEKLY", "QUARTERLY", "SEMI_ANNUALLY"], {
     errorMap: () => ({ message: "expenses.frequencyRequired" })
   }),
   start_date: z
@@ -87,6 +101,7 @@ export const recurringExpenseFormSchema = z.object({
       const minStart = `${parts[0]}-${parts[1]}-01`;
       return v >= minStart;
     }, "recurring.startDateBeforeCurrentMonth"),
+  wallet_id: z.number().int({ message: "wallets.required" }),
   description: z.preprocess(
     (value) => (value == null ? "" : value),
     descriptionSchema
@@ -97,9 +112,15 @@ export const recurringExpenseUpdateFormSchema = z.object({
   title: titleSchema,
   amount: coercePositiveInteger,
   category: categorySchema,
+  wallet_id: z.number().int().optional().nullable(),
   description: z.preprocess(
     (value) => (value == null ? "" : value),
     descriptionSchema
   ),
+});
+
+export const refundSchema = z.object({
+  amount: coercePositiveInteger,
+  wallet_id: z.string().min(1, "expenses.walletRequired"),
 });
 

@@ -5,8 +5,8 @@ export function useOnboardingUpsertMutation() {
     const queryClient = useQueryClient();
 
     return useMutation({
-        mutationFn: ({ life_status, initial_balance }) =>
-            upsertOnboardingProfile({ life_status, initial_balance }),
+        mutationFn: ({ life_statuses, wallets }) =>
+            upsertOnboardingProfile({ life_statuses, wallets }),
         onSuccess: (updatedUser) => {
             queryClient.setQueryData(["users", "me"], updatedUser);
         },

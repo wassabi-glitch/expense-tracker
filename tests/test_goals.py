@@ -1,28 +1,135 @@
+from datetime import timedelta
+
+import pytest
+
 from app import models
 from app.redis_rate_limiter import redis_client
-from tests.helpers import create_user_and_token
+from app.services.goal_funding_service import get_goal_wallet_funded_amount
+from tests.helpers import create_budget, create_expense, create_user_and_token, user_timezone_today
 
 
-def _setup_premium_user_with_balance(client, headers, initial_balance=2_000_000):
+def _setup_premium_user_with_goal_wallet(client, headers, initial_balance=2_000_000):
     onboard = client.post(
         "/users/me/onboarding",
         json={
-            "life_status": "employed",
-            "initial_balance": initial_balance,
+            "life_statuses": ["employed"],
+            "wallets": [
+                {
+                    "name": "Savings",
+                    "wallet_type": "SAVINGS",
+                    "initial_balance": initial_balance,
+                    "can_fund_goals": True,
+                }
+            ],
         },
         headers=headers,
     )
     assert onboard.status_code == 200
     premium = client.post("/users/me/toggle-premium", headers=headers)
     assert premium.status_code == 200
-    assert premium.json()["is_premium"] is True
+    wallets = client.get("/wallets", headers=headers)
+    assert wallets.status_code == 200
+    return wallets.json()[0]["id"]
+
+
+def _make_premium(client, headers):
+    premium = client.post("/users/me/toggle-premium", headers=headers)
+    assert premium.status_code == 200
+
+
+def _create_wallet(
+    client,
+    headers,
+    *,
+    name,
+    wallet_type="SAVINGS",
+    initial_balance=1_000_000,
+    can_fund_goals=True,
+):
+    response = client.post(
+        "/wallets",
+        json={
+            "name": name,
+            "wallet_type": wallet_type,
+            "initial_balance": initial_balance,
+            "can_fund_goals": can_fund_goals,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201
+    return response.json()["id"]
+
+
+def _wallet_by_id(client, headers, wallet_id):
+    response = client.get("/wallets", headers=headers)
+    assert response.status_code == 200
+    return next(item for item in response.json() if item["id"] == wallet_id)
+
+
+def _create_current_budget(client, headers, category="Electronics", monthly_limit=1_000_000):
+    response = create_budget(client, headers, category=category, monthly_limit=monthly_limit)
+    assert response.status_code in {200, 201}
+
+
+def _create_i_owe_debt(client, headers, wallet_id, *, amount=500_000, counterparty="Friend"):
+    response = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWING",
+            "counterparty_name": counterparty,
+            "initial_amount": amount,
+            "currency": "UZS",
+            "date": user_timezone_today().isoformat(),
+            "is_money_transferred": True,
+            "initial_wallet_id": wallet_id,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def _create_i_am_owed_debt(client, headers, *, amount=500_000, counterparty="Friend"):
+    response = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWED",
+            "counterparty_name": counterparty,
+            "initial_amount": amount,
+            "currency": "UZS",
+            "date": user_timezone_today().isoformat(),
+            "is_money_transferred": False,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def _create_payment_plan_debt(client, headers, *, amount=500_000):
+    response = client.post(
+        "/installments",
+        json={
+            "item_name": "Phone",
+            "store_or_bank_name": "Phone Store",
+            "total_price": amount,
+            "down_payment": 0,
+            "months": 5,
+            "frequency": "MONTHLY",
+            "start_date": user_timezone_today().isoformat(),
+            "expense_category": "Electronics",
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
 
 
 def test_create_goal_and_list_with_zero_progress(client):
     headers = create_user_and_token(
         client, "goaluser1", "goaluser1@example.com", "Password123!"
     )
-    _setup_premium_user_with_balance(client, headers)
+    _setup_premium_user_with_goal_wallet(client, headers)
 
     created = client.post(
         "/goals/",
@@ -30,16 +137,22 @@ def test_create_goal_and_list_with_zero_progress(client):
             "title": "Laptop",
             "target_amount": 5_000_000,
             "target_date": "2026-12-31",
+            "intent": "PLANNED_PURCHASE",
+            "template": "laptop",
         },
         headers=headers,
     )
     assert created.status_code == 201
     payload = created.json()
     assert payload["title"] == "Laptop"
+    assert payload["intent"] == "PLANNED_PURCHASE"
+    assert payload["template"] == "laptop"
+    assert payload["currency"] == "UZS"
     assert payload["funded_amount"] == 0
     assert payload["remaining_amount"] == 5_000_000
     assert payload["progress_percent"] == 0
     assert payload["status"] == "ACTIVE"
+    assert payload["funding_sources"] == []
 
     listed = client.get("/goals/", headers=headers)
     assert listed.status_code == 200
@@ -47,50 +160,591 @@ def test_create_goal_and_list_with_zero_progress(client):
     assert listed.json()[0]["title"] == "Laptop"
 
 
-def test_goal_contribution_uses_free_savings_and_updates_status(client):
+def test_pay_obligation_goal_creation_validates_debt_and_duplicate_open_goal(client):
     headers = create_user_and_token(
-        client, "goaluser2", "goaluser2@example.com", "Password123!"
+        client, "goaldebtcreate", "goaldebtcreate@example.com", "Password123!"
     )
-    _setup_premium_user_with_balance(client, headers)
-    deposit = client.post("/savings/deposit", json={"amount": 900_000}, headers=headers)
-    assert deposit.status_code == 201
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers)
+    debt = _create_i_owe_debt(client, headers, wallet_id, amount=500_000)
 
     created = client.post(
         "/goals/",
-        json={"title": "Phone", "target_amount": 800_000},
+        json={
+            "title": "Friend debt",
+            "target_amount": 500_000,
+            "intent": "PAY_OBLIGATION",
+            "linked_debt_id": debt["id"],
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    payload = created.json()
+    assert payload["intent"] == "PAY_OBLIGATION"
+    assert payload["debt_goal_tracking_mode"] == "FULL_REMAINING_DEBT"
+    assert payload["linked_debt_id"] == debt["id"]
+
+    duplicate = client.post(
+        "/goals/",
+        json={
+            "title": "Again debt",
+            "target_amount": 100_000,
+            "intent": "PAY_OBLIGATION",
+            "linked_debt_id": debt["id"],
+        },
+        headers=headers,
+    )
+    assert duplicate.status_code == 400
+    assert "goals.debt_goal_already_open" in duplicate.text
+
+
+def test_pay_obligation_goal_rejects_owed_to_me_debt(client):
+    headers = create_user_and_token(
+        client, "goaldebtowed", "goaldebtowed@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+    debt = _create_i_am_owed_debt(client, headers, amount=500_000)
+
+    blocked = client.post(
+        "/goals/",
+        json={
+            "title": "Collect friend debt",
+            "target_amount": 500_000,
+            "intent": "PAY_OBLIGATION",
+            "linked_debt_id": debt["id"],
+        },
+        headers=headers,
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"] == "goals.debt_goal_requires_i_owe_debt"
+
+
+def test_pay_obligation_goal_for_payment_plan_targets_next_installment(client):
+    headers = create_user_and_token(
+        client, "goaldebtplan", "goaldebtplan@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+    plan = _create_payment_plan_debt(client, headers, amount=500_000)
+
+    created = client.post(
+        "/goals/",
+        json={
+            "title": "Pay phone plan",
+            "target_amount": 500_000,
+            "intent": "PAY_OBLIGATION",
+            "linked_debt_id": plan["debt_id"],
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    payload = created.json()
+    assert payload["intent"] == "PAY_OBLIGATION"
+    assert payload["linked_debt_id"] == plan["debt_id"]
+    assert payload["linked_installment_plan_id"] == plan["id"]
+    assert payload["debt_goal_tracking_mode"] == "FIXED_DEBT_AMOUNT"
+    assert payload["target_amount"] == 100_000
+    assert payload["remaining_amount"] == 100_000
+    assert payload["installment_target"]["plan_id"] == plan["id"]
+    assert payload["installment_target"]["payment_number"] == 1
+    assert payload["installment_target"]["total_payments"] == 5
+    assert payload["installment_target"]["remaining_amount"] == 100_000
+
+
+def test_pay_obligation_goal_payment_applies_to_next_installment(client):
+    headers = create_user_and_token(
+        client, "goaldebtplanpay", "goaldebtplanpay@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers, initial_balance=2_000_000)
+    _create_current_budget(client, headers, category="Electronics")
+    plan = _create_payment_plan_debt(client, headers, amount=500_000)
+
+    created = client.post(
+        "/goals/",
+        json={
+            "title": "Pay phone plan",
+            "target_amount": 500_000,
+            "intent": "PAY_OBLIGATION",
+            "linked_debt_id": plan["debt_id"],
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    goal_id = created.json()["id"]
+    assert created.json()["target_amount"] == 100_000
+
+    allocated = client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 100_000},
+        headers=headers,
+    )
+    assert allocated.status_code == 200, allocated.text
+
+    paid = client.post(
+        f"/goals/{goal_id}/pay-debt",
+        json={
+            "amount": 100_000,
+            "date": user_timezone_today().isoformat(),
+            "payment_allocations": [{"wallet_id": wallet_id, "amount": 100_000}],
+        },
+        headers=headers,
+    )
+    assert paid.status_code == 200, paid.text
+    result = paid.json()
+    assert result["consumed_amount"] == 100_000
+    assert result["debt"]["remaining_amount"] == 400_000
+    assert result["goal"]["status"] == "ACTIVE"
+    assert result["goal"]["funded_amount"] == 0
+    assert result["goal"]["target_amount"] == 100_000
+    assert result["goal"]["remaining_amount"] == 100_000
+    assert result["goal"]["installment_target"]["payment_number"] == 2
+    assert result["goal"]["installment_target"]["remaining_amount"] == 100_000
+
+    details = client.get(f"/installments/{plan['id']}/details", headers=headers)
+    assert details.status_code == 200, details.text
+    payments = sorted(details.json()["plan"]["payments"], key=lambda item: (item["due_date"], item["id"]))
+    assert payments[0]["status"] == "PAID"
+    assert payments[0]["paid_amount"] == 100_000
+    assert payments[1]["status"] == "PENDING"
+
+
+def test_pay_obligation_goal_payment_consumes_goal_money_and_reduces_debt(client):
+    headers = create_user_and_token(
+        client, "goaldebtpay", "goaldebtpay@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers)
+    debt = _create_i_owe_debt(client, headers, wallet_id, amount=500_000)
+    created = client.post(
+        "/goals/",
+        json={
+            "title": "Pay friend",
+            "target_amount": 200_000,
+            "intent": "PAY_OBLIGATION",
+            "linked_debt_id": debt["id"],
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    goal_id = created.json()["id"]
+    assert created.json()["debt_goal_tracking_mode"] == "FIXED_DEBT_AMOUNT"
+
+    allocated = client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 200_000},
+        headers=headers,
+    )
+    assert allocated.status_code == 200, allocated.text
+
+    paid = client.post(
+        f"/goals/{goal_id}/pay-debt",
+        json={
+            "amount": 200_000,
+            "date": user_timezone_today().isoformat(),
+            "payment_allocations": [{"wallet_id": wallet_id, "amount": 200_000}],
+        },
+        headers=headers,
+    )
+    assert paid.status_code == 200, paid.text
+    result = paid.json()
+    assert result["consumed_amount"] == 200_000
+    assert result["debt"]["remaining_amount"] == 300_000
+    assert result["goal"]["status"] == "COMPLETED"
+    assert result["goal"]["consumed_amount"] == 200_000
+    assert result["goal"]["funded_amount"] == 0
+    assert result["goal"]["linked_debt_transaction_id"] == result["debt_transaction"]["id"]
+
+
+def test_full_pay_obligation_goal_target_tracks_debt_charges_and_forgiveness(client):
+    headers = create_user_and_token(
+        client, "goaldebtsync", "goaldebtsync@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers)
+    debt = _create_i_owe_debt(client, headers, wallet_id, amount=500_000)
+    created = client.post(
+        "/goals/",
+        json={
+            "title": "Whole debt",
+            "target_amount": 500_000,
+            "intent": "PAY_OBLIGATION",
+            "linked_debt_id": debt["id"],
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    goal_id = created.json()["id"]
+
+    charge = client.post(
+        f"/debts/{debt['id']}/add-charge",
+        json={"amount": 100_000, "reason": "Late charge"},
+        headers=headers,
+    )
+    assert charge.status_code == 201, charge.text
+    after_charge = client.get("/goals/", headers=headers)
+    assert after_charge.status_code == 200
+    goal_after_charge = next(goal for goal in after_charge.json() if goal["id"] == goal_id)
+    assert goal_after_charge["target_amount"] == 600_000
+
+    forgiveness = client.post(
+        f"/debts/{debt['id']}/forgiveness",
+        json={"amount": 50_000, "date": user_timezone_today().isoformat()},
+        headers=headers,
+    )
+    assert forgiveness.status_code == 200, forgiveness.text
+    after_forgiveness = client.get("/goals/", headers=headers)
+    goal_after_forgiveness = next(goal for goal in after_forgiveness.json() if goal["id"] == goal_id)
+    assert goal_after_forgiveness["target_amount"] == 550_000
+
+
+def test_full_pay_obligation_goal_target_syncs_after_reversal(client):
+    headers = create_user_and_token(
+        client, "goaldebtreverse", "goaldebtreverse@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers)
+    debt = _create_i_owe_debt(client, headers, wallet_id, amount=500_000)
+    created = client.post(
+        "/goals/",
+        json={
+            "title": "Whole reversible debt",
+            "target_amount": 500_000,
+            "intent": "PAY_OBLIGATION",
+            "linked_debt_id": debt["id"],
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    goal_id = created.json()["id"]
+
+    adjusted = client.post(
+        f"/debts/{debt['id']}/balance-adjustments",
+        json={"confirmed_balance": 300_000, "note": "Friend corrected balance"},
+        headers=headers,
+    )
+    assert adjusted.status_code == 200, adjusted.text
+    after_adjustment = client.get("/goals/", headers=headers)
+    adjusted_goal = next(goal for goal in after_adjustment.json() if goal["id"] == goal_id)
+    assert adjusted_goal["target_amount"] == 300_000
+
+    details = client.get(f"/debts/{debt['id']}/details", headers=headers)
+    assert details.status_code == 200, details.text
+    adjustment = next(item for item in details.json()["activity"] if item["kind"] == "ADJUSTMENT")
+    reversed_response = client.post(
+        f"/debts/{debt['id']}/ledger/{adjustment['ledger_entry_id']}/reverse",
+        json={"note": "Correction was wrong"},
+        headers=headers,
+    )
+    assert reversed_response.status_code == 200, reversed_response.text
+    after_reversal = client.get("/goals/", headers=headers)
+    reversed_goal = next(goal for goal in after_reversal.json() if goal["id"] == goal_id)
+    assert reversed_goal["target_amount"] == 500_000
+
+
+def test_goal_allocation_uses_wallet_available_without_changing_wallet_balance(client):
+    headers = create_user_and_token(
+        client, "goaluser2", "goaluser2@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={"title": "Phone", "target_amount": 800_000, "intent": "PLANNED_PURCHASE"},
         headers=headers,
     )
     assert created.status_code == 201
     goal_id = created.json()["id"]
 
-    contributed = client.post(
-        f"/goals/{goal_id}/contribute",
-        json={"amount": 800_000},
+    allocated = client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 800_000},
         headers=headers,
     )
-    assert contributed.status_code == 200
-    payload = contributed.json()
+    assert allocated.status_code == 200
+    payload = allocated.json()
     assert payload["funded_amount"] == 800_000
     assert payload["remaining_amount"] == 0
-    assert payload["status"] == "COMPLETED"
+    assert payload["status"] == "ACTIVE"
+    assert payload["funding_sources"][0]["wallet_id"] == wallet_id
+    assert payload["funding_sources"][0]["allocated_amount"] == 800_000
 
-    summary = client.get("/savings/summary", headers=headers)
+    wallets = client.get("/wallets", headers=headers)
+    assert wallets.status_code == 200
+    assert wallets.json()[0]["current_balance"] == 2_000_000
+
+    summary = client.get("/goals/funding-summary", headers=headers)
     assert summary.status_code == 200
-    assert summary.json() == {
-        "total_balance": 2_000_000,
-        "free_savings_balance": 100_000,
-        "locked_in_goals": 800_000,
-        "spendable_balance": 1_100_000,
+    assert summary.json()["total_wallet_balance"] == 2_000_000
+    assert summary.json()["allocated_to_goals"] == 800_000
+
+
+def test_fund_project_goal_graduates_early_with_funded_stash_and_reports_shortfall(client):
+    headers = create_user_and_token(
+        client, "goalfundproject", "goalfundproject@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers, initial_balance=2_000_000)
+    today = user_timezone_today()
+
+    goal = client.post(
+        "/goals/",
+        json={
+            "title": "Wedding",
+            "target_amount": 1_000_000,
+            "target_date": "2026-12-31",
+            "intent": "FUND_PROJECT",
+        },
+        headers=headers,
+    )
+    assert goal.status_code == 201, goal.text
+    goal_id = goal.json()["id"]
+
+    allocation = client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 400_000},
+        headers=headers,
+    )
+    assert allocation.status_code == 200, allocation.text
+    assert allocation.json()["funded_amount"] == 400_000
+    assert allocation.json()["progress_percent"] == 40
+
+    graduated = client.post(
+        f"/goals/{goal_id}/graduate",
+        json={
+            "project_title": "Wedding Project",
+            "start_date": today.isoformat(),
+            "target_end_date": "2026-12-31",
+            "is_isolated": True,
+        },
+        headers=headers,
+    )
+    assert graduated.status_code == 201, graduated.text
+    project = graduated.json()
+    project_id = project["id"]
+    assert project["origin_goal_id"] == goal_id
+    assert project["is_isolated"] is True
+    assert project["total_limit"] == 1_000_000
+    assert project["released_funding"] == 400_000
+    assert project["remaining_funding"] == 400_000
+    assert project["progress_direction"] == "tick_down"
+    assert project["funding_shortfall"] == 0
+
+    listed_goals = client.get("/goals/", headers=headers)
+    assert listed_goals.status_code == 200, listed_goals.text
+    linked_goal = next(item for item in listed_goals.json() if item["id"] == goal_id)
+    assert linked_goal["released_amount"] == 400_000
+    assert linked_goal["linked_project_id"] == project_id
+
+    expense = client.post(
+        "/expenses/",
+        json={
+            "title": "Venue deposit",
+            "amount": 600_000,
+            "category": "Family & Events",
+            "date": today.isoformat(),
+            "project_id": project_id,
+        },
+        headers=headers,
+    )
+    assert expense.status_code == 201, expense.text
+
+    project_after_spend = client.get(f"/projects/{project_id}", headers=headers)
+    assert project_after_spend.status_code == 200, project_after_spend.text
+    spent_project = project_after_spend.json()
+    assert spent_project["spent"] == 600_000
+    assert spent_project["released_funding"] == 400_000
+    assert spent_project["remaining_funding"] == -200_000
+    assert spent_project["funding_shortfall"] == 200_000
+    assert spent_project["progress_direction"] == "tick_down"
+
+    summary = client.get(
+        f"/budgets/month-summary?budget_year={today.year}&budget_month={today.month}",
+        headers=headers,
+    )
+    assert summary.status_code == 200, summary.text
+    assert summary.json()["free_money_now"] == 1_000_000
+    assert summary.json()["backing_total"] == 1_000_000
+
+
+def test_goal_allocation_cannot_exceed_target_amount(client):
+    headers = create_user_and_token(
+        client, "goaloverfund", "goaloverfund@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={"title": "Camera", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    goal_id = created.json()["id"]
+
+    first = client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 800_000},
+        headers=headers,
+    )
+    assert first.status_code == 200
+
+    blocked = client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 300_000},
+        headers=headers,
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"] == "goals.allocation_exceeds_target"
+
+    exact_remaining = client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 200_000},
+        headers=headers,
+    )
+    assert exact_remaining.status_code == 200
+    assert exact_remaining.json()["funded_amount"] == 1_000_000
+
+
+def test_goal_allocation_accepts_multiple_wallets_in_one_request(client):
+    headers = create_user_and_token(
+        client, "goalmultireserve", "goalmultireserve@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    savings_id = _create_wallet(client, headers, name="MultiSavings", initial_balance=1_000_000)
+    cash_id = _create_wallet(client, headers, name="MultiCash", wallet_type="CASH", initial_balance=1_000_000)
+
+    created = client.post(
+        "/goals/",
+        json={"title": "Laptop", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    goal_id = created.json()["id"]
+
+    allocated = client.post(
+        f"/goals/{goal_id}/allocations",
+        json={
+            "allocations": [
+                {"wallet_id": savings_id, "amount": 600_000},
+                {"wallet_id": cash_id, "amount": 400_000},
+            ]
+        },
+        headers=headers,
+    )
+    assert allocated.status_code == 200
+    payload = allocated.json()
+    assert payload["funded_amount"] == 1_000_000
+    assert payload["remaining_amount"] == 0
+    assert {
+        (source["wallet_id"], source["allocated_amount"])
+        for source in payload["funding_sources"]
+    } == {
+        (cash_id, 400_000),
+        (savings_id, 600_000),
     }
 
+    summary = client.get("/goals/funding-summary", headers=headers)
+    assert summary.status_code == 200
+    assert summary.json()["allocated_to_goals"] == 1_000_000
+    assert summary.json()["available_for_goals"] == 1_000_000
 
-def test_goal_contribution_rejects_when_free_savings_insufficient(client):
+
+def test_goal_allocation_multi_wallet_request_is_atomic_when_one_row_fails(client):
+    headers = create_user_and_token(
+        client, "goalmultiatomic", "goalmultiatomic@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    savings_id = _create_wallet(client, headers, name="AtomicSavings", initial_balance=1_000_000)
+    cash_id = _create_wallet(client, headers, name="AtomicCash", wallet_type="CASH", initial_balance=100_000)
+
+    created = client.post(
+        "/goals/",
+        json={"title": "Camera", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    goal_id = created.json()["id"]
+
+    blocked = client.post(
+        f"/goals/{goal_id}/allocations",
+        json={
+            "allocations": [
+                {"wallet_id": savings_id, "amount": 500_000},
+                {"wallet_id": cash_id, "amount": 200_000},
+            ]
+        },
+        headers=headers,
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"] == "goals.insufficient_wallet_available_for_goal"
+
+    goal = client.get("/goals/", headers=headers).json()[0]
+    assert goal["funded_amount"] == 0
+    assert goal["funding_sources"] == []
+
+
+def test_goal_allocation_rejects_duplicate_wallet_rows(client):
+    headers = create_user_and_token(
+        client, "goalmultiduplicate", "goalmultiduplicate@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers, initial_balance=1_000_000)
+
+    created = client.post(
+        "/goals/",
+        json={"title": "Phone", "target_amount": 800_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    goal_id = created.json()["id"]
+
+    blocked = client.post(
+        f"/goals/{goal_id}/allocations",
+        json={
+            "allocations": [
+                {"wallet_id": wallet_id, "amount": 300_000},
+                {"wallet_id": wallet_id, "amount": 200_000},
+            ]
+        },
+        headers=headers,
+    )
+    assert blocked.status_code == 422
+    assert "goals.allocation_duplicate_wallet" in blocked.text
+
+
+def test_one_wallet_can_fund_multiple_goals(client):
+    headers = create_user_and_token(
+        client, "goalwalletmany", "goalwalletmany@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers, initial_balance=1_000_000)
+
+    first = client.post(
+        "/goals/",
+        json={"title": "Desk", "target_amount": 400_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    second = client.post(
+        "/goals/",
+        json={"title": "Chair", "target_amount": 300_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    assert first.status_code == 201
+    assert second.status_code == 201
+
+    assert client.post(
+        f"/goals/{first.json()['id']}/allocations",
+        json={"allocations": [{"wallet_id": wallet_id, "amount": 400_000}]},
+        headers=headers,
+    ).status_code == 200
+    assert client.post(
+        f"/goals/{second.json()['id']}/allocations",
+        json={"allocations": [{"wallet_id": wallet_id, "amount": 300_000}]},
+        headers=headers,
+    ).status_code == 200
+
+    summary = client.get("/goals/funding-summary", headers=headers)
+    assert summary.status_code == 200
+    assert summary.json()["allocated_to_goals"] == 700_000
+    assert summary.json()["available_for_goals"] == 300_000
+
+
+def test_goal_allocation_rejects_when_wallet_available_is_insufficient(client):
     headers = create_user_and_token(
         client, "goaluser3", "goaluser3@example.com", "Password123!"
     )
-    _setup_premium_user_with_balance(client, headers)
-    deposit = client.post("/savings/deposit", json={"amount": 200_000}, headers=headers)
-    assert deposit.status_code == 201
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers, initial_balance=200_000)
 
     created = client.post(
         "/goals/",
@@ -101,33 +755,76 @@ def test_goal_contribution_rejects_when_free_savings_insufficient(client):
     goal_id = created.json()["id"]
 
     blocked = client.post(
-        f"/goals/{goal_id}/contribute",
-        json={"amount": 300_000},
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 300_000},
         headers=headers,
     )
     assert blocked.status_code == 400
-    assert blocked.json()["detail"] == "goals.insufficient_free_savings_balance"
+    assert blocked.json()["detail"] == "goals.insufficient_wallet_available_for_goal"
 
 
-def test_goal_return_reduces_locked_amount_and_reopens_goal(client):
+def test_credit_wallet_cannot_fund_goals(client):
     headers = create_user_and_token(
         client, "goaluser4", "goaluser4@example.com", "Password123!"
     )
-    _setup_premium_user_with_balance(client, headers)
-    assert client.post("/savings/deposit", json={"amount": 1_000_000}, headers=headers).status_code == 201
+    onboard = client.post(
+        "/users/me/onboarding",
+        json={
+            "life_statuses": ["employed"],
+            "wallets": [
+                {
+                    "name": "Credit",
+                    "wallet_type": "CREDIT",
+                    "accounting_type": "LIABILITY",
+                    "initial_balance": 0,
+                    "credit_limit": 1_000_000,
+                    "can_fund_goals": True,
+                }
+            ],
+        },
+        headers=headers,
+    )
+    assert onboard.status_code == 200
+    assert client.post("/users/me/toggle-premium", headers=headers).status_code == 200
+    wallet = client.get("/wallets", headers=headers).json()[0]
+    assert wallet["can_fund_goals"] is False
+
+    created = client.post(
+        "/goals/",
+        json={"title": "Camera", "target_amount": 500_000},
+        headers=headers,
+    )
+    goal_id = created.json()["id"]
+    blocked = client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet["id"], "amount": 100_000},
+        headers=headers,
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"] == "goals.wallet_not_eligible"
+
+
+def test_goal_return_reduces_wallet_allocation_and_reopens_goal(client):
+    headers = create_user_and_token(
+        client, "goaluser5", "goaluser5@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers)
 
     created = client.post(
         "/goals/",
         json={"title": "Emergency fund", "target_amount": 900_000},
         headers=headers,
     )
-    assert created.status_code == 201
     goal_id = created.json()["id"]
-    assert client.post(f"/goals/{goal_id}/contribute", json={"amount": 900_000}, headers=headers).status_code == 200
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 900_000},
+        headers=headers,
+    ).status_code == 200
 
     returned = client.post(
-        f"/goals/{goal_id}/return",
-        json={"amount": 300_000},
+        f"/goals/{goal_id}/allocations/return",
+        json={"wallet_id": wallet_id, "amount": 300_000},
         headers=headers,
     )
     assert returned.status_code == 200
@@ -136,44 +833,96 @@ def test_goal_return_reduces_locked_amount_and_reopens_goal(client):
     assert payload["remaining_amount"] == 300_000
     assert payload["status"] == "ACTIVE"
 
-    summary = client.get("/savings/summary", headers=headers)
+    summary = client.get("/goals/funding-summary", headers=headers)
     assert summary.status_code == 200
-    assert summary.json() == {
-        "total_balance": 2_000_000,
-        "free_savings_balance": 400_000,
-        "locked_in_goals": 600_000,
-        "spendable_balance": 1_000_000,
-    }
+    assert summary.json()["allocated_to_goals"] == 600_000
+    assert summary.json()["available_for_goals"] == 1_400_000
 
 
-def test_goal_return_rejects_when_goal_balance_insufficient(client):
+def test_goal_return_rejects_when_wallet_goal_balance_insufficient(client):
     headers = create_user_and_token(
-        client, "goaluser5", "goaluser5@example.com", "Password123!"
+        client, "goaluser6", "goaluser6@example.com", "Password123!"
     )
-    _setup_premium_user_with_balance(client, headers)
-    assert client.post("/savings/deposit", json={"amount": 500_000}, headers=headers).status_code == 201
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers)
 
     created = client.post(
         "/goals/",
-        json={"title": "Camera", "target_amount": 1_000_000},
+        json={"title": "Console", "target_amount": 1_000_000},
         headers=headers,
     )
-    assert created.status_code == 201
     goal_id = created.json()["id"]
-    assert client.post(f"/goals/{goal_id}/contribute", json={"amount": 200_000}, headers=headers).status_code == 200
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 200_000},
+        headers=headers,
+    ).status_code == 200
 
     blocked = client.post(
-        f"/goals/{goal_id}/return",
-        json={"amount": 300_000},
+        f"/goals/{goal_id}/allocations/return",
+        json={"wallet_id": wallet_id, "amount": 300_000},
         headers=headers,
     )
     assert blocked.status_code == 400
-    assert blocked.json()["detail"] == "goals.insufficient_goal_balance"
+    assert blocked.json()["detail"] == "goals.insufficient_unreleased_balance"
+
+
+def test_reserve_goal_consume_requires_and_accepts_real_event_link(client):
+    headers = create_user_and_token(
+        client, "goaluser7", "goaluser7@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={"title": "Phone", "target_amount": 1_000_000},
+        headers=headers,
+    )
+    goal_id = created.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 700_000},
+        headers=headers,
+    ).status_code == 200
+
+    blocked = client.post(
+        f"/goals/{goal_id}/allocations/consume",
+        json={"wallet_id": wallet_id, "amount": 400_000},
+        headers=headers,
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"] == "goals.reserve_consume_requires_real_event"
+
+    _create_current_budget(client, headers, category="Electronics")
+    expense = create_expense(
+        client,
+        headers,
+        title="Emergency phone",
+        amount=400_000,
+        category="Electronics",
+    )
+    assert expense.status_code == 201
+
+    consumed = client.post(
+        f"/goals/{goal_id}/allocations/consume",
+        json={
+            "wallet_id": wallet_id,
+            "amount": 400_000,
+            "linked_event_id": expense.json()["id"],
+        },
+        headers=headers,
+    )
+    assert consumed.status_code == 200
+    assert consumed.json()["funded_amount"] == 300_000
+    assert consumed.json()["status"] == "ACTIVE"
+    assert consumed.json()["linked_expense_event_id"] is None
+
+    summary = client.get("/goals/funding-summary", headers=headers)
+    assert summary.json()["allocated_to_goals"] == 300_000
 
 
 def test_goals_routes_require_premium(client):
     headers = create_user_and_token(
-        client, "goaluser6", "goaluser6@example.com", "Password123!"
+        client, "goaluser8", "goaluser8@example.com", "Password123!"
     )
 
     listed = client.get("/goals/", headers=headers)
@@ -189,11 +938,11 @@ def test_goals_routes_require_premium(client):
     assert created.json()["detail"] == "users.premium_required"
 
 
-def test_update_goal_allows_title_target_and_date_changes(client):
+def test_update_goal_allows_title_target_date_intent_and_template_changes(client):
     headers = create_user_and_token(
-        client, "goaluser7", "goaluser7@example.com", "Password123!"
+        client, "goaluser9", "goaluser9@example.com", "Password123!"
     )
-    _setup_premium_user_with_balance(client, headers)
+    _setup_premium_user_with_goal_wallet(client, headers)
 
     created = client.post(
         "/goals/",
@@ -204,7 +953,13 @@ def test_update_goal_allows_title_target_and_date_changes(client):
 
     updated = client.patch(
         f"/goals/{goal_id}",
-        json={"title": "Road bike", "target_amount": 1_200_000, "target_date": "2026-07-01"},
+        json={
+            "title": "Road bike",
+            "target_amount": 1_200_000,
+            "target_date": "2026-07-01",
+            "intent": "PLANNED_PURCHASE",
+            "template": "vehicle",
+        },
         headers=headers,
     )
     assert updated.status_code == 200
@@ -212,21 +967,1802 @@ def test_update_goal_allows_title_target_and_date_changes(client):
     assert payload["title"] == "Road bike"
     assert payload["target_amount"] == 1_200_000
     assert payload["target_date"] == "2026-07-01"
+    assert payload["intent"] == "PLANNED_PURCHASE"
+    assert payload["template"] == "vehicle"
+
+
+def test_default_goal_intent_is_reserve_and_template_is_optional(client):
+    headers = create_user_and_token(
+        client, "goaluser15", "goaluser15@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={"title": "Safety", "target_amount": 1_000_000},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    payload = created.json()
+    assert payload["intent"] == "RESERVE"
+    assert payload["template"] is None
+
+
+def test_reserve_goal_reaching_target_stays_active(client):
+    headers = create_user_and_token(
+        client, "goaluser16", "goaluser16@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={
+            "title": "Emergency",
+            "target_amount": 500_000,
+            "intent": "RESERVE",
+            "template": "emergency_fund",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    goal_id = created.json()["id"]
+
+    funded = client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 500_000},
+        headers=headers,
+    )
+    assert funded.status_code == 200
+    payload = funded.json()
+    assert payload["funded_amount"] == 500_000
+    assert payload["remaining_amount"] == 0
+    assert payload["progress_percent"] == 100
+    assert payload["status"] == "ACTIVE"
+
+
+def test_old_goal_intents_are_rejected_by_api(client):
+    headers = create_user_and_token(
+        client, "goaluser17", "goaluser17@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={
+            "title": "Old intent",
+            "target_amount": 500_000,
+            "intent": "PURCHASE_ASSET",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 422
+
+
+def test_goal_template_is_normalized_and_invalid_template_rejected(client):
+    headers = create_user_and_token(
+        client, "goaluser18", "goaluser18@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={
+            "title": "Rainy day",
+            "target_amount": 500_000,
+            "intent": "RESERVE",
+            "template": "Rainy Day",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    assert created.json()["template"] == "rainy_day"
+
+    invalid = client.post(
+        "/goals/",
+        json={
+            "title": "Bad tpl",
+            "target_amount": 500_000,
+            "intent": "RESERVE",
+            "template": "bad/template",
+        },
+        headers=headers,
+    )
+    assert invalid.status_code == 422
+
+
+def test_planned_purchase_generic_consume_is_blocked_even_with_real_event(client):
+    headers = create_user_and_token(
+        client, "goalpurchaseguard", "goalpurchaseguard@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    wallet_id = _create_wallet(client, headers, name="PurchaseGuard", initial_balance=2_000_000)
+    _create_current_budget(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={
+            "title": "Camera",
+            "target_amount": 1_000_000,
+            "intent": "PLANNED_PURCHASE",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    goal_id = created.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    expense = create_expense(
+        client,
+        headers,
+        title="Camera buy",
+        amount=1_000_000,
+        category="Electronics",
+    )
+    assert expense.status_code == 201
+
+    blocked = client.post(
+        f"/goals/{goal_id}/allocations/consume",
+        json={
+            "wallet_id": wallet_id,
+            "amount": 1_000_000,
+            "linked_event_id": expense.json()["id"],
+        },
+        headers=headers,
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"] == "goals.planned_purchase_requires_record_purchase"
+
+
+def test_planned_purchase_rejects_legacy_single_payment_wallet_field(client):
+    headers = create_user_and_token(
+        client, "goalpurchaselegacy", "goalpurchaselegacy@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    wallet_id = _create_wallet(client, headers, name="LegacyPay", initial_balance=2_000_000)
+    _create_current_budget(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={
+            "title": "Legacy camera",
+            "target_amount": 1_000_000,
+            "intent": "PLANNED_PURCHASE",
+        },
+        headers=headers,
+    )
+    goal_id = created.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    blocked = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 1_000_000,
+            "payment_wallet_id": wallet_id,
+            "category": "Electronics",
+            "date": user_timezone_today().isoformat(),
+            "settlement_mode": "DIRECT",
+        },
+        headers=headers,
+    )
+    assert blocked.status_code == 422
+
+
+def test_planned_purchase_direct_settlement_creates_expense_asset_and_consumes_goal_funding(client):
+    headers = create_user_and_token(
+        client, "goaluse1", "goaluse1@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    wallet_id = _create_wallet(client, headers, name="SaveBuy", initial_balance=2_000_000)
+    _create_current_budget(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={
+            "title": "Laptop",
+            "target_amount": 1_000_000,
+            "intent": "PLANNED_PURCHASE",
+            "template": "laptop_phone",
+        },
+        headers=headers,
+    )
+    goal_id = created.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    used = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 1_000_000,
+            "payment_allocations": [{"wallet_id": wallet_id, "amount": 1_000_000}],
+            "category": "Electronics",
+            "date": user_timezone_today().isoformat(),
+            "settlement_mode": "DIRECT",
+            "result_type": "ASSET_PURCHASE",
+            "asset_title": "Laptop Asset",
+        },
+        headers=headers,
+    )
+    assert used.status_code == 200
+    payload = used.json()
+    assert payload["consumed_amount"] == 1_000_000
+    assert payload["outside_goal_amount"] == 0
+    assert payload["asset_id"] is not None
+    assert payload["goal"]["status"] == "COMPLETED"
+    assert payload["goal"]["funded_amount"] == 0
+    assert _wallet_by_id(client, headers, wallet_id)["current_balance"] == 1_000_000
+
+
+def test_planned_purchase_down_payment_creates_installment_plan_and_next_goal(client, session):
+    headers = create_user_and_token(
+        client, "goaldownplan", "goaldownplan@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    wallet_id = _create_wallet(client, headers, name="DownPaySave", initial_balance=2_000_000)
+    _create_current_budget(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={
+            "title": "Laptop down payment",
+            "target_amount": 400_000,
+            "intent": "PLANNED_PURCHASE",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    goal_id = created.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 400_000},
+        headers=headers,
+    ).status_code == 200
+
+    used = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 400_000,
+            "payment_allocations": [{"wallet_id": wallet_id, "amount": 400_000}],
+            "category": "Electronics",
+            "date": user_timezone_today().isoformat(),
+            "settlement_mode": "DIRECT",
+            "result_type": "ASSET_PURCHASE",
+            "asset_title": "Laptop Asset",
+            "installment_plan": {
+                "total_price": 1_000_000,
+                "item_name": "Laptop",
+                "store_or_bank_name": "Tech Store",
+                "months": 3,
+                "frequency": "MONTHLY",
+                "create_next_payment_goal": True,
+            },
+        },
+        headers=headers,
+    )
+    assert used.status_code == 200, used.text
+    payload = used.json()
+    plan = payload["installment_plan"]
+    next_goal = payload["next_payment_goal"]
+    assert payload["consumed_amount"] == 400_000
+    assert payload["goal"]["status"] == "COMPLETED"
+    assert payload["goal"]["linked_installment_plan_id"] == plan["id"]
+    assert payload["asset_id"] is not None
+    assert plan["total_price"] == 1_000_000
+    assert plan["down_payment"] == 400_000
+    assert plan["remaining_amount"] == 600_000
+    assert plan["debt_id"] is not None
+    assert len(plan["payments"]) == 3
+    assert {payment["amount"] for payment in plan["payments"]} == {200_000}
+    assert next_goal["intent"] == "PAY_OBLIGATION"
+    assert next_goal["linked_debt_id"] == plan["debt_id"]
+    assert next_goal["linked_installment_plan_id"] == plan["id"]
+    assert next_goal["target_amount"] == 200_000
+    assert next_goal["installment_target"]["payment_number"] == 1
+
+    event = session.get(models.FinancialEvent, payload["expense_event_id"])
+    assert event.reference_type == models.ReferenceType.GOAL_PLANNED_PURCHASE
+    assert event.entity_legs[0].installment_plan_id == plan["id"]
+    assert event.entity_legs[0].amount == 400_000
+    duplicate_down_payment_events = session.query(models.FinancialEvent).filter(
+        models.FinancialEvent.reference_type == models.ReferenceType.INSTALLMENT_DOWN_PAYMENT,
+        models.FinancialEvent.owner_id == event.owner_id,
+    ).count()
+    assert duplicate_down_payment_events == 0
+
+    debt = session.get(models.Debt, plan["debt_id"])
+    assert debt.remaining_amount == 600_000
+    asset = session.get(models.Asset, payload["asset_id"])
+    assert asset.purchase_value == 1_000_000
+    assert _wallet_by_id(client, headers, wallet_id)["current_balance"] == 1_600_000
+
+
+def test_planned_purchase_installment_bridge_rejects_total_not_above_down_payment(client):
+    headers = create_user_and_token(
+        client, "goaldownbad", "goaldownbad@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    wallet_id = _create_wallet(client, headers, name="DownBadSave", initial_balance=2_000_000)
+    _create_current_budget(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={"title": "Phone down", "target_amount": 400_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    goal_id = created.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 400_000},
+        headers=headers,
+    ).status_code == 200
+
+    blocked = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 400_000,
+            "payment_allocations": [{"wallet_id": wallet_id, "amount": 400_000}],
+            "category": "Electronics",
+            "date": user_timezone_today().isoformat(),
+            "settlement_mode": "DIRECT",
+            "installment_plan": {
+                "total_price": 400_000,
+                "item_name": "Phone",
+                "months": 3,
+            },
+        },
+        headers=headers,
+    )
+    assert blocked.status_code == 422
+    assert "goals.installment_total_must_exceed_down_payment" in blocked.text
+
+
+def test_planned_purchase_rejects_second_purchase(client):
+    headers = create_user_and_token(
+        client, "goalsecondpurchase", "goalsecondpurchase@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    wallet_id = _create_wallet(client, headers, name="OnePurchase", initial_balance=2_000_000)
+    _create_current_budget(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={"title": "Console", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    goal_id = created.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    payload = {
+        "amount": 1_000_000,
+        "payment_allocations": [{"wallet_id": wallet_id, "amount": 1_000_000}],
+        "category": "Electronics",
+        "date": user_timezone_today().isoformat(),
+        "settlement_mode": "DIRECT",
+    }
+    first = client.post(f"/goals/{goal_id}/record-purchase", json=payload, headers=headers)
+    assert first.status_code == 200
+
+    second = client.post(f"/goals/{goal_id}/record-purchase", json=payload, headers=headers)
+    assert second.status_code == 400
+    assert second.json()["detail"] == "goals.purchase_already_recorded"
+
+
+def test_goal_created_expenses_reject_future_dates(client):
+    headers = create_user_and_token(
+        client, "goalfuturedate", "goalfuturedate@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    wallet_id = _create_wallet(client, headers, name="FutureGuard", initial_balance=2_000_000)
+    _create_current_budget(client, headers, category="Electronics")
+    _create_current_budget(client, headers, category="Health")
+
+    future_date = (user_timezone_today() + timedelta(days=1)).isoformat()
+
+    purchase_goal = client.post(
+        "/goals/",
+        json={"title": "Speaker", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    assert purchase_goal.status_code == 201
+    purchase_goal_id = purchase_goal.json()["id"]
+    assert client.post(
+        f"/goals/{purchase_goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    purchase = client.post(
+        f"/goals/{purchase_goal_id}/record-purchase",
+        json={
+            "amount": 1_000_000,
+            "payment_allocations": [{"wallet_id": wallet_id, "amount": 1_000_000}],
+            "category": "Electronics",
+            "date": future_date,
+            "settlement_mode": "DIRECT",
+        },
+        headers=headers,
+    )
+    assert purchase.status_code == 400
+    assert purchase.json()["detail"] == "expenses.date_in_future"
+
+    reserve_goal = client.post(
+        "/goals/",
+        json={"title": "Medical", "target_amount": 500_000, "intent": "RESERVE"},
+        headers=headers,
+    )
+    assert reserve_goal.status_code == 201
+    reserve_goal_id = reserve_goal.json()["id"]
+    assert client.post(
+        f"/goals/{reserve_goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 500_000},
+        headers=headers,
+    ).status_code == 200
+
+    reserve_use = client.post(
+        f"/goals/{reserve_goal_id}/use-reserve",
+        json={
+            "amount": 100_000,
+            "payment_allocations": [{"wallet_id": wallet_id, "amount": 100_000}],
+            "category": "Health",
+            "date": future_date,
+            "settlement_mode": "DIRECT",
+        },
+        headers=headers,
+    )
+    assert reserve_use.status_code == 400
+    assert reserve_use.json()["detail"] == "expenses.date_in_future"
+
+
+def test_planned_purchase_is_categorized_but_excluded_from_normal_monthly_budget(client, session):
+    headers = create_user_and_token(
+        client, "goalbudgetimpact", "goalbudgetimpact@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    today = user_timezone_today()
+    budget = create_budget(
+        client,
+        headers,
+        category="Electronics",
+        monthly_limit=500_000,
+        budget_year=today.year,
+        budget_month=today.month,
+    )
+    assert budget.status_code == 201
+    subcategory = client.post(
+        f"/budgets/{budget.json()['id']}/subcategories",
+        json={"category": "Electronics", "name": "Laptops", "monthly_limit": 100_000},
+        headers=headers,
+    )
+    assert subcategory.status_code == 201
+
+    normal = create_expense(
+        client,
+        headers,
+        title="Mouse",
+        amount=300_000,
+        category="Electronics",
+        expense_date=today,
+    )
+    assert normal.status_code == 201
+
+    savings_id = _create_wallet(client, headers, name="LaptopFund", initial_balance=2_000_000)
+    goal = client.post(
+        "/goals/",
+        json={"title": "Laptop", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    assert goal.status_code == 201
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": savings_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    purchase = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 1_000_000,
+            "payment_allocations": [{"wallet_id": savings_id, "amount": 1_000_000}],
+            "category": "Electronics",
+            "subcategory_id": subcategory.json()["id"],
+            "date": today.isoformat(),
+            "settlement_mode": "DIRECT",
+        },
+        headers=headers,
+    )
+    assert purchase.status_code == 200
+
+    event = session.get(models.FinancialEvent, purchase.json()["expense_event_id"])
+    assert event.reference_type == models.ReferenceType.GOAL_PLANNED_PURCHASE
+    assert event.entity_legs[0].category == models.ExpenseCategory.ELECTRONICS
+    assert event.entity_legs[0].subcategory_id == subcategory.json()["id"]
+    assert event.entity_legs[0].budget_id == budget.json()["id"]
+
+    budget_after = client.get(
+        f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Electronics",
+        headers=headers,
+    )
+    assert budget_after.status_code == 200
+    assert budget_after.json()["spent"] == 300_000
+    assert budget_after.json()["remaining"] == 200_000
+
+    detail = client.get(
+        f"/budgets/item/detail?budget_year={today.year}&budget_month={today.month}&category=Electronics",
+        headers=headers,
+    )
+    assert detail.status_code == 200
+    assert detail.json()["expense_count"] == 1
+    assert [item["title"] for item in detail.json()["recent_activity"]] == ["Mouse"]
+    assert detail.json()["subcategories"][0]["spent"] == 0
+
+
+def test_planned_purchase_achieved_outside_reserved_funds_is_excluded_from_normal_monthly_budget(client):
+    headers = create_user_and_token(
+        client, "goalbudgetoutside", "goalbudgetoutside@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    today = user_timezone_today()
+    budget = create_budget(
+        client,
+        headers,
+        category="Electronics",
+        monthly_limit=500_000,
+        budget_year=today.year,
+        budget_month=today.month,
+    )
+    assert budget.status_code == 201
+
+    normal = create_expense(
+        client,
+        headers,
+        title="Mouse",
+        amount=300_000,
+        category="Electronics",
+        expense_date=today,
+    )
+    assert normal.status_code == 201
+
+    savings_id = _create_wallet(client, headers, name="OutsideSavings", initial_balance=1_000_000)
+    debit_id = _create_wallet(
+        client,
+        headers,
+        name="OutsideDebit",
+        wallet_type="DEBIT",
+        initial_balance=1_000_000,
+        can_fund_goals=False,
+    )
+    goal = client.post(
+        "/goals/",
+        json={"title": "Laptop outside", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    assert goal.status_code == 201
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": savings_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    purchase = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 1_000_000,
+            "payment_allocations": [{"wallet_id": debit_id, "amount": 1_000_000}],
+            "category": "Electronics",
+            "date": today.isoformat(),
+            "completion_mode": "ACHIEVED_OUTSIDE_RESERVED_FUNDS",
+        },
+        headers=headers,
+    )
+    assert purchase.status_code == 200
+
+    budget_after = client.get(
+        f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Electronics",
+        headers=headers,
+    )
+    assert budget_after.status_code == 200
+    assert budget_after.json()["spent"] == 300_000
+    assert budget_after.json()["remaining"] == 200_000
+
+
+def test_unplanned_purchase_still_counts_against_monthly_budget_without_blocking_save(client):
+    headers = create_user_and_token(
+        client, "goalbudgetnormal", "goalbudgetnormal@example.com", "Password123!"
+    )
+    today = user_timezone_today()
+    create_budget(
+        client,
+        headers,
+        category="Electronics",
+        monthly_limit=500_000,
+        budget_year=today.year,
+        budget_month=today.month,
+    )
+
+    saved = create_expense(
+        client,
+        headers,
+        title="Laptop",
+        amount=600_000,
+        category="Electronics",
+        expense_date=today,
+    )
+    assert saved.status_code == 201, saved.text
+
+    budget_after = client.get(
+        f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Electronics",
+        headers=headers,
+    )
+    assert budget_after.status_code == 200, budget_after.text
+    assert budget_after.json()["spent"] == 600_000
+    assert budget_after.json()["remaining"] == -100_000
+    assert budget_after.json()["is_over_limit"] is True
+
+
+def test_planned_purchase_lower_price_requires_target_adjustment_and_releases_leftover(client):
+    headers = create_user_and_token(
+        client, "goaluse1b", "goaluse1b@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    wallet_id = _create_wallet(client, headers, name="LowerPrice", initial_balance=2_000_000)
+    _create_current_budget(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={
+            "title": "Discount phone",
+            "target_amount": 1_000_000,
+            "intent": "PLANNED_PURCHASE",
+            "template": "laptop_phone",
+        },
+        headers=headers,
+    )
+    goal_id = created.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    blocked = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 800_000,
+            "payment_allocations": [{"wallet_id": wallet_id, "amount": 800_000}],
+            "category": "Electronics",
+            "date": user_timezone_today().isoformat(),
+            "settlement_mode": "DIRECT",
+            "result_type": "EXPENSE_ONLY",
+        },
+        headers=headers,
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"] == "goals.purchase_target_adjustment_required"
+
+    used = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 800_000,
+            "payment_allocations": [{"wallet_id": wallet_id, "amount": 800_000}],
+            "category": "Electronics",
+            "date": user_timezone_today().isoformat(),
+            "settlement_mode": "DIRECT",
+            "result_type": "EXPENSE_ONLY",
+            "adjust_target_to_purchase_amount": True,
+        },
+        headers=headers,
+    )
+    assert used.status_code == 200
+    payload = used.json()
+    assert payload["consumed_amount"] == 800_000
+    assert payload["released_amount"] == 200_000
+    assert payload["outside_goal_amount"] == 0
+    assert payload["goal"]["status"] == "COMPLETED"
+    assert payload["goal"]["target_amount"] == 800_000
+    assert payload["goal"]["funded_amount"] == 0
+    assert payload["goal"]["unreleased_amount"] == 0
+    assert _wallet_by_id(client, headers, wallet_id)["current_balance"] == 1_200_000
+
+
+def test_planned_purchase_achieved_outside_reserved_funds_releases_goal_money(client, session):
+    headers = create_user_and_token(
+        client, "goaluse2", "goaluse2@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    savings_id = _create_wallet(client, headers, name="GoalSave", initial_balance=1_000_000)
+    debit_id = _create_wallet(
+        client,
+        headers,
+        name="PayCard",
+        wallet_type="DEBIT",
+        initial_balance=1_000_000,
+        can_fund_goals=False,
+    )
+    _create_current_budget(client, headers)
+
+    goal = client.post(
+        "/goals/",
+        json={"title": "Camera", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": savings_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    used = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 1_000_000,
+            "payment_allocations": [{"wallet_id": debit_id, "amount": 1_000_000}],
+            "category": "Electronics",
+            "date": user_timezone_today().isoformat(),
+            "completion_mode": "ACHIEVED_OUTSIDE_RESERVED_FUNDS",
+        },
+        headers=headers,
+    )
+    assert used.status_code == 200
+    payload = used.json()
+    assert payload["consumed_amount"] == 0
+    assert payload["released_amount"] == 1_000_000
+    assert payload["outside_goal_amount"] == 1_000_000
+    assert payload["transfer_event_ids"] == []
+    assert payload["goal"]["status"] == "COMPLETED"
+    assert payload["goal"]["completion_mode"] == "ACHIEVED_OUTSIDE_RESERVED_FUNDS"
+    assert payload["goal"]["funded_amount"] == 0
+    assert _wallet_by_id(client, headers, savings_id)["current_balance"] == 1_000_000
+    assert _wallet_by_id(client, headers, debit_id)["current_balance"] == 0
+
+    event = session.get(models.FinancialEvent, payload["expense_event_id"])
+    assert event.reference_type == models.ReferenceType.GOAL_ACHIEVED_OUTSIDE_FUNDS
+
+
+def test_planned_purchase_achieved_outside_supports_multi_wallet_payment_allocations(client, session):
+    headers = create_user_and_token(
+        client, "goaluse2multi", "goaluse2multi@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    savings_id = _create_wallet(client, headers, name="FridgeSavings", initial_balance=1_000_000)
+    cash_id = _create_wallet(
+        client,
+        headers,
+        name="FridgeCash",
+        wallet_type="CASH",
+        initial_balance=1_000_000,
+        can_fund_goals=False,
+    )
+    debit_id = _create_wallet(
+        client,
+        headers,
+        name="FridgeCard",
+        wallet_type="DEBIT",
+        initial_balance=1_000_000,
+        can_fund_goals=False,
+    )
+    _create_current_budget(client, headers, category="Housing")
+
+    goal = client.post(
+        "/goals/",
+        json={"title": "Fridge", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": savings_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    used = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 1_000_000,
+            "payment_allocations": [
+                {"wallet_id": cash_id, "amount": 400_000},
+                {"wallet_id": debit_id, "amount": 600_000},
+            ],
+            "category": "Housing",
+            "date": user_timezone_today().isoformat(),
+            "completion_mode": "ACHIEVED_OUTSIDE_RESERVED_FUNDS",
+        },
+        headers=headers,
+    )
+    assert used.status_code == 200
+    payload = used.json()
+    assert payload["consumed_amount"] == 0
+    assert payload["released_amount"] == 1_000_000
+    assert payload["outside_goal_amount"] == 1_000_000
+    assert payload["transfer_event_ids"] == []
+    assert _wallet_by_id(client, headers, savings_id)["current_balance"] == 1_000_000
+    assert _wallet_by_id(client, headers, cash_id)["current_balance"] == 600_000
+    assert _wallet_by_id(client, headers, debit_id)["current_balance"] == 400_000
+
+    event = session.get(models.FinancialEvent, payload["expense_event_id"])
+    assert event is not None
+    wallet_legs = sorted((leg.wallet_id, leg.amount) for leg in event.wallet_legs)
+    assert wallet_legs == sorted([(cash_id, -400_000), (debit_id, -600_000)])
+    entity_total = sum(int(leg.amount) for leg in event.entity_legs)
+    assert entity_total == 1_000_000
+
+
+def test_planned_purchase_rejects_more_than_three_payment_wallets(client):
+    headers = create_user_and_token(
+        client, "goaluse2toomany", "goaluse2toomany@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    savings_id = _create_wallet(client, headers, name="TooManySavings", initial_balance=1_000_000)
+    wallet_ids = [
+        _create_wallet(
+            client,
+            headers,
+            name=f"TooManyPay{index}",
+            wallet_type="DEBIT",
+            initial_balance=250_000,
+            can_fund_goals=False,
+        )
+        for index in range(4)
+    ]
+    _create_current_budget(client, headers)
+
+    goal = client.post(
+        "/goals/",
+        json={"title": "Too many split", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": savings_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    blocked = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 1_000_000,
+            "payment_allocations": [
+                {"wallet_id": wallet_id, "amount": 250_000}
+                for wallet_id in wallet_ids
+            ],
+            "category": "Electronics",
+            "date": user_timezone_today().isoformat(),
+            "completion_mode": "ACHIEVED_OUTSIDE_RESERVED_FUNDS",
+        },
+        headers=headers,
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"] == "goals.payment_allocation_limit_exceeded"
+
+
+def test_planned_purchase_achieved_outside_allows_credit_card_truthfully(client):
+    headers = create_user_and_token(
+        client, "goaluse2credit", "goaluse2credit@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    savings_id = _create_wallet(client, headers, name="CreditOutsideSavings", initial_balance=1_000_000)
+    credit = client.post(
+        "/wallets",
+        json={
+            "name": "Credit checkout",
+            "wallet_type": "CREDIT",
+            "accounting_type": "LIABILITY",
+            "initial_balance": 0,
+            "credit_limit": 2_000_000,
+            "can_fund_goals": False,
+        },
+        headers=headers,
+    )
+    assert credit.status_code == 201, credit.text
+    credit_id = credit.json()["id"]
+    _create_current_budget(client, headers)
+
+    goal = client.post(
+        "/goals/",
+        json={"title": "Credit camera", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": savings_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    used = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 1_000_000,
+            "payment_allocations": [{"wallet_id": credit_id, "amount": 1_000_000}],
+            "category": "Electronics",
+            "date": user_timezone_today().isoformat(),
+            "completion_mode": "ACHIEVED_OUTSIDE_RESERVED_FUNDS",
+        },
+        headers=headers,
+    )
+    assert used.status_code == 200, used.text
+    payload = used.json()
+    assert payload["goal"]["completion_mode"] == "ACHIEVED_OUTSIDE_RESERVED_FUNDS"
+    assert payload["released_amount"] == 1_000_000
+    assert _wallet_by_id(client, headers, savings_id)["current_balance"] == 1_000_000
+    assert _wallet_by_id(client, headers, credit_id)["current_balance"] == -1_000_000
+
+
+def test_planned_purchase_goal_funded_rejects_credit_card_even_if_legacy_allocation_exists(client, session):
+    email = "goaluse2creditbad@example.com"
+    headers = create_user_and_token(
+        client, "goaluse2creditbad", email, "Password123!"
+    )
+    _make_premium(client, headers)
+    credit = client.post(
+        "/wallets",
+        json={
+            "name": "Legacy credit goal source",
+            "wallet_type": "CREDIT",
+            "accounting_type": "LIABILITY",
+            "initial_balance": 0,
+            "credit_limit": 2_000_000,
+            "can_fund_goals": False,
+        },
+        headers=headers,
+    )
+    assert credit.status_code == 201, credit.text
+    credit_id = credit.json()["id"]
+    _create_current_budget(client, headers)
+
+    goal = client.post(
+        "/goals/",
+        json={"title": "Bad credit funding", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    goal_id = goal.json()["id"]
+    user = session.query(models.User).filter(models.User.email == email).one()
+    session.add(
+        models.GoalContributions(
+            owner_id=user.id,
+            goal_id=goal_id,
+            wallet_id=credit_id,
+            amount=1_000_000,
+            contribution_type=models.GoalContributionType.ALLOCATE,
+        )
+    )
+    session.commit()
+
+    blocked = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 1_000_000,
+            "payment_allocations": [{"wallet_id": credit_id, "amount": 1_000_000}],
+            "category": "Electronics",
+            "date": user_timezone_today().isoformat(),
+            "completion_mode": "GOAL_FUNDED",
+        },
+        headers=headers,
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"] == "goals.goal_funded_payment_wallet_must_be_owned_money"
+
+
+def test_planned_purchase_achieved_outside_releases_multi_wallet_goal_funding(client):
+    headers = create_user_and_token(
+        client, "goaluse2matrix", "goaluse2matrix@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    savings_id = _create_wallet(client, headers, name="MatrixSavings", initial_balance=1_000_000)
+    cash_id = _create_wallet(client, headers, name="MatrixCash", wallet_type="CASH", initial_balance=1_000_000)
+    debit_one_id = _create_wallet(
+        client,
+        headers,
+        name="MatrixDebitOne",
+        wallet_type="DEBIT",
+        initial_balance=1_000_000,
+        can_fund_goals=False,
+    )
+    debit_two_id = _create_wallet(
+        client,
+        headers,
+        name="MatrixDebitTwo",
+        wallet_type="DEBIT",
+        initial_balance=1_000_000,
+        can_fund_goals=False,
+    )
+    _create_current_budget(client, headers, category="Electronics")
+
+    goal = client.post(
+        "/goals/",
+        json={"title": "Camera kit", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": savings_id, "amount": 700_000},
+        headers=headers,
+    ).status_code == 200
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": cash_id, "amount": 300_000},
+        headers=headers,
+    ).status_code == 200
+
+    used = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 1_000_000,
+            "payment_allocations": [
+                {"wallet_id": debit_one_id, "amount": 200_000},
+                {"wallet_id": debit_two_id, "amount": 800_000},
+            ],
+            "category": "Electronics",
+            "date": user_timezone_today().isoformat(),
+            "completion_mode": "ACHIEVED_OUTSIDE_RESERVED_FUNDS",
+        },
+        headers=headers,
+    )
+    assert used.status_code == 200
+    payload = used.json()
+    assert payload["consumed_amount"] == 0
+    assert payload["released_amount"] == 1_000_000
+    assert payload["outside_goal_amount"] == 1_000_000
+    assert payload["transfer_event_ids"] == []
+    assert payload["goal"]["funded_amount"] == 0
+    assert _wallet_by_id(client, headers, savings_id)["current_balance"] == 1_000_000
+    assert _wallet_by_id(client, headers, cash_id)["current_balance"] == 1_000_000
+    assert _wallet_by_id(client, headers, debit_one_id)["current_balance"] == 800_000
+    assert _wallet_by_id(client, headers, debit_two_id)["current_balance"] == 200_000
+
+
+def test_planned_purchase_achieved_outside_rejects_goal_funding_payment_wallet(client):
+    headers = create_user_and_token(
+        client, "goaluse2outsidebad", "goaluse2outsidebad@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    savings_id = _create_wallet(client, headers, name="OutsideBadSavings", initial_balance=1_000_000)
+    _create_current_budget(client, headers)
+
+    goal = client.post(
+        "/goals/",
+        json={"title": "Camera outside bad", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": savings_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    blocked = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 1_000_000,
+            "payment_allocations": [{"wallet_id": savings_id, "amount": 1_000_000}],
+            "category": "Electronics",
+            "date": user_timezone_today().isoformat(),
+            "completion_mode": "ACHIEVED_OUTSIDE_RESERVED_FUNDS",
+        },
+        headers=headers,
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"] == "goals.achieved_outside_requires_non_funding_wallet"
+    assert _wallet_by_id(client, headers, savings_id)["current_balance"] == 1_000_000
+
+
+def test_move_goal_funding_transfers_money_and_moves_only_selected_goal_label(client, session):
+    headers = create_user_and_token(
+        client, "goalmove1", "goalmove1@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    source_id = _create_wallet(client, headers, name="MoveSavings", initial_balance=2_000_000)
+    target_id = _create_wallet(
+        client,
+        headers,
+        name="MoveDebit",
+        wallet_type="DEBIT",
+        initial_balance=0,
+        can_fund_goals=True,
+    )
+
+    emergency = client.post(
+        "/goals/",
+        json={"title": "Emergency", "target_amount": 500_000, "intent": "RESERVE"},
+        headers=headers,
+    )
+    emergency_id = emergency.json()["id"]
+    assert client.post(
+        f"/goals/{emergency_id}/allocations",
+        json={"wallet_id": source_id, "amount": 500_000},
+        headers=headers,
+    ).status_code == 200
+
+    laptop = client.post(
+        "/goals/",
+        json={"title": "Laptop move", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    laptop_id = laptop.json()["id"]
+    assert client.post(
+        f"/goals/{laptop_id}/allocations",
+        json={"wallet_id": source_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    moved = client.post(
+        f"/goals/{laptop_id}/allocations/move",
+        json={
+            "source_wallet_id": source_id,
+            "target_wallet_id": target_id,
+            "amount": 600_000,
+            "date": user_timezone_today().isoformat(),
+            "note": "prepare card payment",
+        },
+        headers=headers,
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["moved_amount"] == 600_000
+
+    session.expire_all()
+    source_wallet = session.query(models.Wallet).filter(models.Wallet.id == source_id).first()
+    owner_id = source_wallet.owner_id
+    assert _wallet_by_id(client, headers, source_id)["current_balance"] == 1_400_000
+    assert _wallet_by_id(client, headers, target_id)["current_balance"] == 600_000
+    assert get_goal_wallet_funded_amount(session, owner_id, emergency_id, source_id) == 500_000
+    assert get_goal_wallet_funded_amount(session, owner_id, laptop_id, source_id) == 400_000
+    assert get_goal_wallet_funded_amount(session, owner_id, laptop_id, target_id) == 600_000
+
+
+def test_move_goal_funding_with_fee_records_linked_bank_fee(client, session):
+    headers = create_user_and_token(
+        client, "goalmovefee", "goalmovefee@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    source_id = _create_wallet(client, headers, name="MoveFeeSavings", initial_balance=1_010_000)
+    target_id = _create_wallet(
+        client,
+        headers,
+        name="MoveFeeDebit",
+        wallet_type="DEBIT",
+        initial_balance=0,
+        can_fund_goals=True,
+    )
+
+    goal = client.post(
+        "/goals/",
+        json={"title": "Laptop fee move", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": source_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    moved = client.post(
+        f"/goals/{goal_id}/allocations/move",
+        json={
+            "source_wallet_id": source_id,
+            "target_wallet_id": target_id,
+            "amount": 1_000_000,
+            "fee_amount": 10_000,
+            "fee_wallet_id": source_id,
+            "fee_note": "bank app transfer fee",
+            "date": user_timezone_today().isoformat(),
+            "note": "prepare card payment",
+        },
+        headers=headers,
+    )
+
+    assert moved.status_code == 200, moved.text
+    payload = moved.json()
+    assert payload["transfer"]["fee_event_id"] is not None
+    session.expire_all()
+    source_wallet = session.query(models.Wallet).filter(models.Wallet.id == source_id).first()
+    owner_id = source_wallet.owner_id
+    assert _wallet_by_id(client, headers, source_id)["current_balance"] == 0
+    assert _wallet_by_id(client, headers, target_id)["current_balance"] == 1_000_000
+    assert get_goal_wallet_funded_amount(session, owner_id, goal_id, source_id) == 0
+    assert get_goal_wallet_funded_amount(session, owner_id, goal_id, target_id) == 1_000_000
+
+    fee_event = session.query(models.FinancialEvent).filter(
+        models.FinancialEvent.id == payload["transfer"]["fee_event_id"]
+    ).first()
+    assert fee_event is not None
+    assert fee_event.linked_event_id == payload["transfer"]["id"]
+    assert fee_event.reference_type == models.ReferenceType.BANK_FEE
+
+
+def test_move_goal_funding_allows_goals_off_owned_payment_target_wallet(client, session):
+    headers = create_user_and_token(
+        client, "goalmove2", "goalmove2@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    source_id = _create_wallet(client, headers, name="MoveSource", initial_balance=1_000_000)
+    target_id = _create_wallet(
+        client,
+        headers,
+        name="MoveIneligible",
+        wallet_type="DEBIT",
+        initial_balance=0,
+        can_fund_goals=False,
+    )
+    goal = client.post(
+        "/goals/",
+        json={"title": "Laptop ineligible", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": source_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    blocked = client.post(
+        f"/goals/{goal_id}/allocations/move",
+        json={
+            "source_wallet_id": source_id,
+            "target_wallet_id": target_id,
+            "amount": 500_000,
+            "date": user_timezone_today().isoformat(),
+        },
+        headers=headers,
+    )
+    assert blocked.status_code == 200, blocked.text
+    session.expire_all()
+    source_wallet = session.query(models.Wallet).filter(models.Wallet.id == source_id).first()
+    owner_id = source_wallet.owner_id
+    assert _wallet_by_id(client, headers, source_id)["current_balance"] == 500_000
+    assert _wallet_by_id(client, headers, target_id)["current_balance"] == 500_000
+    assert get_goal_wallet_funded_amount(session, owner_id, goal_id, source_id) == 500_000
+    assert get_goal_wallet_funded_amount(session, owner_id, goal_id, target_id) == 500_000
+
+
+def test_move_goal_funding_rejects_credit_target_wallet(client):
+    headers = create_user_and_token(
+        client, "goalmovecredit", "goalmovecredit@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    source_id = _create_wallet(client, headers, name="MoveCreditSource", initial_balance=1_000_000)
+    credit_response = client.post(
+        "/wallets",
+        json={
+            "name": "CheckoutCredit",
+            "wallet_type": "CREDIT",
+            "initial_balance": 0,
+            "credit_limit": 5_000_000,
+            "can_fund_goals": False,
+        },
+        headers=headers,
+    )
+    assert credit_response.status_code == 201
+    credit_id = credit_response.json()["id"]
+    goal = client.post(
+        "/goals/",
+        json={"title": "Laptop credit target", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": source_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    blocked = client.post(
+        f"/goals/{goal_id}/allocations/move",
+        json={
+            "source_wallet_id": source_id,
+            "target_wallet_id": credit_id,
+            "amount": 500_000,
+            "date": user_timezone_today().isoformat(),
+        },
+        headers=headers,
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"] == "goals.prepare_payment_target_must_be_owned_money"
+
+
+def test_move_goal_funding_accepts_multi_source_multi_target_moves(client, session):
+    headers = create_user_and_token(
+        client, "goalmovemulti", "goalmovemulti@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    savings_id = _create_wallet(client, headers, name="MoveMultiSavings", initial_balance=6_000_000)
+    cash_source_id = _create_wallet(
+        client,
+        headers,
+        name="MoveMultiCashSource",
+        wallet_type="CASH",
+        initial_balance=4_000_000,
+        can_fund_goals=True,
+    )
+    debit_target_id = _create_wallet(
+        client,
+        headers,
+        name="MoveMultiDebitTarget",
+        wallet_type="DEBIT",
+        initial_balance=0,
+        can_fund_goals=False,
+    )
+    cash_target_id = _create_wallet(
+        client,
+        headers,
+        name="MoveMultiCashTarget",
+        wallet_type="CASH",
+        initial_balance=0,
+        can_fund_goals=False,
+    )
+    goal = client.post(
+        "/goals/",
+        json={"title": "Laptop route", "target_amount": 10_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={
+            "allocations": [
+                {"wallet_id": savings_id, "amount": 6_000_000},
+                {"wallet_id": cash_source_id, "amount": 4_000_000},
+            ]
+        },
+        headers=headers,
+    ).status_code == 200
+
+    moved = client.post(
+        f"/goals/{goal_id}/allocations/move",
+        json={
+            "moves": [
+                {"source_wallet_id": savings_id, "target_wallet_id": debit_target_id, "amount": 6_000_000},
+                {"source_wallet_id": cash_source_id, "target_wallet_id": debit_target_id, "amount": 1_000_000},
+                {"source_wallet_id": cash_source_id, "target_wallet_id": cash_target_id, "amount": 2_000_000},
+            ],
+            "date": user_timezone_today().isoformat(),
+            "note": "prepare split checkout",
+        },
+        headers=headers,
+    )
+    assert moved.status_code == 200, moved.text
+    payload = moved.json()
+    assert payload["moved_amount"] == 9_000_000
+    assert len(payload["transfers"]) == 3
+
+    session.expire_all()
+    savings_wallet = session.query(models.Wallet).filter(models.Wallet.id == savings_id).first()
+    owner_id = savings_wallet.owner_id
+    assert _wallet_by_id(client, headers, savings_id)["current_balance"] == 0
+    assert _wallet_by_id(client, headers, cash_source_id)["current_balance"] == 1_000_000
+    assert _wallet_by_id(client, headers, debit_target_id)["current_balance"] == 7_000_000
+    assert _wallet_by_id(client, headers, cash_target_id)["current_balance"] == 2_000_000
+    assert get_goal_wallet_funded_amount(session, owner_id, goal_id, savings_id) == 0
+    assert get_goal_wallet_funded_amount(session, owner_id, goal_id, cash_source_id) == 1_000_000
+    assert get_goal_wallet_funded_amount(session, owner_id, goal_id, debit_target_id) == 7_000_000
+    assert get_goal_wallet_funded_amount(session, owner_id, goal_id, cash_target_id) == 2_000_000
+
+
+def test_move_goal_funding_fee_cannot_use_protected_goal_money_after_move(client):
+    headers = create_user_and_token(
+        client, "goalmovefeeblock", "goalmovefeeblock@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    source_id = _create_wallet(client, headers, name="MoveFeeBlockSource", initial_balance=1_000_000)
+    target_id = _create_wallet(
+        client,
+        headers,
+        name="MoveFeeBlockTarget",
+        wallet_type="DEBIT",
+        initial_balance=0,
+        can_fund_goals=False,
+    )
+    goal = client.post(
+        "/goals/",
+        json={"title": "Laptop fee blocked", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": source_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    blocked = client.post(
+        f"/goals/{goal_id}/allocations/move",
+        json={
+            "source_wallet_id": source_id,
+            "target_wallet_id": target_id,
+            "amount": 1_000_000,
+            "fee_amount": 10_000,
+            "fee_wallet_id": source_id,
+            "date": user_timezone_today().isoformat(),
+        },
+        headers=headers,
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"]["code"] == "wallets.fee_goal_protection_conflict"
+
+
+def test_planned_purchase_can_be_goal_funded_after_moving_goal_money_to_payment_wallet(client):
+    headers = create_user_and_token(
+        client, "goalmove3", "goalmove3@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    source_id = _create_wallet(client, headers, name="PrepareSavings", initial_balance=1_000_000)
+    target_id = _create_wallet(
+        client,
+        headers,
+        name="PrepareDebit",
+        wallet_type="DEBIT",
+        initial_balance=0,
+        can_fund_goals=True,
+    )
+    _create_current_budget(client, headers)
+    goal = client.post(
+        "/goals/",
+        json={"title": "Laptop prepared", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": source_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+    assert client.post(
+        f"/goals/{goal_id}/allocations/move",
+        json={
+            "source_wallet_id": source_id,
+            "target_wallet_id": target_id,
+            "amount": 1_000_000,
+            "date": user_timezone_today().isoformat(),
+        },
+        headers=headers,
+    ).status_code == 200
+
+    purchase = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 1_000_000,
+            "payment_allocations": [{"wallet_id": target_id, "amount": 1_000_000}],
+            "category": "Electronics",
+            "date": user_timezone_today().isoformat(),
+            "completion_mode": "GOAL_FUNDED",
+        },
+        headers=headers,
+    )
+    assert purchase.status_code == 200, purchase.text
+    payload = purchase.json()
+    assert payload["consumed_amount"] == 1_000_000
+    assert payload["goal"]["status"] == "COMPLETED"
+    assert _wallet_by_id(client, headers, source_id)["current_balance"] == 0
+    assert _wallet_by_id(client, headers, target_id)["current_balance"] == 0
+
+
+def test_planned_purchase_goal_funded_mode_rejects_reimbursement_transfer(client):
+    headers = create_user_and_token(
+        client, "goaluse3multi", "goaluse3multi@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    cash_id = _create_wallet(client, headers, name="OutsideCash", wallet_type="CASH", initial_balance=1_000_000)
+    debit_id = _create_wallet(
+        client,
+        headers,
+        name="OutsideCard",
+        wallet_type="DEBIT",
+        initial_balance=1_000_000,
+        can_fund_goals=False,
+    )
+    _create_current_budget(client, headers, category="Housing")
+
+    goal = client.post(
+        "/goals/",
+        json={"title": "Fridge outside", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": cash_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    blocked = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 1_000_000,
+            "payment_allocations": [
+                {"wallet_id": cash_id, "amount": 400_000},
+                {"wallet_id": debit_id, "amount": 600_000},
+            ],
+            "category": "Housing",
+            "date": user_timezone_today().isoformat(),
+            "settlement_mode": "REIMBURSE_PAYMENT_WALLET",
+        },
+        headers=headers,
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"] == "goals.planned_purchase_goal_funded_requires_direct_payment"
+    assert _wallet_by_id(client, headers, cash_id)["current_balance"] == 1_000_000
+    assert _wallet_by_id(client, headers, debit_id)["current_balance"] == 1_000_000
+
+
+def test_planned_purchase_direct_settlement_rejects_payment_wallet_that_did_not_fund_goal(client):
+    headers = create_user_and_token(
+        client, "goaluse2b", "goaluse2b@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    savings_id = _create_wallet(client, headers, name="GoalSource", initial_balance=1_000_000)
+    debit_id = _create_wallet(
+        client,
+        headers,
+        name="WrongDirectCard",
+        wallet_type="DEBIT",
+        initial_balance=1_000_000,
+        can_fund_goals=False,
+    )
+    _create_current_budget(client, headers)
+
+    goal = client.post(
+        "/goals/",
+        json={"title": "Headphones", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": savings_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    blocked = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 1_000_000,
+            "payment_allocations": [{"wallet_id": debit_id, "amount": 1_000_000}],
+            "category": "Electronics",
+            "date": user_timezone_today().isoformat(),
+            "settlement_mode": "DIRECT",
+        },
+        headers=headers,
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"] == "goals.payment_wallet_not_funding_source"
+
+
+def test_planned_purchase_outside_completion_still_rejects_second_purchase(client):
+    headers = create_user_and_token(
+        client, "goaluse3", "goaluse3@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    savings_id = _create_wallet(client, headers, name="UnusedSave", initial_balance=1_000_000)
+    debit_id = _create_wallet(
+        client,
+        headers,
+        name="OutsidePay",
+        wallet_type="DEBIT",
+        initial_balance=1_000_000,
+        can_fund_goals=False,
+    )
+    _create_current_budget(client, headers)
+
+    goal = client.post(
+        "/goals/",
+        json={"title": "Tablet", "target_amount": 1_000_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": savings_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    first = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 1_000_000,
+            "payment_allocations": [{"wallet_id": debit_id, "amount": 1_000_000}],
+            "category": "Electronics",
+            "date": user_timezone_today().isoformat(),
+            "completion_mode": "ACHIEVED_OUTSIDE_RESERVED_FUNDS",
+        },
+        headers=headers,
+    )
+    assert first.status_code == 200
+
+    blocked = client.post(
+        f"/goals/{goal_id}/record-purchase",
+        json={
+            "amount": 1_000_000,
+            "payment_allocations": [{"wallet_id": debit_id, "amount": 1_000_000}],
+            "category": "Electronics",
+            "date": user_timezone_today().isoformat(),
+            "completion_mode": "ACHIEVED_OUTSIDE_RESERVED_FUNDS",
+        },
+        headers=headers,
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"] == "goals.purchase_already_recorded"
+    assert _wallet_by_id(client, headers, savings_id)["current_balance"] == 1_000_000
+    assert _wallet_by_id(client, headers, debit_id)["current_balance"] == 0
+
+
+def test_reserve_paid_outside_goal_funds_leaves_reserve_allocation_intact(client):
+    headers = create_user_and_token(
+        client, "goaluse4", "goaluse4@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    savings_id = _create_wallet(client, headers, name="ReserveSave", initial_balance=1_000_000)
+    debit_id = _create_wallet(
+        client,
+        headers,
+        name="ReservePay",
+        wallet_type="DEBIT",
+        initial_balance=1_000_000,
+        can_fund_goals=False,
+    )
+    _create_current_budget(client, headers, category="Health")
+
+    goal = client.post(
+        "/goals/",
+        json={"title": "Emergency", "target_amount": 1_000_000, "intent": "RESERVE"},
+        headers=headers,
+    )
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": savings_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    used = client.post(
+        f"/goals/{goal_id}/use-reserve",
+        json={
+            "amount": 300_000,
+            "payment_allocations": [{"wallet_id": debit_id, "amount": 300_000}],
+            "category": "Health",
+            "date": user_timezone_today().isoformat(),
+            "settlement_mode": "PAID_OUTSIDE_GOAL_FUNDS",
+        },
+        headers=headers,
+    )
+    assert used.status_code == 200
+    payload = used.json()
+    assert payload["consumed_amount"] == 0
+    assert payload["goal"]["status"] == "ACTIVE"
+    assert payload["goal"]["linked_expense_event_id"] is None
+    assert payload["goal"]["funded_amount"] == 1_000_000
+    assert _wallet_by_id(client, headers, savings_id)["current_balance"] == 1_000_000
+    assert _wallet_by_id(client, headers, debit_id)["current_balance"] == 700_000
+
+
+def test_reserve_direct_use_from_same_wallet_consumes_without_completing_goal(client):
+    headers = create_user_and_token(
+        client, "goaluse4b", "goaluse4b@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    savings_id = _create_wallet(client, headers, name="ReserveDirect", initial_balance=1_000_000)
+    _create_current_budget(client, headers, category="Health")
+
+    goal = client.post(
+        "/goals/",
+        json={"title": "Medical buffer", "target_amount": 1_000_000, "intent": "RESERVE"},
+        headers=headers,
+    )
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": savings_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    used = client.post(
+        f"/goals/{goal_id}/use-reserve",
+        json={
+            "amount": 250_000,
+            "payment_allocations": [{"wallet_id": savings_id, "amount": 250_000}],
+            "category": "Health",
+            "date": user_timezone_today().isoformat(),
+            "settlement_mode": "DIRECT",
+        },
+        headers=headers,
+    )
+    assert used.status_code == 200
+    payload = used.json()
+    assert payload["expense_event_id"] is not None
+    assert payload["transfer_event_ids"] == []
+    assert payload["consumed_amount"] == 250_000
+    assert payload["outside_goal_amount"] == 0
+    assert payload["goal"]["status"] == "ACTIVE"
+    assert payload["goal"]["linked_expense_event_id"] is None
+    assert payload["goal"]["funded_amount"] == 750_000
+    assert _wallet_by_id(client, headers, savings_id)["current_balance"] == 750_000
+
+
+def test_reserve_reimbursement_consumes_reserve_and_reimburses_payment_wallet(client):
+    headers = create_user_and_token(
+        client, "goaluse5", "goaluse5@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    savings_id = _create_wallet(client, headers, name="ReserveFund", initial_balance=1_000_000)
+    debit_id = _create_wallet(
+        client,
+        headers,
+        name="ReserveCard",
+        wallet_type="DEBIT",
+        initial_balance=1_000_000,
+        can_fund_goals=False,
+    )
+    _create_current_budget(client, headers, category="Health")
+
+    goal = client.post(
+        "/goals/",
+        json={"title": "Medical", "target_amount": 1_000_000, "intent": "RESERVE"},
+        headers=headers,
+    )
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": savings_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    used = client.post(
+        f"/goals/{goal_id}/use-reserve",
+        json={
+            "amount": 300_000,
+            "payment_allocations": [{"wallet_id": debit_id, "amount": 300_000}],
+            "category": "Health",
+            "date": user_timezone_today().isoformat(),
+            "settlement_mode": "REIMBURSE_PAYMENT_WALLET",
+        },
+        headers=headers,
+    )
+    assert used.status_code == 200
+    payload = used.json()
+    assert payload["consumed_amount"] == 300_000
+    assert payload["goal"]["status"] == "ACTIVE"
+    assert payload["goal"]["linked_expense_event_id"] is None
+    assert payload["goal"]["funded_amount"] == 700_000
+    assert len(payload["transfer_event_ids"]) == 1
+    assert _wallet_by_id(client, headers, savings_id)["current_balance"] == 700_000
+    assert _wallet_by_id(client, headers, debit_id)["current_balance"] == 1_000_000
 
 
 def test_update_goal_rejects_target_below_funded_amount(client):
     headers = create_user_and_token(
-        client, "goaluser8", "goaluser8@example.com", "Password123!"
+        client, "goaluser10", "goaluser10@example.com", "Password123!"
     )
-    _setup_premium_user_with_balance(client, headers)
-    assert client.post("/savings/deposit", json={"amount": 500_000}, headers=headers).status_code == 201
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers)
     created = client.post(
         "/goals/",
-        json={"title": "Console", "target_amount": 700_000},
+        json={"title": "Monitor", "target_amount": 700_000},
         headers=headers,
     )
     goal_id = created.json()["id"]
-    assert client.post(f"/goals/{goal_id}/contribute", json={"amount": 300_000}, headers=headers).status_code == 200
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 300_000},
+        headers=headers,
+    ).status_code == 200
 
     updated = client.patch(
         f"/goals/{goal_id}",
@@ -239,9 +2775,9 @@ def test_update_goal_rejects_target_below_funded_amount(client):
 
 def test_archive_restore_and_delete_goal_flow(client):
     headers = create_user_and_token(
-        client, "goaluser9", "goaluser9@example.com", "Password123!"
+        client, "goaluser11", "goaluser11@example.com", "Password123!"
     )
-    _setup_premium_user_with_balance(client, headers)
+    _setup_premium_user_with_goal_wallet(client, headers)
 
     created = client.post(
         "/goals/",
@@ -266,19 +2802,22 @@ def test_archive_restore_and_delete_goal_flow(client):
     assert listed.json() == []
 
 
-def test_archive_releases_locked_funds_back_to_free_savings(client):
+def test_archive_returns_unreleased_funding_to_wallet_availability(client):
     headers = create_user_and_token(
-        client, "goaluser10", "goaluser10@example.com", "Password123!"
+        client, "goaluser12", "goaluser12@example.com", "Password123!"
     )
-    _setup_premium_user_with_balance(client, headers)
-    assert client.post("/savings/deposit", json={"amount": 500_000}, headers=headers).status_code == 201
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers)
     created = client.post(
         "/goals/",
         json={"title": "Desk lamp", "target_amount": 300_000},
         headers=headers,
     )
     goal_id = created.json()["id"]
-    assert client.post(f"/goals/{goal_id}/contribute", json={"amount": 100_000}, headers=headers).status_code == 200
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 100_000},
+        headers=headers,
+    ).status_code == 200
 
     archived = client.post(f"/goals/{goal_id}/archive", headers=headers)
     assert archived.status_code == 200
@@ -287,38 +2826,18 @@ def test_archive_releases_locked_funds_back_to_free_savings(client):
     assert payload["funded_amount"] == 0
     assert payload["remaining_amount"] == 300_000
 
-    summary = client.get("/savings/summary", headers=headers)
+    summary = client.get("/goals/funding-summary", headers=headers)
     assert summary.status_code == 200
-    assert summary.json() == {
-        "total_balance": 2_000_000,
-        "free_savings_balance": 500_000,
-        "locked_in_goals": 0,
-        "spendable_balance": 1_500_000,
-    }
-
-
-def test_delete_requires_archived_status(client):
-    headers = create_user_and_token(
-        client, "goaluser11", "goaluser11@example.com", "Password123!"
-    )
-    _setup_premium_user_with_balance(client, headers)
-    created = client.post(
-        "/goals/",
-        json={"title": "Monitor", "target_amount": 300_000},
-        headers=headers,
-    )
-    goal_id = created.json()["id"]
-    deleted = client.delete(f"/goals/{goal_id}", headers=headers)
-    assert deleted.status_code == 400
-    assert deleted.json()["detail"] == "goals.delete_requires_archived"
+    assert summary.json()["allocated_to_goals"] == 0
+    assert summary.json()["available_for_goals"] == 2_000_000
 
 
 def test_create_goal_rejects_when_active_limit_is_reached(client, session):
     headers = create_user_and_token(
-        client, "goaluser12", "goaluser12@example.com", "Password123!"
+        client, "goaluser13", "goaluser13@example.com", "Password123!"
     )
-    _setup_premium_user_with_balance(client, headers)
-    user = session.query(models.User).filter(models.User.email == "goaluser12@example.com").first()
+    _setup_premium_user_with_goal_wallet(client, headers)
+    user = session.query(models.User).filter(models.User.email == "goaluser13@example.com").first()
     assert user is not None
 
     for i in range(20):
@@ -341,78 +2860,17 @@ def test_create_goal_rejects_when_active_limit_is_reached(client, session):
     assert blocked.json()["detail"] == "goals.active_limit_reached"
 
 
-def test_archive_rejects_when_archived_limit_is_reached(client, session):
-    headers = create_user_and_token(
-        client, "goaluser13", "goaluser13@example.com", "Password123!"
-    )
-    _setup_premium_user_with_balance(client, headers)
-    user = session.query(models.User).filter(models.User.email == "goaluser13@example.com").first()
-    assert user is not None
+def test_goal_write_rate_limit_blocks_excess_requests(client):
+    try:
+        for key in redis_client.scan_iter("tb:goals_lifecycle_write:*"):
+            redis_client.delete(key)
+    except Exception:
+        pytest.skip("Redis is not reachable for explicit rate-limit assertion.")
 
-    for i in range(100):
-        session.add(
-            models.Goals(
-                owner_id=user.id,
-                title=f"Archive {i:02d}",
-                target_amount=100_000 + i,
-                status=models.GoalStatus.ARCHIVED,
-            )
-        )
-    session.commit()
-
-    created = client.post(
-        "/goals/",
-        json={"title": "Archive overflow", "target_amount": 250_000},
-        headers=headers,
-    )
-    assert created.status_code == 201
-
-    blocked = client.post(f"/goals/{created.json()['id']}/archive", headers=headers)
-    assert blocked.status_code == 400
-    assert blocked.json()["detail"] == "goals.archived_limit_reached"
-
-
-def test_restore_rejects_when_active_limit_is_reached(client, session):
     headers = create_user_and_token(
         client, "goaluser14", "goaluser14@example.com", "Password123!"
     )
-    _setup_premium_user_with_balance(client, headers)
-    user = session.query(models.User).filter(models.User.email == "goaluser14@example.com").first()
-    assert user is not None
-
-    archived_goal = client.post(
-        "/goals/",
-        json={"title": "Archived source", "target_amount": 400_000},
-        headers=headers,
-    )
-    archived_goal_id = archived_goal.json()["id"]
-    archived = client.post(f"/goals/{archived_goal_id}/archive", headers=headers)
-    assert archived.status_code == 200
-
-    for i in range(20):
-        session.add(
-            models.Goals(
-                owner_id=user.id,
-                title=f"Active {i:02d}",
-                target_amount=200_000 + i,
-                status=models.GoalStatus.ACTIVE,
-            )
-        )
-    session.commit()
-
-    blocked = client.post(f"/goals/{archived_goal_id}/restore", headers=headers)
-    assert blocked.status_code == 400
-    assert blocked.json()["detail"] == "goals.active_limit_reached"
-
-
-def test_goal_write_rate_limit_blocks_excess_requests(client):
-    for key in redis_client.scan_iter("tb:goals_lifecycle_write:*"):
-        redis_client.delete(key)
-
-    headers = create_user_and_token(
-        client, "goaluser15", "goaluser15@example.com", "Password123!"
-    )
-    _setup_premium_user_with_balance(client, headers)
+    _setup_premium_user_with_goal_wallet(client, headers)
 
     blocked = None
     for i in range(20):

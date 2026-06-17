@@ -16,6 +16,7 @@ export function useCreateBudgetMutation() {
         onSuccess: async (data) => {
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ["budgets", "list"] }),
+                queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary"] }),
                 queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
                 queryClient.invalidateQueries({ queryKey: ["notifications"] }),
             ]);
@@ -45,6 +46,7 @@ export function useUpdateBudgetMutation() {
         onSuccess: async (data) => {
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ["budgets", "list"] }),
+                queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary"] }),
                 queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
                 queryClient.invalidateQueries({ queryKey: ["notifications"] }),
             ]);
@@ -74,6 +76,7 @@ export function useDeleteBudgetMutation() {
         onSuccess: async () => {
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ["budgets", "list"] }),
+                queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary"] }),
                 queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
                 queryClient.invalidateQueries({ queryKey: ["notifications"] }),
             ]);

@@ -92,6 +92,10 @@ function toApiError(error) {
         const message = extractErrorMessage(error.response?.data, fallback);
         const normalized = new Error(message);
         if (status) normalized.status = status;
+        const detail = error.response?.data?.detail;
+        if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+            normalized.detail = detail;
+        }
 
         const retryAfter = error.response?.headers?.["retry-after"];
         if (retryAfter) {

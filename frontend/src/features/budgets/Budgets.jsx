@@ -1,9 +1,11 @@
 import * as React from "react";
-import { useSearchParams } from "react-router-dom";
-import { Trash2, Circle, Plus } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Trash2, Circle, Plus, BriefcaseBusiness, MoreHorizontal, Eye, Pencil, ReceiptText, ListTree, ChartColumn, FolderKanban, Layers3, ExternalLink, GitMerge, ArrowRightLeft, AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Progress } from "@/components/ui/progress";
@@ -15,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   Select,
   SelectContent,
@@ -23,6 +26,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { CurrencyAmount } from "@/components/CurrencyAmount";
 import { InteractiveTooltip } from "@/components/InteractiveTooltip";
 import { useBudgetCategoriesQuery } from "./hooks/useBudgetCategoriesQuery";
@@ -35,25 +45,320 @@ import {
 import { budgetCreateFormSchema, budgetDeleteFormSchema, budgetUpdateFormSchema, MAX_BUDGET_AMOUNT } from "./budgetSchemas";
 import { localizeApiError } from "@/lib/errorMessages";
 import { categoryIconMap, CATEGORIES } from "@/lib/category";
-import { formatUzs, formatCompactUzs, formatAmountInput, formatMonthYear, getFallbackMonthsLong, getDateLocale } from "@/lib/format";
+import { formatUzs, formatCompactUzs, formatAmountInput, formatMonthYear, formatDisplayDate, getFallbackMonthsLong, getDateLocale } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { TitleTooltip } from "@/components/TitleTooltip";
 import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import {
+  createBudgetSubcategory,
+  createBudgetExpectedIncome,
+  createProject,
+  createProjectCategoryLimit,
+  createProjectSubcategory,
+  deleteBudgetSubcategory,
+  deleteProjectCategoryLimit,
+  deleteProjectSubcategory,
+  getBudgetDetail,
+  getExpenses,
+  getBudgetSubcategories,
+  getIncomeSources,
+  getProjects,
+  reallocateBudgetSubcategory,
+  updateBudgetSubcategory,
+  updateProjectCategoryLimit,
+  updateProjectSubcategory,
+} from "@/lib/api";
+import { useToast } from "@/lib/context/ToastContext";
+import { Input } from "@/components/ui/input";
 
 const EMPTY_ARRAY = [];
 
+function getPlanStatusMeta(status, t) {
+  if (status === "covered_with_cushion") {
+    return {
+      label: t("budgets.planStatus.coveredWithCushion", { defaultValue: "Cash covered" }),
+      tone: "text-emerald-600 dark:text-emerald-400",
+      hint: t("budgets.planStatus.coveredWithCushionHint", {
+        defaultValue: "Your monthly limits fit free money now and leave room.",
+      }),
+    };
+  }
+  if (status === "covered_no_cushion") {
+    return {
+      label: t("budgets.planStatus.coveredNoCushion", { defaultValue: "No cushion" }),
+      tone: "text-amber-600 dark:text-amber-400",
+      hint: t("budgets.planStatus.coveredNoCushionHint", {
+        defaultValue: "Your monthly limits fit free money now, but leave no room.",
+      }),
+    };
+  }
+  if (status === "waiting_on_income") {
+    return {
+      label: t("budgets.planStatus.waitingOnIncome", { defaultValue: "Waiting on income" }),
+      tone: "text-sky-600 dark:text-sky-400",
+      hint: t("budgets.planStatus.waitingOnIncomeHint", {
+        defaultValue: "Current cash is short, but expected earned income covers this plan.",
+      }),
+    };
+  }
+  if (status === "over_planned") {
+    return {
+      label: t("budgets.planStatus.overPlanned", { defaultValue: "Over-Planned" }),
+      tone: "text-red-600 dark:text-red-400",
+      hint: t("budgets.planStatus.overPlannedHint", {
+        defaultValue: "Monthly limits exceed valid backing. Reduce limits or add expected earned income.",
+      }),
+    };
+  }
+  return {
+    label: t("budgets.planStatus.unknown", { defaultValue: "Unknown status" }),
+    tone: "text-muted-foreground",
+    hint: t("budgets.planStatus.unknownHint", {
+      defaultValue: "This budget plan status is not recognized yet.",
+    }),
+  };
+}
+
+function getBudgetMonthRange(budgetYear, budgetMonth) {
+  const startDate = `${budgetYear}-${String(budgetMonth).padStart(2, "0")}-01`;
+  const end = new Date(Number(budgetYear), Number(budgetMonth), 0);
+  const endDate = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, "0")}-${String(end.getDate()).padStart(2, "0")}`;
+  return { startDate, endDate };
+}
+
+function ResponsiveBudgetFormShell({
+  compact,
+  open,
+  onOpenChange,
+  title,
+  description,
+  children,
+  footer,
+  dialogClassName = "sm:max-w-[480px]",
+}) {
+  if (compact) {
+    return (
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent
+          side="bottom"
+          className="max-h-[92vh] rounded-t-[28px] border-x-0 border-b-0 px-0 pb-0 pt-0 sm:max-h-[88vh]"
+        >
+          <SheetHeader className="border-b border-border/60 px-5 pb-4 pt-5 text-left">
+            <SheetTitle>{title}</SheetTitle>
+            <SheetDescription>{description}</SheetDescription>
+          </SheetHeader>
+          <div className="max-h-[calc(92vh-148px)] overflow-y-auto px-5 py-4 sm:max-h-[calc(88vh-148px)]">
+            {children}
+          </div>
+          <SheetFooter className="border-t border-border/60 bg-background/95 px-5 pb-5 pt-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+            {footer}
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className={dialogClassName}>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        {children}
+        <DialogFooter>{footer}</DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function BudgetDialogStat({ label, value, icon: Icon }) {
+  return (
+    <div className="flex min-w-0 items-start justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+      <div className="min-w-0">
+        <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+        <div className="mt-1 min-w-0 text-base font-semibold tracking-tight text-foreground">
+          {value}
+        </div>
+      </div>
+      {Icon ? <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
+    </div>
+  );
+}
+
+function BudgetAmountRow({ label, value, prefix = "", tone = "" }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-background/70 px-3 py-2">
+      <span className="min-w-0 truncate text-sm text-muted-foreground">{label}</span>
+      <CurrencyAmount
+        value={value}
+        prefix={prefix}
+        format="compact"
+        tooltip="compact"
+        className={cn("flex shrink-0 items-baseline gap-1 text-sm font-semibold", tone)}
+        currencyClassName="text-muted-foreground/70"
+      />
+    </div>
+  );
+}
+
+function BudgetExpenseFeedRow({ feedItem, t, tCategory, appLang, onOpenExpense }) {
+  if (feedItem?.type === "MERGE_GROUP" && feedItem.merge_group) {
+    const group = feedItem.merge_group;
+    const dateLabel = group.earliest_date === group.latest_date
+      ? formatDisplayDate(group.latest_date, appLang)
+      : `${formatDisplayDate(group.earliest_date, appLang)} - ${formatDisplayDate(group.latest_date, appLang)}`;
+
+    return (
+      <div className="rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+          <div className="flex min-w-0 gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-sky-500/20 bg-sky-500/10 text-sky-500">
+              <GitMerge className="h-4 w-4" aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <p className="min-w-0 truncate text-sm font-semibold text-foreground">{group.title}</p>
+                <Badge variant="outline" className="rounded-full border-sky-500/30 bg-sky-500/5 px-2 py-0 text-[10px] uppercase tracking-wide text-sky-500">
+                  {t("expenses.mergeFolderBadge", { defaultValue: "Folder" })}
+                </Badge>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("expenses.mergeChildCount", {
+                  defaultValue: "{{count}} expenses",
+                  count: group.child_count,
+                })}{" "}
+                · {dateLabel}
+              </p>
+            </div>
+          </div>
+          <CurrencyAmount
+            value={group.total_amount}
+            format="compact"
+            tooltip="compact"
+            className="flex items-baseline gap-1 text-sm font-semibold sm:justify-end"
+            currencyClassName="text-muted-foreground/70"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  const expense = feedItem?.expense;
+  if (!expense) return null;
+
+  const Icon = categoryIconMap[expense.category] || Circle;
+  const isRefund = expense.transaction_type === "REFUND";
+  const title = isRefund
+    ? (expense.title === "Partial Refund"
+      ? t("expenses.partial_refund_title", { defaultValue: "Partial Refund" })
+      : t("expenses.refund_title", { defaultValue: "Refund" }))
+    : expense.title;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenExpense(expense.id)}
+      className="block w-full rounded-lg border border-border/60 bg-background/70 p-3 text-left transition-colors hover:bg-muted/30 focus-visible:bg-muted/30 focus-visible:outline-none"
+    >
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+        <div className="flex min-w-0 gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/30 text-muted-foreground">
+            <Icon className="h-4 w-4" aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <p className="min-w-0 truncate text-sm font-semibold text-foreground">{title}</p>
+              {expense.is_session ? (
+                <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px] uppercase tracking-wide">
+                  {t("expenses.sessionBadge", { defaultValue: "Session" })}
+                </Badge>
+              ) : null}
+              {isRefund ? (
+                <Badge variant="outline" className="rounded-full border-rose-500/20 bg-rose-500/5 px-2 py-0 text-[10px] uppercase tracking-wide text-rose-500">
+                  {t("expenses.refund_badge", { defaultValue: "Refund" })}
+                </Badge>
+              ) : null}
+            </div>
+            <p className="mt-1 truncate text-xs text-muted-foreground">
+              {tCategory(expense.category)}
+              {expense.subcategory_name ? ` · ${expense.subcategory_name}` : ""}
+              {expense.project_title ? ` · ${expense.project_title}` : ""}
+              {" · "}
+              {formatDisplayDate(expense.date, appLang)}
+            </p>
+          </div>
+        </div>
+        <CurrencyAmount
+          value={expense.amount}
+          prefix={isRefund ? "+" : ""}
+          format="compact"
+          tooltip="compact"
+          className={cn(
+            "flex items-baseline gap-1 text-sm font-semibold sm:justify-end",
+            isRefund && "text-rose-500",
+          )}
+          currencyClassName="text-muted-foreground/70"
+        />
+      </div>
+    </button>
+  );
+}
+
+function BudgetActivityRow({ item, t, appLang }) {
+  const isRefund = item.transaction_type === "REFUND";
+  return (
+    <div className="grid gap-3 rounded-lg border border-border/60 bg-background/70 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-foreground">{item.title}</p>
+        <p className="mt-1 truncate text-xs text-muted-foreground">
+          {formatDisplayDate(item.date, appLang)}
+          {item.subcategory_name ? ` · ${item.subcategory_name}` : ""}
+          {item.project_title ? ` · ${item.project_title}` : ""}
+          {item.is_session ? ` · ${t("expenses.sessionBadge", { defaultValue: "Session" })}` : ""}
+          {item.merge_group_title ? ` · ${item.merge_group_title}` : ""}
+        </p>
+      </div>
+      <CurrencyAmount
+        value={item.amount}
+        prefix={isRefund ? "+" : ""}
+        format="compact"
+        tooltip="compact"
+        className={cn("flex items-baseline gap-1 text-sm font-semibold sm:justify-end", isRefund && "text-rose-500")}
+        currencyClassName="text-muted-foreground/70"
+      />
+    </div>
+  );
+}
+
 export default function Budgets() {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
+  const toast = useToast();
+  const queryClient = useQueryClient();
   const today = new Date();
   const currentYear = today.getFullYear();
   const currentMonth = today.getMonth() + 1;
   const [actionError, setActionError] = React.useState("");
+  const [windowWidth, setWindowWidth] = React.useState(typeof window !== "undefined" ? window.innerWidth : 1280);
+
+  React.useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const [addOpen, setAddOpen] = React.useState(false);
+  const [expectedIncomeOpen, setExpectedIncomeOpen] = React.useState(false);
+  const [projectOpen, setProjectOpen] = React.useState(false);
+  const [projectStructureOpen, setProjectStructureOpen] = React.useState(false);
+  const [subcategoriesOpen, setSubcategoriesOpen] = React.useState(false);
   const [updateOpen, setUpdateOpen] = React.useState(false);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const [viewExpensesOpen, setViewExpensesOpen] = React.useState(false);
+  const [viewDetailsOpen, setViewDetailsOpen] = React.useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const showHistory = searchParams.get("history") === "true";
@@ -93,11 +398,49 @@ export default function Budgets() {
   const setSortBy = (val) => updateSearchParam("sort", val, "newest");
 
   const [selectedBudget, setSelectedBudget] = React.useState(null);
+  const [expensesTargetBudget, setExpensesTargetBudget] = React.useState(null);
+  const [detailsTargetBudget, setDetailsTargetBudget] = React.useState(null);
   const [newLimit, setNewLimit] = React.useState("");
   const [addCategory, setAddCategory] = React.useState("");
   const [addLimit, setAddLimit] = React.useState("");
   const [addBudgetYear, setAddBudgetYear] = React.useState(currentYear);
   const [addBudgetMonth, setAddBudgetMonth] = React.useState(currentMonth);
+  const [expectedIncomeSourceId, setExpectedIncomeSourceId] = React.useState("");
+  const [expectedIncomeAmount, setExpectedIncomeAmount] = React.useState("");
+  const [expectedIncomeDueDate, setExpectedIncomeDueDate] = React.useState("");
+  const [expectedIncomeNote, setExpectedIncomeNote] = React.useState("");
+  const [projectTitle, setProjectTitle] = React.useState("");
+  const [projectDescription, setProjectDescription] = React.useState("");
+  const [projectIsIsolated, setProjectIsIsolated] = React.useState("true");
+  const [projectTotalLimit, setProjectTotalLimit] = React.useState("");
+  const [projectStartDate, setProjectStartDate] = React.useState(
+    `${currentYear}-${String(currentMonth).padStart(2, "0")}-01`
+  );
+  const [projectTargetEndDate, setProjectTargetEndDate] = React.useState("");
+  const [projectStructureId, setProjectStructureId] = React.useState(null);
+  const [projectCategoryValue, setProjectCategoryValue] = React.useState("");
+  const [projectCategoryLimitValue, setProjectCategoryLimitValue] = React.useState("");
+  const [editingProjectCategory, setEditingProjectCategory] = React.useState("");
+  const [editingProjectCategoryLimit, setEditingProjectCategoryLimit] = React.useState("");
+  const [projectSubcategoryCategory, setProjectSubcategoryCategory] = React.useState("");
+  const [projectSubcategoryName, setProjectSubcategoryName] = React.useState("");
+  const [projectSubcategoryLimit, setProjectSubcategoryLimit] = React.useState("");
+  const [projectSubcategoryIsActive, setProjectSubcategoryIsActive] = React.useState("true");
+  const [editingProjectSubcategoryId, setEditingProjectSubcategoryId] = React.useState(null);
+  const [editingProjectSubcategoryName, setEditingProjectSubcategoryName] = React.useState("");
+  const [editingProjectSubcategoryLimit, setEditingProjectSubcategoryLimit] = React.useState("");
+  const [editingProjectSubcategoryIsActive, setEditingProjectSubcategoryIsActive] = React.useState("true");
+  const [subcategoryTargetBudget, setSubcategoryTargetBudget] = React.useState(null);
+  const [subcategoryName, setSubcategoryName] = React.useState("");
+  const [subcategoryLimit, setSubcategoryLimit] = React.useState("");
+  const [subcategoryIsActive, setSubcategoryIsActive] = React.useState("true");
+  const [editingSubcategoryId, setEditingSubcategoryId] = React.useState(null);
+  const [editingSubcategoryName, setEditingSubcategoryName] = React.useState("");
+  const [editingSubcategoryLimit, setEditingSubcategoryLimit] = React.useState("");
+  const [editingSubcategoryIsActive, setEditingSubcategoryIsActive] = React.useState("true");
+  const [reallocationTargetId, setReallocationTargetId] = React.useState("");
+  const [reallocationSourceId, setReallocationSourceId] = React.useState("buffer");
+  const [reallocationAmount, setReallocationAmount] = React.useState("");
   const appLang = String(i18n.resolvedLanguage || i18n.language || "en").toLowerCase();
   const categorySortLocale = appLang.startsWith("uz")
     ? "uz-UZ"
@@ -111,13 +454,84 @@ export default function Budgets() {
     [tCategory, categorySortLocale]
   );
 
-  const { budgetsQuery, statsQuery } = useBudgetsDataQuery();
-  const categoriesQuery = useBudgetCategoriesQuery();
+  const summaryTarget = React.useMemo(() => {
+    if (showHistory && filterMonth !== "all") {
+      const [year, month] = filterMonth.split("-").map(Number);
+      if (Number.isInteger(year) && Number.isInteger(month)) {
+        return { year, month };
+      }
+    }
+    return { year: currentYear, month: currentMonth };
+  }, [currentMonth, currentYear, filterMonth, showHistory]);
 
-  const loading = budgetsQuery.isLoading || statsQuery.isLoading || categoriesQuery.isLoading;
-  const error = (budgetsQuery.error || statsQuery.error || categoriesQuery.error)
+  const { budgetsQuery, monthSummaryQuery, expectedIncomesQuery, statsQuery } = useBudgetsDataQuery({
+    budgetYear: summaryTarget.year,
+    budgetMonth: summaryTarget.month,
+  });
+  const categoriesQuery = useBudgetCategoriesQuery();
+  const incomeSourcesQuery = useQuery({
+    queryKey: ["incomeSources"],
+    queryFn: getIncomeSources,
+    staleTime: 60_000,
+  });
+  const subcategoriesQuery = useQuery({
+    queryKey: ["budgets", subcategoryTargetBudget?.id, "subcategories", "manage"],
+    queryFn: () => getBudgetSubcategories(subcategoryTargetBudget?.id),
+    enabled: Boolean(subcategoryTargetBudget?.id && subcategoriesOpen),
+  });
+  const projectsQuery = useQuery({
+    queryKey: ["projects"],
+    queryFn: getProjects,
+    staleTime: 60_000,
+  });
+  const expensesTargetRange = React.useMemo(
+    () =>
+      expensesTargetBudget
+        ? getBudgetMonthRange(expensesTargetBudget.budgetYear, expensesTargetBudget.budgetMonth)
+        : null,
+    [expensesTargetBudget],
+  );
+  const budgetExpensesQuery = useQuery({
+    queryKey: [
+      "budgets",
+      "expense-feed",
+      expensesTargetBudget?.category,
+      expensesTargetBudget?.budgetYear,
+      expensesTargetBudget?.budgetMonth,
+    ],
+    queryFn: () =>
+      getExpenses({
+        category: expensesTargetBudget.category,
+        start_date: expensesTargetRange.startDate,
+        end_date: expensesTargetRange.endDate,
+        sort: "newest",
+        limit: 100,
+      }),
+    enabled: Boolean(viewExpensesOpen && expensesTargetBudget && expensesTargetRange),
+    staleTime: 15_000,
+  });
+  const budgetDetailsQuery = useQuery({
+    queryKey: [
+      "budgets",
+      "detail",
+      detailsTargetBudget?.budgetYear,
+      detailsTargetBudget?.budgetMonth,
+      detailsTargetBudget?.category,
+    ],
+    queryFn: () =>
+      getBudgetDetail(
+        detailsTargetBudget.budgetYear,
+        detailsTargetBudget.budgetMonth,
+        detailsTargetBudget.category,
+      ),
+    enabled: Boolean(viewDetailsOpen && detailsTargetBudget),
+    staleTime: 15_000,
+  });
+
+  const loading = budgetsQuery.isLoading || statsQuery.isLoading || monthSummaryQuery.isLoading || expectedIncomesQuery.isLoading || categoriesQuery.isLoading;
+  const error = (budgetsQuery.error || statsQuery.error || monthSummaryQuery.error || expectedIncomesQuery.error || categoriesQuery.error)
     ? localizeApiError(
-      budgetsQuery.error?.message || statsQuery.error?.message || categoriesQuery.error?.message,
+      budgetsQuery.error?.message || statsQuery.error?.message || monthSummaryQuery.error?.message || expectedIncomesQuery.error?.message || categoriesQuery.error?.message,
       t,
     ) || t("budgets.loadFailed")
     : "";
@@ -159,6 +573,85 @@ export default function Budgets() {
           : "",
     }));
   }, [budgetsQuery.data, statsQuery.data, currentYear, currentMonth]);
+
+  const projects = React.useMemo(
+    () => (Array.isArray(projectsQuery.data) ? projectsQuery.data : []),
+    [projectsQuery.data],
+  );
+  const activeIncomeSources = React.useMemo(
+    () => (Array.isArray(incomeSourcesQuery.data) ? incomeSourcesQuery.data.filter((source) => source.is_active) : []),
+    [incomeSourcesQuery.data],
+  );
+  const expectedIncomes = React.useMemo(
+    () => (Array.isArray(expectedIncomesQuery.data) ? expectedIncomesQuery.data : []),
+    [expectedIncomesQuery.data],
+  );
+  const managedSubcategories = React.useMemo(
+    () => (Array.isArray(subcategoriesQuery.data) ? subcategoriesQuery.data : []),
+    [subcategoriesQuery.data],
+  );
+  const managedSubcategoryLimitTotal = React.useMemo(
+    () => managedSubcategories.reduce((sum, item) => sum + Number(item.monthly_limit || 0), 0),
+    [managedSubcategories],
+  );
+  const managedSubcategorySpentTotal = React.useMemo(
+    () => managedSubcategories.reduce((sum, item) => sum + Number(item.spent || 0), 0),
+    [managedSubcategories],
+  );
+  const managedSubcategoryBuffer = Math.max(Number(subcategoryTargetBudget?.baseLimit || 0) - managedSubcategoryLimitTotal, 0);
+  const managedUnspecifiedSpent = Math.max(Number(subcategoryTargetBudget?.spent || 0) - managedSubcategorySpentTotal, 0);
+  const budgetExpenseFeedItems = React.useMemo(
+    () => (Array.isArray(budgetExpensesQuery.data?.items) ? budgetExpensesQuery.data.items : []),
+    [budgetExpensesQuery.data],
+  );
+  const budgetExpenseTotal = Number(budgetExpensesQuery.data?.total || 0);
+  const budgetDetail = budgetDetailsQuery.data || null;
+  const detailSubcategoryLimitTotal = React.useMemo(
+    () => (budgetDetail?.subcategories || []).reduce((sum, item) => sum + Number(item.monthly_limit || 0), 0),
+    [budgetDetail],
+  );
+  const detailSubcategorySpentTotal = React.useMemo(
+    () => (budgetDetail?.subcategories || []).reduce((sum, item) => sum + Number(item.spent || 0), 0),
+    [budgetDetail],
+  );
+  const detailSubcategoryBuffer = Math.max(Number(budgetDetail?.monthly_limit || 0) - detailSubcategoryLimitTotal, 0);
+  const detailUnspecifiedSpent = Math.max(Number(budgetDetail?.spent || 0) - detailSubcategorySpentTotal, 0);
+  const detailsEffects = React.useMemo(
+    () => [
+      {
+        label: t("budgets.baseLimit", { defaultValue: "Base limit" }),
+        value: budgetDetail?.monthly_limit ?? 0,
+      },
+      {
+        label: t("budgets.rolloverAmount", { defaultValue: "Rollover" }),
+        value: budgetDetail?.rollover_amount ?? 0,
+        prefix: "+",
+        tone: "text-primary",
+      },
+      {
+        label: t("budgets.capTrim", { defaultValue: "Cap trim" }),
+        value: budgetDetail?.cap_trim_amount ?? 0,
+      },
+      {
+        label: t("budgets.reallocatedIn", { defaultValue: "Reallocated in" }),
+        value: budgetDetail?.reallocated_in ?? 0,
+        prefix: "+",
+      },
+      {
+        label: t("budgets.reallocatedOut", { defaultValue: "Reallocated out" }),
+        value: budgetDetail?.reallocated_out ?? 0,
+      },
+    ],
+    [budgetDetail, t],
+  );
+  const structureProject = React.useMemo(
+    () => projects.find((project) => project.id === projectStructureId) || null,
+    [projects, projectStructureId],
+  );
+  const structureProjectCategories = React.useMemo(
+    () => Array.isArray(structureProject?.category_breakdown) ? structureProject.category_breakdown : [],
+    [structureProject],
+  );
 
   const sortedBudgets = React.useMemo(
     () =>
@@ -227,6 +720,14 @@ export default function Budgets() {
         return t("budgets.tooManyWait", { seconds: wait });
       }
       return t("budgets.tooManySoon");
+    }
+    if (e?.detail?.code === "budgets.plan_exceeds_backing") {
+      return t("budgets.planExceedsBacking", {
+        defaultValue: "Cannot set this budget. Requested monthly budgets exceed valid backing by {{shortfall}}.",
+        shortfall: formatUzs(Number(e.detail.shortfall || 0)),
+        attempted: formatUzs(Number(e.detail.attempted_total || 0)),
+        backing: formatUzs(Number(e.detail.backing_total || 0)),
+      });
     }
     return localizeApiError(e?.message, t) || t("budgets.requestFailed");
   };
@@ -318,6 +819,31 @@ export default function Budgets() {
     });
     return sorted;
   }, [budgetsWithDerived, filterCategory, filterStatus, filterMonth, sortBy, compareLocalizedCategory]);
+  const planningSummary = React.useMemo(() => ({
+    planned: filteredBudgets.reduce((sum, budget) => sum + Number(budget.effectiveLimit || 0), 0),
+    spent: filteredBudgets.reduce((sum, budget) => sum + Number(budget.spent || 0), 0),
+    remaining: filteredBudgets.reduce((sum, budget) => sum + Number(budget.remaining || 0), 0),
+    atRisk: filteredBudgets.filter((budget) => budget.progressStatus === "warning" || budget.progressStatus === "highRisk" || budget.progressStatus === "danger").length,
+  }), [filteredBudgets]);
+  const monthSummary = monthSummaryQuery.data || null;
+  const planStatusMeta = getPlanStatusMeta(monthSummary?.plan_status, t);
+  const activePlanningFilterCount = React.useMemo(
+    () => [filterCategory !== "all", filterStatus !== "all", filterMonth !== "all", sortBy !== "newest"].filter(Boolean).length,
+    [filterCategory, filterStatus, filterMonth, sortBy]
+  );
+  const workspaceMonthLabel = React.useMemo(() => {
+    if (filterMonth !== "all") {
+      return monthFilterOptions.find((item) => item.value === filterMonth)?.label || filterMonth;
+    }
+    if (!showHistory) return formatBudgetMonth(currentYear, currentMonth);
+    return t("budgets.allVisibleMonths", { defaultValue: "All visible months" });
+  }, [filterMonth, monthFilterOptions, showHistory, formatBudgetMonth, currentYear, currentMonth, t]);
+  const useBottomSheetForms = windowWidth < 1024;
+  const summaryMonthStartDate = `${summaryTarget.year}-${String(summaryTarget.month).padStart(2, "0")}-01`;
+  const summaryMonthEndDate = React.useMemo(() => {
+    const end = new Date(summaryTarget.year, summaryTarget.month, 0);
+    return `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, "0")}-${String(end.getDate()).padStart(2, "0")}`;
+  }, [summaryTarget.month, summaryTarget.year]);
 
   const resetBudgetFilters = () => {
     setSearchParams(prev => {
@@ -341,10 +867,186 @@ export default function Budgets() {
   const addBudgetMutation = useCreateBudgetMutation();
   const updateBudgetMutation = useUpdateBudgetMutation();
   const deleteBudgetMutation = useDeleteBudgetMutation();
+  const createExpectedIncomeMutation = useMutation({
+    mutationFn: createBudgetExpectedIncome,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["budgets", "expected-incomes"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "list"] }),
+      ]);
+      toast.success(t("budgets.expectedIncomeCreated", { defaultValue: "Expected income added" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("budgets.expectedIncomeCreateFailed", { defaultValue: "Failed to add expected income" }), msg);
+    },
+  });
+  const createProjectMutation = useMutation({
+    mutationFn: createProject,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+      ]);
+      toast.success(t("projects.created", { defaultValue: "Project created" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("projects.failedToCreate", { defaultValue: "Failed to create project" }), msg);
+    },
+  });
 
   const isAddingBudget = addBudgetMutation.isPending;
   const isUpdatingBudget = updateBudgetMutation.isPending;
   const isDeletingBudget = deleteBudgetMutation.isPending;
+  const isCreatingExpectedIncome = createExpectedIncomeMutation.isPending;
+  const isCreatingProject = createProjectMutation.isPending;
+  const createProjectCategoryMutation = useMutation({
+    mutationFn: ({ projectId, payload }) => createProjectCategoryLimit(projectId, payload),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+      ]);
+      toast.success(t("projects.categoryLimitCreated", { defaultValue: "Project category added" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("projects.categoryLimitCreateFailed", { defaultValue: "Failed to add project category" }), msg);
+    },
+  });
+  const updateProjectCategoryMutation = useMutation({
+    mutationFn: ({ projectId, category, payload }) => updateProjectCategoryLimit(projectId, category, payload),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+      ]);
+      toast.success(t("projects.categoryLimitUpdated", { defaultValue: "Project category updated" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("projects.categoryLimitUpdateFailed", { defaultValue: "Failed to update project category" }), msg);
+    },
+  });
+  const deleteProjectCategoryMutation = useMutation({
+    mutationFn: ({ projectId, category }) => deleteProjectCategoryLimit(projectId, category),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+      ]);
+      toast.success(t("projects.categoryLimitDeleted", { defaultValue: "Project category deleted" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("projects.categoryLimitDeleteFailed", { defaultValue: "Failed to delete project category" }), msg);
+    },
+  });
+  const createProjectSubcategoryMutation = useMutation({
+    mutationFn: ({ projectId, payload }) => createProjectSubcategory(projectId, payload),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+      ]);
+      toast.success(t("projects.projectSubcategoryCreated", { defaultValue: "Project subcategory created" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("projects.projectSubcategoryCreateFailed", { defaultValue: "Failed to create project subcategory" }), msg);
+    },
+  });
+  const updateProjectSubcategoryMutation = useMutation({
+    mutationFn: ({ projectId, subcategoryId, payload }) => updateProjectSubcategory(projectId, subcategoryId, payload),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+      ]);
+      toast.success(t("projects.projectSubcategoryUpdated", { defaultValue: "Project subcategory updated" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("projects.projectSubcategoryUpdateFailed", { defaultValue: "Failed to update project subcategory" }), msg);
+    },
+  });
+  const deleteProjectSubcategoryMutation = useMutation({
+    mutationFn: ({ projectId, subcategoryId }) => deleteProjectSubcategory(projectId, subcategoryId),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+      ]);
+      toast.success(t("projects.projectSubcategoryDeleted", { defaultValue: "Project subcategory deleted" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("projects.projectSubcategoryDeleteFailed", { defaultValue: "Failed to delete project subcategory" }), msg);
+    },
+  });
+  const createSubcategoryMutation = useMutation({
+    mutationFn: ({ budgetId, payload }) => createBudgetSubcategory(budgetId, payload),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", subcategoryTargetBudget?.id, "subcategories"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
+      ]);
+      toast.success(t("budgets.subcategoryCreated", { defaultValue: "Subcategory created" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("budgets.subcategoryCreateFailed", { defaultValue: "Failed to create subcategory" }), msg);
+    },
+  });
+  const updateSubcategoryMutation = useMutation({
+    mutationFn: ({ subcategoryId, budgetId, payload }) => updateBudgetSubcategory(subcategoryId, payload, budgetId),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", subcategoryTargetBudget?.id, "subcategories"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
+      ]);
+      toast.success(t("budgets.subcategoryUpdated", { defaultValue: "Subcategory updated" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("budgets.subcategoryUpdateFailed", { defaultValue: "Failed to update subcategory" }), msg);
+    },
+  });
+  const reallocateSubcategoryMutation = useMutation({
+    mutationFn: ({ budgetId, payload }) => reallocateBudgetSubcategory(budgetId, payload),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", subcategoryTargetBudget?.id, "subcategories"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary"] }),
+      ]);
+      toast.success(t("budgets.subcategoryReallocated", { defaultValue: "Subcategory limit reallocated" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("budgets.subcategoryReallocateFailed", { defaultValue: "Failed to reallocate subcategory limit" }), msg);
+    },
+  });
+  const deleteSubcategoryMutation = useMutation({
+    mutationFn: (subcategoryId) => deleteBudgetSubcategory(subcategoryId),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", subcategoryTargetBudget?.id, "subcategories"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
+      ]);
+      toast.success(t("budgets.subcategoryDeleted", { defaultValue: "Subcategory deleted" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("budgets.subcategoryDeleteFailed", { defaultValue: "Failed to delete subcategory" }), msg);
+    },
+  });
   const canSubmitAddBudget = addBudgetFormParsed.success && !isAddingBudget;
 
   const updateBudgetFormParsed = React.useMemo(
@@ -358,6 +1060,41 @@ export default function Budgets() {
     [newLimit, selectedBudget]
   );
   const canSubmitUpdateBudget = updateBudgetFormParsed.success && !isUpdatingBudget;
+  const expectedIncomeAmountValue = Number(String(expectedIncomeAmount || "").replace(/\s+/g, ""));
+  const canSubmitExpectedIncome =
+    Boolean(expectedIncomeSourceId) &&
+    Boolean(expectedIncomeDueDate) &&
+    Number.isFinite(expectedIncomeAmountValue) &&
+    expectedIncomeAmountValue > 0 &&
+    expectedIncomeAmountValue <= MAX_BUDGET_AMOUNT &&
+    !isCreatingExpectedIncome;
+
+  const getDefaultExpectedIncomeDate = React.useCallback(() => {
+    const month = String(summaryTarget.month).padStart(2, "0");
+    if (summaryTarget.year === currentYear && summaryTarget.month === currentMonth) {
+      return `${currentYear}-${month}-${String(today.getDate()).padStart(2, "0")}`;
+    }
+    return `${summaryTarget.year}-${month}-01`;
+  }, [currentMonth, currentYear, summaryTarget.month, summaryTarget.year, today]);
+
+  const openExpectedIncomeDialog = () => {
+    setActionError("");
+    setExpectedIncomeSourceId(activeIncomeSources[0]?.id ? String(activeIncomeSources[0].id) : "");
+    setExpectedIncomeAmount("");
+    setExpectedIncomeDueDate(getDefaultExpectedIncomeDate());
+    setExpectedIncomeNote("");
+    setExpectedIncomeOpen(true);
+  };
+
+  const openBudgetExpenses = (budget) => {
+    setExpensesTargetBudget(budget);
+    setViewExpensesOpen(true);
+  };
+
+  const openBudgetDetails = (budget) => {
+    setDetailsTargetBudget(budget);
+    setViewDetailsOpen(true);
+  };
 
   const openUpdate = (budget) => {
     setActionError("");
@@ -380,6 +1117,192 @@ export default function Budgets() {
     setAddBudgetMonth(currentMonth);
     setAddOpen(true);
   };
+
+  const openProject = () => {
+    setActionError("");
+    setProjectTitle("");
+    setProjectDescription("");
+    setProjectIsIsolated("true");
+    setProjectTotalLimit("");
+    setProjectStartDate(`${currentYear}-${String(currentMonth).padStart(2, "0")}-01`);
+    setProjectTargetEndDate("");
+    setProjectOpen(true);
+  };
+
+  const openProjectStructure = (project) => {
+    setActionError("");
+    setProjectStructureId(project.id);
+    setProjectCategoryValue("");
+    setProjectCategoryLimitValue("");
+    setEditingProjectCategory("");
+    setEditingProjectCategoryLimit("");
+    setProjectSubcategoryCategory("");
+    setProjectSubcategoryName("");
+    setProjectSubcategoryLimit("");
+    setProjectSubcategoryIsActive("true");
+    setEditingProjectSubcategoryId(null);
+    setEditingProjectSubcategoryName("");
+    setEditingProjectSubcategoryLimit("");
+    setEditingProjectSubcategoryIsActive("true");
+    setProjectStructureOpen(true);
+  };
+
+  const openSubcategories = (budget, repair = null) => {
+    setActionError("");
+    setSubcategoryTargetBudget(budget);
+    setSubcategoryName("");
+    setSubcategoryLimit("");
+    setSubcategoryIsActive("true");
+    setEditingSubcategoryId(null);
+    setEditingSubcategoryName("");
+    setEditingSubcategoryLimit("");
+    setEditingSubcategoryIsActive("true");
+    setReallocationTargetId(repair?.targetId ? String(repair.targetId) : "");
+    setReallocationSourceId("buffer");
+    setReallocationAmount(repair?.amount ? formatBudgetAmountInput(String(repair.amount)) : "");
+    setSubcategoriesOpen(true);
+  };
+
+  async function handleCreateProjectCategoryLimit() {
+    if (!structureProject || createProjectCategoryMutation.isPending) return;
+    setActionError("");
+    if (!projectCategoryValue) {
+      setActionError(t("projects.categoryRequired", { defaultValue: "Choose a category first" }));
+      return;
+    }
+    const limitAmount = projectCategoryLimitValue ? Number(String(projectCategoryLimitValue).replace(/\s+/g, "")) : null;
+    if (projectCategoryLimitValue && (!Number.isFinite(limitAmount) || limitAmount <= 0)) {
+      setActionError(t("projects.categoryLimitInvalid", { defaultValue: "Category limit must be greater than zero" }));
+      return;
+    }
+    try {
+      await createProjectCategoryMutation.mutateAsync({
+        projectId: structureProject.id,
+        payload: {
+          category: projectCategoryValue,
+          limit_amount: limitAmount,
+        },
+      });
+      setProjectCategoryValue("");
+      setProjectCategoryLimitValue("");
+    } catch (e) {
+      setActionError(getBudgetActionErrorMessage(e));
+    }
+  }
+
+  async function handleUpdateProjectCategoryLimit() {
+    if (!structureProject || !editingProjectCategory || updateProjectCategoryMutation.isPending) return;
+    setActionError("");
+    const limitAmount = editingProjectCategoryLimit ? Number(String(editingProjectCategoryLimit).replace(/\s+/g, "")) : null;
+    if (editingProjectCategoryLimit && (!Number.isFinite(limitAmount) || limitAmount <= 0)) {
+      setActionError(t("projects.categoryLimitInvalid", { defaultValue: "Category limit must be greater than zero" }));
+      return;
+    }
+    try {
+      await updateProjectCategoryMutation.mutateAsync({
+        projectId: structureProject.id,
+        category: editingProjectCategory,
+        payload: { limit_amount: limitAmount },
+      });
+      setEditingProjectCategory("");
+      setEditingProjectCategoryLimit("");
+    } catch (e) {
+      setActionError(getBudgetActionErrorMessage(e));
+    }
+  }
+
+  async function handleCreateProjectSubcategory() {
+    if (!structureProject || createProjectSubcategoryMutation.isPending) return;
+    setActionError("");
+    if (!projectSubcategoryCategory) {
+      setActionError(t("projects.categoryRequired", { defaultValue: "Choose a category first" }));
+      return;
+    }
+    if (!projectSubcategoryName.trim()) {
+      setActionError(t("projects.projectSubcategoryNameRequired", { defaultValue: "Project subcategory name is required" }));
+      return;
+    }
+    const limitAmount = projectSubcategoryLimit ? Number(String(projectSubcategoryLimit).replace(/\s+/g, "")) : null;
+    if (projectSubcategoryLimit && (!Number.isFinite(limitAmount) || limitAmount <= 0)) {
+      setActionError(t("projects.projectSubcategoryLimitInvalid", { defaultValue: "Project subcategory limit must be greater than zero" }));
+      return;
+    }
+    try {
+      await createProjectSubcategoryMutation.mutateAsync({
+        projectId: structureProject.id,
+        payload: {
+          category: projectSubcategoryCategory,
+          name: projectSubcategoryName.trim(),
+          limit_amount: limitAmount,
+          is_active: projectSubcategoryIsActive === "true",
+        },
+      });
+      setProjectSubcategoryCategory("");
+      setProjectSubcategoryName("");
+      setProjectSubcategoryLimit("");
+      setProjectSubcategoryIsActive("true");
+    } catch (e) {
+      setActionError(getBudgetActionErrorMessage(e));
+    }
+  }
+
+  async function handleUpdateProjectSubcategory() {
+    if (!structureProject || !editingProjectSubcategoryId || updateProjectSubcategoryMutation.isPending) return;
+    setActionError("");
+    if (!editingProjectSubcategoryName.trim()) {
+      setActionError(t("projects.projectSubcategoryNameRequired", { defaultValue: "Project subcategory name is required" }));
+      return;
+    }
+    const limitAmount = editingProjectSubcategoryLimit ? Number(String(editingProjectSubcategoryLimit).replace(/\s+/g, "")) : null;
+    if (editingProjectSubcategoryLimit && (!Number.isFinite(limitAmount) || limitAmount <= 0)) {
+      setActionError(t("projects.projectSubcategoryLimitInvalid", { defaultValue: "Project subcategory limit must be greater than zero" }));
+      return;
+    }
+    try {
+      await updateProjectSubcategoryMutation.mutateAsync({
+        projectId: structureProject.id,
+        subcategoryId: editingProjectSubcategoryId,
+        payload: {
+          name: editingProjectSubcategoryName.trim(),
+          limit_amount: limitAmount,
+          is_active: editingProjectSubcategoryIsActive === "true",
+        },
+      });
+      setEditingProjectSubcategoryId(null);
+      setEditingProjectSubcategoryName("");
+      setEditingProjectSubcategoryLimit("");
+      setEditingProjectSubcategoryIsActive("true");
+    } catch (e) {
+      setActionError(getBudgetActionErrorMessage(e));
+    }
+  }
+
+  async function handleCreateExpectedIncome() {
+    if (isCreatingExpectedIncome) return;
+    setActionError("");
+    if (!canSubmitExpectedIncome) {
+      setActionError(t("budgets.expectedIncomeInvalid", { defaultValue: "Choose a source, date, and positive expected amount." }));
+      return;
+    }
+    const [year, month] = expectedIncomeDueDate.split("-").map(Number);
+    if (year !== summaryTarget.year || month !== summaryTarget.month) {
+      setActionError(t("budgets.expectedIncomeMonthMismatch", { defaultValue: "Expected income date must be inside the selected budget month." }));
+      return;
+    }
+    try {
+      await createExpectedIncomeMutation.mutateAsync({
+        source_id: Number(expectedIncomeSourceId),
+        amount: expectedIncomeAmountValue,
+        due_date: expectedIncomeDueDate,
+        budget_year: summaryTarget.year,
+        budget_month: summaryTarget.month,
+        note: expectedIncomeNote.trim() || null,
+      });
+      setExpectedIncomeOpen(false);
+    } catch (e) {
+      setActionError(getBudgetActionErrorMessage(e));
+    }
+  }
 
   async function handleAddBudget() {
     if (isAddingBudget) return;
@@ -457,12 +1380,244 @@ export default function Budgets() {
     }
   }
 
+  async function handleCreateProject() {
+    if (isCreatingProject) return;
+    setActionError("");
+    if (!projectTitle.trim()) {
+      setActionError(t("projects.titleRequired", { defaultValue: "Project title is required" }));
+      return;
+    }
+    if (!projectStartDate) {
+      setActionError(t("projects.startDateRequired", { defaultValue: "Project start date is required" }));
+      return;
+    }
+    const totalLimit = projectTotalLimit ? Number(String(projectTotalLimit).replace(/\s+/g, "")) : null;
+    if (projectTotalLimit && (!Number.isFinite(totalLimit) || totalLimit <= 0)) {
+      setActionError(t("projects.totalLimitInvalid", { defaultValue: "Project total limit must be greater than zero" }));
+      return;
+    }
+    if (projectTargetEndDate && projectTargetEndDate < projectStartDate) {
+      setActionError(t("projects.target_end_before_start", { defaultValue: "Target end date cannot be before start date" }));
+      return;
+    }
+    try {
+      await createProjectMutation.mutateAsync({
+        title: projectTitle.trim(),
+        description: projectDescription.trim() || null,
+        is_isolated: projectIsIsolated === "true",
+        total_limit: totalLimit,
+        start_date: projectStartDate,
+        target_end_date: projectTargetEndDate || null,
+      });
+      setProjectOpen(false);
+    } catch (e) {
+      setActionError(getBudgetActionErrorMessage(e));
+    }
+  }
+
+  async function handleCreateSubcategory() {
+    if (!subcategoryTargetBudget || createSubcategoryMutation.isPending) return;
+    setActionError("");
+    if (!subcategoryName.trim()) {
+      setActionError(t("budgets.subcategoryNameRequired", { defaultValue: "Subcategory name is required" }));
+      return;
+    }
+    const monthlyLimit = subcategoryLimit ? Number(String(subcategoryLimit).replace(/\s+/g, "")) : null;
+    if (subcategoryLimit && (!Number.isFinite(monthlyLimit) || monthlyLimit <= 0)) {
+      setActionError(t("budgets.subcategoryLimitInvalid", { defaultValue: "Subcategory limit must be greater than zero" }));
+      return;
+    }
+    try {
+      await createSubcategoryMutation.mutateAsync({
+        budgetId: subcategoryTargetBudget.id,
+        payload: {
+          category: subcategoryTargetBudget.category,
+          name: subcategoryName.trim(),
+          monthly_limit: monthlyLimit,
+          is_active: subcategoryIsActive === "true",
+        },
+      });
+      setSubcategoryName("");
+      setSubcategoryLimit("");
+      setSubcategoryIsActive("true");
+    } catch (e) {
+      setActionError(getBudgetActionErrorMessage(e));
+    }
+  }
+
+  async function handleUpdateSubcategory() {
+    if (!editingSubcategoryId || updateSubcategoryMutation.isPending) return;
+    setActionError("");
+    if (!editingSubcategoryName.trim()) {
+      setActionError(t("budgets.subcategoryNameRequired", { defaultValue: "Subcategory name is required" }));
+      return;
+    }
+    const monthlyLimit = editingSubcategoryLimit ? Number(String(editingSubcategoryLimit).replace(/\s+/g, "")) : null;
+    if (editingSubcategoryLimit && (!Number.isFinite(monthlyLimit) || monthlyLimit <= 0)) {
+      setActionError(t("budgets.subcategoryLimitInvalid", { defaultValue: "Subcategory limit must be greater than zero" }));
+      return;
+    }
+    try {
+      await updateSubcategoryMutation.mutateAsync({
+        subcategoryId: editingSubcategoryId,
+        budgetId: subcategoryTargetBudget?.id,
+        payload: {
+          name: editingSubcategoryName.trim(),
+          monthly_limit: monthlyLimit,
+          is_active: editingSubcategoryIsActive === "true",
+        },
+      });
+      setEditingSubcategoryId(null);
+      setEditingSubcategoryName("");
+      setEditingSubcategoryLimit("");
+      setEditingSubcategoryIsActive("true");
+    } catch (e) {
+      setActionError(getBudgetActionErrorMessage(e));
+    }
+  }
+
+  async function handleReallocateSubcategory() {
+    if (!subcategoryTargetBudget || reallocateSubcategoryMutation.isPending) return;
+    setActionError("");
+    const amount = reallocationAmount ? Number(String(reallocationAmount).replace(/\s+/g, "")) : 0;
+    if (!reallocationTargetId || !Number.isFinite(amount) || amount <= 0) {
+      setActionError(t("budgets.subcategoryReallocationInvalid", { defaultValue: "Choose a target subcategory and a positive amount." }));
+      return;
+    }
+    try {
+      await reallocateSubcategoryMutation.mutateAsync({
+        budgetId: subcategoryTargetBudget.id,
+        payload: {
+          from_subcategory_id: reallocationSourceId === "buffer" ? null : Number(reallocationSourceId),
+          to_subcategory_id: Number(reallocationTargetId),
+          amount,
+        },
+      });
+      setReallocationTargetId("");
+      setReallocationSourceId("buffer");
+      setReallocationAmount("");
+    } catch (e) {
+      setActionError(getBudgetActionErrorMessage(e));
+    }
+  }
+
+  const expectedIncomeFooter = (
+    <>
+      <Button variant="outline" onClick={() => setExpectedIncomeOpen(false)} disabled={isCreatingExpectedIncome}>
+        {t("common.cancel")}
+      </Button>
+      <Button
+        onClick={handleCreateExpectedIncome}
+        disabled={!canSubmitExpectedIncome}
+        className="relative min-w-[140px] disabled:pointer-events-auto disabled:cursor-not-allowed"
+      >
+        {isCreatingExpectedIncome ? (
+          <>
+            <span className="invisible">{t("budgets.addExpectedIncome", { defaultValue: "Add expected income" })}</span>
+            <span className="absolute inset-0 flex items-center justify-center">
+              <span
+                aria-label="Loading"
+                className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
+              />
+            </span>
+          </>
+        ) : (
+          t("budgets.addExpectedIncome", { defaultValue: "Add expected income" })
+        )}
+      </Button>
+    </>
+  );
+
+  const addBudgetFooter = (
+    <>
+      <Button variant="outline" onClick={() => setAddOpen(false)} disabled={isAddingBudget}>
+        {t("common.cancel")}
+      </Button>
+      <Button
+        onClick={handleAddBudget}
+        disabled={!canSubmitAddBudget}
+        className="relative min-w-[96px] disabled:pointer-events-auto disabled:cursor-not-allowed"
+      >
+        {isAddingBudget ? (
+          <>
+            <span className="invisible">{t("expenses.add")}</span>
+            <span className="absolute inset-0 flex items-center justify-center">
+              <span
+                aria-label="Loading"
+                className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
+              />
+            </span>
+          </>
+        ) : (
+          t("expenses.add")
+        )}
+      </Button>
+    </>
+  );
+
+  const createProjectFooter = (
+    <>
+      <Button variant="outline" onClick={() => setProjectOpen(false)} disabled={isCreatingProject}>
+        {t("common.cancel")}
+      </Button>
+      <Button
+        onClick={handleCreateProject}
+        disabled={isCreatingProject || !projectTitle.trim() || !projectStartDate}
+        className="relative min-w-[120px] disabled:pointer-events-auto disabled:cursor-not-allowed"
+      >
+        {isCreatingProject ? (
+          <>
+            <span className="invisible">{t("projects.create", { defaultValue: "Create Project" })}</span>
+            <span className="absolute inset-0 flex items-center justify-center">
+              <span
+                aria-label="Loading"
+                className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
+              />
+            </span>
+          </>
+        ) : (
+          t("projects.create", { defaultValue: "Create Project" })
+        )}
+      </Button>
+    </>
+  );
+
+  const updateBudgetFooter = (
+    <>
+      <Button variant="outline" onClick={() => setUpdateOpen(false)} disabled={isUpdatingBudget}>
+        {t("common.cancel")}
+      </Button>
+      <Button
+        onClick={handleUpdateBudget}
+        disabled={!canSubmitUpdateBudget}
+        className={`relative min-w-24 ${!canSubmitUpdateBudget ? "cursor-not-allowed opacity-60" : ""}`}
+      >
+        {isUpdatingBudget ? (
+          <>
+            <span className="invisible">{t("common.save")}</span>
+            <span className="absolute inset-0 flex items-center justify-center">
+              <span
+                aria-label="Loading"
+                className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
+              />
+            </span>
+          </>
+        ) : (
+          t("common.save")
+        )}
+      </Button>
+    </>
+  );
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="w-full px-page py-8 space-y-6">
         <PageHeader title={t("budgets.title")} description={t("budgets.subtitle")}>
           <Button variant="outline" onClick={() => setShowHistory((v) => !v)}>
             {showHistory ? t("budgets.hideHistory") : t("budgets.showHistory")}
+          </Button>
+          <Button variant="outline" onClick={openProject}>
+            <BriefcaseBusiness className="mr-2 h-4 w-4" /> {t("projects.create", { defaultValue: "Create Project" })}
           </Button>
           <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={openAdd}>
             <Plus className="mr-2 h-4 w-4" /> {t("budgets.addBudget")}
@@ -544,6 +1699,49 @@ export default function Budgets() {
                   {t("budgets.resetFilters")}
                 </Button>
               </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <span className="rounded-full border border-border bg-muted/30 px-3 py-1 text-[11px] font-medium text-muted-foreground">
+                  {showHistory
+                    ? t("budgets.historyModeChip", { defaultValue: "History mode on" })
+                    : t("budgets.historyModeChipOff", { defaultValue: "Current month mode" })}
+                </span>
+                {filterCategory !== "all" ? (
+                  <span className="rounded-full border border-border bg-background px-3 py-1 text-[11px] font-medium">
+                    {t("budgets.filterCategoryChip", {
+                      defaultValue: "Category: {{value}}",
+                      value: tCategory(filterCategory),
+                    })}
+                  </span>
+                ) : null}
+                {filterStatus !== "all" ? (
+                  <span className="rounded-full border border-border bg-background px-3 py-1 text-[11px] font-medium">
+                    {t("budgets.filterStatusChip", {
+                      defaultValue: "Status: {{value}}",
+                      value:
+                        filterStatus === "healthy"
+                          ? t("budgets.status.onTrack")
+                          : filterStatus === "warning"
+                            ? t("budgets.status.closeToLimit")
+                            : filterStatus === "highRisk"
+                              ? t("budgets.status.highRisk")
+                              : t("budgets.status.overBudget"),
+                    })}
+                  </span>
+                ) : null}
+                {showHistory && filterMonth !== "all" ? (
+                  <span className="rounded-full border border-border bg-background px-3 py-1 text-[11px] font-medium">
+                    {t("budgets.filterMonthChip", {
+                      defaultValue: "Month: {{value}}",
+                      value: monthFilterOptions.find((m) => m.value === filterMonth)?.label || filterMonth,
+                    })}
+                  </span>
+                ) : null}
+                {sortBy !== "newest" ? (
+                  <span className="rounded-full border border-border bg-background px-3 py-1 text-[11px] font-medium">
+                    {t("budgets.sortChip", { defaultValue: "Sorted view" })}
+                  </span>
+                ) : null}
+              </div>
             </CardContent>
           </Card>
         )}
@@ -556,7 +1754,454 @@ export default function Budgets() {
         )}
 
         {!loading && !error && (
-          <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3">
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <Card className="shadow-sm">
+                <CardContent className="p-5">
+                  <p className="text-ui-micro uppercase tracking-widest text-muted-foreground">
+                    {t("budgets.freeMoneyNow", { defaultValue: "Free money now" })}
+                  </p>
+                  <div className="mt-2">
+                    <CurrencyAmount value={monthSummary?.free_money_now || 0} format="display" className="text-xl font-bold tracking-tight" />
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {t("budgets.freeMoneyNowHint", {
+                      defaultValue: "Owned wallet money minus protected goal money.",
+                    })}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="shadow-sm">
+                <CardContent className="p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-ui-micro uppercase tracking-widest text-muted-foreground">
+                        {t("budgets.expectedIncome", { defaultValue: "Expected income" })}
+                      </p>
+                      <div className="mt-2">
+                        <CurrencyAmount value={monthSummary?.expected_income_remaining || 0} format="display" className="text-xl font-bold tracking-tight text-sky-600 dark:text-sky-400" />
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="h-8 w-8 shrink-0"
+                      onClick={openExpectedIncomeDialog}
+                      aria-label={t("budgets.addExpectedIncome", { defaultValue: "Add expected income" })}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {expectedIncomes.length > 0
+                      ? t("budgets.expectedIncomeCount", {
+                          defaultValue: "{{count}} expected items for this month.",
+                          count: expectedIncomes.length,
+                        })
+                      : t("budgets.expectedIncomeHint", {
+                          defaultValue: "Earned income expected later this month.",
+                        })}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="shadow-sm">
+                <CardContent className="p-5">
+                  <p className="text-ui-micro uppercase tracking-widest text-muted-foreground">
+                    {t("budgets.monthlyBudgetTotal", { defaultValue: "Monthly budget total" })}
+                  </p>
+                  <div className="mt-2">
+                    <CurrencyAmount value={monthSummary?.monthly_effective_limit_total ?? planningSummary.planned} format="display" className="text-xl font-bold tracking-tight" />
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {t("budgets.monthlyBudgetTotalHint", {
+                      defaultValue: "Total monthly spending permission for this month.",
+                    })}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="shadow-sm">
+                <CardContent className="p-5">
+                  <p className="text-ui-micro uppercase tracking-widest text-muted-foreground">
+                    {t("budgets.budgetRoomAfterPlan", { defaultValue: "Budget room after plan" })}
+                  </p>
+                  <div className="mt-2">
+                    <CurrencyAmount
+                      value={monthSummary?.plan_free_money_remaining || 0}
+                      format="display"
+                      className={cn(
+                        "text-xl font-bold tracking-tight",
+                        Number(monthSummary?.plan_free_money_remaining || 0) < 0
+                          ? "text-red-600 dark:text-red-400"
+                          : "text-emerald-600 dark:text-emerald-400"
+                      )}
+                    />
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {t("budgets.budgetRoomAfterPlanHint", {
+                      defaultValue: "Free money now after all monthly limits.",
+                    })}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="shadow-sm">
+                <CardContent className="p-5">
+                  <p className="text-ui-micro uppercase tracking-widest text-muted-foreground">
+                    {t("budgets.planHealth", { defaultValue: "Plan health" })}
+                  </p>
+                  <p className={cn("mt-2 text-xl font-bold tracking-tight", planStatusMeta.tone)}>
+                    {planStatusMeta.label}
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {monthSummary?.borrowing_pressure
+                      ? t("budgets.borrowingPressureHint", {
+                          defaultValue: "Some budgeted spending used borrowed capacity.",
+                        })
+                      : planStatusMeta.hint}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {monthSummary?.plan_status === "waiting_on_income" || monthSummary?.plan_status === "over_planned" ? (
+              <Card
+                className={cn(
+                  "border shadow-sm",
+                  monthSummary.plan_status === "over_planned"
+                    ? "border-red-500/30 bg-red-500/5"
+                    : "border-sky-500/30 bg-sky-500/5",
+                )}
+              >
+                <CardContent className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="space-y-1">
+                    <p className={cn("text-sm font-semibold", planStatusMeta.tone)}>{planStatusMeta.label}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {monthSummary.plan_status === "over_planned"
+                        ? t("budgets.planNeedsRepairDesc", {
+                            defaultValue: "This active plan exceeds valid backing by {{shortfall}}. Reduce limits or add expected earned income before increasing budgets.",
+                            shortfall: formatUzs(Number(monthSummary.backing_shortfall || 0)),
+                          })
+                        : t("budgets.waitingOnIncomeDesc", {
+                            defaultValue: "This plan is short on cash by {{cashGap}}, but expected income covers it.",
+                            cashGap: formatUzs(Number(monthSummary.cash_gap_to_budget_total || 0)),
+                          })}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" onClick={openExpectedIncomeDialog}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      {t("budgets.addExpectedIncome", { defaultValue: "Add expected income" })}
+                    </Button>
+                    {monthSummary.plan_status === "over_planned" ? (
+                      <Button variant="secondary" onClick={() => setSortBy("limitDesc")}>
+                        {t("budgets.reviewLimits", { defaultValue: "Review limits" })}
+                      </Button>
+                    ) : null}
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
+
+            <Card className="overflow-hidden border border-border/70 bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80">
+              <CardHeader className="border-b border-border/60 bg-gradient-to-br from-muted/40 via-background to-background">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+                  <div className="space-y-1">
+                    <CardTitle>{t("projects.sectionTitle", { defaultValue: "Projects" })}</CardTitle>
+                    <CardDescription>
+                      {t("projects.sectionDesc", {
+                        defaultValue: "Purpose-based spending containers that live alongside monthly category budgets.",
+                      })}
+                    </CardDescription>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    <span className="rounded-full border border-border bg-background px-3 py-1">
+                      {t("projects.countChip", {
+                        defaultValue: "{{count}} projects",
+                        count: projects.length,
+                      })}
+                    </span>
+                    <span className="rounded-full border border-border bg-background px-3 py-1">
+                      {t("projects.createdFromBudgets", { defaultValue: "Create here, spend from Expenses" })}
+                    </span>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 sm:p-6">
+                {projectsQuery.isLoading ? (
+                  <div className="flex min-h-24 items-center justify-center">
+                    <LoadingSpinner className="h-6 w-6" />
+                  </div>
+                ) : projects.length === 0 ? (
+                  <EmptyState
+                    title={t("projects.emptyTitle", { defaultValue: "No projects yet" })}
+                    description={t("projects.emptyDesc", {
+                      defaultValue: "Create a project here when you need mission-based spending outside or alongside monthly budgets.",
+                    })}
+                    className="my-2"
+                  />
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+                    {projects.map((project) => {
+                      const totalLimit = Number(project.total_limit || 0);
+                      const spent = Number(project.spent || 0);
+                      const remaining = Number(project.remaining || Math.max(0, totalLimit - spent));
+                      const releasedFunding = Number(project.released_funding || 0);
+                      const remainingFunding = Number(project.remaining_funding || 0);
+                      const isGoalFundedIsolated = Boolean(project.is_isolated && project.origin_goal_id);
+                      const hasFundingLayer = isGoalFundedIsolated || releasedFunding > 0 || remainingFunding > 0;
+                      const fundingGap = Math.max(0, totalLimit - releasedFunding);
+                      const limitPercent = totalLimit > 0 ? Math.min(100, Math.round((spent / totalLimit) * 100)) : 0;
+                      const fundingPercent = releasedFunding > 0 ? Math.min(100, Math.round((spent / releasedFunding) * 100)) : 0;
+
+                      return (
+                        <Card key={project.id} className="border border-border/70 bg-background/70 shadow-sm">
+                          <CardHeader className="space-y-3 pb-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <CardTitle className="truncate text-lg">{project.title}</CardTitle>
+                                <CardDescription className="mt-1">
+                                  {project.is_isolated
+                                    ? t("projects.isolatedHelp", { defaultValue: "Isolated projects keep this spending out of monthly budget pressure." })
+                                    : t("projects.overlayHelp", { defaultValue: "Overlay projects still count against monthly category budgets." })}
+                                </CardDescription>
+                              </div>
+                              <div className="flex flex-col items-end gap-2">
+                                <span className="rounded-full border border-border/60 bg-background px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                                  {project.status || t("common.active", { defaultValue: "Active" })}
+                                </span>
+                                <span className="rounded-full border border-border/60 bg-muted/30 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-foreground">
+                                  {project.is_isolated
+                                    ? t("projects.isolated", { defaultValue: "Isolated" })
+                                    : t("projects.overlay", { defaultValue: "Overlay" })}
+                                </span>
+                              </div>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="space-y-4">
+                            {isGoalFundedIsolated ? (
+                              <div className="space-y-4">
+                                <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                      <p className="text-[10px] uppercase tracking-[0.16em] text-primary/80">
+                                        {t("projects.availableFundingNow", { defaultValue: "Available funding now" })}
+                                      </p>
+                                      <CurrencyAmount value={remainingFunding} format="display" className="mt-1 text-2xl font-bold tracking-tight text-primary" />
+                                    </div>
+                                    <span className="rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-primary">
+                                      {t("projects.goalFunded", { defaultValue: "Goal-funded" })}
+                                    </span>
+                                  </div>
+                                  <p className="mt-2 text-sm text-muted-foreground">
+                                    {t("projects.availableFundingNowHint", {
+                                      defaultValue: "This is the released goal money the project can still spend right now.",
+                                    })}
+                                  </p>
+                                </div>
+
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                  <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
+                                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                                      {t("projects.releasedFunding", { defaultValue: "Released funding" })}
+                                    </p>
+                                    <CurrencyAmount value={releasedFunding} format="compact" className="mt-1 text-base font-semibold" />
+                                  </div>
+                                  <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
+                                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                                      {t("projects.spentFromFunding", { defaultValue: "Spent from funding" })}
+                                    </p>
+                                    <CurrencyAmount value={spent} format="compact" className="mt-1 text-base font-semibold" />
+                                  </div>
+                                </div>
+
+                                <div className="space-y-1">
+                                  <div className="flex items-baseline justify-between gap-3">
+                                    <span className="text-sm font-medium text-foreground">
+                                      {t("projects.fundingMeter", { defaultValue: "Funding meter" })}
+                                    </span>
+                                    <span className="text-sm text-muted-foreground">
+                                      {t("budgets.usedOf", { spent: formatCompactUzs(spent), limit: formatCompactUzs(releasedFunding) })} UZS
+                                    </span>
+                                  </div>
+                                  {releasedFunding > 0 ? (
+                                    <Progress
+                                      value={fundingPercent}
+                                      indicatorClassName="bg-primary rounded-full"
+                                      trackClassName="bg-primary/15 rounded-full"
+                                      className="h-2.5 rounded-full"
+                                    />
+                                  ) : null}
+                                </div>
+
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                  <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
+                                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                                      {t("projects.plannedTotal", { defaultValue: "Planned total" })}
+                                    </p>
+                                    <CurrencyAmount value={totalLimit} format="compact" className="mt-1 text-base font-semibold" />
+                                  </div>
+                                  <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
+                                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                                      {t("projects.fundingGap", { defaultValue: "Funding gap" })}
+                                    </p>
+                                    <CurrencyAmount value={fundingGap} format="compact" className="mt-1 text-base font-semibold" />
+                                  </div>
+                                </div>
+
+                                <div className="space-y-1">
+                                  <div className="flex items-baseline justify-between gap-3">
+                                    <span className="text-sm font-medium text-foreground">
+                                      {t("projects.planMeter", { defaultValue: "Plan meter" })}
+                                    </span>
+                                    <span className="text-sm text-muted-foreground">
+                                      {totalLimit > 0
+                                        ? `${t("budgets.usedOf", { spent: formatCompactUzs(spent), limit: formatCompactUzs(totalLimit) })} UZS`
+                                        : t("projects.noTotalLimit", { defaultValue: "No total limit" })}
+                                    </span>
+                                  </div>
+                                  <p className="text-sm text-muted-foreground">
+                                    {t("budgets.remainingLabel", { defaultValue: "Remaining" })}: {formatCompactUzs(remaining)}
+                                  </p>
+                                  {totalLimit > 0 ? (
+                                    <Progress
+                                      value={limitPercent}
+                                      indicatorClassName="bg-emerald-500 rounded-full"
+                                      trackClassName="bg-emerald-500/15 rounded-full"
+                                      className="h-2.5 rounded-full"
+                                    />
+                                  ) : null}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-1">
+                                <div className="flex items-baseline justify-between gap-3">
+                                  <CurrencyAmount value={spent} format="display" className="text-xl font-bold tracking-tight" />
+                                  <span className="text-sm text-muted-foreground">
+                                    {totalLimit > 0
+                                      ? `${t("budgets.usedOf", { spent: formatCompactUzs(spent), limit: formatCompactUzs(totalLimit) })} UZS`
+                                      : t("projects.noTotalLimit", { defaultValue: "No total limit" })}
+                                  </span>
+                                </div>
+                                <p className="text-sm text-muted-foreground">
+                                  {t("budgets.remainingLabel", { defaultValue: "Remaining" })}: {formatCompactUzs(remaining)}
+                                </p>
+                                {totalLimit > 0 ? (
+                                  <Progress
+                                    value={limitPercent}
+                                    indicatorClassName={project.is_isolated ? "bg-primary rounded-full" : "bg-yellow-500 rounded-full"}
+                                    trackClassName="bg-primary/15 rounded-full"
+                                    className="h-2.5 rounded-full"
+                                  />
+                                ) : null}
+                              </div>
+                            )}
+
+                            {hasFundingLayer && !isGoalFundedIsolated ? (
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
+                                  <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                                    {t("projects.releasedFunding", { defaultValue: "Released funding" })}
+                                  </p>
+                                  <CurrencyAmount value={releasedFunding} format="compact" className="mt-1 text-base font-semibold" />
+                                </div>
+                                <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
+                                  <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                                    {t("projects.remainingFunding", { defaultValue: "Remaining funding" })}
+                                  </p>
+                                  <CurrencyAmount value={remainingFunding} format="compact" className="mt-1 text-base font-semibold" />
+                                </div>
+                              </div>
+                            ) : null}
+
+                            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                              {project.start_date ? (
+                                <span className="rounded-full border border-border/60 bg-background px-2.5 py-1">
+                                  {t("projects.startDate", { defaultValue: "Start date" })}: {project.start_date}
+                                </span>
+                              ) : null}
+                              {project.target_end_date ? (
+                                <span className="rounded-full border border-border/60 bg-background px-2.5 py-1">
+                                  {t("projects.targetEndDate", { defaultValue: "Target end date" })}: {project.target_end_date}
+                                </span>
+                              ) : null}
+                              {Array.isArray(project.category_limits) && project.category_limits.length > 0 ? (
+                                <span className="rounded-full border border-border/60 bg-background px-2.5 py-1">
+                                  {t("projects.categoryLimitsChip", {
+                                    defaultValue: "{{count}} category limits",
+                                    count: project.category_limits.length,
+                                  })}
+                                </span>
+                              ) : null}
+                            </div>
+
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
+                                <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                                  {t("projects.structureSignal", { defaultValue: "Structure" })}
+                                </p>
+                                <p className="mt-1 text-sm font-semibold">
+                                  {t("projects.structureCounts", {
+                                    defaultValue: "{{categories}} categories · {{subcategories}} subcategories",
+                                    categories: project.category_breakdown?.length || 0,
+                                    subcategories: (project.category_breakdown || []).reduce((sum, item) => sum + (item.subcategories?.length || 0), 0),
+                                  })}
+                                </p>
+                              </div>
+                              <Button
+                                variant="outline"
+                                className="h-full min-h-16 rounded-xl"
+                                onClick={() => openProjectStructure(project)}
+                              >
+                                <BriefcaseBusiness className="mr-2 h-4 w-4" />
+                                {t("projects.manageStructure", { defaultValue: "Manage structure" })}
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="overflow-hidden border border-border/70 bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80">
+              <CardHeader className="border-b border-border/60 bg-gradient-to-br from-muted/50 via-background to-background">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+                  <div className="space-y-1">
+                    <CardTitle>{t("budgets.workspaceTitle", { defaultValue: "Planning workspace" })}</CardTitle>
+                    <CardDescription>
+                      {t("budgets.workspaceDesc", {
+                        defaultValue: "Budget cards stay lightweight here. Use View Expenses for spending, and Details for planning depth.",
+                      })}
+                    </CardDescription>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    <span className="rounded-full border border-border bg-background px-3 py-1">
+                      {showHistory
+                        ? t("budgets.workspaceSignal.history", { defaultValue: "Historical mode" })
+                        : t("budgets.workspaceSignal.current", { defaultValue: "Current month" })}
+                    </span>
+                    <span className="rounded-full border border-border bg-background px-3 py-1">
+                      {t("budgets.workspaceSignal.filters", {
+                        defaultValue: "{{count}} filters",
+                        count: activePlanningFilterCount,
+                      })}
+                    </span>
+                    <span className="rounded-full border border-border bg-background px-3 py-1">
+                      {t("budgets.workspaceSignal.available", { defaultValue: "Budget room" })}
+                    </span>
+                    <span className="rounded-full border border-border bg-background px-3 py-1">
+                      {t("budgets.workspaceSignal.rollover", { defaultValue: "Rollover aware" })}
+                    </span>
+                    <span className="rounded-full border border-border bg-background px-3 py-1">
+                      {t("budgets.workspaceSignal.details", { defaultValue: "Details for depth" })}
+                    </span>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 sm:p-6">
+                <div className="grid gap-6 grid-cols-1 md:grid-cols-2 2xl:grid-cols-3">
             {filteredBudgets.map((b) => {
               const percent = b.percent;
               const progressStatus = b.progressStatus;
@@ -603,7 +2248,7 @@ export default function Budgets() {
               return (
                 <Card
                   key={b.id}
-                  className={`mobile-stat-card w-full mx-auto group shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] active:-translate-y-0 active:shadow-sm ${b.isCurrentMonth ? "opacity-100" : "opacity-65 hover:opacity-100"}`}
+                  className={`mobile-stat-card w-full mx-auto group shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] active:-translate-y-0 active:shadow-sm focus-within:shadow-md ${b.isCurrentMonth ? "opacity-100" : "opacity-65 hover:opacity-100"}`}
                 >
                   <CardHeader className="space-y-3 pt-4 pb-4 sm:pt-6 sm:pb-3 transition-all duration-200">
                     <div className={cn(
@@ -621,14 +2266,16 @@ export default function Budgets() {
                           </div>
                         </TitleTooltip>
                       </CardTitle>
-                      <span
-                        className={cn(
-                          "inline-flex shrink-0 items-center justify-center rounded-full text-center font-medium leading-[1.3] transition-all duration-200 min-h-6 sm:min-h-7 md:min-h-8 px-1.5 sm:px-2 md:px-3 py-[3px] md:py-1 text-mobile-caption sm:text-xs md:text-xs whitespace-nowrap md:whitespace-normal max-w-fit md:min-w-[70px] lg:min-w-[86px]",
-                          statusBadgeClass
-                        )}
-                      >
-                        {statusLabel}
-                      </span>
+                      <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-end">
+                        <span
+                          className={cn(
+                            "inline-flex shrink-0 items-center justify-center rounded-full text-center font-medium leading-[1.3] transition-all duration-200 min-h-6 sm:min-h-7 md:min-h-8 px-1.5 sm:px-2 md:px-3 py-[3px] md:py-1 text-mobile-caption sm:text-xs md:text-xs whitespace-nowrap md:whitespace-normal max-w-fit md:min-w-[70px] lg:min-w-[86px]",
+                            statusBadgeClass
+                          )}
+                        >
+                          {statusLabel}
+                        </span>
+                      </div>
                     </div>
                     <CardDescription className="space-y-2">
                       <span className="block text-sm text-muted-foreground">{formatBudgetMonth(b.budgetYear, b.budgetMonth)}</span>
@@ -654,15 +2301,16 @@ export default function Budgets() {
                           />
                         </div>
                         <div className="h-px w-full bg-border/60" aria-hidden="true" />
-                        <div className="flex items-center justify-between gap-3 text-muted-foreground text-ui-desc">
+                        <div className="flex items-center justify-between gap-3 text-muted-foreground">
                           <span>{t("budgets.rolloverAmount")}</span>
                           <CurrencyAmount
                             value={b.rolloverAmount}
                             prefix="+"
                             format={useCompactAmounts ? "compact" : "full"}
                             tooltip="compact"
-                            className="flex items-baseline gap-1 font-semibold text-primary"
-                            currencyClassName="opacity-80"
+                            className="flex items-baseline gap-1 text-primary"
+                            valueClassName="font-medium"
+                            currencyClassName="font-normal opacity-80"
                           />
                         </div>
                       </div>
@@ -704,28 +2352,57 @@ export default function Budgets() {
                       trackClassName={progressTrackClass}
                       indicatorClassName={progressIndicatorClass}
                     />
-                    <div className="mt-1 flex gap-2 transition-opacity duration-200 md:opacity-85 md:group-hover:opacity-100">
+                    <div className="mt-4 flex min-h-10 items-center justify-between gap-3 opacity-0 transition-all duration-200 group-hover:opacity-100 group-focus-within:opacity-100">
                       <Button
                         variant="outline"
-                        className="flex-1 font-medium h-btn text-ui-detail px-2 py-2"
-                        onClick={() => openUpdate(b)}
+                        className="h-10 min-w-[150px] justify-center rounded-md px-4 text-sm font-semibold"
+                        onClick={() => openBudgetExpenses(b)}
                       >
-                        {t("budgets.updateLimit")}
+                        <ReceiptText className="mr-2 h-4 w-4" />
+                        {t("budgets.viewExpenses", { defaultValue: "View Expenses" })}
                       </Button>
-                      <Button
-                        variant="ghost"
-                        className="flex-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive font-medium h-btn text-ui-detail px-2 py-2"
-                        onClick={() => openDelete(b)}
-                      >
-                        <Trash2 className="size-icon-sm" />
-                        {t("budgets.delete")}
-                      </Button>
+
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-10 w-10 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                            aria-label={t("budgets.actions", { defaultValue: "Budget actions" })}
+                          >
+                            <MoreHorizontal className="h-5 w-5" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-52">
+                          <DropdownMenuItem onSelect={() => openBudgetDetails(b)}>
+                            <Eye className="h-4 w-4" />
+                            {t("budgets.viewDetails", { defaultValue: "View details" })}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => openUpdate(b)}>
+                            <Pencil className="h-4 w-4" />
+                            {t("budgets.updateLimit")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => openSubcategories(b)}>
+                            <ListTree className="h-4 w-4" />
+                            {t("budgets.addSubLimit", { defaultValue: "Add sub-limit" })}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem variant="destructive" onSelect={() => openDelete(b)}>
+                            <Trash2 className="h-4 w-4" />
+                            {t("budgets.delete")}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </CardContent>
                 </Card>
               );
             })}
-          </div>
+                </div>
+              </CardContent>
+            </Card>
+          </>
         )}
 
         {!loading && !error && filteredBudgets.length === 0 && (
@@ -737,13 +2414,1085 @@ export default function Budgets() {
         )}
       </div>
 
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("budgets.addDialogTitle")}</DialogTitle>
-            <DialogDescription>{t("budgets.addDialogDesc")}</DialogDescription>
-          </DialogHeader>
+      <ResponsiveBudgetFormShell
+        compact={useBottomSheetForms}
+        open={viewExpensesOpen}
+        onOpenChange={(open) => {
+          setViewExpensesOpen(open);
+          if (!open) setExpensesTargetBudget(null);
+        }}
+        title={
+          expensesTargetBudget
+            ? t("budgets.viewExpensesTitle", {
+                defaultValue: "{{category}} expenses",
+                category: tCategory(expensesTargetBudget.category),
+              })
+            : t("budgets.viewExpenses", { defaultValue: "View Expenses" })
+        }
+        description={
+          expensesTargetBudget
+            ? t("budgets.viewExpensesDesc", {
+                defaultValue: "{{month}} category activity linked to this budget.",
+                month: formatBudgetMonth(expensesTargetBudget.budgetYear, expensesTargetBudget.budgetMonth),
+              })
+            : ""
+        }
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setViewExpensesOpen(false)}>
+              {t("common.close", { defaultValue: "Close" })}
+            </Button>
+            <Button
+              onClick={() => {
+                if (!expensesTargetBudget || !expensesTargetRange) return;
+                setViewExpensesOpen(false);
+                navigate(
+                  `/expenses?category=${encodeURIComponent(expensesTargetBudget.category)}&start_date=${expensesTargetRange.startDate}&end_date=${expensesTargetRange.endDate}`,
+                );
+              }}
+              disabled={!expensesTargetBudget || !expensesTargetRange}
+            >
+              <ExternalLink className="mr-2 h-4 w-4" />
+              {t("budgets.openExpensesPage", { defaultValue: "Open Expenses" })}
+            </Button>
+          </>
+        }
+        dialogClassName="sm:max-w-[900px]"
+      >
+        <div className={cn("space-y-4", useBottomSheetForms && "pb-1")}>
+          {budgetExpensesQuery.isLoading ? (
+            <div className="flex justify-center py-12">
+              <LoadingSpinner className="h-8 w-8 text-primary" />
+            </div>
+          ) : budgetExpensesQuery.error ? (
+            <EmptyState
+              inline
+              icon={ReceiptText}
+              title={t("budgets.viewExpensesUnavailable", { defaultValue: "Expenses unavailable" })}
+              description={localizeApiError(budgetExpensesQuery.error?.message, t) || t("expenses.noResults", { defaultValue: "No expenses found." })}
+            />
+          ) : budgetExpenseFeedItems.length === 0 ? (
+            <EmptyState
+              inline
+              icon={ReceiptText}
+              title={t("budgets.noBudgetExpensesTitle", { defaultValue: "No expenses yet" })}
+              description={t("budgets.noBudgetExpensesDesc", {
+                defaultValue: "No expense activity was found for this category and month.",
+              })}
+            />
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                <span>
+                  {t("budgets.expenseCount", {
+                    defaultValue: "{{count}} matching expenses",
+                    count: budgetExpenseTotal,
+                  })}
+                </span>
+                {budgetExpenseTotal > budgetExpenseFeedItems.length ? (
+                  <span>
+                    {t("budgets.expenseModalLimit", {
+                      defaultValue: "Showing first {{count}}",
+                      count: budgetExpenseFeedItems.length,
+                    })}
+                  </span>
+                ) : null}
+              </div>
+              <div className="max-h-[58vh] space-y-2 overflow-y-auto pr-1">
+                {budgetExpenseFeedItems.map((feedItem) => (
+                  <BudgetExpenseFeedRow
+                    key={
+                      feedItem?.type === "MERGE_GROUP"
+                        ? `group-${feedItem.merge_group?.id}`
+                        : `expense-${feedItem.expense?.id}`
+                    }
+                    feedItem={feedItem}
+                    t={t}
+                    tCategory={tCategory}
+                    appLang={appLang}
+                    onOpenExpense={(expenseId) => {
+                      setViewExpensesOpen(false);
+                      navigate(`/expenses/${expenseId}`);
+                    }}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </ResponsiveBudgetFormShell>
+
+      <ResponsiveBudgetFormShell
+        compact={useBottomSheetForms}
+        open={viewDetailsOpen}
+        onOpenChange={(open) => {
+          setViewDetailsOpen(open);
+          if (!open) setDetailsTargetBudget(null);
+        }}
+        title={
+          detailsTargetBudget
+            ? t("budgets.viewDetailsTitle", {
+                defaultValue: "{{category}} details",
+                category: tCategory(detailsTargetBudget.category),
+              })
+            : t("budgets.viewDetails", { defaultValue: "View details" })
+        }
+        description={
+          detailsTargetBudget
+            ? t("budgets.viewDetailsDesc", {
+                defaultValue: "{{month}} budget health, limits, activity, and project overlays.",
+                month: formatBudgetMonth(detailsTargetBudget.budgetYear, detailsTargetBudget.budgetMonth),
+              })
+            : ""
+        }
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setViewDetailsOpen(false)}>
+              {t("common.close", { defaultValue: "Close" })}
+            </Button>
+            {detailsTargetBudget ? (
+              <Button
+                onClick={() => {
+                  setViewDetailsOpen(false);
+                  openUpdate(detailsTargetBudget);
+                }}
+              >
+                <Pencil className="mr-2 h-4 w-4" />
+                {t("budgets.updateLimit", { defaultValue: "Update limit" })}
+              </Button>
+            ) : null}
+          </>
+        }
+        dialogClassName="sm:max-w-[1040px]"
+      >
+        <div className={cn("space-y-5", useBottomSheetForms && "pb-1")}>
+          {budgetDetailsQuery.isLoading ? (
+            <div className="flex justify-center py-12">
+              <LoadingSpinner className="h-8 w-8 text-primary" />
+            </div>
+          ) : budgetDetailsQuery.error || !budgetDetail ? (
+            <EmptyState
+              inline
+              icon={FolderKanban}
+              title={t("budgets.detailsUnavailable", { defaultValue: "Budget details unavailable" })}
+              description={localizeApiError(budgetDetailsQuery.error?.message, t) || t("budgets.loadFailed", { defaultValue: "Failed to load budgets" })}
+            />
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant={budgetDetail.is_over_limit ? "destructive" : "secondary"} className="rounded-full px-3 py-1">
+                  {budgetDetail.is_over_limit
+                    ? t("budgets.status.overBudget", { defaultValue: "Over Budget" })
+                    : t("budgets.status.onTrack", { defaultValue: "On Track" })}
+                </Badge>
+                <Badge variant="outline" className="rounded-full px-3 py-1">
+                  {t("budgets.expenseCount", {
+                    defaultValue: "{{count}} matching expenses",
+                    count: budgetDetail.expense_count || 0,
+                  })}
+                </Badge>
+                {(budgetDetail.subcategories || []).length ? (
+                  <Badge variant="outline" className="rounded-full px-3 py-1">
+                    {t("budgets.subcategoryCount", {
+                      defaultValue: "{{count}} subcategories",
+                      count: budgetDetail.subcategories.length,
+                    })}
+                  </Badge>
+                ) : null}
+                {(budgetDetail.project_spending || []).length ? (
+                  <Badge variant="outline" className="rounded-full px-3 py-1">
+                    {t("budgets.projectCount", {
+                      defaultValue: "{{count}} linked projects",
+                      count: budgetDetail.project_spending.length,
+                    })}
+                  </Badge>
+                ) : null}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <BudgetDialogStat
+                  label={t("budgets.baseLimit", { defaultValue: "Base limit" })}
+                  value={<CurrencyAmount value={budgetDetail.monthly_limit} format="compact" tooltip="compact" className="flex items-baseline gap-1" />}
+                  icon={Layers3}
+                />
+                <BudgetDialogStat
+                  label={t("budgets.effectiveLimit", { defaultValue: "Effective limit" })}
+                  value={<CurrencyAmount value={budgetDetail.effective_monthly_limit} format="compact" tooltip="compact" className="flex items-baseline gap-1" />}
+                  icon={ChartColumn}
+                />
+                <BudgetDialogStat
+                  label={t("budgets.spentLabel", { defaultValue: "Spent" })}
+                  value={<CurrencyAmount value={budgetDetail.spent} format="compact" tooltip="compact" className="flex items-baseline gap-1" />}
+                  icon={ReceiptText}
+                />
+                <BudgetDialogStat
+                  label={t("budgets.remainingLabel", { defaultValue: "Remaining" })}
+                  value={<CurrencyAmount value={budgetDetail.remaining} format="compact" tooltip="compact" className="flex items-baseline gap-1" />}
+                  icon={FolderKanban}
+                />
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+                <section className="space-y-3 rounded-lg border border-border/60 bg-muted/10 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-semibold">{t("budgets.effectStack", { defaultValue: "Effect stack" })}</h3>
+                    <CurrencyAmount
+                      value={budgetDetail.effective_available}
+                      format="compact"
+                      tooltip="compact"
+                      className="flex items-baseline gap-1 text-sm font-semibold"
+                      currencyClassName="text-muted-foreground/70"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    {detailsEffects.map((effect) => (
+                      <BudgetAmountRow
+                        key={effect.label}
+                        label={effect.label}
+                        value={effect.value}
+                        prefix={effect.prefix || ""}
+                        tone={effect.tone || ""}
+                      />
+                    ))}
+                  </div>
+                </section>
+
+                <section className="space-y-3 rounded-lg border border-border/60 bg-muted/10 p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold">{t("budgets.subcategoryPartitions", { defaultValue: "Subcategory partitions" })}</h3>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t("budgets.subcategoryMonthScopedHint", {
+                          defaultValue: "These limits belong to this budget month only.",
+                        })}
+                      </p>
+                    </div>
+                    <div className="grid gap-1 text-right text-xs text-muted-foreground">
+                      <span>
+                        {t("budgets.parentBuffer", { defaultValue: "Parent buffer" })}: {formatUzs(detailSubcategoryBuffer)}
+                      </span>
+                      <span>
+                        {t("budgets.unspecifiedSpending", { defaultValue: "Unspecified spending" })}: {formatUzs(detailUnspecifiedSpent)}
+                      </span>
+                    </div>
+                  </div>
+                  {(budgetDetail.subcategories || []).length ? (
+                    <div className="space-y-2">
+                      {budgetDetail.subcategories.map((subcategory) => (
+                        <div
+                          key={subcategory.id}
+                          className={cn(
+                            "grid gap-3 rounded-lg border bg-background/70 p-3 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] sm:items-center",
+                            subcategory.is_over_limit ? "border-destructive/40 bg-destructive/5" : "border-border/60",
+                          )}
+                        >
+                          <div className="min-w-0">
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                              <p className="truncate text-sm font-semibold text-foreground">{subcategory.name}</p>
+                              {subcategory.is_over_limit ? (
+                                <Badge variant="destructive" className="rounded-full px-2 py-0 text-[10px]">
+                                  {t("budgets.needsRepair", { defaultValue: "Needs repair" })}
+                                </Badge>
+                              ) : null}
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {subcategory.is_active
+                                ? t("income.active", { defaultValue: "Active" })
+                                : t("income.inactive", { defaultValue: "Inactive" })}
+                            </p>
+                          </div>
+                          <CurrencyAmount value={subcategory.monthly_limit || 0} format="compact" tooltip="compact" className="flex items-baseline gap-1 text-sm font-semibold" />
+                          <CurrencyAmount value={subcategory.spent || 0} format="compact" tooltip="compact" className="flex items-baseline gap-1 text-sm text-muted-foreground" />
+                          <CurrencyAmount
+                            value={subcategory.remaining || 0}
+                            format="compact"
+                            tooltip="compact"
+                            className={cn(
+                              "flex items-baseline gap-1 text-sm font-semibold",
+                              subcategory.is_over_limit ? "text-destructive" : "text-primary",
+                            )}
+                          />
+                          {subcategory.is_over_limit && detailsTargetBudget ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setViewDetailsOpen(false);
+                                openSubcategories(detailsTargetBudget, {
+                                  targetId: subcategory.id,
+                                  amount: Math.abs(Number(subcategory.remaining || 0)),
+                                });
+                              }}
+                            >
+                              <ArrowRightLeft className="mr-2 h-4 w-4" />
+                              {t("budgets.reallocate", { defaultValue: "Reallocate" })}
+                            </Button>
+                          ) : null}
+                        </div>
+                      ))}
+                      {detailUnspecifiedSpent > 0 ? (
+                        <div className="grid gap-3 rounded-lg border border-border/60 bg-background/70 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-foreground">
+                              {t("budgets.unspecifiedParentSpending", { defaultValue: "Unspecified parent spending" })}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {t("budgets.unspecifiedParentSpendingHint", {
+                                defaultValue: "Expenses saved directly to the parent category.",
+                              })}
+                            </p>
+                          </div>
+                          <CurrencyAmount
+                            value={detailUnspecifiedSpent}
+                            format="compact"
+                            tooltip="compact"
+                            className="flex items-baseline gap-1 text-sm font-semibold sm:justify-end"
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className="rounded-lg border border-dashed border-border bg-background/60 px-3 py-4 text-sm text-muted-foreground">
+                      {t("budgets.noSubcategoriesYet", { defaultValue: "No subcategories configured yet." })}
+                    </p>
+                  )}
+                </section>
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-2">
+                <section className="space-y-3 rounded-lg border border-border/60 bg-muted/10 p-4">
+                  <h3 className="text-sm font-semibold">{t("budgets.recentActivity", { defaultValue: "Recent activity" })}</h3>
+                  {(budgetDetail.recent_activity || []).length ? (
+                    <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                      {budgetDetail.recent_activity.map((item) => (
+                        <BudgetActivityRow
+                          key={`${item.event_id}-${item.subcategory_id || "base"}-${item.project_id || "none"}`}
+                          item={item}
+                          t={t}
+                          appLang={appLang}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="rounded-lg border border-dashed border-border bg-background/60 px-3 py-4 text-sm text-muted-foreground">
+                      {t("budgets.noLinkedActivityYet", { defaultValue: "No linked activity yet." })}
+                    </p>
+                  )}
+                </section>
+
+                <section className="space-y-3 rounded-lg border border-border/60 bg-muted/10 p-4">
+                  <h3 className="text-sm font-semibold">{t("budgets.projectOverlay", { defaultValue: "Project overlay inside this budget" })}</h3>
+                  {(budgetDetail.project_spending || []).length ? (
+                    <div className="space-y-2">
+                      {budgetDetail.project_spending.map((project) => (
+                        <div key={project.project_id} className="grid gap-3 rounded-lg border border-border/60 bg-background/70 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-foreground">{project.project_title}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {project.is_isolated
+                                ? t("projects.isolated", { defaultValue: "Isolated" })
+                                : t("projects.overlay", { defaultValue: "Overlay" })}
+                            </p>
+                          </div>
+                          <CurrencyAmount
+                            value={project.spent}
+                            format="compact"
+                            tooltip="compact"
+                            className="flex items-baseline gap-1 text-sm font-semibold sm:justify-end"
+                            currencyClassName="text-muted-foreground/70"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="rounded-lg border border-dashed border-border bg-background/60 px-3 py-4 text-sm text-muted-foreground">
+                      {t("budgets.noProjectSpending", { defaultValue: "No project-linked spending in this budget." })}
+                    </p>
+                  )}
+                </section>
+              </div>
+            </>
+          )}
+        </div>
+      </ResponsiveBudgetFormShell>
+
+      <ResponsiveBudgetFormShell
+        compact={useBottomSheetForms}
+        open={projectStructureOpen}
+        onOpenChange={setProjectStructureOpen}
+        title={t("projects.manageStructure", { defaultValue: "Manage structure" })}
+        description={
+          structureProject
+            ? `${structureProject.title} · ${structureProject.is_isolated
+              ? t("projects.isolated", { defaultValue: "Isolated" })
+              : t("projects.overlay", { defaultValue: "Overlay" })}`
+            : t("projects.manageStructureDesc", {
+                defaultValue: "Define project category limits and, for isolated projects, project-local subcategories.",
+              })
+        }
+        footer={
+          <Button variant="outline" onClick={() => setProjectStructureOpen(false)}>
+            {t("common.close", { defaultValue: "Close" })}
+          </Button>
+        }
+        dialogClassName="sm:max-w-[960px]"
+      >
+        <div className={cn("space-y-4", useBottomSheetForms && "pb-1")}>
+          <div className="rounded-2xl border border-border/60 bg-muted/15 p-4">
+            <p className="text-sm font-semibold">{t("projects.addCategoryLimit", { defaultValue: "Add project category" })}</p>
+            <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
+              <Select value={projectCategoryValue || undefined} onValueChange={setProjectCategoryValue}>
+                <SelectTrigger className={selectTriggerClass}>
+                  <SelectValue placeholder={t("expenses.category")} />
+                </SelectTrigger>
+                <SelectContent className={selectContentClass}>
+                  {orderedCategoryOptions.map((category) => (
+                    <SelectItem key={category} value={category}>{tCategory(category)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                value={projectCategoryLimitValue}
+                onChange={(e) => setProjectCategoryLimitValue(formatBudgetAmountInput(e.target.value))}
+                inputMode="numeric"
+                placeholder={t("projects.totalLimit", { defaultValue: "Limit amount" })}
+              />
+              <Button onClick={handleCreateProjectCategoryLimit} disabled={!structureProject || createProjectCategoryMutation.isPending}>
+                <Plus className="mr-2 h-4 w-4" />
+                {t("common.add", { defaultValue: "Add" })}
+              </Button>
+            </div>
+          </div>
+
           <div className="space-y-3">
+            <p className="text-sm font-semibold">{t("projects.categoryLimitsSection", { defaultValue: "Project categories" })}</p>
+            {structureProjectCategories.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-border bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
+                {t("projects.noCategoryLimitsYet", { defaultValue: "No project categories yet. Add one to define structure and spending limits." })}
+              </div>
+            ) : (
+              structureProjectCategories.map((categoryRow) => (
+                <div key={categoryRow.category} className="rounded-2xl border border-border/60 bg-background/80 p-4">
+                  {editingProjectCategory === categoryRow.category ? (
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto_auto]">
+                      <div className="flex items-center rounded-md border border-border/60 bg-muted/15 px-3 text-sm font-medium">
+                        {tCategory(categoryRow.category)}
+                      </div>
+                      <Input
+                        value={editingProjectCategoryLimit}
+                        onChange={(e) => setEditingProjectCategoryLimit(formatBudgetAmountInput(e.target.value))}
+                        inputMode="numeric"
+                      />
+                      <Button onClick={handleUpdateProjectCategoryLimit} disabled={updateProjectCategoryMutation.isPending}>
+                        {t("common.save")}
+                      </Button>
+                      <Button variant="outline" onClick={() => {
+                        setEditingProjectCategory("");
+                        setEditingProjectCategoryLimit("");
+                      }}>
+                        {t("common.cancel")}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="min-w-0">
+                        <p className="font-medium">{tCategory(categoryRow.category)}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {t("budgets.spentLabel", { defaultValue: "Spent" })}: {formatUzs(categoryRow.spent || 0)}
+                          {categoryRow.limit_amount ? ` · ${t("budgets.remainingLabel", { defaultValue: "Remaining" })}: ${formatUzs(categoryRow.remaining || 0)}` : ""}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={categoryRow.is_over_limit ? "destructive" : "outline"}>
+                          {categoryRow.limit_amount ? formatUzs(categoryRow.limit_amount) : t("projects.noLimit", { defaultValue: "No limit" })}
+                        </Badge>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setEditingProjectCategory(categoryRow.category);
+                            setEditingProjectCategoryLimit(categoryRow.limit_amount ? formatBudgetAmountInput(String(categoryRow.limit_amount)) : "");
+                          }}
+                        >
+                          {t("common.edit", { defaultValue: "Edit" })}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => deleteProjectCategoryMutation.mutate({ projectId: structureProject.id, category: categoryRow.category })}
+                          disabled={deleteProjectCategoryMutation.isPending}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          {t("common.delete", { defaultValue: "Delete" })}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+
+          {structureProject && !structureProject.is_isolated ? (
+            <div className="rounded-2xl border border-border/60 bg-muted/15 p-4 text-sm text-muted-foreground">
+              {t("projects.overlaySubcategoryRule", {
+                defaultValue: "Overlay projects reuse the monthly budget subcategory tree. Project-local subcategories are only available for isolated projects.",
+              })}
+            </div>
+          ) : null}
+
+          {structureProject?.is_isolated ? (
+            <>
+              <div className="rounded-2xl border border-border/60 bg-muted/15 p-4">
+                <p className="text-sm font-semibold">{t("projects.addProjectSubcategory", { defaultValue: "Add project subcategory" })}</p>
+                <div className="mt-3 grid gap-3 lg:grid-cols-[180px_minmax(0,1fr)_180px_140px_auto]">
+                  <Select value={projectSubcategoryCategory || undefined} onValueChange={setProjectSubcategoryCategory}>
+                    <SelectTrigger className={selectTriggerClass}>
+                      <SelectValue placeholder={t("expenses.category")} />
+                    </SelectTrigger>
+                    <SelectContent className={selectContentClass}>
+                      {structureProjectCategories.map((categoryRow) => (
+                        <SelectItem key={categoryRow.category} value={categoryRow.category}>{tCategory(categoryRow.category)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={projectSubcategoryName}
+                    onChange={(e) => setProjectSubcategoryName(e.target.value)}
+                    placeholder={t("projects.projectSubcategoryName", { defaultValue: "Subcategory name" })}
+                  />
+                  <Input
+                    value={projectSubcategoryLimit}
+                    onChange={(e) => setProjectSubcategoryLimit(formatBudgetAmountInput(e.target.value))}
+                    inputMode="numeric"
+                    placeholder={t("projects.totalLimit", { defaultValue: "Limit amount" })}
+                  />
+                  <Select value={projectSubcategoryIsActive} onValueChange={setProjectSubcategoryIsActive}>
+                    <SelectTrigger className={selectTriggerClass}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className={selectContentClass}>
+                      <SelectItem value="true">{t("common.active", { defaultValue: "Active" })}</SelectItem>
+                      <SelectItem value="false">{t("common.inactive", { defaultValue: "Inactive" })}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button onClick={handleCreateProjectSubcategory} disabled={!structureProject || createProjectSubcategoryMutation.isPending}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    {t("common.add", { defaultValue: "Add" })}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-sm font-semibold">{t("projects.projectSubcategoriesSection", { defaultValue: "Project subcategories" })}</p>
+                {structureProjectCategories.every((categoryRow) => (categoryRow.subcategories?.length || 0) === 0) ? (
+                  <div className="rounded-2xl border border-dashed border-border bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
+                    {t("projects.noProjectSubcategoriesYet", { defaultValue: "No project subcategories yet." })}
+                  </div>
+                ) : (
+                  structureProjectCategories.map((categoryRow) => (
+                    <div key={`${categoryRow.category}-subcategories`} className="rounded-2xl border border-border/60 bg-background/80 p-4">
+                      <p className="text-sm font-semibold">{tCategory(categoryRow.category)}</p>
+                      <div className="mt-3 space-y-3">
+                        {(categoryRow.subcategories || []).map((subcategory) => (
+                          <div key={subcategory.id} className="rounded-xl border border-border/50 bg-muted/15 p-3">
+                            {editingProjectSubcategoryId === subcategory.id ? (
+                              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_140px_auto_auto]">
+                                <Input value={editingProjectSubcategoryName} onChange={(e) => setEditingProjectSubcategoryName(e.target.value)} />
+                                <Input value={editingProjectSubcategoryLimit} onChange={(e) => setEditingProjectSubcategoryLimit(formatBudgetAmountInput(e.target.value))} inputMode="numeric" />
+                                <Select value={editingProjectSubcategoryIsActive} onValueChange={setEditingProjectSubcategoryIsActive}>
+                                  <SelectTrigger className={selectTriggerClass}><SelectValue /></SelectTrigger>
+                                  <SelectContent className={selectContentClass}>
+                                    <SelectItem value="true">{t("common.active", { defaultValue: "Active" })}</SelectItem>
+                                    <SelectItem value="false">{t("common.inactive", { defaultValue: "Inactive" })}</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <Button onClick={handleUpdateProjectSubcategory} disabled={updateProjectSubcategoryMutation.isPending}>
+                                  {t("common.save")}
+                                </Button>
+                                <Button variant="outline" onClick={() => {
+                                  setEditingProjectSubcategoryId(null);
+                                  setEditingProjectSubcategoryName("");
+                                  setEditingProjectSubcategoryLimit("");
+                                  setEditingProjectSubcategoryIsActive("true");
+                                }}>
+                                  {t("common.cancel")}
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                <div className="min-w-0">
+                                  <p className="font-medium">{subcategory.name}</p>
+                                  <p className="text-sm text-muted-foreground">
+                                    {subcategory.is_active ? t("common.active", { defaultValue: "Active" }) : t("common.inactive", { defaultValue: "Inactive" })}
+                                    {subcategory.limit_amount ? ` · ${formatUzs(subcategory.limit_amount)}` : ""}
+                                    {` · ${t("budgets.spentLabel", { defaultValue: "Spent" })}: ${formatUzs(subcategory.spent || 0)}`}
+                                  </p>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setEditingProjectSubcategoryId(subcategory.id);
+                                      setEditingProjectSubcategoryName(subcategory.name || "");
+                                      setEditingProjectSubcategoryLimit(subcategory.limit_amount ? formatBudgetAmountInput(String(subcategory.limit_amount)) : "");
+                                      setEditingProjectSubcategoryIsActive(subcategory.is_active ? "true" : "false");
+                                    }}
+                                  >
+                                    {t("common.edit", { defaultValue: "Edit" })}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                    onClick={() => deleteProjectSubcategoryMutation.mutate({ projectId: structureProject.id, subcategoryId: subcategory.id })}
+                                    disabled={deleteProjectSubcategoryMutation.isPending}
+                                  >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    {t("common.delete", { defaultValue: "Delete" })}
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
+          ) : null}
+
+          {actionError && <p className="text-sm text-red-600">{actionError}</p>}
+        </div>
+      </ResponsiveBudgetFormShell>
+
+      <ResponsiveBudgetFormShell
+        compact={useBottomSheetForms}
+        open={projectOpen}
+        onOpenChange={setProjectOpen}
+        title={t("projects.create", { defaultValue: "Create Project" })}
+        description={t("projects.createDesc", { defaultValue: "Create a purpose-based project budget alongside your monthly budgets." })}
+        footer={createProjectFooter}
+        dialogClassName="sm:max-w-[560px]"
+      >
+        <div className={cn("space-y-3", useBottomSheetForms && "pb-1")}>
+          <div className="space-y-1.5">
+            <label>{t("projects.title", { defaultValue: "Title" })}</label>
+            <input
+              type="text"
+              autoComplete="off"
+              className={inputBaseClass}
+              value={projectTitle}
+              onChange={(e) => setProjectTitle(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label>{t("expenses.description")}</label>
+            <textarea
+              className={cn(inputBaseClass, "min-h-[100px] resize-none py-2")}
+              value={projectDescription}
+              onChange={(e) => setProjectDescription(e.target.value)}
+            />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label>{t("projects.mode", { defaultValue: "Mode" })}</label>
+              <Select value={projectIsIsolated} onValueChange={setProjectIsIsolated}>
+                <SelectTrigger className={selectTriggerClass}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className={selectContentClass}>
+                  <SelectItem value="true">{t("projects.isolated", { defaultValue: "Isolated" })}</SelectItem>
+                  <SelectItem value="false">{t("projects.overlay", { defaultValue: "Overlay" })}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <label>{t("projects.totalLimit", { defaultValue: "Total limit" })}</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={maxBudgetAmountInputLength}
+                className={inputBaseClass}
+                value={projectTotalLimit}
+                onChange={(e) => setProjectTotalLimit(formatBudgetAmountInput(e.target.value))}
+              />
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label>{t("projects.startDate", { defaultValue: "Start date" })}</label>
+              <input
+                type="date"
+                className={inputBaseClass}
+                value={projectStartDate}
+                onChange={(e) => setProjectStartDate(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label>{t("projects.targetEndDate", { defaultValue: "Target end date" })}</label>
+              <input
+                type="date"
+                className={inputBaseClass}
+                value={projectTargetEndDate}
+                onChange={(e) => setProjectTargetEndDate(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="rounded-2xl border border-border/60 bg-muted/15 p-3 text-sm text-muted-foreground">
+            {projectIsIsolated === "true"
+              ? t("projects.isolatedHelp", { defaultValue: "Isolated projects keep this spending out of monthly budget pressure." })
+              : t("projects.overlayHelp", { defaultValue: "Overlay projects still count against monthly category budgets." })}
+          </div>
+          {actionError && <p className="text-sm text-red-600">{actionError}</p>}
+        </div>
+      </ResponsiveBudgetFormShell>
+
+      <ResponsiveBudgetFormShell
+        compact={useBottomSheetForms}
+        open={subcategoriesOpen}
+        onOpenChange={setSubcategoriesOpen}
+        title={t("budgets.manageSubcategories", { defaultValue: "Manage Subcategories" })}
+        description={
+          subcategoryTargetBudget
+            ? `${tCategory(subcategoryTargetBudget.category)} • ${formatBudgetMonth(subcategoryTargetBudget.budgetYear, subcategoryTargetBudget.budgetMonth)}`
+            : t("budgets.manageSubcategoriesDesc", { defaultValue: "Create and manage child partitions inside this parent budget." })
+        }
+        footer={
+          <Button variant="outline" onClick={() => setSubcategoriesOpen(false)}>
+            {t("common.close", { defaultValue: "Close" })}
+          </Button>
+        }
+        dialogClassName="sm:max-w-[720px]"
+      >
+        <div className={cn("space-y-4", useBottomSheetForms && "pb-1")}>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <BudgetDialogStat
+              label={t("budgets.parentBuffer", { defaultValue: "Parent buffer" })}
+              value={<CurrencyAmount value={managedSubcategoryBuffer} format="compact" tooltip="compact" className="flex items-baseline gap-1" />}
+              icon={Layers3}
+            />
+            <BudgetDialogStat
+              label={t("budgets.subcategoryLimitTotal", { defaultValue: "Subcategory limits" })}
+              value={<CurrencyAmount value={managedSubcategoryLimitTotal} format="compact" tooltip="compact" className="flex items-baseline gap-1" />}
+              icon={ListTree}
+            />
+            <BudgetDialogStat
+              label={t("budgets.unspecifiedSpending", { defaultValue: "Unspecified spending" })}
+              value={<CurrencyAmount value={managedUnspecifiedSpent} format="compact" tooltip="compact" className="flex items-baseline gap-1" />}
+              icon={ReceiptText}
+            />
+          </div>
+
+          <div className="rounded-lg border border-border/60 bg-muted/15 p-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold">{t("budgets.reallocateSubcategory", { defaultValue: "Reallocate inside parent" })}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("budgets.reallocateSubcategoryHint", {
+                    defaultValue: "Move room from this parent buffer or a sibling subcategory. Parent budgets are not changed here.",
+                  })}
+                </p>
+              </div>
+              <Badge variant="outline" className="w-fit rounded-full">
+                {t("budgets.sameParentOnly", { defaultValue: "Same parent only" })}
+              </Badge>
+            </div>
+            <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_180px_auto]">
+              <Select value={reallocationSourceId} onValueChange={setReallocationSourceId}>
+                <SelectTrigger className={selectTriggerClass}>
+                  <SelectValue placeholder={t("budgets.reallocateFrom", { defaultValue: "From" })} />
+                </SelectTrigger>
+                <SelectContent className={selectContentClass}>
+                  <SelectItem value="buffer">
+                    {t("budgets.parentBuffer", { defaultValue: "Parent buffer" })} - {formatUzs(managedSubcategoryBuffer)}
+                  </SelectItem>
+                  {managedSubcategories
+                    .filter((subcategory) => String(subcategory.id) !== String(reallocationTargetId) && subcategory.monthly_limit)
+                    .map((subcategory) => (
+                      <SelectItem key={subcategory.id} value={String(subcategory.id)}>
+                        {subcategory.name} - {formatUzs(Math.max(Number(subcategory.remaining || 0), 0))}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              <Select value={reallocationTargetId || undefined} onValueChange={setReallocationTargetId}>
+                <SelectTrigger className={selectTriggerClass}>
+                  <SelectValue placeholder={t("budgets.reallocateTo", { defaultValue: "To" })} />
+                </SelectTrigger>
+                <SelectContent className={selectContentClass}>
+                  {managedSubcategories.map((subcategory) => (
+                    <SelectItem key={subcategory.id} value={String(subcategory.id)}>
+                      {subcategory.name}
+                      {subcategory.is_over_limit ? ` - ${t("budgets.needsRepair", { defaultValue: "Needs repair" })}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                value={reallocationAmount}
+                onChange={(e) => setReallocationAmount(formatBudgetAmountInput(e.target.value))}
+                placeholder={t("budgets.amount", { defaultValue: "Amount" })}
+                inputMode="numeric"
+              />
+              <Button
+                type="button"
+                onClick={handleReallocateSubcategory}
+                disabled={reallocateSubcategoryMutation.isPending || !reallocationTargetId || !reallocationAmount}
+              >
+                <ArrowRightLeft className="mr-2 h-4 w-4" />
+                {t("budgets.reallocate", { defaultValue: "Reallocate" })}
+              </Button>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-border/60 bg-muted/15 p-4">
+            <p className="text-sm font-semibold">{t("budgets.addSubcategory", { defaultValue: "Add subcategory" })}</p>
+            <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_140px_auto]">
+              <Input
+                value={subcategoryName}
+                onChange={(e) => setSubcategoryName(e.target.value)}
+                placeholder={t("budgets.subcategoryName", { defaultValue: "Subcategory name" })}
+              />
+              <Input
+                value={subcategoryLimit}
+                onChange={(e) => setSubcategoryLimit(formatBudgetAmountInput(e.target.value))}
+                placeholder={t("budgets.monthlyLimit")}
+                inputMode="numeric"
+              />
+              <Select value={subcategoryIsActive} onValueChange={setSubcategoryIsActive}>
+                <SelectTrigger className={selectTriggerClass}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className={selectContentClass}>
+                  <SelectItem value="true">{t("common.active", { defaultValue: "Active" })}</SelectItem>
+                  <SelectItem value="false">{t("common.inactive", { defaultValue: "Inactive" })}</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button onClick={handleCreateSubcategory} disabled={createSubcategoryMutation.isPending || !subcategoryName.trim()}>
+                <Plus className="mr-2 h-4 w-4" />
+                {t("common.add", { defaultValue: "Add" })}
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {subcategoriesQuery.isLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <LoadingSpinner className="h-4 w-4" />
+                <span>{t("budgets.previewLoading", { defaultValue: "Loading planning preview..." })}</span>
+              </div>
+            ) : managedSubcategories.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t("budgets.noSubcategoriesYet", { defaultValue: "No subcategories configured yet." })}</p>
+            ) : (
+              managedSubcategories.map((subcategory) => (
+                <div
+                  key={subcategory.id}
+                  className={cn(
+                    "rounded-2xl border bg-background/80 p-4",
+                    subcategory.is_over_limit ? "border-destructive/40 bg-destructive/5" : "border-border/60",
+                  )}
+                >
+                  {editingSubcategoryId === subcategory.id ? (
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_140px_auto_auto]">
+                      <Input value={editingSubcategoryName} onChange={(e) => setEditingSubcategoryName(e.target.value)} />
+                      <Input value={editingSubcategoryLimit} onChange={(e) => setEditingSubcategoryLimit(formatBudgetAmountInput(e.target.value))} inputMode="numeric" />
+                      <Select value={editingSubcategoryIsActive} onValueChange={setEditingSubcategoryIsActive}>
+                        <SelectTrigger className={selectTriggerClass}><SelectValue /></SelectTrigger>
+                        <SelectContent className={selectContentClass}>
+                          <SelectItem value="true">{t("common.active", { defaultValue: "Active" })}</SelectItem>
+                          <SelectItem value="false">{t("common.inactive", { defaultValue: "Inactive" })}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button onClick={handleUpdateSubcategory} disabled={updateSubcategoryMutation.isPending || !editingSubcategoryName.trim()}>
+                        {t("common.save")}
+                      </Button>
+                      <Button variant="outline" onClick={() => setEditingSubcategoryId(null)}>
+                        {t("common.cancel")}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <p className="truncate font-medium">{subcategory.name}</p>
+                          {subcategory.is_over_limit ? (
+                            <Badge variant="destructive" className="rounded-full px-2 py-0 text-[10px]">
+                              <AlertTriangle className="mr-1 h-3 w-3" />
+                              {t("budgets.needsRepair", { defaultValue: "Needs repair" })}
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {subcategory.is_active ? t("common.active", { defaultValue: "Active" }) : t("common.inactive", { defaultValue: "Inactive" })}
+                          {subcategory.monthly_limit ? ` • ${formatUzs(subcategory.monthly_limit)}` : ""}
+                          {` • ${t("budgets.spentLabel", { defaultValue: "Spent" })}: ${formatUzs(subcategory.spent || 0)}`}
+                          {subcategory.remaining !== null && subcategory.remaining !== undefined
+                            ? ` • ${t("budgets.remainingLabel", { defaultValue: "Remaining" })}: ${formatUzs(subcategory.remaining)}`
+                            : ""}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {subcategory.is_over_limit ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setReallocationTargetId(String(subcategory.id));
+                              setReallocationSourceId("buffer");
+                              setReallocationAmount(formatBudgetAmountInput(String(Math.abs(Number(subcategory.remaining || 0)))));
+                            }}
+                          >
+                            <ArrowRightLeft className="mr-2 h-4 w-4" />
+                            {t("budgets.reallocate", { defaultValue: "Reallocate" })}
+                          </Button>
+                        ) : null}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setEditingSubcategoryId(subcategory.id);
+                            setEditingSubcategoryName(subcategory.name || "");
+                            setEditingSubcategoryLimit(subcategory.monthly_limit ? formatBudgetAmountInput(String(subcategory.monthly_limit)) : "");
+                            setEditingSubcategoryIsActive(subcategory.is_active ? "true" : "false");
+                          }}
+                        >
+                          {t("common.edit", { defaultValue: "Edit" })}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => deleteSubcategoryMutation.mutate(subcategory.id)}
+                          disabled={deleteSubcategoryMutation.isPending}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          {t("common.delete", { defaultValue: "Delete" })}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+
+          {actionError && <p className="text-sm text-red-600">{actionError}</p>}
+        </div>
+      </ResponsiveBudgetFormShell>
+
+      <ResponsiveBudgetFormShell
+        compact={useBottomSheetForms}
+        open={expectedIncomeOpen}
+        onOpenChange={setExpectedIncomeOpen}
+        title={t("budgets.expectedIncomeDialogTitle", { defaultValue: "Add expected income" })}
+        description={t("budgets.expectedIncomeDialogDesc", {
+          defaultValue: "Add earned income expected for {{month}}. This supports planning but is not cash today.",
+          month: formatBudgetMonth(summaryTarget.year, summaryTarget.month),
+        })}
+        footer={expectedIncomeFooter}
+        dialogClassName="sm:max-w-[560px]"
+      >
+        <div className={cn("space-y-4", useBottomSheetForms && "pb-1")}>
+          <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+            {t("budgets.expectedIncomeRule", {
+              defaultValue: "Only earned income sources count. Loans, refunds, asset sales, and money owed to you should not be added here.",
+            })}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label>{t("income.source", { defaultValue: "Source" })}</label>
+              <Select value={expectedIncomeSourceId || undefined} onValueChange={setExpectedIncomeSourceId}>
+                <SelectTrigger className={selectTriggerClass}>
+                  <SelectValue placeholder={t("budgets.selectIncomeSource", { defaultValue: "Select income source" })} />
+                </SelectTrigger>
+                <SelectContent className={selectContentClass} position="popper" side="bottom">
+                  {activeIncomeSources.map((source) => (
+                    <SelectItem key={source.id} value={String(source.id)}>
+                      {source.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {activeIncomeSources.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  {t("budgets.noIncomeSourcesForExpected", {
+                    defaultValue: "Create an active income source on Money In first.",
+                  })}
+                </p>
+              ) : null}
+            </div>
+            <div className="space-y-1.5">
+              <label>{t("income.amount", { defaultValue: "Amount" })}</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={maxBudgetAmountInputLength}
+                className={inputBaseClass}
+                value={expectedIncomeAmount}
+                onChange={(e) => setExpectedIncomeAmount(formatBudgetAmountInput(e.target.value))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label>{t("income.date", { defaultValue: "Date" })}</label>
+              <Input
+                type="date"
+                min={summaryMonthStartDate}
+                max={summaryMonthEndDate}
+                value={expectedIncomeDueDate}
+                onChange={(e) => setExpectedIncomeDueDate(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label>{t("income.note", { defaultValue: "Note" })}</label>
+              <Input
+                value={expectedIncomeNote}
+                maxLength={200}
+                placeholder={t("income.notePlaceholder", { defaultValue: "Optional note" })}
+                onChange={(e) => setExpectedIncomeNote(e.target.value)}
+              />
+            </div>
+          </div>
+          {expectedIncomes.length > 0 ? (
+            <div className="space-y-2">
+              <p className="text-ui-micro uppercase tracking-widest text-muted-foreground">
+                {t("budgets.expectedIncomeThisMonth", { defaultValue: "Expected this month" })}
+              </p>
+              <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
+                {expectedIncomes.map((item) => (
+                  <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{item.source?.name || t("income.sourceDeleted", { defaultValue: "Source removed" })}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {item.due_date} - {item.status}
+                      </p>
+                    </div>
+                    <CurrencyAmount value={Number(item.amount || 0)} format="compact" className="shrink-0 text-sm font-semibold" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {actionError && <p className="text-sm text-red-600">{actionError}</p>}
+        </div>
+      </ResponsiveBudgetFormShell>
+
+      <ResponsiveBudgetFormShell
+        compact={useBottomSheetForms}
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        title={t("budgets.addDialogTitle")}
+        description={t("budgets.addDialogDesc")}
+        footer={addBudgetFooter}
+      >
+          <div className={cn("space-y-3", useBottomSheetForms && "pb-1")}>
             <div className="space-y-1.5">
               <label>{t("budgets.budgetMonthLabel")}</label>
               <div className="grid grid-cols-2 gap-3">
@@ -839,42 +3588,21 @@ export default function Budgets() {
             </div>
             {actionError && <p className="text-sm text-red-600">{actionError}</p>}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)} disabled={isAddingBudget}>{t("common.cancel")}</Button>
-            <Button
-              onClick={handleAddBudget}
-              disabled={!canSubmitAddBudget}
-              className="relative min-w-[96px] disabled:pointer-events-auto disabled:cursor-not-allowed"
-            >
-              {isAddingBudget ? (
-                <>
-                  <span className="invisible">{t("expenses.add")}</span>
-                  <span className="absolute inset-0 flex items-center justify-center">
-                    <span
-                      aria-label="Loading"
-                      className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
-                    />
-                  </span>
-                </>
-              ) : (
-                t("expenses.add")
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      </ResponsiveBudgetFormShell>
 
-      <Dialog open={updateOpen} onOpenChange={setUpdateOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("budgets.updateDialogTitle")}</DialogTitle>
-            <DialogDescription>
-              {selectedBudget
-                ? `${t("budgets.updateDialogDesc", { category: tCategory(selectedBudget.category) })} (${formatBudgetMonth(selectedBudget.budgetYear, selectedBudget.budgetMonth)})`
-                : ""}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
+      <ResponsiveBudgetFormShell
+        compact={useBottomSheetForms}
+        open={updateOpen}
+        onOpenChange={setUpdateOpen}
+        title={t("budgets.updateDialogTitle")}
+        description={
+          selectedBudget
+            ? `${t("budgets.updateDialogDesc", { category: tCategory(selectedBudget.category) })} (${formatBudgetMonth(selectedBudget.budgetYear, selectedBudget.budgetMonth)})`
+            : ""
+        }
+        footer={updateBudgetFooter}
+      >
+          <div className={cn("space-y-2", useBottomSheetForms && "pb-1")}>
             <label>{t("budgets.newLimit")}</label>
             <input
               type="text"
@@ -887,30 +3615,7 @@ export default function Budgets() {
             />
             {actionError && <p className="text-sm text-red-600">{actionError}</p>}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setUpdateOpen(false)} disabled={isUpdatingBudget}>{t("common.cancel")}</Button>
-            <Button
-              onClick={handleUpdateBudget}
-              disabled={!canSubmitUpdateBudget}
-              className={`relative min-w-24 ${!canSubmitUpdateBudget ? "cursor-not-allowed opacity-60" : ""}`}
-            >
-              {isUpdatingBudget ? (
-                <>
-                  <span className="invisible">{t("common.save")}</span>
-                  <span className="absolute inset-0 flex items-center justify-center">
-                    <span
-                      aria-label="Loading"
-                      className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
-                    />
-                  </span>
-                </>
-              ) : (
-                t("common.save")
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      </ResponsiveBudgetFormShell>
 
       <ConfirmDialog
         open={deleteOpen}

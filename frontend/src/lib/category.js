@@ -12,8 +12,13 @@ import {
     Shirt,
     Users,
     Gamepad2,
+    HandHeart,
     CreditCard,
     Briefcase,
+    Landmark,
+    Banknote,
+    Plane,
+    PawPrint,
     Circle
 } from "lucide-react";
 
@@ -33,7 +38,18 @@ export const CATEGORIES = [
     "Entertainment",
     "Installments & Debt",
     "Business / Work",
+    "Bank Fees & Interest",
+    "Debt Charges",
+    "Travel",
+    "Charity",
+    "Animals & Pets",
 ];
+
+export const FINANCING_CONTEXT_CATEGORY = "Installments & Debt";
+
+export const SPENDING_CATEGORIES = CATEGORIES.filter(
+    (category) => category !== FINANCING_CONTEXT_CATEGORY
+);
 
 export const categoryIconMap = {
     Groceries: ShoppingCart,
@@ -51,6 +67,11 @@ export const categoryIconMap = {
     Entertainment: Gamepad2,
     "Installments & Debt": CreditCard,
     "Business / Work": Briefcase,
+    "Bank Fees & Interest": Banknote,
+    "Debt Charges": Landmark,
+    Travel: Plane,
+    Charity: HandHeart,
+    "Animals & Pets": PawPrint,
     Other: Circle,
 };
 
@@ -86,6 +107,16 @@ export const getCategoryBgClass = (category) => {
             return "bg-slate-100 hover:bg-slate-200 border border-slate-200 dark:bg-slate-500/30 dark:hover:bg-slate-500/15 dark:border-slate-400/35";
         case "Business / Work":
             return "bg-teal-100 hover:bg-teal-200 border border-teal-200 dark:bg-teal-500/30 dark:hover:bg-teal-500/15 dark:border-teal-400/35";
+        case "Bank Fees & Interest":
+            return "bg-zinc-100 hover:bg-zinc-200 border border-zinc-200 dark:bg-zinc-500/30 dark:hover:bg-zinc-500/15 dark:border-zinc-400/35";
+        case "Debt Charges":
+            return "bg-rose-100 hover:bg-rose-200 border border-rose-200 dark:bg-rose-500/30 dark:hover:bg-rose-500/15 dark:border-rose-400/35";
+        case "Travel":
+            return "bg-violet-100 hover:bg-violet-200 border border-violet-200 dark:bg-violet-500/30 dark:hover:bg-violet-500/15 dark:border-violet-400/35";
+        case "Charity":
+            return "bg-green-100 hover:bg-green-200 border border-green-200 dark:bg-green-500/30 dark:hover:bg-green-500/15 dark:border-green-400/35";
+        case "Animals & Pets":
+            return "bg-stone-100 hover:bg-stone-200 border border-stone-200 dark:bg-stone-500/30 dark:hover:bg-stone-500/15 dark:border-stone-400/35";
         default:
             return "bg-gray-100 hover:bg-gray-200 border border-gray-200 dark:bg-gray-500/30 dark:hover:bg-gray-500/15 dark:border-gray-400/35";
     }
@@ -108,6 +139,11 @@ export const getCategoryColorClass = (category) => {
         case "Entertainment": return "text-fuchsia-500";
         case "Installments & Debt": return "text-slate-500";
         case "Business / Work": return "text-teal-500";
+        case "Bank Fees & Interest": return "text-zinc-500";
+        case "Debt Charges": return "text-rose-500";
+        case "Travel": return "text-violet-500";
+        case "Charity": return "text-green-500";
+        case "Animals & Pets": return "text-stone-500";
         default: return "text-muted-foreground";
     }
 };

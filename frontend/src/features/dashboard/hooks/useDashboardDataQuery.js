@@ -6,6 +6,7 @@ import {
     getMonthToDateTrend,
     getRecurringExpenses,
     getThisMonthStats,
+    getWallets,
 } from "@/lib/api";
 
 export function useDashboardDataQuery({ monthStartIso, todayIso }) {
@@ -47,6 +48,11 @@ export function useDashboardDataQuery({ monthStartIso, todayIso }) {
         queryFn: getMonthToDateTrend,
     });
 
+    const walletsQuery = useQuery({
+        queryKey: ["wallets"],
+        queryFn: getWallets,
+    });
+
     return {
         userQuery,
         summaryQuery,
@@ -54,5 +60,6 @@ export function useDashboardDataQuery({ monthStartIso, todayIso }) {
         recentExpensesQuery,
         recurringExpensesQuery,
         trendQuery,
+        walletsQuery,
     };
 }
