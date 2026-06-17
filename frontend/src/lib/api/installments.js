@@ -54,6 +54,7 @@ export async function undoLatestInstallmentPayment(planId) {
 }
 
 export async function addInstallmentCharge(planId, payload) {
+  // eslint-disable-next-line no-unused-vars
   const { wallet_allocations, ...chargePayload } = payload || {};
   const response = await apiClient.post(`/installments/${planId}/charges`, chargePayload);
   return response.data;

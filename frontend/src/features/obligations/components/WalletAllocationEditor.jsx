@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { Plus, Trash2, WalletCards } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
