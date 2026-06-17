@@ -4,8 +4,11 @@ from io import StringIO
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+# pyrefly: ignore [missing-import]
 from fastapi.responses import StreamingResponse
+# pyrefly: ignore [missing-import]
 from sqlalchemy import func
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session, selectinload
 
 from app.redis_rate_limiter import check_and_consume, consume_token_bucket
@@ -761,7 +764,7 @@ def _build_expense_feed(
     if view == "quick":
         query = query.filter(
             models.FinancialEvent.event_type == models.TransactionType.EXPENSE,
-            not models.FinancialEvent.is_session,
+            models.FinancialEvent.is_session.is_(False),
             models.FinancialEvent.merge_group_id.is_(None),
         )
     elif view == "sessions":
