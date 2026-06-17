@@ -55,50 +55,50 @@ def upgrade() -> None:
     op.execute(
         """
         UPDATE transactions
-        SET transaction_type = 'EXPENSE', reference_type = COALESCE(reference_type, 'bank_fee')
-        WHERE transaction_type = 'FEE'
+        SET reference_type = COALESCE(reference_type, 'bank_fee')
+        WHERE transaction_type::text = 'FEE'
         """
     )
     op.execute(
         """
         UPDATE transactions
-        SET transaction_type = 'EXPENSE', reference_type = COALESCE(reference_type, 'bank_interest')
-        WHERE transaction_type = 'INTEREST'
+        SET reference_type = COALESCE(reference_type, 'bank_interest')
+        WHERE transaction_type::text = 'INTEREST'
         """
     )
     op.execute(
         """
         UPDATE transactions
-        SET transaction_type = 'DEBT_TRANSFER', reference_type = COALESCE(reference_type, 'debt_initial')
-        WHERE transaction_type = 'DEBT_TRANSFER'
+        SET reference_type = COALESCE(reference_type, 'debt_initial')
+        WHERE transaction_type::text = 'DEBT_TRANSFER'
         """
     )
     op.execute(
         """
         UPDATE transactions
-        SET transaction_type = 'DEBT_PAYMENT', reference_type = COALESCE(reference_type, 'debt_repayment')
-        WHERE transaction_type = 'DEBT_PAYMENT'
+        SET reference_type = COALESCE(reference_type, 'debt_repayment')
+        WHERE transaction_type::text = 'DEBT_PAYMENT'
         """
     )
     op.execute(
         """
         UPDATE transactions
-        SET transaction_type = 'INSTALLMENT_PAYMENT', reference_type = COALESCE(reference_type, 'installment')
-        WHERE transaction_type = 'INSTALLMENT_PAYMENT'
+        SET reference_type = COALESCE(reference_type, 'installment')
+        WHERE transaction_type::text = 'INSTALLMENT_PAYMENT'
         """
     )
     op.execute(
         """
         UPDATE transactions
-        SET transaction_type = 'SAVINGS_DEPOSIT', reference_type = COALESCE(reference_type, 'savings_deposit')
-        WHERE transaction_type = 'SAVINGS_DEPOSIT'
+        SET reference_type = COALESCE(reference_type, 'savings_deposit')
+        WHERE transaction_type::text = 'SAVINGS_DEPOSIT'
         """
     )
     op.execute(
         """
         UPDATE transactions
-        SET transaction_type = 'SAVINGS_WITHDRAWAL', reference_type = COALESCE(reference_type, 'savings_withdrawal')
-        WHERE transaction_type = 'SAVINGS_WITHDRAWAL'
+        SET reference_type = COALESCE(reference_type, 'savings_withdrawal')
+        WHERE transaction_type::text = 'SAVINGS_WITHDRAWAL'
         """
     )
 
