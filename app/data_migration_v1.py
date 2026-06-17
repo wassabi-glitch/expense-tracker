@@ -1,7 +1,5 @@
-from sqlalchemy.orm import Session
 from app.session import SessionLocal
 from app import models
-import json
 
 def migrate_data():
     db = SessionLocal()

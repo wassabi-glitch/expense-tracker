@@ -169,7 +169,7 @@ def _default_wallet_or_400(db: Session, user_id: int) -> models.Wallet:
         db.query(models.Wallet)
         .filter(
             models.Wallet.owner_id == user_id,
-            models.Wallet.is_default == True,
+            models.Wallet.is_default,
         )
         .first()
     )

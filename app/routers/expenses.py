@@ -17,7 +17,6 @@ from ..services.budget_service import (
     build_budget_out,
     compute_budget_chain,
     get_owned_project_or_404,
-    get_owned_subcategory_or_404,
     materialize_budget_for_month,
     validate_project_budget,
 )
@@ -762,13 +761,13 @@ def _build_expense_feed(
     if view == "quick":
         query = query.filter(
             models.FinancialEvent.event_type == models.TransactionType.EXPENSE,
-            models.FinancialEvent.is_session == False,
+            not models.FinancialEvent.is_session,
             models.FinancialEvent.merge_group_id.is_(None),
         )
     elif view == "sessions":
         query = query.filter(
             models.FinancialEvent.event_type == models.TransactionType.EXPENSE,
-            models.FinancialEvent.is_session == True,
+            models.FinancialEvent.is_session,
             models.FinancialEvent.merge_group_id.is_(None),
         )
     elif view == "refunds":

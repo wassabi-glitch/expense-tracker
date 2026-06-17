@@ -8,7 +8,7 @@ except Exception:  # pragma: no cover - optional local dependency
     IntervalTrigger = None
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import ProgrammingError
-from datetime import date, timedelta, datetime
+from datetime import date, timedelta
 from zoneinfo import ZoneInfo
 
 from app.session import SessionLocal
@@ -145,7 +145,7 @@ def process_due_recurring_expenses(db: Session = None):
                 .join(models.User, models.RecurringExpense.owner_id == models.User.id)
                 .filter(
                     models.RecurringExpense.status == models.RecurringStatus.ACTIVE,
-                    models.User.is_premium == True,
+                    models.User.is_premium,
                 )
                 .all()
             )
@@ -183,7 +183,7 @@ def process_due_recurring_expenses(db: Session = None):
                         wallet = db_session.query(models.Wallet).filter(
                             models.Wallet.id == rec.wallet_id,
                             models.Wallet.owner_id == rec.owner_id,
-                            models.Wallet.is_active == True
+                            models.Wallet.is_active
                         ).first()
                         
                         if not wallet:
@@ -195,14 +195,14 @@ def process_due_recurring_expenses(db: Session = None):
                         # LEGACY FALLBACK: Only for templates created before wallet_id existed.
                         wallet = db_session.query(models.Wallet).filter(
                             models.Wallet.owner_id == rec.owner_id,
-                            models.Wallet.is_default == True,
-                            models.Wallet.is_active == True
+                            models.Wallet.is_default,
+                            models.Wallet.is_active
                         ).first()
                         if not wallet:
                             # If no default, try any active wallet for legacy support
                             wallet = db_session.query(models.Wallet).filter(
                                 models.Wallet.owner_id == rec.owner_id,
-                                models.Wallet.is_active == True
+                                models.Wallet.is_active
                             ).first()
 
                     # --- EXECUTION ---

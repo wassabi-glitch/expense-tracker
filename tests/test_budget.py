@@ -29,7 +29,7 @@ def _get_user(session, email: str) -> models.User:
 def _default_wallet(session, user_id: int) -> models.Wallet:
     wallet = (
         session.query(models.Wallet)
-        .filter(models.Wallet.owner_id == user_id, models.Wallet.is_default == True)
+        .filter(models.Wallet.owner_id == user_id, models.Wallet.is_default)
         .first()
     )
     assert wallet is not None
@@ -2287,7 +2287,7 @@ def test_month_setup_apply_copies_previous_month_and_smart_fills_floors(client, 
     )
     today = user_timezone_today()
     target_year, target_month = _next_month(today)
-    user = _get_user(session, email)
+    _get_user(session, email)
 
     source_budget = create_budget(
         client,

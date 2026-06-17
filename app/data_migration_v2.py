@@ -1,5 +1,4 @@
 from app.session import SessionLocal
-from app import models
 from sqlalchemy import text
 
 def backfill_transaction_wallets():
@@ -16,7 +15,7 @@ def backfill_transaction_wallets():
         for table in tables:
             print(f"Backfilling {table}...")
             # Subquery finds the default wallet ID for the owner of each transaction
-            query = text(f"""
+            query = text(f"""  # nosec B608
                 UPDATE {table}
                 SET wallet_id = sub.id
                 FROM (

@@ -11,7 +11,6 @@ Covers:
 from unittest.mock import patch
 
 from app import models, oauth2
-from app.redis_rate_limiter import redis_client
 from app.routers import oauth_google
 
 

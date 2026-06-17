@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from app import models
 from app.services.goal_funding_service import (
     get_wallet_goal_allocated_amount,
-    get_wallet_required_goal_resolution_for_outflow,
     validate_wallet_goal_protection_for_outflow,
 )
 from app.services.wallet_service import WalletService

@@ -215,7 +215,7 @@ def get_active_action_restrictions(
             models.DebtActionRestriction.owner_id == debt.owner_id,
             models.DebtActionRestriction.debt_id == debt.id,
             models.DebtActionRestriction.action_kind == action_kind,
-            models.DebtActionRestriction.is_active == True,
+            models.DebtActionRestriction.is_active,
         )
         .order_by(models.DebtActionRestriction.id.asc())
         .all()

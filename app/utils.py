@@ -1,6 +1,5 @@
 from datetime import date
 import logging
-from datetime import date
 
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session

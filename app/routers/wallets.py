@@ -101,7 +101,7 @@ def list_wallets(
     
     if not include_archived:
         # If someone explicitly wants ONLY active wallets
-        query = query.filter(models.Wallet.is_active == True)
+        query = query.filter(models.Wallet.is_active)
         
     wallets = query.order_by(models.Wallet.created_at.asc()).all()
     return wallets
@@ -166,7 +166,7 @@ def update_wallet(
         if key == "is_default" and value is True:
             db.query(models.Wallet).filter(
                 models.Wallet.owner_id == current_user.id, 
-                models.Wallet.is_default == True
+                models.Wallet.is_default
             ).update({"is_default": False})
 
         setattr(wallet, key, value)
@@ -192,7 +192,7 @@ def set_wallet_default(
     
     db.query(models.Wallet).filter(
         models.Wallet.owner_id == current_user.id, 
-        models.Wallet.is_default == True
+        models.Wallet.is_default
     ).update({"is_default": False})
     
     wallet.is_default = True

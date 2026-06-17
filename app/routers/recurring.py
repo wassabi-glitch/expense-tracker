@@ -564,7 +564,7 @@ def pay_now_recurring(
         # Fallback for old templates without wallet_id
         wallet = db.query(models.Wallet).filter(
             models.Wallet.owner_id == current_user.id,
-            models.Wallet.is_default == True
+            models.Wallet.is_default
         ).first()
 
     if not wallet or not wallet.is_active:

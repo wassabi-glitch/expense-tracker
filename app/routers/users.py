@@ -33,8 +33,8 @@ def _default_income_sources_for_statuses(life_statuses: list[models.LifeStatus])
         models.LifeStatus.UNEMPLOYED: ["Support", "Temporary income", "Other income"],
     }
     sources = set()
-    for status in life_statuses:
-        sources.update(mapping.get(status, ["Other income"]))
+    for life_status in life_statuses:
+        sources.update(mapping.get(life_status, ["Other income"]))
     
     if not sources:
         sources.add("Other income")

@@ -1,7 +1,5 @@
 from datetime import date, timedelta
 from tests.helpers import create_user_and_token, create_budget, create_expense
-from app import models
-from sqlalchemy import text
 
 
 def test_analytics_history(client, session):

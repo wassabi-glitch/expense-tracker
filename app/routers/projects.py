@@ -1,8 +1,7 @@
-from datetime import date, tzinfo
+from datetime import tzinfo
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.redis_rate_limiter import consume_token_bucket
@@ -13,7 +12,6 @@ from ..services.budget_service import get_budget_remaining_for_month, get_owned_
 from ..services.category_policy import validate_active_expense_category
 from ..services.project_service import (
     build_project_detail,
-    count_project_linked_events,
     get_owned_project_subcategory_or_404,
     latest_project_event_date,
     validate_project_completion_date,

@@ -94,7 +94,7 @@ def resolve_expense_wallet_allocations(
         else:
             wallet = (
                 db.query(models.Wallet)
-                .filter(models.Wallet.owner_id == user_id, models.Wallet.is_default == True)
+                .filter(models.Wallet.owner_id == user_id, models.Wallet.is_default)
                 .with_for_update()
                 .first()
             )

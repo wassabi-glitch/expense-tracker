@@ -14,7 +14,7 @@ def _user(session, email):
 def _default_wallet(session, user_id):
     wallet = session.query(models.Wallet).filter(
         models.Wallet.owner_id == user_id,
-        models.Wallet.is_default == True,
+        models.Wallet.is_default,
     ).first()
     assert wallet is not None
     return wallet

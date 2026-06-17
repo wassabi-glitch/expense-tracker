@@ -88,7 +88,7 @@ def test_quick_add_single_wallet_allocation_creates_non_session_event(client, se
     ).first()
     wallet = session.query(models.Wallet).filter(
         models.Wallet.owner_id == user.id,
-        models.Wallet.is_default == True,
+        models.Wallet.is_default,
     ).first()
 
     res = client.post(
@@ -146,7 +146,7 @@ def test_quick_add_multi_wallet_allocation_creates_one_non_session_event(client,
     ).first()
     default_wallet = session.query(models.Wallet).filter(
         models.Wallet.owner_id == user.id,
-        models.Wallet.is_default == True,
+        models.Wallet.is_default,
     ).first()
     second_wallet = models.Wallet(
         owner_id=user.id,
@@ -223,7 +223,7 @@ def test_quick_add_wallet_allocations_reject_total_mismatch(client, session):
     ).first()
     wallet = session.query(models.Wallet).filter(
         models.Wallet.owner_id == user.id,
-        models.Wallet.is_default == True,
+        models.Wallet.is_default,
     ).first()
 
     res = client.post(
@@ -256,7 +256,7 @@ def test_quick_add_wallet_allocations_reject_duplicate_wallets(client, session):
     ).first()
     wallet = session.query(models.Wallet).filter(
         models.Wallet.owner_id == user.id,
-        models.Wallet.is_default == True,
+        models.Wallet.is_default,
     ).first()
 
     res = client.post(
@@ -668,7 +668,7 @@ def test_split_expense_multi_wallet_parent_keeps_wallet_allocation_separate(clie
     ).first()
     default_wallet = session.query(models.Wallet).filter(
         models.Wallet.owner_id == user.id,
-        models.Wallet.is_default == True,
+        models.Wallet.is_default,
     ).first()
     second_wallet = models.Wallet(
         owner_id=user.id,
@@ -887,7 +887,7 @@ def test_multi_wallet_quick_add_can_be_marked_as_asset(client, session):
     user = session.query(models.User).filter(models.User.email == "expassetmulti@example.com").first()
     default_wallet = session.query(models.Wallet).filter(
         models.Wallet.owner_id == user.id,
-        models.Wallet.is_default == True,
+        models.Wallet.is_default,
     ).first()
     second_wallet = models.Wallet(
         owner_id=user.id,
@@ -1380,7 +1380,7 @@ def test_legacy_financing_context_expense_remains_readable(client, session):
     assert user is not None
     wallet = session.query(models.Wallet).filter(
         models.Wallet.owner_id == user.id,
-        models.Wallet.is_default == True,
+        models.Wallet.is_default,
     ).first()
     assert wallet is not None
 
@@ -1766,7 +1766,7 @@ def test_update_expense_metadata_only_allows_multi_wallet_event(client, session)
     ).first()
     default_wallet = session.query(models.Wallet).filter(
         models.Wallet.owner_id == user.id,
-        models.Wallet.is_default == True,
+        models.Wallet.is_default,
     ).first()
     second_wallet = models.Wallet(
         owner_id=user.id,
@@ -1890,7 +1890,7 @@ def test_delete_expense_voids_multi_wallet_quick_add(client, session):
     ).first()
     default_wallet = session.query(models.Wallet).filter(
         models.Wallet.owner_id == user.id,
-        models.Wallet.is_default == True,
+        models.Wallet.is_default,
     ).first()
     second_wallet = models.Wallet(
         owner_id=user.id,

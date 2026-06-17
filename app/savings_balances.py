@@ -3,12 +3,7 @@ from fastapi import HTTPException, status
 from app import models
 from app.services.goal_funding_service import (
     build_goal_funding_summary,
-    build_goal_with_progress,
-    get_goal_funded_amount,
-    get_goal_linked_project_id,
-    get_goal_released_amount,
     get_total_balance,
-    sync_goal_status,
 )
 
 

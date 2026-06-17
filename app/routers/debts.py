@@ -103,7 +103,7 @@ def _resolve_wallet(db: Session, user_id: int, wallet_id: int | None) -> models.
 
     wallet = (
         db.query(models.Wallet)
-        .filter(models.Wallet.owner_id == user_id, models.Wallet.is_default == True)
+        .filter(models.Wallet.owner_id == user_id, models.Wallet.is_default)
         .first()
     )
     if wallet:
