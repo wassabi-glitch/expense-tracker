@@ -8,6 +8,7 @@ Create Date: 2026-04-28 18:21:04.897929
 from typing import Sequence, Union
 
 from alembic import op
+# pyrefly: ignore [missing-import]
 import sqlalchemy as sa
 
 
@@ -36,7 +37,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_recurring_events_id'), 'recurring_events', ['id'], unique=False)
     op.create_index(op.f('ix_recurring_events_recurring_expense_id'), 'recurring_events', ['recurring_expense_id'], unique=False)
     op.add_column('recurring_expenses', sa.Column('failing_due_date', sa.Date(), nullable=True))
-    op.add_column('recurring_expenses', sa.Column('original_due_day', sa.Integer(), nullable=True))
+
     op.add_column('transactions', sa.Column('recurring_id', sa.Integer(), nullable=True))
     op.add_column('transactions', sa.Column('idempotency_key', sa.String(length=100), nullable=True))
     op.create_index(op.f('ix_transactions_recurring_id'), 'transactions', ['recurring_id'], unique=False)
@@ -64,7 +65,7 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_transactions_recurring_id'), table_name='transactions')
     op.drop_column('transactions', 'idempotency_key')
     op.drop_column('transactions', 'recurring_id')
-    op.drop_column('recurring_expenses', 'original_due_day')
+
     op.drop_column('recurring_expenses', 'failing_due_date')
     op.drop_index(op.f('ix_recurring_events_recurring_expense_id'), table_name='recurring_events')
     op.drop_index(op.f('ix_recurring_events_id'), table_name='recurring_events')
