@@ -64,7 +64,10 @@ def test_login_stores_refresh_token_in_redis(client, session):
     create_and_login(client, session)
 
     # Check that at least one rt:* key exists in Redis
-    rt_keys = list(redis_client.scan_iter("rt:*"))
+    if hasattr(oauth2._redis, "values"):
+        rt_keys = [k for k in oauth2._redis.values.keys() if k.startswith("rt:")]
+    else:
+        rt_keys = list(oauth2._redis.scan_iter("rt:*"))
     assert len(rt_keys) >= 1
 
 
@@ -203,14 +206,20 @@ def test_password_reset_revokes_all_refresh_tokens(client, session):
     ).first()
 
     # Verify there ARE refresh tokens in Redis
-    rt_keys_before = list(redis_client.scan_iter("rt:*"))
+    if hasattr(oauth2._redis, "values"):
+        rt_keys_before = [k for k in oauth2._redis.values.keys() if k.startswith("rt:")]
+    else:
+        rt_keys_before = list(oauth2._redis.scan_iter("rt:*"))
     assert len(rt_keys_before) >= 1
 
     # Manually revoke all tokens (simulating what password reset does)
     oauth2.revoke_all_user_tokens(user.id)
 
     # All refresh token keys should be gone
-    rt_keys_after = list(redis_client.scan_iter("rt:*"))
+    if hasattr(oauth2._redis, "values"):
+        rt_keys_after = [k for k in oauth2._redis.values.keys() if k.startswith("rt:")]
+    else:
+        rt_keys_after = list(oauth2._redis.scan_iter("rt:*"))
     assert len(rt_keys_after) == 0
 
     # Trying to refresh should fail
@@ -249,7 +258,7 @@ def test_expired_refresh_token_rejected(client, session):
     token_hash = oauth2._hash_token(expired_token)
     
     # Simulate expiration by simply deleting it from Redis (which is what TTL does)
-    redis_client.delete(f"rt:{token_hash}")
+    oauth2._redis.delete(f"rt:{token_hash}")
 
     client.cookies.set("refresh_token", expired_token)
     response = client.post("/auth/refresh")

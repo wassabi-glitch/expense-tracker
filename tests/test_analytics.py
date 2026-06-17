@@ -41,20 +41,20 @@ def test_analytics_history(client, session):
     wallet = session.query(models.Wallet).filter(models.Wallet.owner_id == user.id).first()
     
     session.add_all([
-        models.Transaction(
+        models.FinancialEvent(
             owner_id=user.id,
             wallet_id=wallet.id,
-            transaction_type=models.TransactionType.EXPENSE,
+            event_type=models.TransactionType.EXPENSE,
             description="Item One",
             amount=10,
             category=models.ExpenseCategory.GROCERIES,
             date=today,
             currency="UZS",
         ),
-        models.Transaction(
+        models.FinancialEvent(
             owner_id=user.id,
             wallet_id=wallet.id,
-            transaction_type=models.TransactionType.EXPENSE,
+            event_type=models.TransactionType.EXPENSE,
             description="Item Two",
             amount=20,
             category=models.ExpenseCategory.GROCERIES,

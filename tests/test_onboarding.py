@@ -75,7 +75,7 @@ def test_onboarding_upsert_updates_existing_profile(client, session):
 
     profiles = session.query(models.UserProfile).all()
     assert len(profiles) == 1
-    entries = session.query(models.Transaction).filter(models.Transaction.transaction_type == models.TransactionType.INCOME).all()
+    entries = session.query(models.FinancialEvent).filter(models.FinancialEvent.event_type == models.TransactionType.INCOME).all()
     assert len(entries) == 0
 
 
