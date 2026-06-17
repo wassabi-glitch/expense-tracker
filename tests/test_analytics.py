@@ -9,60 +9,10 @@ def test_analytics_history(client, session):
         client, "analyticsuser", "analyticsuser@example.com", "Password123!"
     )
 
-    # Add two expenses directly to avoid budget-lookup coupling in this analytics test.
-    user = session.query(models.User).filter(
-        models.User.email == "analyticsuser@example.com"
-    ).first()
-    assert user is not None
-
-    today = date.today()
-    # Resolve a valid DB enum label at runtime to avoid value/name mismatch
-    # across environments (e.g. "Groceries" vs "GROCERIES").
-    category_label = None
-    try:
-        category_label = session.execute(
-            text(
-                """
-                SELECT e.enumlabel
-                FROM pg_type t
-                JOIN pg_enum e ON t.oid = e.enumtypid
-                WHERE t.typname = 'expensecategory'
-                ORDER BY e.enumsortorder
-                LIMIT 1
-                """
-            )
-        ).scalar()
-    except Exception:
-        category_label = None
-    if not category_label:
-        category_label = models.ExpenseCategory.GROCERIES.value
-
-    # History endpoint only needs expenses by owner; no budget linkage needed.
-    wallet = session.query(models.Wallet).filter(models.Wallet.owner_id == user.id).first()
-    
-    session.add_all([
-        models.FinancialEvent(
-            owner_id=user.id,
-            wallet_id=wallet.id,
-            event_type=models.TransactionType.EXPENSE,
-            description="Item One",
-            amount=10,
-            category=models.ExpenseCategory.GROCERIES,
-            date=today,
-            currency="UZS",
-        ),
-        models.FinancialEvent(
-            owner_id=user.id,
-            wallet_id=wallet.id,
-            event_type=models.TransactionType.EXPENSE,
-            description="Item Two",
-            amount=20,
-            category=models.ExpenseCategory.GROCERIES,
-            date=today,
-            currency="UZS",
-        )
-    ])
-    session.commit()
+    # Add two expenses.
+    create_budget(client, headers, category="Food", monthly_limit=50000)
+    create_expense(client, headers, title="Item One", amount=10, category="Food")
+    create_expense(client, headers, title="Item Two", amount=20, category="Food")
 
     res = client.get("/analytics/history", headers=headers)
     assert res.status_code == 200
