@@ -13,7 +13,7 @@ Labels: `ready-for-agent`
 
 1. **Prompted Wrap-Up (Agency > Automation):** The system treats `target_end_date` as an inclusive boundary (spending allowed *through* 11:59 PM on that day). When the date passes, the system does not auto-lock the project. Instead, it surfaces a "Ready to Wrap Up?" prompt, allowing a grace period for lagging receipts.
 2. **The "Project Wrapped" Report:** Clicking "Wrap Up" triggers a beautiful summary modal before locking the project. It shows Hero Metrics (Planned vs Actual), Top Spending Heavy Hitters, and a Velocity sparkline.
-3. **The Sweep Action:** The final step of the Wrap-Up modal for Isolated projects prompts the user to sweep any remaining funding back to `Ready to Assign` or `Emergency Fund`.
+3. **The Sweep Action:** The final step of the Wrap-Up modal for Isolated projects prompts the user to sweep any remaining funding back to Free to spend.
 4. **Strict Typology Enforcement:** 
    - **Overlay Projects:** UI uses "Limit". Progress ticks UP. No custom subcategories allowed; they inherit and report on global `UserSubcategory` tags to preserve G21 taxonomy.
    - **Isolated Projects:** UI uses "Funding" or "Allocation". Progress ticks DOWN. Allowed to have custom `ProjectSubcategory` tags for siloed tracking (e.g., "Drywall").

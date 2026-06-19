@@ -13018,3 +13018,362 @@ This interceptor acts as a smart filter. If the user clicks "Yes", the system re
 ### Decision
 
 Fix now. Implement the Hybrid UX (Dedicated Tab + Smart Interceptor) for all Quick Add flows to gracefully handle careless goal fulfillments.
+
+---
+
+## EC-163: Direct Isolated Project Funding & The Over-Planned Trap
+
+**Status:** ARCHITECTED  
+**Severity:** S1  
+**Area:** Projects / Budgets / UI  
+**Discovered on:** 2026-06-18  
+
+### Scenario
+A user attempts to create a Direct Isolated Project on the Budgets page for 10M. They have 10M of physical cash in their wallets, but their `Free Money Now` is 0 because that 10M is already assigned to monthly budget categories (like Rent and Groceries).
+
+### Expected Behavior
+The UI must block or severely warn the user during the "Wallet Allocation" step. The system must display their `Free Money Now` and predict the consequence: allocating 10M will instantly drop their `Free Money Now` to -10M, throwing their entire Monthly Budget into an `Over-Planned` state. The user must understand that funding an isolated project cannibalizes their monthly budget capacity.
+
+---
+
+## EC-164: The Pooled Vault (Decoupling Liquidity from Intent)
+
+**Status:** ARCHITECTED  
+**Severity:** S1  
+**Area:** Projects / Ledger  
+**Discovered on:** 2026-06-18  
+
+### Scenario
+During Isolated Project creation, the user locks 5M in Cash and 5M on a Debit Card. In the next step, they allocate 7M to Food and 3M to Transport. 
+
+### Expected Behavior
+Wallets must NEVER be directly mapped to Categories (e.g., "Cash is for Food"). This creates an unmanageable matrix. Instead, the project acts as a "Pooled Vault". When a 6M Food expense is logged, the user can pay with 4M Cash and 2M Debit. The system simply verifies: (1) Does the Food category have 6M? (2) Do the selected wallets have a combined 6M of locked project funds? This decoupling allows total flexibility at checkout.
+
+---
+
+## EC-165: Project Taxonomy Enforcement via G21 Hub
+
+**Status:** ARCHITECTED  
+**Severity:** S2  
+**Area:** Projects / Analytics  
+**Discovered on:** 2026-06-18  
+
+### Scenario
+A user wants to create a hyper-specific subcategory (e.g., "Wedding DJ") for their isolated project. 
+
+### Expected Behavior
+The system must not allow rogue string tags. The user must use the G21 Global Taxonomy Combobox to create "Wedding DJ" as an official `UserSubcategory`. This ensures the expense rolls up into global analytics. To prevent UI clutter in future months, the user can simply "Archive" the tag in the Taxonomy Hub once the project ends.
+
+---
+
+## EC-166: Cascading Top-Ups & Wallet Hierarchy
+
+**Status:** ARCHITECTED  
+**Severity:** S1  
+**Area:** Projects / Ledger  
+**Discovered on:** 2026-06-18  
+
+### Scenario
+A user is 500k short in their "GPU" project subcategory. They click a UI button to "Top Up GPU by 500k" from their global Free Money.
+
+### Expected Behavior
+The system cannot magically inject Free Money. Free Money is an abstract math result. The UI must intercept: "Which physical wallet is this 500k coming from?" Once a wallet is selected, the system executes a Cascading Top-Up: (1) Lock 500k in the wallet, (2) Add 500k to the Project Stash, (3) Add 500k to the Parent Category limit, (4) Add 500k to the GPU Subcategory limit.
+
+---
+
+## EC-167: Target End Dates as Sweep Triggers
+
+**Status:** ARCHITECTED  
+**Severity:** S3  
+**Area:** Projects / UI  
+**Discovered on:** 2026-06-18  
+
+### Scenario
+An Isolated Project finishes under budget, leaving 5M trapped in the vault. 
+
+### Expected Behavior
+Unlike Overlay Projects that use dates for month-slicing math, Isolated Projects use the Target End Date strictly as an alarm clock. When the date passes, the system triggers a prompt: "Your project date has passed. You still have 5M left. Do you want to sweep this back to Free Money?" This prevents trapped liquidity.
+
+---
+
+## EC-168: The Emergent Mini-YNAB Behavior
+
+**Status:** ARCHITECTED (Feature Insight)  
+Fix now. Implement JIT Slicing for Overlay projects and defer future month slicing to the Month Setup Wizard flow (G27).
+
+---
+
+## EC-162: Wallet Goal Collision & Protection Breaches
+
+**Status:** NEW  
+**Severity:** S1  
+**Area:** Goals / Wallets / Expenses / UI  
+**Discovered on:** 2026-06-17  
+**Reported by:** User / AI Agent  
+
+### Scenario
+
+A user has 0 "Free Money" in a wallet, but holds funds protected by active Goals. They make a real-life purchase using that wallet, which drains the wallet balance below the protected amount. The system must process the expense (Reality is King) but cannot silently auto-deduct funds from goals because it cannot guess human intent (e.g., if a user breached multiple goals, which one did they intend to sacrifice?).
+
+### Expected Behavior (The "Resolution Wizard")
+
+The system implements a Hybrid UI approach (Inline Warning + Interception Modal) to force the user to manually balance the ledger before saving.
+
+**Phase 1: Inline Warning (Before Save)**
+When the user types the amount and selects the wallet in the Quick Add form, an inline warning appears below the wallet dropdown:
+*⚠️ Exceeds Free Cash. This will dip into your protected goals.*
+
+**Phase 2: Interception Modal (On Save)**
+When the user clicks Save, a modal intercepts the action. The modal scales based on the complexity of the breach:
+
+#### Scenario A: Single Wallet, Single Goal Breach (The "AC" Example)
+*Real-world case:* User has 3M Cash protected for a "PS Goal". They use 5M Cash to buy an AC.
+*Modal UI:*
+> **⚠️ Protected Funds Warning**
+> You only have 2M of Free Cash. This 5M expense will consume the 3M you saved for your **PS Goal**. 
+> 
+> **[Consume PS Funds & Save]** *(Primary Button - Red)*
+> **[Cancel]** *(Secondary Button - Grey)*
+
+#### Scenario B: Single Wallet, Multi-Goal Breach (The "Groceries" Example)
+*Real-world case:* User has 5M Cash protected across 3 goals (Phone 1M, Laptop 2M, Vacation 2M). They spend 2M Cash on random Groceries.
+*Modal UI:*
+> **⚠️ Multiple Protections Breached!**
+> This 2M expense leaves your Cash wallet with only 3M, but you have 5M protected across 3 goals. You must choose which goals to sacrifice to cover the 2M difference:
+> 
+> 📱 **Phone Goal** (1M protected) ------ Reduce by: `[ 0 ]`
+> 💻 **Laptop Goal** (2M protected) ----- Reduce by: `[ 0 ]`
+> 🏖️ **Vacation Goal** (2M protected) --- Reduce by: `[ 0 ]`
+> 
+> *Remaining to resolve: 2M* 
+> 
+> **[Save & Release Funds]** *(Disabled until Remaining hits 0)*
+> **[Cancel]**
+
+#### Scenario C: Multi-Wallet, Multi-Goal Breach (The "Massive TV" Example)
+*Real-world case:* User buys a 4M TV, split 2M Cash and 2M Debit. Both wallets have 0 Free Money and multiple goals attached. Both wallets are breached.
+*Modal UI (Grouped by Wallet):*
+> **⚠️ Multiple Wallets Breached!**
+> 
+> 💵 **Cash Wallet (Needs 2M resolved):**
+> 📱 Phone (1M) -------- Reduce by: `[ 1M ]`
+> ⌚ Watch (1M) -------- Reduce by: `[ 1M ]`
+> 👕 Clothes (1M) ------ Reduce by: `[ 0 ]`
+> *(Cash Remaining to Resolve: 0)*
+> 
+> 💳 **Debit Wallet (Needs 2M resolved):**
+> 🚗 Car (2M) ---------- Reduce by: `[ 2M ]`
+> 🎮 PS (1M) ----------- Reduce by: `[ 0 ]`
+> 🏖️ Vacation (1M) ----- Reduce by: `[ 0 ]`
+> *(Debit Remaining to Resolve: 0)*
+> 
+> **[Save & Release Funds]** *(Lights up only when BOTH counters hit 0)*
+
+### Why This Matters
+
+This "Ask the Human" fallback prevents the system from making dangerous assumptions about goal priorities, prevents silent data corruption, and ensures the user takes absolute ownership of their financial trade-offs.
+
+### Decision
+
+Fix now. Implement the Hybrid Warning and Resolution Wizard flow for all expense creation/update routes.
+
+---
+
+## EC-163: Goal Fulfillment Interceptor vs. Protection Breach
+
+**Status:** NEW  
+**Severity:** S2  
+**Area:** Expenses / Goals / UX  
+**Discovered on:** 2026-06-17  
+**Reported by:** User / AI Agent  
+
+### Scenario
+
+A user has saved money for a Goal (e.g., 20M for a Laptop). They purchase the laptop but carelessly use the generic "Quick Add" expense form instead of the dedicated "Goal Fulfillment" tab. Because the system sees a generic 20M expense draining the wallet, it mathematically triggers the "Protection Breach" warning (EC-162), panicking the user who thinks they are doing exactly what they saved for.
+
+### Expected Behavior (The "Two-Layer Defense")
+
+**Layer 1: Dedicated Goal UI Tab**
+The Quick Add modal provides a segmented control: `[ Normal Expense ] | [ Goal / Debt Payment ]`. Organized users can click the Goal tab to perfectly pre-fill and consume protected funds without warnings.
+
+**Layer 2: The Smart Interceptor (Fuzzy Matching)**
+For careless users who stay on the `Normal Expense` tab, the system runs a pre-save check *before* triggering any Protection Breach warnings. 
+- The system checks if the expense amount matches (or is very close to) an active Goal's protected amount within that wallet, or if the Title/Category matches the Goal's name.
+- If a match is detected, the system intercepts the save with a helpful prompt:
+  > **🎯 Goal Match Detected!**
+  > You are recording a 20M expense for "Macbook". You currently have a **Laptop Goal** with 20M saved in this wallet. Did you finally buy it?
+  > **[Yes, link to Laptop Goal & Complete It]** 
+  > **[No, this is a random purchase. Save normally]** 
+
+### Why This Matters
+
+This interceptor acts as a smart filter. If the user clicks "Yes", the system retroactively converts the generic expense into a Goal Fulfillment, consuming the protected funds cleanly. If they click "No", the system proceeds to the standard EC-162 Protection Breach flow. This completely solves the "Careless User" problem while keeping the underlying mathematical protections flawless.
+
+### Decision
+
+Fix now. Implement the Hybrid UX (Dedicated Tab + Smart Interceptor) for all Quick Add flows to gracefully handle careless goal fulfillments.
+
+---
+
+## EC-163: Direct Isolated Project Funding & The Over-Planned Trap
+
+**Status:** ARCHITECTED  
+**Severity:** S1  
+**Area:** Projects / Budgets / UI  
+**Discovered on:** 2026-06-18  
+
+### Scenario
+A user attempts to create a Direct Isolated Project on the Budgets page for 10M. They have 10M of physical cash in their wallets, but their `Free Money Now` is 0 because that 10M is already assigned to monthly budget categories (like Rent and Groceries).
+
+### Expected Behavior
+The UI must block or severely warn the user during the "Wallet Allocation" step. The system must display their `Free Money Now` and predict the consequence: allocating 10M will instantly drop their `Free Money Now` to -10M, throwing their entire Monthly Budget into an `Over-Planned` state. The user must understand that funding an isolated project cannibalizes their monthly budget capacity.
+
+---
+
+## EC-164: The Pooled Vault (Decoupling Liquidity from Intent)
+
+**Status:** ARCHITECTED  
+**Severity:** S1  
+**Area:** Projects / Ledger  
+**Discovered on:** 2026-06-18  
+
+### Scenario
+During Isolated Project creation, the user locks 5M in Cash and 5M on a Debit Card. In the next step, they allocate 7M to Food and 3M to Transport. 
+
+### Expected Behavior
+Wallets must NEVER be directly mapped to Categories (e.g., "Cash is for Food"). This creates an unmanageable matrix. Instead, the project acts as a "Pooled Vault". When a 6M Food expense is logged, the user can pay with 4M Cash and 2M Debit. The system simply verifies: (1) Does the Food category have 6M? (2) Do the selected wallets have a combined 6M of locked project funds? This decoupling allows total flexibility at checkout.
+
+---
+
+## EC-165: Project Taxonomy Enforcement via G21 Hub
+
+**Status:** ARCHITECTED  
+**Severity:** S2  
+**Area:** Projects / Analytics  
+**Discovered on:** 2026-06-18  
+
+### Scenario
+A user wants to create a hyper-specific subcategory (e.g., "Wedding DJ") for their isolated project. 
+
+### Expected Behavior
+The system must not allow rogue string tags. The user must use the G21 Global Taxonomy Combobox to create "Wedding DJ" as an official `UserSubcategory`. This ensures the expense rolls up into global analytics. To prevent UI clutter in future months, the user can simply "Archive" the tag in the Taxonomy Hub once the project ends.
+
+---
+
+## EC-166: Cascading Top-Ups & Wallet Hierarchy
+
+**Status:** ARCHITECTED  
+**Severity:** S1  
+**Area:** Projects / Ledger  
+**Discovered on:** 2026-06-18  
+
+### Scenario
+A user is 500k short in their "GPU" project subcategory. They click a UI button to "Top Up GPU by 500k" from their global Free Money.
+
+### Expected Behavior
+The system cannot magically inject Free Money. Free Money is an abstract math result. The UI must intercept: "Which physical wallet is this 500k coming from?" Once a wallet is selected, the system executes a Cascading Top-Up: (1) Lock 500k in the wallet, (2) Add 500k to the Project Stash, (3) Add 500k to the Parent Category limit, (4) Add 500k to the GPU Subcategory limit.
+
+---
+
+## EC-167: Target End Dates as Sweep Triggers
+
+**Status:** ARCHITECTED  
+**Severity:** S3  
+**Area:** Projects / UI  
+**Discovered on:** 2026-06-18  
+
+### Scenario
+An Isolated Project finishes under budget, leaving 5M trapped in the vault. 
+
+### Expected Behavior
+Unlike Overlay Projects that use dates for month-slicing math, Isolated Projects use the Target End Date strictly as an alarm clock. When the date passes, the system triggers a prompt: "Your project date has passed. You still have 5M left. Do you want to sweep this back to Free Money?" This prevents trapped liquidity.
+
+---
+
+## EC-168: The Emergent Mini-YNAB Behavior
+
+**Status:** ARCHITECTED (Feature Insight)  
+**Severity:** S4  
+**Area:** Projects / User Psychology  
+**Discovered on:** 2026-06-18  
+
+### Scenario
+A hardcore user wants to use Zero-Based Envelope Budgeting (YNAB philosophy) for their entire financial life, instead of the loose Sarflog monthly budget system.
+
+### Expected Behavior
+The user can theoretically create an Isolated Project named "May 2026 Budget", lock their entire paycheck into it (Step 2), break it down into strict category envelopes (Step 3), and log all daily expenses against the project. This emergent behavior proves the structural integrity of the Isolated Project mechanics, acting as a perfect "Mini-YNAB" engine.
+
+---
+
+## EC-169: Derived Total Stash vs Abstract Target
+
+**Status:** ARCHITECTED  
+**Severity:** S2  
+**Area:** Projects / UI  
+**Discovered on:** 2026-06-18  
+
+### Scenario
+During Direct Isolated Project creation, the UI could ask the user for a "Total Target" (e.g., 10M) and then ask them to allocate 10M from their wallets. If they type 10M but only allocate 9M, the system throws a validation error.
+
+### Expected Behavior
+For Direct Isolated Projects, there is no "Target". The project is fully funded on day one. Therefore, the UI must NOT ask for a Total Amount. The Total Project Stash must be a purely *derived* sum of whatever the user allocates in the wallet rows. This eliminates the validation error trap and physically matches the reality of stuffing envelopes.
+
+---
+
+## EC-170: The "Ghost Goal" Anti-Pattern for Direct Projects
+
+**Status:** ARCHITECTED  
+**Severity:** S2  
+**Area:** Projects / Database  
+**Discovered on:** 2026-06-18  
+
+### Scenario
+A user creates a Direct Isolated Project. To lock the wallet funds, the system attempts to reuse the existing `GoalContributions` and `GoalProjectRelease` tables by secretly creating a fake "Ghost Goal" in the database, instantly graduating it to force the funds into the project.
+
+### Expected Behavior
+The backend must never create fake domain entities. Instead, a dedicated `ProjectWalletAllocation` table must be introduced. This cleanly maps `wallet_id` locks directly to the `project_id` for Direct Isolated Projects, preserving database purity and preventing analytics pollution.
+
+---
+
+## EC-171: The Premature Graduation Double-Funding Trap
+
+**Status:** ARCHITECTED  
+**Severity:** S3  
+**Area:** Goals / Projects / UX  
+**Discovered on:** 2026-06-18  
+
+### Scenario
+A user creates a 10M "Wedding" goal, saves 5M, and graduates it early. The backend leaves the Goal as `ACTIVE`. The user now has two parallel ways to add the remaining 5M: allocating to the Goal (and releasing again) OR using the "Top-Up" button inside the active Project.
+
+### Expected Behavior
+To prevent parallel funding confusion, the "Baton Pass" rule is enforced. Upon graduation, the Goal is permanently marked `GRADUATED` and frozen. The saved funds are cleanly handed off to the new Project via the `ProjectWalletAllocation` table. If the user wants to add more money later, they must use the Project's native Top-Up feature. The Goal acts only as an incubator.
+
+---
+
+## EC-172: The Overlay Parasite Trap (Month Planner Conflict)
+
+**Status:** ARCHITECTED  
+**Severity:** S2  
+**Area:** Budgets / Projects / UX  
+**Discovered on:** 2026-06-19  
+
+### Scenario
+A user sets up a "Paris Trip" Overlay Project that requires $500 from the August "Dining" category. On August 1st, the user runs the Month Setup Wizard and selects either "Plan from Scratch" (setting Dining to $0) or "Copy Last Month" (which copies July's $300 Dining limit). 
+
+### Expected Behavior
+Overlay Project limits act as parasites to the normal monthly budget. Therefore, active Overlay slices MUST act as mandatory **Category Floors** during the Month Setup Planner. The system will never allow the user to budget less than what their active Overlay Project demands. Smart Copy must recognize the $500 Overlay slice and automatically bump the "Dining" limit up to at least $500 to prevent a mathematical paradox.
+
+---
+
+## EC-173: The Look-Ahead Warning & Permissive Overplanning
+
+**Status:** ARCHITECTED  
+**Severity:** S2  
+**Area:** Budgets / UX  
+**Discovered on:** 2026-06-19  
+
+### Scenario
+A user gets paid on the 5th of the month. On the 1st of the month, their wallet has $50. They run the Month Setup Wizard (or try to create a mid-month budget) and propose $600 for "Groceries". If the system hard-blocks them for attempting to save an "Over-Planned" budget, the user is physically unable to use the app to plan their finances until payday arrives.
+
+### Expected Behavior
+Sarflog adopts a "Permissive Warning" philosophy (Option A). The system NEVER hard-blocks the user from entering budget limits. Instead, it relies on real-time visual feedback and unignorable "Look-Ahead Warnings". If a user tries to save a budget where `Proposed Limits > (Cash + Expected Inflows)`, the UI throws a red warning: *"You are planning more than you have. Want to log your upcoming paycheck as an Expected Inflow to fix this?"* The user is allowed to save the plan in a mathematically broken state, placing the burden on them to fix it via "whack-a-mole" rebalancing or logging future income.

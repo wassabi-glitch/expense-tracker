@@ -39,7 +39,11 @@ The system will provide explicit user control over Reserve Fund expense impacts 
 - **Goal Creation UI**: Update `GOAL_CREATE_CHOICES` in `Savings.jsx` to include a 4th choice mapping to `intent: "FUND_PROJECT"`. Ensure the wizard supports standard target amount and date inputs for this intent.
 - **Graduation UI Hooking**: Import `useGraduateGoalMutation` into `Savings.jsx`. Render a "Graduate" action button conditionally for `FUND_PROJECT` goals that have a positive `unreleased_amount` and are not already completed/archived.
 - **Backend Graduation Validation**: Modify `graduate_goal_to_project` in `app/routers/goals.py`. Add a check: `if goal.intent != models.GoalIntent.FUND_PROJECT: raise HTTPException(...)`.
-- **Backend Status Update**: In `graduate_goal_to_project`, set `goal.status = models.GoalStatus.GRADUATED` just before `db.commit()`. Ensure any subsequent logic (like `sync_goal_status`) respects this terminal state.
+- **The "Baton Pass" Graduation Architecture**: When a `FUND_PROJECT` goal graduates, the backend executes an atomic handoff. 
+  1. Set `goal.status = models.GoalStatus.GRADUATED`.
+  2. Create `GoalProjectRelease` rows to officially unlock the goal's claim on the wallets.
+  3. Create `ProjectWalletAllocation` rows mapped to the new Isolated Project to re-lock the exact same funds into the project envelope.
+  This ensures the Wallet's `Protected Balance` remains perfectly balanced, and the Project becomes entirely decoupled from the Goal, allowing the Goal to be frozen permanently.
 - **Progress Bar Math**: In `Budgets.jsx`, identify `isGoalFundedIsolated`. For these projects, reverse the progress bar calculation (e.g., `(remainingFunding / releasedFunding) * 100`) and style it to reflect a depleting balance rather than a filling limit.
 - **Backend Expense Date Validation**: Modify `validate_session_item_links` to accept `expense_date: date`. Add logic to enforce `expense_date >= project.start_date` and `expense_date <= project.target_end_date` (if the latter exists). Update all call sites in `expense_posting_service.py` and `session_draft_service.py` to pass the expense date.
 - **Reopen Project UI**: In `Savings.jsx` (or the relevant project detail component), conditionally render a "Reopen" button for projects with `status == COMPLETED`. Wire this to a backend `PUT /projects/{id}/reopen` or `status` update endpoint.

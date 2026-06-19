@@ -38,10 +38,10 @@ No automatic rollovers ship in v1. Unused budget room returns to unallocated cap
 - Keep budgets as monthly spending permissions, not cash envelopes.
 - Disable automatic budget rollover behavior for v1. Do not create rollover/cap/sweep ledger effects as an implicit month transition.
 - Keep `/budgets/month-summary` as the public seam for G3 pre-flight math.
-- Add a narrow month setup seam for explicit setup modes.
-- Treat plan from scratch as zero proposed category limits until the user manually enters limits.
-- Treat copy previous month as an explicit copy of parent category limits and month-scoped subcategory limits from the previous month.
-- Treat smart auto-fill as copy previous month plus category floor repair. Parent category limits are raised to at least the computed floor amount.
+- Add a narrow month setup seam for explicit setup modes. All modes obey the "Permissive Overplanning" rule: the system NEVER hard-blocks the user from saving a plan that exceeds their capacity. Instead, it displays a "Look-Ahead Warning" prompting them to log an Expected Inflow.
+- **Mode 1: Plan from Scratch:** Sets proposed category limits to zero. However, if there are active Overlay Projects that slice from a category, that slice acts as a mandatory Category Floor. The system must enforce that minimum floor (e.g., $500 for Paris Trip Overlay) and warn the user.
+- **Mode 2: Copy Previous Month (Dumb Copy):** Explicitly copies limits from the previous month. The UI must visualize any active Category Floors (like Overlays or Debts) that are silently eating into this copied limit, warning the user of "Silent Starvation".
+- **Mode 3: Smart Auto-Fill (Smart Copy):** Copies the previous month but performs Category Floor repair. It aggregates standard Recurring Expenses AND Overlay Project Slices into the Category Floor calculation, automatically bumping limits up to at least the computed floor amount to prevent mathematical paradoxes.
 - Do not silently reserve category floors globally. Floors remain visible category minimums; G3 backing math remains the source of truth for over-planned state.
 - Bucket 1 payable debts are classified by repayment accounting route. If repayment posts a categorized expense, it is a budget category floor.
 - Bucket 2 cash-only debts remain cash reserve pressure.
