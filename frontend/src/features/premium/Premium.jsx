@@ -21,7 +21,7 @@ const PLANS = {
     compareAt: 19990,
     isHighlighted: false,
     periodKey: "perMonth",
-    features: ["featureRollover", "featureRecurring", "featureSavingsGoals"],
+    features: ["featureRecurring", "featureSavingsGoals"],
   },
   BETA_YEARLY: {
     price: 79990,

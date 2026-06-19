@@ -347,11 +347,6 @@ class InstallmentPaymentComponentType(str, enum.Enum):
     CHARGE = "CHARGE"
 
 
-class BudgetLedgerType(str, enum.Enum):
-    ROLLOVER = "ROLLOVER"
-    CAP_TRIM = "CAP_TRIM"
-
-
 class ExpectedIncomeStatus(str, enum.Enum):
     EXPECTED = "EXPECTED"
     RECEIVED = "RECEIVED"
@@ -530,7 +525,6 @@ class UserProfile(Base):
     life_statuses = Column(JSON, nullable=False, server_default='[]') # New multi-status
     monthly_income_amount = Column(BigInteger, nullable=False)
     initial_balance = Column(BigInteger, nullable=False, default=0)
-    budget_rollover_enabled = Column(Boolean, nullable=False, default=True)
     onboarding_completed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True),
                         server_default=func.now(), nullable=False)
@@ -803,11 +797,7 @@ class Budget(Base):
         "BudgetSubcategoryLimit", back_populates="budget", cascade="all, delete-orphan")
     last_notified_threshold = Column(Integer, default=0, nullable=False)
 
-    # ── Rollover Controls (The 3 Knobs) ──────────────────────────
     max_envelope_balance = Column(BigInteger, nullable=True)
-    max_rollover_amount = Column(BigInteger, nullable=True)
-    rollover_mode = Column(String(10), nullable=True)
-
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     __table_args__ = (

@@ -5,21 +5,6 @@ from app.redis_rate_limiter import redis_client
 from tests.helpers import create_user_and_token, create_budget, create_expense, user_timezone_today
 
 
-def _make_user_premium(session, email: str):
-    user = session.query(models.User).filter(models.User.email == email).first()
-    assert user is not None
-    user.is_premium = True
-    session.commit()
-
-
-def _set_rollover_enabled(session, email: str, enabled: bool):
-    user = session.query(models.User).filter(models.User.email == email).first()
-    assert user is not None
-    assert user.profile is not None
-    user.profile.budget_rollover_enabled = enabled
-    session.commit()
-
-
 def _get_user(session, email: str) -> models.User:
     user = session.query(models.User).filter(models.User.email == email).first()
     assert user is not None
@@ -2123,21 +2108,11 @@ def test_overlay_project_expense_still_requires_and_hits_monthly_budget(client):
     assert budget_after.json()["spent"] == 100_000
 
 
-def test_get_budgets_does_not_auto_rollover_unused_room_in_v1(client, session):
-    email = "rolloverbudget@example.com"
+def test_get_budgets_does_not_auto_rollover_unused_room(client):
+    email = "norolloverbudget@example.com"
     headers = create_user_and_token(
-        client, "rolloverbudget", email, "Password123!"
+        client, "norolloverbudget", email, "Password123!"
     )
-    _make_user_premium(session, email)
-    onboard = client.post(
-        "/users/me/onboarding",
-        json={
-            "life_statuses": ["employed"],
-            "wallets": [{"name": "Main", "initial_balance": 100000}],
-        },
-        headers=headers,
-    )
-    assert onboard.status_code == 200, onboard.text
 
     create_budget(client, headers, category="Food", monthly_limit=300, budget_year=2026, budget_month=1)
     create_budget(client, headers, category="Food", monthly_limit=300, budget_year=2026, budget_month=2)
@@ -2162,12 +2137,12 @@ def test_get_budgets_does_not_auto_rollover_unused_room_in_v1(client, session):
     feb = next(b for b in data if b["category"] == "Groceries" and b["budget_year"] == 2026 and b["budget_month"] == 2)
 
     assert jan["monthly_limit"] == 300
-    assert jan["rollover_amount"] == 0
+    assert "rollover_amount" not in jan
     assert jan["effective_monthly_limit"] == 300
     assert jan["spent"] == 200
 
     assert feb["monthly_limit"] == 300
-    assert feb["rollover_amount"] == 0
+    assert "rollover_amount" not in feb
     assert feb["effective_monthly_limit"] == 300
 
 
@@ -2400,53 +2375,6 @@ def test_month_setup_apply_copies_previous_month_and_smart_fills_floors(client, 
     assert smart_detail.json()["monthly_limit"] == 250_000
 
 
-def test_get_budgets_disables_rollover_when_preference_off(client, session):
-    email = "rolloveroff@example.com"
-    headers = create_user_and_token(
-        client, "rolloveroff", email, "Password123!"
-    )
-    _make_user_premium(session, email)
-
-    onboard = client.post(
-        "/users/me/onboarding",
-        json={
-            "life_statuses": ["employed"],
-            "wallets": [{"name": "Main", "initial_balance": 100000}],
-        },
-        headers=headers,
-    )
-    assert onboard.status_code == 200, onboard.text
-
-    _set_rollover_enabled(session, email, False)
-
-    create_budget(client, headers, category="Food", monthly_limit=300, budget_year=2026, budget_month=1)
-    create_budget(client, headers, category="Food", monthly_limit=300, budget_year=2026, budget_month=2)
-
-    jan_expense = client.post(
-        "/expenses/",
-        json={
-            "title": "Jan food",
-            "amount": 200,
-            "category": "Groceries",
-            "date": "2026-01-10",
-        },
-        headers=headers,
-    )
-    assert jan_expense.status_code == 201, jan_expense.text
-
-    res = client.get("/budgets/", headers=headers)
-    assert res.status_code == 200
-    data = res.json()
-
-    jan = next(b for b in data if b["category"] == "Groceries" and b["budget_year"] == 2026 and b["budget_month"] == 1)
-    feb = next(b for b in data if b["category"] == "Groceries" and b["budget_year"] == 2026 and b["budget_month"] == 2)
-
-    assert jan["rollover_amount"] == 0
-    assert jan["effective_monthly_limit"] == 300
-    assert feb["rollover_amount"] == 0
-    assert feb["effective_monthly_limit"] == 300
-
-
 def test_get_budget_by_category(client):
     headers = create_user_and_token(
         client, "getbudget", "getbudget@example.com", "Password123!"
@@ -2502,6 +2430,77 @@ def test_budget_sweep_fields_are_removed_from_api_contract(client):
     )
     assert updated.status_code == 422
     assert "budgets.sweep_removed" not in updated.text
+
+
+def test_budget_rollover_fields_are_removed_from_api_contract(client):
+    headers = create_user_and_token(
+        client, "budgetrolloverremoved", "budgetrolloverremoved@example.com", "Password123!"
+    )
+    today = user_timezone_today()
+
+    created = client.post(
+        "/budgets/",
+        json={
+            "category": "Groceries",
+            "monthly_limit": 300,
+            "budget_year": today.year,
+            "budget_month": today.month,
+            "max_rollover_amount": 100,
+            "rollover_mode": "FIXED",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    payload = created.json()
+    assert "max_rollover_amount" not in payload
+    assert "rollover_mode" not in payload
+    assert "rollover_amount" not in payload
+
+    updated = client.patch(
+        f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Groceries",
+        json={"max_rollover_amount": 100, "rollover_mode": "FIXED"},
+        headers=headers,
+    )
+    assert updated.status_code == 422
+    assert "budgets.rollover_mode_invalid" not in updated.text
+    assert "budgets.rollover_percent_invalid" not in updated.text
+
+
+def test_budget_effective_limit_ignores_historical_rollover_ledger(client, session):
+    email = "historicalrollover@example.com"
+    headers = create_user_and_token(client, "historicalrollover", email, "Password123!")
+    today = user_timezone_today()
+    created = create_budget(
+        client,
+        headers,
+        category="Food",
+        monthly_limit=1_000,
+        budget_year=today.year,
+        budget_month=today.month,
+    )
+    assert created.status_code == 201, created.text
+
+    user = _get_user(session, email)
+    session.add(
+        models.BudgetLedger(
+            owner_id=user.id,
+            category=models.ExpenseCategory.GROCERIES,
+            budget_year=today.year,
+            budget_month=today.month,
+            entry_type="ROLLOVER",
+            amount=250,
+        )
+    )
+    session.commit()
+
+    budget = client.get(
+        f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Groceries",
+        headers=headers,
+    )
+    assert budget.status_code == 200, budget.text
+    payload = budget.json()
+    assert payload["effective_monthly_limit"] == 1_000
+    assert "rollover_amount" not in payload
 
 
 def test_budget_effective_limit_ignores_historical_sweep_ledger(client, session):

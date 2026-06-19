@@ -18,9 +18,3 @@ export async function upsertOnboardingProfile({ life_statuses, wallets }) {
     return response.data;
 }
 
-export async function updateBudgetRolloverPreference(budget_rollover_enabled) {
-    const response = await apiClient.patch("/users/me/preferences/budget-rollover", {
-        budget_rollover_enabled,
-    });
-    return response.data;
-}
