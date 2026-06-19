@@ -342,9 +342,6 @@ def create_budget(
     if duplicate:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="budgets.already_exists")
 
-    if budget.sweep_target_goal_id is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="budgets.sweep_removed")
-
     new_budget = models.Budget(**budget.model_dump(), owner_id=current_user.id, owner=current_user)
     db.add(new_budget)
     db.flush()
@@ -436,9 +433,6 @@ def update_budget(
             update_data.get("rollover_mode", budget.rollover_mode),
             update_data.get("max_rollover_amount", budget.max_rollover_amount),
         )
-
-    if "sweep_target_goal_id" in update_data and update_data["sweep_target_goal_id"] is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="budgets.sweep_removed")
 
     for field, value in update_data.items():
         setattr(budget, field, value)

@@ -2162,7 +2162,6 @@ class BudgetBase(BaseModel):
     max_envelope_balance: Optional[int] = Field(default=None, ge=0)
     max_rollover_amount: Optional[int] = Field(default=None, ge=0)
     rollover_mode: Optional[str] = None
-    sweep_target_goal_id: Optional[int] = None
 
     @field_validator("budget_year")
     @classmethod
@@ -2191,7 +2190,6 @@ class BudgetOut(BudgetBase):
     rollover_amount: int = 0
     effective_monthly_limit: int = 0
     cap_trim_amount: int = 0
-    sweep_amount: int = 0
     reallocated_in: int = 0
     reallocated_out: int = 0
     remaining: int = 0
@@ -2210,7 +2208,6 @@ class BudgetUpdate(BaseModel):
     max_envelope_balance: Optional[int] = Field(default=None, ge=0)
     max_rollover_amount: Optional[int] = Field(default=None, ge=0)
     rollover_mode: Optional[str] = None
-    sweep_target_goal_id: Optional[int] = None
 
     model_config = ConfigDict(
         from_attributes=True,

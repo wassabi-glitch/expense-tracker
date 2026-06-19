@@ -6,12 +6,12 @@
 Completely strip the deprecated "Budget Sweeping" feature from the system end-to-end. This feature was previously deprecated at the product level, but dead code still haunts the database schema, API, and computation engines. Removing this will guarantee the End-of-Month Engine acts purely as a stateless planner. 
 
 ### Acceptance criteria
-- [ ] `sweep_target_goal_id` column is dropped from the `Budget` database table via Alembic migration.
-- [ ] `"SWEEP"` constant is removed from `BudgetLedgerType`.
-- [ ] `sweep_target_goal_id` and `sweep_amount` are removed from all inbound/outbound Pydantic schemas.
-- [ ] `BudgetService.effective_limit` calculations completely ignore any historical `"SWEEP"` ledger effects.
-- [ ] Frontend legacy translation mapping for `"budgets.sweep_removed"` is deleted.
-- [ ] Creating/updating a budget with sweep fields either ignores them or returns `422 Unprocessable Entity`, not a custom legacy `400`.
+- [x] `sweep_target_goal_id` column is dropped from the `Budget` database table via Alembic migration.
+- [x] `"SWEEP"` constant is removed from `BudgetLedgerType`.
+- [x] `sweep_target_goal_id` and `sweep_amount` are removed from all inbound/outbound Pydantic schemas.
+- [x] `BudgetService.effective_limit` calculations completely ignore any historical `"SWEEP"` ledger effects.
+- [x] Frontend legacy translation mapping for `"budgets.sweep_removed"` is deleted.
+- [x] Creating/updating a budget with sweep fields either ignores them or returns `422 Unprocessable Entity`, not a custom legacy `400`.
 
 ### Blocked by
 None - can start immediately.

@@ -349,7 +349,6 @@ class InstallmentPaymentComponentType(str, enum.Enum):
 
 class BudgetLedgerType(str, enum.Enum):
     ROLLOVER = "ROLLOVER"
-    SWEEP = "SWEEP"
     CAP_TRIM = "CAP_TRIM"
 
 
@@ -808,9 +807,6 @@ class Budget(Base):
     max_envelope_balance = Column(BigInteger, nullable=True)
     max_rollover_amount = Column(BigInteger, nullable=True)
     rollover_mode = Column(String(10), nullable=True)
-
-    # ── Sweeping (The Wealth Builder) ─────────────────────────────
-    sweep_target_goal_id = Column(Integer, ForeignKey("goals.id", ondelete="SET NULL"), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
@@ -1519,7 +1515,7 @@ class BudgetLedger(Base):
     budget_month = Column(Integer, nullable=False)
     
     amount = Column(BigInteger, nullable=False)
-    entry_type = Column(Enum(BudgetLedgerType), nullable=False)
+    entry_type = Column(String(20), nullable=False)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
