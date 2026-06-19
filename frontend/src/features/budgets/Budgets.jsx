@@ -559,7 +559,6 @@ export default function Budgets() {
       budgetYear: Number(b.budget_year),
       budgetMonth: Number(b.budget_month),
       baseLimit: Number(b.monthly_limit || 0),
-      rolloverAmount: Number(b.rollover_amount || 0),
       effectiveLimit: Number(b.effective_monthly_limit || b.monthly_limit || 0),
       limit: Number(b.effective_monthly_limit || b.monthly_limit || 0),
       spent: Number(b.spent || 0),
@@ -621,12 +620,6 @@ export default function Budgets() {
       {
         label: t("budgets.baseLimit", { defaultValue: "Base limit" }),
         value: budgetDetail?.monthly_limit ?? 0,
-      },
-      {
-        label: t("budgets.rolloverAmount", { defaultValue: "Rollover" }),
-        value: budgetDetail?.rollover_amount ?? 0,
-        prefix: "+",
-        tone: "text-primary",
       },
       {
         label: t("budgets.capTrim", { defaultValue: "Cap trim" }),
@@ -2192,9 +2185,6 @@ export default function Budgets() {
                       {t("budgets.workspaceSignal.available", { defaultValue: "Budget room" })}
                     </span>
                     <span className="rounded-full border border-border bg-background px-3 py-1">
-                      {t("budgets.workspaceSignal.rollover", { defaultValue: "Rollover aware" })}
-                    </span>
-                    <span className="rounded-full border border-border bg-background px-3 py-1">
                       {t("budgets.workspaceSignal.details", { defaultValue: "Details for depth" })}
                     </span>
                   </div>
@@ -2298,19 +2288,6 @@ export default function Budgets() {
                             className="flex items-baseline gap-1"
                             valueClassName=""
                             currencyClassName="font-normal"
-                          />
-                        </div>
-                        <div className="h-px w-full bg-border/60" aria-hidden="true" />
-                        <div className="flex items-center justify-between gap-3 text-muted-foreground">
-                          <span>{t("budgets.rolloverAmount")}</span>
-                          <CurrencyAmount
-                            value={b.rolloverAmount}
-                            prefix="+"
-                            format={useCompactAmounts ? "compact" : "full"}
-                            tooltip="compact"
-                            className="flex items-baseline gap-1 text-primary"
-                            valueClassName="font-medium"
-                            currencyClassName="font-normal opacity-80"
                           />
                         </div>
                       </div>

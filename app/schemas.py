@@ -293,7 +293,6 @@ class UserProfileOut(BaseModel):
     life_statuses: List[LifeStatus] = []
     monthly_income_amount: int
     initial_balance: int
-    budget_rollover_enabled: bool = True
     onboarding_completed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
@@ -2160,8 +2159,6 @@ class BudgetBase(BaseModel):
     budget_year: int
     budget_month: int
     max_envelope_balance: Optional[int] = Field(default=None, ge=0)
-    max_rollover_amount: Optional[int] = Field(default=None, ge=0)
-    rollover_mode: Optional[str] = None
 
     @field_validator("budget_year")
     @classmethod
@@ -2187,7 +2184,6 @@ class BudgetOut(BudgetBase):
     owner_id: int
     created_at: datetime
     spent: int = 0
-    rollover_amount: int = 0
     effective_monthly_limit: int = 0
     cap_trim_amount: int = 0
     reallocated_in: int = 0
@@ -2199,15 +2195,9 @@ class BudgetOut(BudgetBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-class UserBudgetRolloverPreferenceUpdate(BaseModel):
-    budget_rollover_enabled: bool
-
-
 class BudgetUpdate(BaseModel):
     monthly_limit: Optional[int] = Field(default=None, gt=0)
     max_envelope_balance: Optional[int] = Field(default=None, ge=0)
-    max_rollover_amount: Optional[int] = Field(default=None, ge=0)
-    rollover_mode: Optional[str] = None
 
     model_config = ConfigDict(
         from_attributes=True,

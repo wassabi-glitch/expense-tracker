@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from math import floor
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, case, func, or_, select
@@ -19,7 +18,6 @@ class BudgetComputation:
     budget: models.Budget
     spent: int
     cash_spent: int
-    rollover_amount: int
     cap_trim_amount: int
     reallocated_in: int
     reallocated_out: int
@@ -78,19 +76,6 @@ def previous_month(year: int, month: int) -> tuple[int, int]:
     if month == 1:
         return year - 1, 12
     return year, month - 1
-
-
-def _rollover_policy_amount(leftover: int, budget: models.Budget) -> int:
-    if leftover <= 0:
-        return 0
-    if budget.max_rollover_amount is None:
-        return leftover
-
-    mode = (budget.rollover_mode or "FIXED").upper()
-    if mode == "PERCENT":
-        percentage = max(0, min(int(budget.max_rollover_amount), 100))
-        return floor(leftover * (percentage / 100))
-    return min(leftover, int(budget.max_rollover_amount))
 
 
 def _isolated_project_spend_filter():
@@ -601,12 +586,11 @@ def get_budget_ledger_effects(
         bucket = effects.setdefault(
             key,
             {
-                "ROLLOVER": 0,
                 "CAP_TRIM": 0,
             },
         )
         entry_type = _enum_value(row.entry_type)
-        if entry_type not in {"ROLLOVER", "CAP_TRIM"}:
+        if entry_type != "CAP_TRIM":
             continue
         bucket[entry_type] = int(row.amount or 0)
     return effects
@@ -628,18 +612,16 @@ def compute_budget_chain(
     for budget in budgets:
         key = (_enum_value(budget.category), int(budget.budget_year), int(budget.budget_month))
         effects = effects_by_key.get(key, {})
-        rollover_amount = int(effects.get("ROLLOVER", 0))
         cap_trim_amount = int(abs(effects.get("CAP_TRIM", 0)))
         spent = int(spent_by_budget_id.get(int(budget.id), 0))
         cash_spent = int(cash_spent_by_budget_id.get(int(budget.id), 0))
-        effective_limit = int(budget.monthly_limit or 0) + rollover_amount - cap_trim_amount
+        effective_limit = int(budget.monthly_limit or 0) - cap_trim_amount
         remaining = effective_limit - spent
         computations.append(
             BudgetComputation(
                 budget=budget,
                 spent=spent,
                 cash_spent=cash_spent,
-                rollover_amount=rollover_amount,
                 cap_trim_amount=cap_trim_amount,
                 reallocated_in=0,
                 reallocated_out=0,
@@ -778,8 +760,8 @@ def recompute_budget_chain(
     ).delete(synchronize_session=False)
     db.flush()
 
-    # G6: v1 has no automatic budget rollover. Unused room returns to
-    # unallocated capacity until the user explicitly plans the new month.
+    # Unused room returns to unallocated capacity until the user explicitly
+    # plans the new month.
     return
 
 
@@ -831,8 +813,6 @@ def materialize_budget_for_month(
         monthly_limit=int(source.monthly_limit),
         auto_created=True,
         max_envelope_balance=source.max_envelope_balance,
-        max_rollover_amount=source.max_rollover_amount,
-        rollover_mode=source.rollover_mode,
     )
     db.add(new_budget)
     db.flush()
@@ -859,7 +839,6 @@ def materialize_budget_for_month(
 def build_budget_out(computation: BudgetComputation) -> schemas.BudgetOut:
     budget_out = schemas.BudgetOut.model_validate(computation.budget)
     budget_out.spent = computation.spent
-    budget_out.rollover_amount = computation.rollover_amount
     budget_out.cap_trim_amount = computation.cap_trim_amount
     budget_out.reallocated_in = computation.reallocated_in
     budget_out.reallocated_out = computation.reallocated_out
@@ -1473,9 +1452,8 @@ def validate_budget_limit(
         budget_id=int(budget.id),
         exclude_event_id=exclude_event_id,
     )
-    rollover_amount = int(effects.get("ROLLOVER", 0))
     cap_trim_amount = int(abs(effects.get("CAP_TRIM", 0)))
-    effective_limit = int(budget.monthly_limit or 0) + rollover_amount - cap_trim_amount
+    effective_limit = int(budget.monthly_limit or 0) - cap_trim_amount
     if spent + amount > effective_limit:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="budgets.limit_exceeded")
 

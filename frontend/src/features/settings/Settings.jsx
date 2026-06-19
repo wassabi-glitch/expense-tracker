@@ -3,10 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -17,10 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { localizeApiError } from "@/lib/errorMessages";
 import { useSettingsDataQuery } from "./hooks/useSettingsDataQuery";
-import {
-  useLogoutMutation,
-  useUpdateBudgetRolloverPreferenceMutation,
-} from "./hooks/useSettingsMutations";
+import { useLogoutMutation } from "./hooks/useSettingsMutations";
 
 const CURRENCY_KEY = "settings.currency";
 const DATE_FORMAT_KEY = "settings.date_format";
@@ -33,7 +28,6 @@ function getStoredPreference(key, fallback) {
 export default function Settings() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [rolloverError, setRolloverError] = useState("");
   const [sessionError, setSessionError] = useState("");
 
   const savedCurrency = useMemo(() => getStoredPreference(CURRENCY_KEY, "UZS"), []);
@@ -42,13 +36,9 @@ export default function Settings() {
   const [logoutOpen, setLogoutOpen] = useState(false);
   const userQuery = useSettingsDataQuery();
   const logoutMutation = useLogoutMutation();
-  const updateBudgetRolloverPreferenceMutation = useUpdateBudgetRolloverPreferenceMutation();
-  const isUpdatingRollover = updateBudgetRolloverPreferenceMutation.isPending;
   const username = userQuery.data?.username || "";
   const email = userQuery.data?.email || "";
   const isPremium = !!userQuery.data?.is_premium;
-  const rolloverPreferenceEnabled = userQuery.data?.profile?.budget_rollover_enabled !== false;
-  const rolloverEnabled = isPremium && rolloverPreferenceEnabled;
   const profileError = userQuery.error
     ? localizeApiError(userQuery.error?.message, t) || userQuery.error?.message || t("settings.failedProfile")
     : "";
@@ -130,45 +120,6 @@ export default function Settings() {
             <Button onClick={() => navigate("/premium")}>
               {isPremium ? t("settings.managePremium") : t("settings.viewPlans")}
             </Button>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm card-mobile">
-          <CardHeader>
-            <CardTitle>{t("settings.budgetRolloverTitle")}</CardTitle>
-            <CardDescription>{t("settings.budgetRolloverDesc")}</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-1">
-              <p className="text-sm text-muted-foreground">
-                {isPremium ? t("settings.budgetRolloverPremiumHint") : t("settings.budgetRolloverPremiumOnly")}
-              </p>
-              {rolloverError && <p className="text-sm text-red-600">{rolloverError}</p>}
-            </div>
-
-            <div className="flex items-center justify-between gap-3 sm:justify-end">
-              <Badge variant={rolloverEnabled ? "default" : "outline"}>
-                {rolloverEnabled ? t("settings.budgetRolloverOn") : t("settings.budgetRolloverOff")}
-              </Badge>
-
-              <Switch
-                checked={rolloverEnabled}
-                disabled={!isPremium || isUpdatingRollover}
-                onCheckedChange={async (nextValue) => {
-                  setRolloverError("");
-                  try {
-                    await updateBudgetRolloverPreferenceMutation.mutateAsync(nextValue);
-                  } catch (e) {
-                    setRolloverError(
-                      localizeApiError(e?.message, t) ||
-                        e?.message ||
-                        t("settings.budgetRolloverUpdateFailed"),
-                    );
-                  }
-                }}
-                aria-label={t("settings.budgetRolloverTitle")}
-              />
-            </div>
           </CardContent>
         </Card>
 

@@ -300,19 +300,6 @@ def _apply_headers(response: Response, headers: dict[str, str]) -> None:
         response.headers[key] = value
 
 
-def _validate_rollover_fields(
-    rollover_mode: str | None,
-    max_rollover_amount: int | None,
-) -> None:
-    if rollover_mode is None:
-        return
-    normalized = rollover_mode.upper()
-    if normalized not in {"FIXED", "PERCENT"}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="budgets.rollover_mode_invalid")
-    if normalized == "PERCENT" and max_rollover_amount is not None and max_rollover_amount > 100:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="budgets.rollover_percent_invalid")
-
-
 @router.post("/", response_model=schemas.BudgetOut, status_code=status.HTTP_201_CREATED)
 def create_budget(
     budget: schemas.BudgetCreate,
@@ -327,8 +314,6 @@ def create_budget(
         budget.category,
         error_detail="budgets.validation.real_expense_category_required",
     )
-    _validate_rollover_fields(budget.rollover_mode, budget.max_rollover_amount)
-
     duplicate = (
         db.query(models.Budget)
         .filter(
@@ -428,12 +413,6 @@ def update_budget(
     )
 
     update_data = budget_update.model_dump(exclude_unset=True)
-    if "rollover_mode" in update_data or "max_rollover_amount" in update_data:
-        _validate_rollover_fields(
-            update_data.get("rollover_mode", budget.rollover_mode),
-            update_data.get("max_rollover_amount", budget.max_rollover_amount),
-        )
-
     for field, value in update_data.items():
         setattr(budget, field, value)
 

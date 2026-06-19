@@ -24,14 +24,14 @@ None - can start immediately.
 Completely remove the complex "budget rollover" mechanism from the entire ecosystem. Budgets will now be strictly month-to-month planning limits with no automatic carry-forward capabilities. This vertical slice rips the feature out of the database, the backend math, and the user-facing React settings.
 
 ### Acceptance criteria
-- [ ] `max_rollover_amount` and `rollover_mode` columns are dropped from the `Budget` table via Alembic migration.
-- [ ] `budget_rollover_enabled` is dropped from the User profile table via Alembic migration.
-- [ ] All rollover fields are removed from the API Pydantic schemas.
-- [ ] The `PATCH /me/preferences/budget-rollover` endpoint is deleted entirely and returns `404 Not Found`.
-- [ ] `BudgetService` computation ignores rollovers; `effective_limit` relies strictly on `monthly_limit` minus cap trims.
-- [ ] "Budget Rollover" settings toggle is removed from the `Settings.jsx` React component.
-- [ ] "Rollover" visual labels are removed from `Budgets.jsx` and `BudgetDetails.jsx`.
-- [ ] All rollover-related i18n translation strings are deleted.
+- [x] `max_rollover_amount` and `rollover_mode` columns are dropped from the `Budget` table via Alembic migration.
+- [x] `budget_rollover_enabled` is dropped from the User profile table via Alembic migration.
+- [x] All rollover fields are removed from the API Pydantic schemas.
+- [x] The `PATCH /me/preferences/budget-rollover` endpoint is deleted entirely and returns `404 Not Found`.
+- [x] `BudgetService` computation ignores rollovers; `effective_limit` relies strictly on `monthly_limit` minus cap trims.
+- [x] "Budget Rollover" settings toggle is removed from the `Settings.jsx` React component.
+- [x] "Rollover" visual labels are removed from `Budgets.jsx` and `BudgetDetails.jsx`.
+- [x] All rollover-related i18n translation strings are deleted.
 
 ### Blocked by
 - Issue 1: Eradicate Budget Sweeping (To prevent Alembic database migration merge conflicts).

@@ -52,7 +52,6 @@ export default function BudgetDetails() {
   const effects = useMemo(
     () => [
       { label: "Base limit", value: detail?.monthly_limit ?? 0 },
-      { label: "Rollover", value: detail?.rollover_amount ?? 0 },
       { label: "Cap trim", value: detail?.cap_trim_amount ?? 0 },
       { label: "Reallocated in", value: detail?.reallocated_in ?? 0 },
       { label: "Reallocated out", value: detail?.reallocated_out ?? 0 },
