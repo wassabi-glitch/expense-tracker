@@ -349,9 +349,6 @@ export function localizeApiError(message, t) {
   if (msg === "savings.virtual_savings_removed") {
     return t("savings.virtualSavingsRemoved", { defaultValue: "Virtual savings transfers were removed. Allocate directly from wallets to goals." });
   }
-  if (msg === "budgets.sweep_removed") {
-    return t("budgets.sweepRemoved", { defaultValue: "Budget sweep into goals was removed because budgets are planning limits, not real money." });
-  }
   if (msg === "users.premium_required") {
     return t("common.premiumRequired");
   }

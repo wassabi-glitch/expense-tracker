@@ -2473,6 +2473,74 @@ def test_update_budget(client):
     assert "spent" in data
 
 
+def test_budget_sweep_fields_are_removed_from_api_contract(client):
+    headers = create_user_and_token(
+        client, "budgetsweepremoved", "budgetsweepremoved@example.com", "Password123!"
+    )
+    today = user_timezone_today()
+
+    created = client.post(
+        "/budgets/",
+        json={
+            "category": "Groceries",
+            "monthly_limit": 300,
+            "budget_year": today.year,
+            "budget_month": today.month,
+            "sweep_target_goal_id": 123,
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    payload = created.json()
+    assert "sweep_target_goal_id" not in payload
+    assert "sweep_amount" not in payload
+
+    updated = client.patch(
+        f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Groceries",
+        json={"sweep_target_goal_id": 456},
+        headers=headers,
+    )
+    assert updated.status_code == 422
+    assert "budgets.sweep_removed" not in updated.text
+
+
+def test_budget_effective_limit_ignores_historical_sweep_ledger(client, session):
+    email = "historicalsweep@example.com"
+    headers = create_user_and_token(client, "historicalsweep", email, "Password123!")
+    today = user_timezone_today()
+    created = create_budget(
+        client,
+        headers,
+        category="Food",
+        monthly_limit=1_000,
+        budget_year=today.year,
+        budget_month=today.month,
+    )
+    assert created.status_code == 201, created.text
+
+    user = _get_user(session, email)
+    session.add(
+        models.BudgetLedger(
+            owner_id=user.id,
+            category=models.ExpenseCategory.GROCERIES,
+            budget_year=today.year,
+            budget_month=today.month,
+            entry_type="SWEEP",
+            amount=-250,
+        )
+    )
+    session.commit()
+
+    budget = client.get(
+        f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Groceries",
+        headers=headers,
+    )
+    assert budget.status_code == 200, budget.text
+    payload = budget.json()
+    assert payload["effective_monthly_limit"] == 1_000
+    assert "sweep_amount" not in payload
+
+
 def test_delete_budget(client):
     headers = create_user_and_token(
         client, "deletebudget", "deletebudget@example.com", "Password123!"

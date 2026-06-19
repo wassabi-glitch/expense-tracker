@@ -21,7 +21,6 @@ class BudgetComputation:
     cash_spent: int
     rollover_amount: int
     cap_trim_amount: int
-    sweep_amount: int
     reallocated_in: int
     reallocated_out: int
     effective_monthly_limit: int
@@ -603,11 +602,13 @@ def get_budget_ledger_effects(
             key,
             {
                 "ROLLOVER": 0,
-                "SWEEP": 0,
                 "CAP_TRIM": 0,
             },
         )
-        bucket[_enum_value(row.entry_type)] = int(row.amount or 0)
+        entry_type = _enum_value(row.entry_type)
+        if entry_type not in {"ROLLOVER", "CAP_TRIM"}:
+            continue
+        bucket[entry_type] = int(row.amount or 0)
     return effects
 
 
@@ -628,11 +629,10 @@ def compute_budget_chain(
         key = (_enum_value(budget.category), int(budget.budget_year), int(budget.budget_month))
         effects = effects_by_key.get(key, {})
         rollover_amount = int(effects.get("ROLLOVER", 0))
-        sweep_amount = int(abs(effects.get("SWEEP", 0)))
         cap_trim_amount = int(abs(effects.get("CAP_TRIM", 0)))
         spent = int(spent_by_budget_id.get(int(budget.id), 0))
         cash_spent = int(cash_spent_by_budget_id.get(int(budget.id), 0))
-        effective_limit = int(budget.monthly_limit or 0) + rollover_amount - sweep_amount - cap_trim_amount
+        effective_limit = int(budget.monthly_limit or 0) + rollover_amount - cap_trim_amount
         remaining = effective_limit - spent
         computations.append(
             BudgetComputation(
@@ -641,7 +641,6 @@ def compute_budget_chain(
                 cash_spent=cash_spent,
                 rollover_amount=rollover_amount,
                 cap_trim_amount=cap_trim_amount,
-                sweep_amount=sweep_amount,
                 reallocated_in=0,
                 reallocated_out=0,
                 effective_monthly_limit=effective_limit,
@@ -834,7 +833,6 @@ def materialize_budget_for_month(
         max_envelope_balance=source.max_envelope_balance,
         max_rollover_amount=source.max_rollover_amount,
         rollover_mode=source.rollover_mode,
-        sweep_target_goal_id=None,
     )
     db.add(new_budget)
     db.flush()
@@ -863,7 +861,6 @@ def build_budget_out(computation: BudgetComputation) -> schemas.BudgetOut:
     budget_out.spent = computation.spent
     budget_out.rollover_amount = computation.rollover_amount
     budget_out.cap_trim_amount = computation.cap_trim_amount
-    budget_out.sweep_amount = computation.sweep_amount
     budget_out.reallocated_in = computation.reallocated_in
     budget_out.reallocated_out = computation.reallocated_out
     budget_out.effective_monthly_limit = computation.effective_monthly_limit
@@ -1135,7 +1132,6 @@ def apply_budget_month_setup(
                 budget_month=budget_month,
                 monthly_limit=proposed_limit,
                 auto_created=False,
-                sweep_target_goal_id=None,
             )
             db.add(budget)
             db.flush()
@@ -1478,9 +1474,8 @@ def validate_budget_limit(
         exclude_event_id=exclude_event_id,
     )
     rollover_amount = int(effects.get("ROLLOVER", 0))
-    sweep_amount = int(abs(effects.get("SWEEP", 0)))
     cap_trim_amount = int(abs(effects.get("CAP_TRIM", 0)))
-    effective_limit = int(budget.monthly_limit or 0) + rollover_amount - sweep_amount - cap_trim_amount
+    effective_limit = int(budget.monthly_limit or 0) + rollover_amount - cap_trim_amount
     if spent + amount > effective_limit:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="budgets.limit_exceeded")
 
