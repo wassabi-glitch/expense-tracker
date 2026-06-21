@@ -51,24 +51,27 @@ Replace the narrow Money In actions with guided inflow wizards that route users 
 ### What to build
 Introduce backend budget explainability and survival math so users can understand exactly why a month is covered, waiting on income, tight, or over-planned. The backend should become the source of truth for available plan backing, category floors, cash reserves, credit-card positive-balance treatment, goal availability, and borrowed-spending survival usage.
 
+Category floors in this issue are derived, non-binding warning calculations. They are not persisted financial entities, do not reserve wallet money, do not mutate category limits, and never require user acceptance. Issue 3 defines the shared warning contract and supplies debt, deferred-expense, and installment reasons. Issue 4 owns complete recurring-occurrence projection and plugs recurring reasons into that contract. Issue 5 owns all frontend rendering and repair actions.
+
 ### Acceptance criteria
-- [ ] `/budgets/month-summary` exposes explicit plan backing bridge fields: free money now, valid budget spent, cash obligation reserves, expected inflow remaining, available plan backing, monthly budget total, plan backing remaining, and backing shortfall.
-- [ ] Over-planned responses include cause details instead of only a generic shortfall.
-- [ ] Category floors include source details for recurring items, deferred expenses, installments, debts, due dates, and amounts.
-- [ ] Cash-only obligations appear as cash reserve pressure, not category floors.
-- [ ] Current-month category-linked obligations appear as category floors.
-- [ ] Credit-card positive balances count as owned value up to their unprotected positive amount.
-- [ ] Credit-card limits and negative credit balances never increase budget backing.
-- [ ] Goal funding can use only owned positive wallet value and rejects credit limits, negative credit balances, or overdraft capacity.
-- [ ] Goal protection on a positive credit balance reduces free money the same way cash protection does.
-- [ ] Normal credit-card purchases still hit monthly category budgets immediately.
-- [ ] Repaying a credit card remains a wallet transfer and does not create a second category budget hit.
-- [ ] Borrowed-spending survival usage counts only the borrowed portion of credit-card or overdraft spending.
-- [ ] Survival cap availability never makes the normal budget plan healthy or expands budget create/update backing.
-- [ ] Overdraft-enabled debit/prepaid wallets count only below-zero outflows as survival usage.
-- [ ] Negative overdraft wallet balances appear as wallet-backed obligations settled by wallet transfer.
-- [ ] Existing wallet sign convention stays intact: positive means owned value, negative means liability exposure.
-- [ ] Tests cover positive credit balances, credit limits, protected goal money, mixed positive-to-negative card purchases, overdraft usage, category floors, cash reserves, and normal plan-health honesty.
+- [x] `/budgets/month-summary` exposes explicit plan backing bridge fields: free money now, valid budget spent, cash obligation reserves, expected inflow remaining, available plan backing, monthly budget total, plan backing remaining, and backing shortfall.
+- [x] Over-planned responses include cause details instead of only a generic shortfall.
+- [x] Category-floor warnings are derived at read time and expose `suggested_minimum`, `current_limit`, `warning_gap`, and structured `reasons`; no category-floor database entity is introduced.
+- [x] Issue 3 reasons cover categorized deferred expenses, installment payments, and debts with stable identifiers, titles, due dates, and amounts. The response contract can accept recurring reasons, but full recurring occurrence generation remains Issue 4 scope.
+- [x] Cash-only obligations appear as cash reserve pressure, not category floors.
+- [x] Current-month category-linked obligations appear as category floors.
+- [x] Credit-card positive balances count as owned value up to their unprotected positive amount.
+- [x] Credit-card limits and negative credit balances never increase budget backing.
+- [x] Goal funding can use only owned positive wallet value and rejects credit limits, negative credit balances, or overdraft capacity.
+- [x] Goal protection on a positive credit balance reduces free money the same way cash protection does.
+- [x] Normal credit-card purchases still hit monthly category budgets immediately.
+- [x] Repaying a credit card remains a wallet transfer and does not create a second category budget hit.
+- [x] Borrowed-spending survival exposes an explicit monthly contract: enabled state, cap, borrowed usage, remaining cap, exceeded amount, and the borrowed portion of credit-card or overdraft spending.
+- [x] Survival cap availability never makes the normal budget plan healthy or expands budget create/update backing.
+- [x] Overdraft-enabled debit/prepaid wallets count only below-zero outflows as survival usage.
+- [x] Negative overdraft wallet balances appear as wallet-backed obligations settled by wallet transfer.
+- [x] Existing wallet sign convention stays intact: positive means owned value, negative means liability exposure.
+- [x] Tests cover positive credit balances, credit limits, protected goal money, mixed positive-to-negative card purchases, overdraft usage, category floors, cash reserves, and normal plan-health honesty.
 
 ### Blocked by
 - Issue 2: Universal Inflow Wizards & UX Routing

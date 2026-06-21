@@ -2477,12 +2477,61 @@ class BudgetDetailOut(BudgetOut):
     expense_count: int = 0
 
 
+class BudgetCategoryFloorReasonOut(BaseModel):
+    kind: str
+    source_id: int
+    title: str
+    due_date: date
+    amount: int
+
+
 class BudgetCategoryFloorOut(BaseModel):
     category: ExpenseCategory
     floor_amount: int
     effective_monthly_limit: int = 0
     shortfall: int = 0
     sources: List[str] = []
+    suggested_minimum: int = 0
+    current_limit: int = 0
+    warning_gap: int = 0
+    reasons: List[BudgetCategoryFloorReasonOut] = Field(default_factory=list)
+
+
+class BudgetPlanCauseOut(BaseModel):
+    code: str
+    amount: int
+    category: Optional[ExpenseCategory] = None
+
+
+class BorrowingSurvivalSummaryOut(BaseModel):
+    enabled: bool = False
+    monthly_cap: int = 0
+    borrowed_usage: int = 0
+    remaining_cap: int = 0
+    exceeded_amount: int = 0
+
+
+class BorrowingSurvivalPlanUpsert(BaseModel):
+    budget_year: int
+    budget_month: int
+    enabled: bool = False
+    monthly_cap: int = Field(default=0, ge=0, le=MAX_EXPENSE_AMOUNT)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("budget_year")
+    @classmethod
+    def validate_budget_year(cls, value: int):
+        if value < MIN_BUDGET_YEAR:
+            raise ValueError("budgets.year_too_early")
+        return value
+
+    @field_validator("budget_month")
+    @classmethod
+    def validate_budget_month(cls, value: int):
+        if value < 1 or value > 12:
+            raise ValueError("budgets.month_invalid")
+        return value
 
 
 class ExpectedIncomeLifecycleTotalOut(BaseModel):
@@ -2503,8 +2552,10 @@ class BudgetMonthSummaryOut(BaseModel):
     expected_income_items: List[ExpectedIncomeOut] = []
     cash_obligation_reserve_total: int = 0
     backing_total: int = 0
+    available_plan_backing: int = 0
     monthly_budget_limit_total: int
     monthly_effective_limit_total: int
+    monthly_budget_total: int = 0
     normal_budget_spent: int
     valid_budget_spent: int = 0
     normal_budget_remaining: int
@@ -2515,10 +2566,14 @@ class BudgetMonthSummaryOut(BaseModel):
     plan_backing_remaining: int = 0
     cash_gap_to_budget_total: int = 0
     backing_shortfall: int = 0
+    plan_causes: List[BudgetPlanCauseOut] = Field(default_factory=list)
     plan_status: BudgetPlanStatus
     categories_over_limit: int
     categories_close_to_limit: int
     borrowing_pressure: bool
+    borrowing_survival: BorrowingSurvivalSummaryOut = Field(
+        default_factory=BorrowingSurvivalSummaryOut
+    )
 
 
 class BudgetMonthSetupRequest(BaseModel):

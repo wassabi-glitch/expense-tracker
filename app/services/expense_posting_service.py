@@ -17,6 +17,7 @@ from app.services.category_policy import validate_active_expense_category
 from app.services.goal_funding_service import validate_wallet_goal_protection_for_outflow
 from app.services.session_draft_service import validate_session_item_links
 from app.services.wallet_service import WalletService
+from app.services.wallet_value_service import classify_outflow
 
 
 @dataclass
@@ -214,6 +215,7 @@ def post_expense_event(
 
     is_bypass_category = category == models.ExpenseCategory.BANK_FEES_INTEREST
     for wallet, allocation_amount in resolved_wallet_allocations:
+        funding = classify_outflow(wallet, int(allocation_amount))
         WalletService.adjust_balance(
             db,
             wallet.id,
@@ -227,6 +229,8 @@ def post_expense_event(
                 event_id=event.id,
                 wallet_id=wallet.id,
                 amount=-int(allocation_amount),
+                owned_spend_amount=funding.owned_amount,
+                borrowed_spend_amount=funding.borrowed_amount,
             )
         )
 

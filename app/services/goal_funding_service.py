@@ -4,6 +4,8 @@ from fastapi import HTTPException, status
 # pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
 
+from .wallet_value_service import can_hold_goal_funds
+
 from app import models, schemas
 
 INSTALLMENT_GOAL_TARGET_STATUSES = (
@@ -48,12 +50,7 @@ def _goal_contributions(
 
 
 def is_wallet_goal_funding_eligible(wallet: models.Wallet) -> bool:
-    return (
-        bool(wallet.is_active)
-        and bool(wallet.can_fund_goals)
-        and wallet.accounting_type == models.AccountingType.ASSET
-        and wallet.wallet_type != models.WalletType.CREDIT
-    )
+    return can_hold_goal_funds(wallet)
 
 
 def get_total_balance(db: Session, user_id: int) -> int:

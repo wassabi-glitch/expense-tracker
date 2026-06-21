@@ -39,7 +39,7 @@ def _get_owned_wallet_or_404(db: Session, user_id: int, wallet_id: int) -> model
 
 
 def _resolve_can_fund_goals(payload_value: bool | None, wallet_type: models.WalletType, accounting_type: models.AccountingType) -> bool:
-    if wallet_type == models.WalletType.CREDIT or accounting_type != models.AccountingType.ASSET:
+    if accounting_type != models.AccountingType.ASSET and wallet_type != models.WalletType.CREDIT:
         return False
     if payload_value is not None:
         return bool(payload_value)

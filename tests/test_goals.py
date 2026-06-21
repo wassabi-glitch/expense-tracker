@@ -763,7 +763,7 @@ def test_goal_allocation_rejects_when_wallet_available_is_insufficient(client):
     assert blocked.json()["detail"] == "goals.insufficient_wallet_available_for_goal"
 
 
-def test_credit_wallet_cannot_fund_goals(client):
+def test_credit_limit_cannot_fund_goals_without_positive_balance(client):
     headers = create_user_and_token(
         client, "goaluser4", "goaluser4@example.com", "Password123!"
     )
@@ -787,7 +787,7 @@ def test_credit_wallet_cannot_fund_goals(client):
     assert onboard.status_code == 200
     assert client.post("/users/me/toggle-premium", headers=headers).status_code == 200
     wallet = client.get("/wallets", headers=headers).json()[0]
-    assert wallet["can_fund_goals"] is False
+    assert wallet["can_fund_goals"] is True
 
     created = client.post(
         "/goals/",
@@ -801,7 +801,7 @@ def test_credit_wallet_cannot_fund_goals(client):
         headers=headers,
     )
     assert blocked.status_code == 400
-    assert blocked.json()["detail"] == "goals.wallet_not_eligible"
+    assert blocked.json()["detail"] == "goals.insufficient_wallet_available_for_goal"
 
 
 def test_goal_return_reduces_wallet_allocation_and_reopens_goal(client):

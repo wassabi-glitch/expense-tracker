@@ -20,9 +20,14 @@ from ..services.budget_service import (
     get_owned_subcategory_or_404,
     get_project_budget_summaries,
     get_subcategory_spent_for_month,
+    month_bounds,
     recompute_budget_chain,
     validate_budget_plan_capacity,
     validate_subcategory_total_limit,
+)
+from ..services.borrowing_survival_service import (
+    get_or_build_summary as get_borrowing_survival_summary,
+    upsert_plan as upsert_borrowing_survival_plan,
 )
 from ..services.category_policy import validate_active_expense_category
 from app.redis_rate_limiter import consume_token_bucket
@@ -439,6 +444,44 @@ def get_budget_month_summary(
 ):
     validate_budget_month_window(budget_year, budget_month, user_tz)
     return build_budget_month_summary(db, current_user.id, budget_year, budget_month)
+
+
+@router.put("/borrowing-survival", response_model=schemas.BorrowingSurvivalSummaryOut)
+def configure_borrowing_survival(
+    payload: schemas.BorrowingSurvivalPlanUpsert,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
+):
+    for key, value in enforce_budget_write_rate_limit(current_user.id).items():
+        response.headers[key] = value
+    validate_budget_month_window(payload.budget_year, payload.budget_month, user_tz)
+    upsert_borrowing_survival_plan(
+        db,
+        current_user.id,
+        budget_year=payload.budget_year,
+        budget_month=payload.budget_month,
+        enabled=payload.enabled,
+        monthly_cap=payload.monthly_cap,
+    )
+    db.commit()
+    start, end = month_bounds(payload.budget_year, payload.budget_month)
+    summary = get_borrowing_survival_summary(
+        db,
+        current_user.id,
+        budget_year=payload.budget_year,
+        budget_month=payload.budget_month,
+        start=start,
+        end=end,
+    )
+    return schemas.BorrowingSurvivalSummaryOut(
+        enabled=summary.enabled,
+        monthly_cap=summary.monthly_cap,
+        borrowed_usage=summary.borrowed_usage,
+        remaining_cap=summary.remaining_cap,
+        exceeded_amount=summary.exceeded_amount,
+    )
 
 
 @router.post("/month-setup/preview", response_model=schemas.BudgetMonthSetupPreviewOut)

@@ -457,6 +457,8 @@ class User(Base):
         "ExpectedInflowRealization", back_populates="owner", cascade="all, delete-orphan")
     budgets = relationship(
         "Budget", back_populates="owner", cascade="all, delete")
+    borrowing_survival_plans = relationship(
+        "BorrowingSurvivalPlan", back_populates="owner", cascade="all, delete-orphan")
     budget_subcategory_limits = relationship(
         "BudgetSubcategoryLimit", back_populates="owner", cascade="all, delete-orphan")
     savings_transactions = relationship(
@@ -571,7 +573,7 @@ class Wallet(Base):
             name="ck_wallets_initial_balance_integrity"
         ),
         CheckConstraint(
-            "(wallet_type != 'CREDIT' AND accounting_type = 'ASSET') OR can_fund_goals = FALSE",
+            "accounting_type = 'ASSET' OR wallet_type = 'CREDIT' OR can_fund_goals = FALSE",
             name="ck_wallets_goal_funding_owned_money_only",
         ),
         # current_balance constraint removed to allow for Liability/Overdraft negative balances
@@ -1058,6 +1060,57 @@ class Budget(Base):
         CheckConstraint("monthly_limit <= 999999999999", name="ck_budgets_monthly_limit"),
         Index("ix_budgets_owner_year_month", "owner_id", "budget_year", "budget_month")
     )
+
+
+class BorrowingSurvivalPlan(Base):
+    __tablename__ = "borrowing_survival_plans"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_id",
+            "budget_year",
+            "budget_month",
+            name="uq_borrowing_survival_owner_month",
+        ),
+        CheckConstraint(
+            "budget_month >= 1 AND budget_month <= 12",
+            name="ck_borrowing_survival_month",
+        ),
+        CheckConstraint(
+            "budget_year >= 2020",
+            name="ck_borrowing_survival_year",
+        ),
+        CheckConstraint(
+            "monthly_cap >= 0 AND monthly_cap <= 999999999999",
+            name="ck_borrowing_survival_cap",
+        ),
+        Index(
+            "ix_borrowing_survival_owner_month",
+            "owner_id",
+            "budget_year",
+            "budget_month",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    budget_year = Column(Integer, nullable=False)
+    budget_month = Column(Integer, nullable=False)
+    enabled = Column(Boolean, nullable=False, default=False, server_default="false")
+    monthly_cap = Column(BigInteger, nullable=False, default=0, server_default="0")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    owner = relationship("User", back_populates="borrowing_survival_plans")
 
 
 class PasswordResetToken(Base):
@@ -1980,6 +2033,10 @@ class WalletLedger(Base):
     wallet_id = Column(Integer, ForeignKey("wallets.id", ondelete="RESTRICT"), nullable=False, index=True)
     
     amount = Column(BigInteger, nullable=False) # Positive = Inflow, Negative = Outflow
+    # Immutable event-time classification for expense outflows. NULL means a
+    # legacy row whose funding split was not captured when it was posted.
+    owned_spend_amount = Column(BigInteger, nullable=True)
+    borrowed_spend_amount = Column(BigInteger, nullable=True)
     
     owner = relationship("User", back_populates="wallet_ledger_entries")
     event = relationship("FinancialEvent", back_populates="wallet_legs")
