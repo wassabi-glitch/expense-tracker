@@ -17,6 +17,7 @@ from ..services.budget_service import (
 from ..services.goal_funding_service import validate_wallet_goal_protection_for_outflow
 from ..services.debt_service import create_debt_ledger_entry
 from ..services.wallet_service import WalletService
+from ..services.wallet_value_service import classify_outflow
 
 
 @dataclass
@@ -437,6 +438,7 @@ def finalize_session_draft(
     db.flush()
 
     for allocation in draft.wallet_allocations:
+        funding = classify_outflow(allocation.wallet, int(allocation.amount))
         WalletService.adjust_balance(db, allocation.wallet_id, -int(allocation.amount), models.TransactionType.EXPENSE)
         db.add(
             models.WalletLedger(
@@ -444,6 +446,8 @@ def finalize_session_draft(
                 event_id=event.id,
                 wallet_id=allocation.wallet_id,
                 amount=-int(allocation.amount),
+                owned_spend_amount=funding.owned_amount,
+                borrowed_spend_amount=funding.borrowed_amount,
             )
         )
 

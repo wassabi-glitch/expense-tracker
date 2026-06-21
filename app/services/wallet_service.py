@@ -2,6 +2,7 @@ from datetime import date
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from .. import models
+from .wallet_value_service import OutflowFundingBreakdown, classify_outflow
 
 class WalletService:
     @staticmethod
@@ -86,11 +87,24 @@ class WalletService:
         if amount_delta == 0:
             raise HTTPException(status_code=400, detail="Transaction amount cannot be zero.")
 
-        # 1. Engage the Math & Floor Constraints Engine
+        # 1. Capture event-time funding substance before changing the balance.
+        funding: OutflowFundingBreakdown | None = None
+        if transaction_type == models.TransactionType.EXPENSE and amount_delta < 0:
+            wallet_before = (
+                db.query(models.Wallet)
+                .filter(models.Wallet.id == wallet_id)
+                .with_for_update()
+                .first()
+            )
+            if wallet_before is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="wallets.not_found")
+            funding = classify_outflow(wallet_before, abs(int(amount_delta)))
+
+        # 2. Engage the Math & Floor Constraints Engine
         is_bypass_type = is_bypass or category == models.ExpenseCategory.BANK_FEES_INTEREST
         WalletService.adjust_balance(db, wallet_id, amount_delta, transaction_type, is_bypass_type)
 
-        # 2. Pile 1: Financial Event (The Receipt)
+        # 3. Pile 1: Financial Event (The Receipt)
         from datetime import date as dt_date
         event = models.FinancialEvent(
             owner_id=owner_id,
@@ -104,16 +118,18 @@ class WalletService:
         db.add(event)
         db.flush() # Get ID
 
-        # 3. Pile 2: Wallet Ledger (The Money Movement)
+        # 4. Pile 2: Wallet Ledger (The Money Movement)
         wallet_ledger = models.WalletLedger(
             owner_id=owner_id,
             event_id=event.id,
             wallet_id=wallet_id,
-            amount=amount_delta # Keeps its sign! (- for expense, + for income)
+            amount=amount_delta, # Keeps its sign! (- for expense, + for income)
+            owned_spend_amount=funding.owned_amount if funding is not None else None,
+            borrowed_spend_amount=funding.borrowed_amount if funding is not None else None,
         )
         db.add(wallet_ledger)
 
-        # 4. Pile 3: Entity Ledger (The Allocation)
+        # 5. Pile 3: Entity Ledger (The Allocation)
         entity_ledger = models.EntityLedger(
             event_id=event.id,
             amount=abs(amount_delta), # Usually stored as positive allocation

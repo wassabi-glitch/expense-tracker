@@ -76,12 +76,15 @@ def create_budget(client, headers, category="Groceries", monthly_limit=1000, bud
     }, headers=headers)
 
 
-def create_expense(client, headers, title="Lunch", amount=10, category="Groceries", description="test", expense_date=None):
+def create_expense(client, headers, title="Lunch", amount=10, category="Groceries", description="test", expense_date=None, wallet_id=None):
     category = _normalize_test_category(category)
-    return client.post("/expenses/", json={
+    payload = {
         "title": title,
         "amount": amount,
         "category": category,
         "description": description,
         "date": (expense_date or user_timezone_today()).isoformat(),
-    }, headers=headers)
+    }
+    if wallet_id is not None:
+        payload["wallet_id"] = wallet_id
+    return client.post("/expenses/", json=payload, headers=headers)

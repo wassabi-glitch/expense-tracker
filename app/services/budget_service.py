@@ -9,6 +9,9 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from .goal_funding_service import get_wallet_goal_allocated_amount
+from .borrowing_survival_service import get_or_build_summary as get_borrowing_survival_summary
+from .category_floor_service import CategoryFloorWarning, build_category_floor_warnings
+from .wallet_value_service import owned_balance
 
 BUDGET_MATERIALIZE_MIN_YEAR = 2020
 
@@ -46,15 +49,6 @@ class BudgetPlanCapacity:
     valid_budget_spent: int
     cash_backing_total: int
     backing_total: int
-
-
-@dataclass
-class BudgetCategoryFloor:
-    category: models.ExpenseCategory
-    floor_amount: int
-    effective_monthly_limit: int
-    shortfall: int
-    sources: list[str]
 
 
 def month_bounds(year: int, month: int) -> tuple[date, date]:
@@ -208,14 +202,15 @@ def get_free_money_now(db: Session, owner_id: int) -> tuple[int, int, int]:
         .filter(
             models.Wallet.owner_id == owner_id,
             models.Wallet.is_active == True,  # noqa: E712
-            models.Wallet.accounting_type == models.AccountingType.ASSET,
-            models.Wallet.wallet_type != models.WalletType.CREDIT,
         )
         .all()
     )
-    owned_money_now = sum(max(int(wallet.current_balance or 0), 0) for wallet in wallets)
+    owned_money_now = sum(owned_balance(wallet) for wallet in wallets)
     protected_goal_money = sum(
-        get_wallet_goal_allocated_amount(db, owner_id, int(wallet.id))
+        min(
+            get_wallet_goal_allocated_amount(db, owner_id, int(wallet.id)),
+            owned_balance(wallet),
+        )
         for wallet in wallets
     )
     free_money_now = max(int(owned_money_now) - int(protected_goal_money), 0)
@@ -345,89 +340,8 @@ def get_budget_category_floors(
     budget_year: int,
     budget_month: int,
     computed: list[BudgetComputation] | None = None,
-) -> list[BudgetCategoryFloor]:
+) -> list[CategoryFloorWarning]:
     start, end = month_bounds(budget_year, budget_month)
-    floor_amounts: dict[models.ExpenseCategory, int] = {}
-    sources: dict[models.ExpenseCategory, set[str]] = {}
-
-    def add_floor(category: models.ExpenseCategory | None, amount: int, source: str) -> None:
-        if category is None or amount <= 0:
-            return
-        floor_amounts[category] = floor_amounts.get(category, 0) + int(amount)
-        sources.setdefault(category, set()).add(source)
-
-    recurring_rows = (
-        db.query(models.RecurringExpense)
-        .filter(
-            models.RecurringExpense.owner_id == owner_id,
-            models.RecurringExpense.status == models.RecurringStatus.ACTIVE,
-            models.RecurringExpense.next_due_date >= start,
-            models.RecurringExpense.next_due_date < end,
-        )
-        .all()
-    )
-    for recurring in recurring_rows:
-        add_floor(recurring.category, int(recurring.amount or 0), "recurring")
-
-    installment_rows = (
-        db.query(models.InstallmentPayment)
-        .join(models.InstallmentPlan, models.InstallmentPlan.id == models.InstallmentPayment.plan_id)
-        .filter(
-            models.InstallmentPayment.owner_id == owner_id,
-            models.InstallmentPlan.owner_id == owner_id,
-            models.InstallmentPlan.status == models.InstallmentStatus.ACTIVE,
-            models.InstallmentPayment.status.in_(
-                [
-                    models.InstallmentPaymentStatus.PENDING,
-                    models.InstallmentPaymentStatus.PARTIAL,
-                ]
-            ),
-            models.InstallmentPayment.due_date >= start,
-            models.InstallmentPayment.due_date < end,
-        )
-        .all()
-    )
-    for payment in installment_rows:
-        remaining = int(payment.amount or 0) - int(payment.paid_amount or 0) - int(payment.written_off_amount or 0)
-        category = (
-            models.ExpenseCategory.DEBT_CHARGES
-            if payment.component_type == models.InstallmentPaymentComponentType.CHARGE
-            else payment.plan.expense_category
-        )
-        add_floor(category, remaining, "installment")
-
-    formal_due_debt_ids = select(models.DebtFormalDetails.debt_id).filter(
-        models.DebtFormalDetails.owner_id == owner_id,
-        models.DebtFormalDetails.next_due_date >= start,
-        models.DebtFormalDetails.next_due_date < end,
-    )
-    debt_rows = (
-        db.query(models.Debt)
-        .filter(
-            models.Debt.owner_id == owner_id,
-            models.Debt.debt_type == models.DebtType.OWING,
-            models.Debt.status.in_(_active_payable_debt_statuses()),
-            models.Debt.remaining_amount > 0,
-            models.Debt.expense_category.isnot(None),
-            models.Debt.origin_kind.notin_(
-                [
-                    models.DebtOriginKind.CASH_BORROWED,
-                ]
-            ),
-            or_(
-                models.Debt.product_kind.is_(None),
-                models.Debt.product_kind != models.DebtProductKind.INFORMAL_DEBT,
-            ),
-            or_(
-                and_(models.Debt.expected_return_date >= start, models.Debt.expected_return_date < end),
-                models.Debt.id.in_(formal_due_debt_ids),
-            ),
-        )
-        .all()
-    )
-    for debt in debt_rows:
-        add_floor(debt.expense_category, int(debt.remaining_amount or 0), "debt")
-
     if computed is None:
         computed = get_budget_month_computations(db, owner_id, budget_year, budget_month)
     effective_limit_by_category: dict[models.ExpenseCategory, int] = {}
@@ -437,16 +351,13 @@ def get_budget_category_floors(
             + int(item.effective_monthly_limit or 0)
         )
 
-    return [
-        BudgetCategoryFloor(
-            category=category,
-            floor_amount=int(amount),
-            effective_monthly_limit=int(effective_limit_by_category.get(category, 0)),
-            shortfall=max(int(amount) - int(effective_limit_by_category.get(category, 0)), 0),
-            sources=sorted(sources.get(category, set())),
-        )
-        for category, amount in sorted(floor_amounts.items(), key=lambda item: str(item[0]))
-    ]
+    return build_category_floor_warnings(
+        db,
+        owner_id,
+        start=start,
+        end=end,
+        effective_limits=effective_limit_by_category,
+    )
 
 
 def _enum_value(value) -> str:
@@ -509,6 +420,10 @@ def get_cash_backed_budget_spent_by_id(db: Session, owner_id: int) -> dict[int, 
             func.coalesce(
                 func.sum(
                     case(
+                        (
+                            models.WalletLedger.owned_spend_amount.isnot(None),
+                            models.WalletLedger.owned_spend_amount,
+                        ),
                         (
                             and_(
                                 models.Wallet.accounting_type == models.AccountingType.ASSET,
@@ -880,6 +795,39 @@ def build_budget_month_summary(
         int(capacity.cash_backing_total),
         int(expected_income_remaining),
     )
+    borrowing_survival = get_borrowing_survival_summary(
+        db,
+        owner_id,
+        budget_year=budget_year,
+        budget_month=budget_month,
+        start=start,
+        end=end,
+    )
+    plan_causes: list[schemas.BudgetPlanCauseOut] = []
+    if protected_goal_money > 0:
+        plan_causes.append(
+            schemas.BudgetPlanCauseOut(code="GOAL_PROTECTION", amount=protected_goal_money)
+        )
+    if cash_obligation_reserve_total > 0:
+        plan_causes.append(
+            schemas.BudgetPlanCauseOut(
+                code="CASH_OBLIGATION_RESERVE",
+                amount=cash_obligation_reserve_total,
+            )
+        )
+    for floor in category_floors:
+        if floor.warning_gap > 0:
+            plan_causes.append(
+                schemas.BudgetPlanCauseOut(
+                    code="CATEGORY_FLOOR_WARNING",
+                    amount=floor.warning_gap,
+                    category=floor.category,
+                )
+            )
+    if backing_shortfall > 0:
+        plan_causes.append(
+            schemas.BudgetPlanCauseOut(code="BACKING_SHORTFALL", amount=backing_shortfall)
+        )
 
     return schemas.BudgetMonthSummaryOut(
         budget_year=budget_year,
@@ -892,8 +840,10 @@ def build_budget_month_summary(
         expected_income_items=expected_income_items,
         cash_obligation_reserve_total=cash_obligation_reserve_total,
         backing_total=backing_total,
+        available_plan_backing=backing_total,
         monthly_budget_limit_total=monthly_budget_limit_total,
         monthly_effective_limit_total=monthly_effective_limit_total,
+        monthly_budget_total=monthly_effective_limit_total,
         normal_budget_spent=normal_budget_spent,
         valid_budget_spent=valid_budget_spent,
         normal_budget_remaining=normal_budget_remaining,
@@ -906,6 +856,19 @@ def build_budget_month_summary(
                 effective_monthly_limit=item.effective_monthly_limit,
                 shortfall=item.shortfall,
                 sources=item.sources,
+                suggested_minimum=item.suggested_minimum,
+                current_limit=item.current_limit,
+                warning_gap=item.warning_gap,
+                reasons=[
+                    schemas.BudgetCategoryFloorReasonOut(
+                        kind=reason.kind,
+                        source_id=reason.source_id,
+                        title=reason.title,
+                        due_date=reason.due_date,
+                        amount=reason.amount,
+                    )
+                    for reason in item.reasons
+                ],
             )
             for item in category_floors
         ],
@@ -913,14 +876,25 @@ def build_budget_month_summary(
         plan_backing_remaining=plan_backing_remaining,
         cash_gap_to_budget_total=cash_gap_to_budget_total,
         backing_shortfall=backing_shortfall,
+        plan_causes=plan_causes,
         plan_status=plan_status,
         categories_over_limit=categories_over_limit,
         categories_close_to_limit=categories_close_to_limit,
-        borrowing_pressure=get_budgeted_wallet_borrowing_pressure(
-            db,
-            owner_id,
-            start_date=start,
-            end_date=end,
+        borrowing_pressure=(
+            borrowing_survival.borrowed_usage > 0
+            or get_budgeted_wallet_borrowing_pressure(
+                db,
+                owner_id,
+                start_date=start,
+                end_date=end,
+            )
+        ),
+        borrowing_survival=schemas.BorrowingSurvivalSummaryOut(
+            enabled=borrowing_survival.enabled,
+            monthly_cap=borrowing_survival.monthly_cap,
+            borrowed_usage=borrowing_survival.borrowed_usage,
+            remaining_cap=borrowing_survival.remaining_cap,
+            exceeded_amount=borrowing_survival.exceeded_amount,
         ),
     )
 

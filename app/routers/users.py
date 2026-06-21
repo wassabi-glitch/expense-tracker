@@ -310,8 +310,8 @@ def upsert_onboarding_profile(
             currency=wallet_data.currency,
             can_fund_goals=(
                 False
-                if wallet_data.wallet_type == models.WalletType.CREDIT
-                or wallet_data.accounting_type != models.AccountingType.ASSET
+                if wallet_data.accounting_type != models.AccountingType.ASSET
+                and wallet_data.wallet_type != models.WalletType.CREDIT
                 else (
                     bool(wallet_data.can_fund_goals)
                     if wallet_data.can_fund_goals is not None

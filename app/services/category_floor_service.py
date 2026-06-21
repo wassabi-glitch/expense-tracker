@@ -1,0 +1,233 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date
+
+from sqlalchemy import and_, or_, select
+from sqlalchemy.orm import Session
+
+from app import models
+
+
+@dataclass(frozen=True)
+class CategoryFloorReason:
+    kind: str
+    source_id: int
+    title: str
+    due_date: date
+    amount: int
+
+
+@dataclass(frozen=True)
+class CategoryFloorWarning:
+    category: models.ExpenseCategory
+    suggested_minimum: int
+    current_limit: int
+    warning_gap: int
+    reasons: list[CategoryFloorReason]
+
+    # Compatibility names retained while Issue 5 migrates the frontend.
+    @property
+    def floor_amount(self) -> int:
+        return self.suggested_minimum
+
+    @property
+    def effective_monthly_limit(self) -> int:
+        return self.current_limit
+
+    @property
+    def shortfall(self) -> int:
+        return self.warning_gap
+
+    @property
+    def sources(self) -> list[str]:
+        legacy_names = {
+            "DEFERRED_EXPENSE": "debt",
+        }
+        return sorted(
+            {legacy_names.get(reason.kind, reason.kind.lower()) for reason in self.reasons}
+        )
+
+
+def _active_payable_debt_statuses() -> list[models.DebtStatus]:
+    return [
+        models.DebtStatus.ACTIVE,
+        models.DebtStatus.OVERDUE,
+        models.DebtStatus.DEFAULTED,
+        models.DebtStatus.IN_COLLECTION,
+    ]
+
+
+def build_category_floor_warnings(
+    db: Session,
+    owner_id: int,
+    *,
+    start: date,
+    end: date,
+    effective_limits: dict[models.ExpenseCategory, int],
+    include_legacy_recurring_preview: bool = True,
+) -> list[CategoryFloorWarning]:
+    """
+    Build non-binding monthly category warnings from authoritative obligations.
+
+    Issue 4 will replace the narrow recurring preview with the shared recurring
+    occurrence projector. Keeping that adapter isolated prevents schedule rules
+    from leaking into budget summary orchestration.
+    """
+
+    reasons_by_category: dict[models.ExpenseCategory, list[CategoryFloorReason]] = {}
+    seen: set[tuple[str, int, date]] = set()
+
+    def add_reason(
+        category: models.ExpenseCategory | None,
+        *,
+        kind: str,
+        source_id: int,
+        title: str,
+        due_date: date,
+        amount: int,
+    ) -> None:
+        contribution = max(int(amount), 0)
+        if category is None or contribution <= 0:
+            return
+        key = (kind, int(source_id), due_date)
+        if key in seen:
+            return
+        seen.add(key)
+        reasons_by_category.setdefault(category, []).append(
+            CategoryFloorReason(
+                kind=kind,
+                source_id=int(source_id),
+                title=title,
+                due_date=due_date,
+                amount=contribution,
+            )
+        )
+
+    if include_legacy_recurring_preview:
+        recurring_rows = (
+            db.query(models.RecurringExpense)
+            .filter(
+                models.RecurringExpense.owner_id == owner_id,
+                models.RecurringExpense.status == models.RecurringStatus.ACTIVE,
+                models.RecurringExpense.next_due_date >= start,
+                models.RecurringExpense.next_due_date < end,
+            )
+            .all()
+        )
+        for recurring in recurring_rows:
+            add_reason(
+                recurring.category,
+                kind="RECURRING",
+                source_id=recurring.id,
+                title=recurring.title,
+                due_date=recurring.next_due_date,
+                amount=int(recurring.amount or 0),
+            )
+
+    installment_rows = (
+        db.query(models.InstallmentPayment)
+        .join(models.InstallmentPlan, models.InstallmentPlan.id == models.InstallmentPayment.plan_id)
+        .filter(
+            models.InstallmentPayment.owner_id == owner_id,
+            models.InstallmentPlan.owner_id == owner_id,
+            models.InstallmentPlan.status == models.InstallmentStatus.ACTIVE,
+            models.InstallmentPayment.status.in_(
+                [
+                    models.InstallmentPaymentStatus.PENDING,
+                    models.InstallmentPaymentStatus.PARTIAL,
+                ]
+            ),
+            models.InstallmentPayment.due_date >= start,
+            models.InstallmentPayment.due_date < end,
+        )
+        .all()
+    )
+    installment_debt_ids = {
+        int(payment.plan.debt_id)
+        for payment in installment_rows
+        if payment.plan.debt_id is not None
+    }
+    for payment in installment_rows:
+        remaining = (
+            int(payment.amount or 0)
+            - int(payment.paid_amount or 0)
+            - int(payment.written_off_amount or 0)
+        )
+        category = (
+            models.ExpenseCategory.DEBT_CHARGES
+            if payment.component_type == models.InstallmentPaymentComponentType.CHARGE
+            else payment.plan.expense_category
+        )
+        add_reason(
+            category,
+            kind="INSTALLMENT",
+            source_id=payment.id,
+            title=payment.plan.item_name,
+            due_date=payment.due_date,
+            amount=remaining,
+        )
+
+    formal_due_debt_ids = select(models.DebtFormalDetails.debt_id).filter(
+        models.DebtFormalDetails.owner_id == owner_id,
+        models.DebtFormalDetails.next_due_date >= start,
+        models.DebtFormalDetails.next_due_date < end,
+    )
+    debt_rows = (
+        db.query(models.Debt)
+        .filter(
+            models.Debt.owner_id == owner_id,
+            models.Debt.debt_type == models.DebtType.OWING,
+            models.Debt.status.in_(_active_payable_debt_statuses()),
+            models.Debt.remaining_amount > 0,
+            models.Debt.expense_category.isnot(None),
+            models.Debt.origin_kind != models.DebtOriginKind.CASH_BORROWED,
+            or_(
+                models.Debt.product_kind.is_(None),
+                models.Debt.product_kind != models.DebtProductKind.INFORMAL_DEBT,
+            ),
+            or_(
+                and_(models.Debt.expected_return_date >= start, models.Debt.expected_return_date < end),
+                models.Debt.id.in_(formal_due_debt_ids),
+            ),
+        )
+        .all()
+    )
+    for debt in debt_rows:
+        if int(debt.id) in installment_debt_ids:
+            continue
+        due_date = debt.expected_return_date
+        if debt.formal_details is not None and debt.formal_details.next_due_date is not None:
+            formal_due = debt.formal_details.next_due_date
+            if start <= formal_due < end:
+                due_date = formal_due
+        if due_date is None:
+            continue
+        add_reason(
+            debt.expense_category,
+            kind=(
+                "DEFERRED_EXPENSE"
+                if debt.origin_kind == models.DebtOriginKind.DEFERRED_EXPENSE
+                else "DEBT"
+            ),
+            source_id=debt.id,
+            title=debt.counterparty_name,
+            due_date=due_date,
+            amount=int(debt.remaining_amount or 0),
+        )
+
+    warnings: list[CategoryFloorWarning] = []
+    for category, reasons in sorted(reasons_by_category.items(), key=lambda item: str(item[0])):
+        ordered_reasons = sorted(reasons, key=lambda reason: (reason.due_date, reason.kind, reason.source_id))
+        suggested_minimum = sum(reason.amount for reason in ordered_reasons)
+        current_limit = int(effective_limits.get(category, 0))
+        warnings.append(
+            CategoryFloorWarning(
+                category=category,
+                suggested_minimum=suggested_minimum,
+                current_limit=current_limit,
+                warning_gap=max(suggested_minimum - current_limit, 0),
+                reasons=ordered_reasons,
+            )
+        )
+    return warnings
