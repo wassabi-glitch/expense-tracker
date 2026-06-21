@@ -1815,7 +1815,7 @@ def test_budget_month_summary_exposes_expected_income_lifecycle_totals_and_items
     )
     assert missed.status_code == 200, missed.text
 
-    cancelled_source = _create_expected_income(
+    _create_expected_income(
         client,
         headers,
         source_id=source["id"],
