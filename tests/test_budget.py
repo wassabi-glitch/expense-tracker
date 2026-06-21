@@ -1597,14 +1597,21 @@ def test_receivable_debt_requires_explicit_expected_payment_before_budget_backin
     assert payload["expected_income_remaining"] == 3_000_000
     assert payload["backing_total"] == 13_000_000
 
-    received = client.patch(
-        f"/budgets/expected-incomes/{expected_payload['id']}",
-        json={"status": "RECEIVED"},
+    wallets = client.get("/wallets", headers=headers)
+    wallet = wallets.json()[0]
+
+    received = client.post(
+        f"/budgets/expected-incomes/{expected_payload['id']}/mark-received",
+        json={
+            "received_amount": 3_000_000,
+            "date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 3_000_000}],
+        },
         headers=headers,
     )
     assert received.status_code == 200, received.text
     assert received.json()["debt_id"] == debt.json()["id"]
-    assert received.json()["status"] == "RECEIVED"
+    assert received.json()["status"] == "RESOLVED"
 
     summary_received = client.get(
         f"/budgets/month-summary?budget_year={today.year}&budget_month={today.month}",
@@ -1613,7 +1620,7 @@ def test_receivable_debt_requires_explicit_expected_payment_before_budget_backin
     assert summary_received.status_code == 200, summary_received.text
     received_payload = summary_received.json()
     assert received_payload["expected_income_remaining"] == 0
-    assert received_payload["backing_total"] == 10_000_000
+    assert received_payload["backing_total"] == 13_000_000
 
 
 def test_expected_income_mark_received_preserves_expectation_and_links_wallet_event(client):
@@ -1795,9 +1802,15 @@ def test_budget_month_summary_exposes_expected_income_lifecycle_totals_and_items
         headers=headers,
     )
     assert missed_debt.status_code == 201, missed_debt.text
-    missed = client.patch(
-        f"/budgets/expected-incomes/{missed_debt.json()['id']}",
-        json={"status": "MISSED"},
+    listed_missed = client.get(
+        f"/expected-inflows?budget_year={today.year}&budget_month={today.month}",
+        headers=headers,
+    )
+    missed_promise_id = next(item["id"] for item in listed_missed.json() if item["amount"] == 400_000)
+
+    missed = client.post(
+        f"/expected-inflows/{missed_promise_id}/write-off",
+        json={"amount": 400_000, "reason": "MISSED"},
         headers=headers,
     )
     assert missed.status_code == 200, missed.text
@@ -1810,9 +1823,15 @@ def test_budget_month_summary_exposes_expected_income_lifecycle_totals_and_items
         due_date=today,
         note="Cancelled side job",
     )
-    cancelled = client.patch(
-        f"/budgets/expected-incomes/{cancelled_source['id']}",
-        json={"status": "CANCELLED"},
+    listed_cancelled = client.get(
+        f"/expected-inflows?budget_year={today.year}&budget_month={today.month}",
+        headers=headers,
+    )
+    cancelled_promise_id = next(item["id"] for item in listed_cancelled.json() if item["amount"] == 700_000)
+
+    cancelled = client.post(
+        f"/expected-inflows/{cancelled_promise_id}/cancel",
+        json={"note": "Cancelled side job"},
         headers=headers,
     )
     assert cancelled.status_code == 200, cancelled.text
@@ -1828,8 +1847,8 @@ def test_budget_month_summary_exposes_expected_income_lifecycle_totals_and_items
 
     totals = {item["status"]: item for item in payload["expected_income_totals"]}
     assert totals["EXPECTED"] == {"status": "EXPECTED", "count": 1, "amount": 1_500_000, "received_amount": 0}
-    assert totals["RECEIVED"] == {"status": "RECEIVED", "count": 1, "amount": 2_000_000, "received_amount": 2_500_000}
-    assert totals["MISSED"] == {"status": "MISSED", "count": 1, "amount": 400_000, "received_amount": 0}
+    assert totals["RESOLVED"] == {"status": "RESOLVED", "count": 1, "amount": 2_000_000, "received_amount": 2_000_000}
+    assert totals["WRITTEN_OFF"] == {"status": "WRITTEN_OFF", "count": 1, "amount": 400_000, "received_amount": 0}
     assert totals["CANCELLED"] == {"status": "CANCELLED", "count": 1, "amount": 700_000, "received_amount": 0}
 
     items = {item["id"]: item for item in payload["expected_income_items"]}
