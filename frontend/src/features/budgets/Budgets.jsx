@@ -53,7 +53,6 @@ import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   createBudgetSubcategory,
-  createBudgetExpectedIncome,
   createProject,
   createProjectCategoryLimit,
   createProjectSubcategory,
@@ -63,7 +62,6 @@ import {
   getBudgetDetail,
   getExpenses,
   getBudgetSubcategories,
-  getIncomeSources,
   getProjects,
   reallocateBudgetSubcategory,
   updateBudgetSubcategory,
@@ -351,7 +349,6 @@ export default function Budgets() {
   }, []);
 
   const [addOpen, setAddOpen] = React.useState(false);
-  const [expectedIncomeOpen, setExpectedIncomeOpen] = React.useState(false);
   const [projectOpen, setProjectOpen] = React.useState(false);
   const [projectStructureOpen, setProjectStructureOpen] = React.useState(false);
   const [subcategoriesOpen, setSubcategoriesOpen] = React.useState(false);
@@ -405,10 +402,6 @@ export default function Budgets() {
   const [addLimit, setAddLimit] = React.useState("");
   const [addBudgetYear, setAddBudgetYear] = React.useState(currentYear);
   const [addBudgetMonth, setAddBudgetMonth] = React.useState(currentMonth);
-  const [expectedIncomeSourceId, setExpectedIncomeSourceId] = React.useState("");
-  const [expectedIncomeAmount, setExpectedIncomeAmount] = React.useState("");
-  const [expectedIncomeDueDate, setExpectedIncomeDueDate] = React.useState("");
-  const [expectedIncomeNote, setExpectedIncomeNote] = React.useState("");
   const [projectTitle, setProjectTitle] = React.useState("");
   const [projectDescription, setProjectDescription] = React.useState("");
   const [projectIsIsolated, setProjectIsIsolated] = React.useState("true");
@@ -464,16 +457,11 @@ export default function Budgets() {
     return { year: currentYear, month: currentMonth };
   }, [currentMonth, currentYear, filterMonth, showHistory]);
 
-  const { budgetsQuery, monthSummaryQuery, expectedIncomesQuery, statsQuery } = useBudgetsDataQuery({
+  const { budgetsQuery, monthSummaryQuery, statsQuery } = useBudgetsDataQuery({
     budgetYear: summaryTarget.year,
     budgetMonth: summaryTarget.month,
   });
   const categoriesQuery = useBudgetCategoriesQuery();
-  const incomeSourcesQuery = useQuery({
-    queryKey: ["incomeSources"],
-    queryFn: getIncomeSources,
-    staleTime: 60_000,
-  });
   const subcategoriesQuery = useQuery({
     queryKey: ["budgets", subcategoryTargetBudget?.id, "subcategories", "manage"],
     queryFn: () => getBudgetSubcategories(subcategoryTargetBudget?.id),
@@ -528,10 +516,10 @@ export default function Budgets() {
     staleTime: 15_000,
   });
 
-  const loading = budgetsQuery.isLoading || statsQuery.isLoading || monthSummaryQuery.isLoading || expectedIncomesQuery.isLoading || categoriesQuery.isLoading;
-  const error = (budgetsQuery.error || statsQuery.error || monthSummaryQuery.error || expectedIncomesQuery.error || categoriesQuery.error)
+  const loading = budgetsQuery.isLoading || statsQuery.isLoading || monthSummaryQuery.isLoading || categoriesQuery.isLoading;
+  const error = (budgetsQuery.error || statsQuery.error || monthSummaryQuery.error || categoriesQuery.error)
     ? localizeApiError(
-      budgetsQuery.error?.message || statsQuery.error?.message || monthSummaryQuery.error?.message || expectedIncomesQuery.error?.message || categoriesQuery.error?.message,
+      budgetsQuery.error?.message || statsQuery.error?.message || monthSummaryQuery.error?.message || categoriesQuery.error?.message,
       t,
     ) || t("budgets.loadFailed")
     : "";
@@ -576,14 +564,6 @@ export default function Budgets() {
   const projects = React.useMemo(
     () => (Array.isArray(projectsQuery.data) ? projectsQuery.data : []),
     [projectsQuery.data],
-  );
-  const activeIncomeSources = React.useMemo(
-    () => (Array.isArray(incomeSourcesQuery.data) ? incomeSourcesQuery.data.filter((source) => source.is_active) : []),
-    [incomeSourcesQuery.data],
-  );
-  const expectedIncomes = React.useMemo(
-    () => (Array.isArray(expectedIncomesQuery.data) ? expectedIncomesQuery.data : []),
-    [expectedIncomesQuery.data],
   );
   const managedSubcategories = React.useMemo(
     () => (Array.isArray(subcategoriesQuery.data) ? subcategoriesQuery.data : []),
@@ -824,20 +804,7 @@ export default function Budgets() {
     () => [filterCategory !== "all", filterStatus !== "all", filterMonth !== "all", sortBy !== "newest"].filter(Boolean).length,
     [filterCategory, filterStatus, filterMonth, sortBy]
   );
-  const workspaceMonthLabel = React.useMemo(() => {
-    if (filterMonth !== "all") {
-      return monthFilterOptions.find((item) => item.value === filterMonth)?.label || filterMonth;
-    }
-    if (!showHistory) return formatBudgetMonth(currentYear, currentMonth);
-    return t("budgets.allVisibleMonths", { defaultValue: "All visible months" });
-  }, [filterMonth, monthFilterOptions, showHistory, formatBudgetMonth, currentYear, currentMonth, t]);
   const useBottomSheetForms = windowWidth < 1024;
-  const summaryMonthStartDate = `${summaryTarget.year}-${String(summaryTarget.month).padStart(2, "0")}-01`;
-  const summaryMonthEndDate = React.useMemo(() => {
-    const end = new Date(summaryTarget.year, summaryTarget.month, 0);
-    return `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, "0")}-${String(end.getDate()).padStart(2, "0")}`;
-  }, [summaryTarget.month, summaryTarget.year]);
-
   const resetBudgetFilters = () => {
     setSearchParams(prev => {
       prev.delete("category");
@@ -860,21 +827,6 @@ export default function Budgets() {
   const addBudgetMutation = useCreateBudgetMutation();
   const updateBudgetMutation = useUpdateBudgetMutation();
   const deleteBudgetMutation = useDeleteBudgetMutation();
-  const createExpectedIncomeMutation = useMutation({
-    mutationFn: createBudgetExpectedIncome,
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["budgets", "expected-incomes"] }),
-        queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary"] }),
-        queryClient.invalidateQueries({ queryKey: ["budgets", "list"] }),
-      ]);
-      toast.success(t("budgets.expectedIncomeCreated", { defaultValue: "Expected income added" }));
-    },
-    onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
-      toast.error(t("budgets.expectedIncomeCreateFailed", { defaultValue: "Failed to add expected income" }), msg);
-    },
-  });
   const createProjectMutation = useMutation({
     mutationFn: createProject,
     onSuccess: async () => {
@@ -893,7 +845,6 @@ export default function Budgets() {
   const isAddingBudget = addBudgetMutation.isPending;
   const isUpdatingBudget = updateBudgetMutation.isPending;
   const isDeletingBudget = deleteBudgetMutation.isPending;
-  const isCreatingExpectedIncome = createExpectedIncomeMutation.isPending;
   const isCreatingProject = createProjectMutation.isPending;
   const createProjectCategoryMutation = useMutation({
     mutationFn: ({ projectId, payload }) => createProjectCategoryLimit(projectId, payload),
@@ -1053,30 +1004,9 @@ export default function Budgets() {
     [newLimit, selectedBudget]
   );
   const canSubmitUpdateBudget = updateBudgetFormParsed.success && !isUpdatingBudget;
-  const expectedIncomeAmountValue = Number(String(expectedIncomeAmount || "").replace(/\s+/g, ""));
-  const canSubmitExpectedIncome =
-    Boolean(expectedIncomeSourceId) &&
-    Boolean(expectedIncomeDueDate) &&
-    Number.isFinite(expectedIncomeAmountValue) &&
-    expectedIncomeAmountValue > 0 &&
-    expectedIncomeAmountValue <= MAX_BUDGET_AMOUNT &&
-    !isCreatingExpectedIncome;
-
-  const getDefaultExpectedIncomeDate = React.useCallback(() => {
-    const month = String(summaryTarget.month).padStart(2, "0");
-    if (summaryTarget.year === currentYear && summaryTarget.month === currentMonth) {
-      return `${currentYear}-${month}-${String(today.getDate()).padStart(2, "0")}`;
-    }
-    return `${summaryTarget.year}-${month}-01`;
-  }, [currentMonth, currentYear, summaryTarget.month, summaryTarget.year, today]);
-
   const openExpectedIncomeDialog = () => {
-    setActionError("");
-    setExpectedIncomeSourceId(activeIncomeSources[0]?.id ? String(activeIncomeSources[0].id) : "");
-    setExpectedIncomeAmount("");
-    setExpectedIncomeDueDate(getDefaultExpectedIncomeDate());
-    setExpectedIncomeNote("");
-    setExpectedIncomeOpen(true);
+    const targetMonth = `${summaryTarget.year}-${String(summaryTarget.month).padStart(2, "0")}`;
+    navigate(`/money-in/expected-inflow?expected_month=${targetMonth}&action=add`);
   };
 
   const openBudgetExpenses = (budget) => {
@@ -1265,33 +1195,6 @@ export default function Budgets() {
       setEditingProjectSubcategoryName("");
       setEditingProjectSubcategoryLimit("");
       setEditingProjectSubcategoryIsActive("true");
-    } catch (e) {
-      setActionError(getBudgetActionErrorMessage(e));
-    }
-  }
-
-  async function handleCreateExpectedIncome() {
-    if (isCreatingExpectedIncome) return;
-    setActionError("");
-    if (!canSubmitExpectedIncome) {
-      setActionError(t("budgets.expectedIncomeInvalid", { defaultValue: "Choose a source, date, and positive expected amount." }));
-      return;
-    }
-    const [year, month] = expectedIncomeDueDate.split("-").map(Number);
-    if (year !== summaryTarget.year || month !== summaryTarget.month) {
-      setActionError(t("budgets.expectedIncomeMonthMismatch", { defaultValue: "Expected income date must be inside the selected budget month." }));
-      return;
-    }
-    try {
-      await createExpectedIncomeMutation.mutateAsync({
-        source_id: Number(expectedIncomeSourceId),
-        amount: expectedIncomeAmountValue,
-        due_date: expectedIncomeDueDate,
-        budget_year: summaryTarget.year,
-        budget_month: summaryTarget.month,
-        note: expectedIncomeNote.trim() || null,
-      });
-      setExpectedIncomeOpen(false);
     } catch (e) {
       setActionError(getBudgetActionErrorMessage(e));
     }
@@ -1493,33 +1396,6 @@ export default function Budgets() {
       setActionError(getBudgetActionErrorMessage(e));
     }
   }
-
-  const expectedIncomeFooter = (
-    <>
-      <Button variant="outline" onClick={() => setExpectedIncomeOpen(false)} disabled={isCreatingExpectedIncome}>
-        {t("common.cancel")}
-      </Button>
-      <Button
-        onClick={handleCreateExpectedIncome}
-        disabled={!canSubmitExpectedIncome}
-        className="relative min-w-[140px] disabled:pointer-events-auto disabled:cursor-not-allowed"
-      >
-        {isCreatingExpectedIncome ? (
-          <>
-            <span className="invisible">{t("budgets.addExpectedIncome", { defaultValue: "Add expected income" })}</span>
-            <span className="absolute inset-0 flex items-center justify-center">
-              <span
-                aria-label="Loading"
-                className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
-              />
-            </span>
-          </>
-        ) : (
-          t("budgets.addExpectedIncome", { defaultValue: "Add expected income" })
-        )}
-      </Button>
-    </>
-  );
 
   const addBudgetFooter = (
     <>
@@ -1769,7 +1645,7 @@ export default function Budgets() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-ui-micro uppercase tracking-widest text-muted-foreground">
-                        {t("budgets.expectedIncome", { defaultValue: "Expected income" })}
+                        {t("budgets.expectedIncome", { defaultValue: "Expected inflows" })}
                       </p>
                       <div className="mt-2">
                         <CurrencyAmount value={monthSummary?.expected_income_remaining || 0} format="display" className="text-xl font-bold tracking-tight text-sky-600 dark:text-sky-400" />
@@ -1781,19 +1657,19 @@ export default function Budgets() {
                       variant="outline"
                       className="h-8 w-8 shrink-0"
                       onClick={openExpectedIncomeDialog}
-                      aria-label={t("budgets.addExpectedIncome", { defaultValue: "Add expected income" })}
+                      aria-label={t("budgets.addExpectedIncome", { defaultValue: "Add expected inflow" })}
                     >
                       <Plus className="h-4 w-4" />
                     </Button>
                   </div>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {expectedIncomes.length > 0
+                    {(monthSummary?.expected_income_items?.length || 0) > 0
                       ? t("budgets.expectedIncomeCount", {
-                          defaultValue: "{{count}} expected items for this month.",
-                          count: expectedIncomes.length,
+                          defaultValue: "{{count}} scheduled inflows for this month.",
+                          count: monthSummary.expected_income_items.length,
                         })
                       : t("budgets.expectedIncomeHint", {
-                          defaultValue: "Earned income expected later this month.",
+                          defaultValue: "Expected inflows that can support this month's plan.",
                         })}
                   </p>
                 </CardContent>
@@ -1883,7 +1759,7 @@ export default function Budgets() {
                   <div className="flex flex-wrap gap-2">
                     <Button variant="outline" onClick={openExpectedIncomeDialog}>
                       <Plus className="mr-2 h-4 w-4" />
-                      {t("budgets.addExpectedIncome", { defaultValue: "Add expected income" })}
+                      {t("budgets.addExpectedIncome", { defaultValue: "Add expected inflow" })}
                     </Button>
                     {monthSummary.plan_status === "over_planned" ? (
                       <Button variant="secondary" onClick={() => setSortBy("limitDesc")}>
@@ -3360,103 +3236,6 @@ export default function Budgets() {
             )}
           </div>
 
-          {actionError && <p className="text-sm text-red-600">{actionError}</p>}
-        </div>
-      </ResponsiveBudgetFormShell>
-
-      <ResponsiveBudgetFormShell
-        compact={useBottomSheetForms}
-        open={expectedIncomeOpen}
-        onOpenChange={setExpectedIncomeOpen}
-        title={t("budgets.expectedIncomeDialogTitle", { defaultValue: "Add expected income" })}
-        description={t("budgets.expectedIncomeDialogDesc", {
-          defaultValue: "Add earned income expected for {{month}}. This supports planning but is not cash today.",
-          month: formatBudgetMonth(summaryTarget.year, summaryTarget.month),
-        })}
-        footer={expectedIncomeFooter}
-        dialogClassName="sm:max-w-[560px]"
-      >
-        <div className={cn("space-y-4", useBottomSheetForms && "pb-1")}>
-          <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
-            {t("budgets.expectedIncomeRule", {
-              defaultValue: "Only earned income sources count. Loans, refunds, asset sales, and money owed to you should not be added here.",
-            })}
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <label>{t("income.source", { defaultValue: "Source" })}</label>
-              <Select value={expectedIncomeSourceId || undefined} onValueChange={setExpectedIncomeSourceId}>
-                <SelectTrigger className={selectTriggerClass}>
-                  <SelectValue placeholder={t("budgets.selectIncomeSource", { defaultValue: "Select income source" })} />
-                </SelectTrigger>
-                <SelectContent className={selectContentClass} position="popper" side="bottom">
-                  {activeIncomeSources.map((source) => (
-                    <SelectItem key={source.id} value={String(source.id)}>
-                      {source.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {activeIncomeSources.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  {t("budgets.noIncomeSourcesForExpected", {
-                    defaultValue: "Create an active income source on Money In first.",
-                  })}
-                </p>
-              ) : null}
-            </div>
-            <div className="space-y-1.5">
-              <label>{t("income.amount", { defaultValue: "Amount" })}</label>
-              <input
-                type="text"
-                inputMode="numeric"
-                autoComplete="off"
-                maxLength={maxBudgetAmountInputLength}
-                className={inputBaseClass}
-                value={expectedIncomeAmount}
-                onChange={(e) => setExpectedIncomeAmount(formatBudgetAmountInput(e.target.value))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label>{t("income.date", { defaultValue: "Date" })}</label>
-              <Input
-                type="date"
-                min={summaryMonthStartDate}
-                max={summaryMonthEndDate}
-                value={expectedIncomeDueDate}
-                onChange={(e) => setExpectedIncomeDueDate(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label>{t("income.note", { defaultValue: "Note" })}</label>
-              <Input
-                value={expectedIncomeNote}
-                maxLength={200}
-                placeholder={t("income.notePlaceholder", { defaultValue: "Optional note" })}
-                onChange={(e) => setExpectedIncomeNote(e.target.value)}
-              />
-            </div>
-          </div>
-          {expectedIncomes.length > 0 ? (
-            <div className="space-y-2">
-              <p className="text-ui-micro uppercase tracking-widest text-muted-foreground">
-                {t("budgets.expectedIncomeThisMonth", { defaultValue: "Expected this month" })}
-              </p>
-              <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
-                {expectedIncomes.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{item.source?.name || t("income.sourceDeleted", { defaultValue: "Source removed" })}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {item.due_date} - {item.status}
-                      </p>
-                    </div>
-                    <CurrencyAmount value={Number(item.amount || 0)} format="compact" className="shrink-0 text-sm font-semibold" />
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
           {actionError && <p className="text-sm text-red-600">{actionError}</p>}
         </div>
       </ResponsiveBudgetFormShell>

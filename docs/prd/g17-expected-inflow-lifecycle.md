@@ -11,7 +11,7 @@ Sarflog's current "Expected Income" system suffers from three major flaws that c
 Rebuild the expected inflow system around a mathematically driven state machine and an atomic "Realization" workflow. 
 
 First, rename the UI to "Expected Inflows" to accurately reflect that it tracks any incoming money (salary, debt paybacks, etc.). 
-Second, replace the simple "Receive" button with a Realization Modal that asks the user exactly how much money arrived and which wallet it went to, atomically creating the real ledger transaction and linking it to the expectation.
+Second, replace the simple "Receive" button with a Realization Modal that asks the user exactly how much money arrived and which wallet or wallets it went to, atomically creating the real ledger transaction and linking it to the expectation.
 Third, implement a strict 4-state lifecycle (`EXPECTED`, `PARTIALLY_RECEIVED`, `RESOLVED`, `CANCELLED`) where the active state is automatically computed based on how much money has been linked (`received_amount`), rather than relying on manual status dropdowns.
 
 ## User Stories
@@ -31,7 +31,7 @@ Third, implement a strict 4-state lifecycle (`EXPECTED`, `PARTIALLY_RECEIVED`, `
 ## Implementation Decisions
 
 - **Terminology:** Rename all frontend UI references from "Expected Income" to "Expected Inflows".
-- **Realization Modal:** Introduce a modal for the "Receive" action that accepts `actual_amount` and `wallet_id`.
+- **Realization Modal:** Introduce a modal for the "Receive" action that accepts `actual_amount` and `wallet_allocations`, where allocation amounts must sum to the actual amount. A single `wallet_id` can remain as a compatibility shortcut, but the primary contract should support more than one destination wallet.
 - **Atomic Processing:** The backend `receive` endpoint must perform a database transaction that creates a `LedgerEntry` (Income or Debt Payment) AND updates the `ExpectedIncome` row (`received_amount` += amount, and link the transaction ID).
 - **Math-Driven State Machine:** 
   - `EXPECTED`: `received_amount == 0`

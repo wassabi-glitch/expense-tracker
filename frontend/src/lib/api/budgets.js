@@ -27,28 +27,6 @@ export async function getBudgetMonthSummary(budget_year, budget_month) {
     return response.data;
 }
 
-export async function getBudgetExpectedIncomes(budget_year, budget_month) {
-    const response = await apiClient.get("/budgets/expected-incomes", {
-        params: { budget_year, budget_month },
-    });
-    return normalizeArrayPayload(response.data);
-}
-
-export async function createBudgetExpectedIncome(payload) {
-    const response = await apiClient.post("/budgets/expected-incomes", payload);
-    return response.data;
-}
-
-export async function updateBudgetExpectedIncome(expectedIncomeId, payload) {
-    const response = await apiClient.patch(`/budgets/expected-incomes/${expectedIncomeId}`, payload);
-    return response.data;
-}
-
-export async function deleteBudgetExpectedIncome(expectedIncomeId) {
-    const response = await apiClient.delete(`/budgets/expected-incomes/${expectedIncomeId}`);
-    return response.data;
-}
-
 export async function getBudgetSubcategories(budgetId) {
     const response = await apiClient.get(`/budgets/${budgetId}/subcategories`);
     return normalizeArrayPayload(response.data);

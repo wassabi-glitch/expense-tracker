@@ -228,33 +228,14 @@ def get_expected_income_remaining(
     budget_year: int,
     budget_month: int,
 ) -> int:
-    total = (
-        db.query(func.coalesce(func.sum(models.ExpectedIncome.amount), 0))
-        .outerjoin(models.IncomeSource, models.IncomeSource.id == models.ExpectedIncome.source_id)
-        .outerjoin(models.Debt, models.Debt.id == models.ExpectedIncome.debt_id)
-        .filter(
-            models.ExpectedIncome.owner_id == owner_id,
-            models.ExpectedIncome.budget_year == budget_year,
-            models.ExpectedIncome.budget_month == budget_month,
-            models.ExpectedIncome.status == models.ExpectedIncomeStatus.EXPECTED,
-            or_(
-                and_(
-                    models.ExpectedIncome.source_id.isnot(None),
-                    models.IncomeSource.owner_id == owner_id,
-                    models.IncomeSource.is_active == True,  # noqa: E712
-                ),
-                and_(
-                    models.ExpectedIncome.debt_id.isnot(None),
-                    models.Debt.owner_id == owner_id,
-                    models.Debt.debt_type == models.DebtType.OWED,
-                    models.Debt.status == models.DebtStatus.ACTIVE,
-                    models.Debt.remaining_amount > 0,
-                ),
-            ),
-        )
-        .scalar()
-    )
-    return int(total or 0)
+    from . import expected_inflow_service
+
+    rows = expected_inflow_service.inflow_query(db).filter(
+        models.ExpectedIncome.owner_id == owner_id,
+        models.ExpectedIncome.budget_year == budget_year,
+        models.ExpectedIncome.budget_month == budget_month,
+    ).all()
+    return int(sum(expected_inflow_service.active_backing_amount(row) for row in rows))
 
 
 def get_expected_income_lifecycle_summary(
@@ -263,8 +244,10 @@ def get_expected_income_lifecycle_summary(
     budget_year: int,
     budget_month: int,
 ) -> tuple[list[schemas.ExpectedIncomeLifecycleTotalOut], list[schemas.ExpectedIncomeOut]]:
+    from . import expected_inflow_service
+
     rows = (
-        db.query(models.ExpectedIncome)
+        expected_inflow_service.inflow_query(db)
         .filter(
             models.ExpectedIncome.owner_id == owner_id,
             models.ExpectedIncome.budget_year == budget_year,
@@ -281,7 +264,7 @@ def get_expected_income_lifecycle_summary(
         bucket = totals_by_status[row.status]
         bucket["count"] += 1
         bucket["amount"] += int(row.amount or 0)
-        bucket["received_amount"] += int(row.received_amount or 0)
+        bucket["received_amount"] += expected_inflow_service.received_amount(row)
 
     return (
         [

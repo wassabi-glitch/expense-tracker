@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { getBudgetExpectedIncomes, getBudgets, getBudgetMonthSummary, getThisMonthStats } from "@/lib/api";
+import { getBudgets, getBudgetMonthSummary, getThisMonthStats } from "@/lib/api";
 
 export function useBudgetsDataQuery({ budgetYear, budgetMonth } = {}) {
     const budgetsQuery = useQuery({
@@ -13,16 +13,10 @@ export function useBudgetsDataQuery({ budgetYear, budgetMonth } = {}) {
         enabled: Boolean(budgetYear && budgetMonth),
     });
 
-    const expectedIncomesQuery = useQuery({
-        queryKey: ["budgets", "expected-incomes", budgetYear, budgetMonth],
-        queryFn: () => getBudgetExpectedIncomes(budgetYear, budgetMonth),
-        enabled: Boolean(budgetYear && budgetMonth),
-    });
-
     const statsQuery = useQuery({
         queryKey: ["budgets", "month-stats"],
         queryFn: getThisMonthStats,
     });
 
-    return { budgetsQuery, monthSummaryQuery, expectedIncomesQuery, statsQuery };
+    return { budgetsQuery, monthSummaryQuery, statsQuery };
 }

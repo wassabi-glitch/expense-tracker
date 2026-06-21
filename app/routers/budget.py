@@ -25,10 +25,6 @@ from ..services.budget_service import (
     validate_subcategory_total_limit,
 )
 from ..services.category_policy import validate_active_expense_category
-from ..services.debt_payment_service import create_debt_payment as create_debt_payment_service
-from ..services.debt_service import reconcile_debt
-from ..services.goal_funding_service import sync_debt_goal_targets
-from ..services.wallet_service import WalletService
 from app.redis_rate_limiter import consume_token_bucket
 from app.timezone import get_effective_user_timezone, today_in_tz
 
@@ -200,48 +196,6 @@ def _resolve_expected_income_wallet_allocations(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="wallets.archived_locked")
         resolved.append((wallet, int(allocation.amount)))
     return resolved
-
-
-def _record_expected_income_event(
-    db: Session,
-    *,
-    owner_id: int,
-    amount: int,
-    source_id: int | None,
-    note: str | None,
-    income_date: date,
-    wallet_allocations: list[tuple[models.Wallet, int]],
-) -> models.FinancialEvent:
-    event = models.FinancialEvent(
-        owner_id=owner_id,
-        title="Expected income received",
-        description=note,
-        event_type=models.TransactionType.INCOME,
-        date=income_date,
-    )
-    db.add(event)
-    db.flush()
-
-    for wallet, allocation_amount in wallet_allocations:
-        WalletService.adjust_balance(db, wallet.id, int(allocation_amount), models.TransactionType.INCOME)
-        db.add(
-            models.WalletLedger(
-                owner_id=owner_id,
-                event_id=event.id,
-                wallet_id=wallet.id,
-                amount=int(allocation_amount),
-            )
-        )
-
-    db.add(
-        models.EntityLedger(
-            event_id=event.id,
-            amount=int(amount),
-            income_source_id=source_id,
-        )
-    )
-    db.flush()
-    return event
 
 
 def _validate_expected_income_month(
@@ -567,18 +521,25 @@ def create_expected_income(
     if payload.debt_id is not None:
         _get_expected_payment_debt_or_404(db, current_user.id, payload.debt_id)
 
-    expected_income = models.ExpectedIncome(
-        owner_id=current_user.id,
-        source_id=payload.source_id,
-        debt_id=payload.debt_id,
-        amount=payload.amount,
-        due_date=payload.due_date,
-        budget_year=payload.budget_year,
-        budget_month=payload.budget_month,
-        status=models.ExpectedIncomeStatus.EXPECTED,
-        note=payload.note.strip() if payload.note else None,
+    from app.services import expected_inflow_service
+
+    _, expected_income = expected_inflow_service.create_promise(
+        db,
+        current_user.id,
+        schemas.ExpectedInflowCreate(
+            kind=(
+                models.ExpectedInflowKind.RECEIVABLE
+                if payload.debt_id is not None
+                else models.ExpectedInflowKind.EARNED
+            ),
+            source_id=payload.source_id,
+            debt_id=payload.debt_id,
+            amount=payload.amount,
+            due_date=payload.due_date,
+            note=payload.note,
+        ),
+        today=today_in_tz(user_tz),
     )
-    db.add(expected_income)
     db.commit()
     db.refresh(expected_income)
     return _get_expected_income_or_404(db, current_user.id, int(expected_income.id))
@@ -596,27 +557,44 @@ def update_expected_income(
     _apply_headers(response, enforce_budget_write_rate_limit(current_user.id))
     expected_income = _get_expected_income_or_404(db, current_user.id, expected_income_id)
     update_data = payload.model_dump(exclude_unset=True)
-
-    if "source_id" in update_data and update_data["source_id"] is not None:
-        _get_active_income_source_or_404(db, current_user.id, int(update_data["source_id"]))
-    if "debt_id" in update_data and update_data["debt_id"] is not None:
-        _get_expected_payment_debt_or_404(db, current_user.id, int(update_data["debt_id"]))
-
-    next_source_id = update_data.get("source_id", expected_income.source_id)
-    next_debt_id = update_data.get("debt_id", expected_income.debt_id)
-    _validate_expected_income_source_shape(next_source_id, next_debt_id)
+    forbidden = update_data.keys() & {
+        "source_id",
+        "debt_id",
+        "received_amount",
+        "linked_transaction_id",
+        "status",
+    }
+    if forbidden:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="expected_inflow.use_lifecycle_command",
+        )
 
     next_due_date = update_data.get("due_date", expected_income.due_date)
-    next_budget_year = update_data.get("budget_year", expected_income.budget_year)
-    next_budget_month = update_data.get("budget_month", expected_income.budget_month)
+    next_budget_year = update_data.get("budget_year", next_due_date.year)
+    next_budget_month = update_data.get("budget_month", next_due_date.month)
     validate_budget_month_window(int(next_budget_year), int(next_budget_month), user_tz)
     _validate_expected_income_month(next_due_date, int(next_budget_year), int(next_budget_month))
 
-    for field, value in update_data.items():
-        setattr(expected_income, field, value.strip() if field == "note" and value else value)
+    from app.services import expected_inflow_service
 
+    promise = expected_inflow_service.get_promise_or_404(
+        db,
+        current_user.id,
+        int(expected_income.promise_id),
+        lock=True,
+    )
+    expected_inflow_service.update_promise(
+        db,
+        promise,
+        schemas.ExpectedInflowUpdate.model_validate({
+            key: value
+            for key, value in update_data.items()
+            if key in {"amount", "due_date", "note"}
+        }),
+        today=today_in_tz(user_tz),
+    )
     db.commit()
-    db.refresh(expected_income)
     return _get_expected_income_or_404(db, current_user.id, int(expected_income.id))
 
 
@@ -631,10 +609,6 @@ def mark_expected_income_received(
 ):
     _apply_headers(response, enforce_budget_write_rate_limit(current_user.id))
     expected_income = _get_expected_income_or_404(db, current_user.id, expected_income_id)
-    if expected_income.status != models.ExpectedIncomeStatus.EXPECTED:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expected_income.not_expected")
-
-    received_date = payload.date or today_in_tz(user_tz)
     wallet_allocations = _resolve_expected_income_wallet_allocations(
         db,
         current_user.id,
@@ -643,43 +617,29 @@ def mark_expected_income_received(
         wallet_allocations=payload.wallet_allocations,
     )
 
-    if expected_income.debt_id is not None:
-        debt = _get_expected_payment_debt_or_404(db, current_user.id, int(expected_income.debt_id))
-        _, ledger_entry = create_debt_payment_service(
-            db,
-            debt,
-            amount=int(payload.received_amount),
-            transaction_date=received_date,
+    from app.services import expected_inflow_service
+
+    realization, _ = expected_inflow_service.realize_promise(
+        db,
+        current_user.id,
+        int(expected_income.promise_id),
+        schemas.ExpectedInflowRealizeCreate(
+            actual_amount=int(payload.received_amount),
+            received_date=payload.date,
             wallet_allocations=[
-                schemas.DebtTransactionWalletAllocationIn(
-                    wallet_id=wallet.id,
+                schemas.IncomeWalletAllocationIn(
+                    wallet_id=int(wallet.id),
                     amount=int(allocation_amount),
                 )
                 for wallet, allocation_amount in wallet_allocations
             ],
-            note=payload.note or expected_income.note,
-            income_source_id=debt.income_source_id,
-        )
-        reconcile_debt(db, debt.id)
-        sync_debt_goal_targets(db, current_user.id, debt.id)
-        linked_transaction_id = ledger_entry.financial_event_id
-    else:
-        event = _record_expected_income_event(
-            db,
-            owner_id=current_user.id,
-            amount=int(payload.received_amount),
-            source_id=expected_income.source_id,
-            note=payload.note or expected_income.note,
-            income_date=received_date,
-            wallet_allocations=wallet_allocations,
-        )
-        linked_transaction_id = event.id
-
-    expected_income.status = models.ExpectedIncomeStatus.RECEIVED
-    expected_income.received_amount = int(payload.received_amount)
-    expected_income.linked_transaction_id = linked_transaction_id
+            note=payload.note,
+        ),
+        today=today_in_tz(user_tz),
+    )
+    if realization.event_links:
+        expected_income.linked_transaction_id = int(realization.event_links[0].financial_event_id)
     db.commit()
-    db.refresh(expected_income)
     return _get_expected_income_or_404(db, current_user.id, int(expected_income.id))
 
 
@@ -692,7 +652,16 @@ def delete_expected_income(
 ):
     _apply_headers(response, enforce_budget_write_rate_limit(current_user.id))
     expected_income = _get_expected_income_or_404(db, current_user.id, expected_income_id)
-    db.delete(expected_income)
+
+    from app.services import expected_inflow_service
+
+    promise = expected_inflow_service.get_promise_or_404(
+        db,
+        current_user.id,
+        int(expected_income.promise_id),
+        lock=True,
+    )
+    expected_inflow_service.delete_promise(db, promise)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

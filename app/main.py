@@ -7,7 +7,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 import logging
 
 from app.session import get_db
-from app.routers import users, expenses, budget, analytics, auth, oauth_google, recurring, income, savings, goals, payments, notifications, debts, installments, wallets, assets, projects
+from app.routers import users, expenses, budget, analytics, auth, oauth_google, recurring, income, savings, goals, payments, notifications, debts, installments, wallets, assets, projects, expected_inflows
 from .models import ExpenseCategory
 from config import settings
 
@@ -140,3 +140,4 @@ app.include_router(installments.router)
 app.include_router(wallets.router)
 app.include_router(assets.router)
 app.include_router(projects.router)
+app.include_router(expected_inflows.router)
