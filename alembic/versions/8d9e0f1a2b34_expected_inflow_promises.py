@@ -103,11 +103,11 @@ def upgrade() -> None:
             ),
             root.amount,
             CAST(CASE
-                WHEN root.status = 'CANCELLED' OR root.status = 'MISSED' THEN 'CANCELLED'
+                WHEN CAST(root.status AS VARCHAR) = 'CANCELLED' OR CAST(root.status AS VARCHAR) = 'MISSED' THEN 'CANCELLED'
                 WHEN root.close_reason = 'RESCHEDULED' AND COALESCE(root.received_amount, 0) > 0 THEN 'PARTIALLY_RECEIVED'
                 WHEN root.close_reason = 'RESCHEDULED' THEN 'EXPECTED'
-                WHEN root.status = 'RECEIVED' OR root.status = 'RESOLVED' THEN 'RESOLVED'
-                WHEN root.status = 'PARTIALLY_RECEIVED' THEN 'PARTIALLY_RECEIVED'
+                WHEN CAST(root.status AS VARCHAR) = 'RECEIVED' OR CAST(root.status AS VARCHAR) = 'RESOLVED' THEN 'RESOLVED'
+                WHEN CAST(root.status AS VARCHAR) = 'PARTIALLY_RECEIVED' THEN 'PARTIALLY_RECEIVED'
                 ELSE 'EXPECTED'
             END AS expectedinflowpromisestatus),
             root.backing_eligible,
