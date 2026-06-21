@@ -1649,9 +1649,9 @@ def test_expected_income_mark_received_preserves_expectation_and_links_wallet_ev
 
     assert received.status_code == 200, received.text
     payload = received.json()
-    assert payload["status"] == "RECEIVED"
+    assert payload["status"] == "RESOLVED"
     assert payload["amount"] == 2_000_000
-    assert payload["received_amount"] == 2_500_000
+    assert payload["received_amount"] == 2_000_000
     assert payload["linked_transaction_id"] is not None
 
     summary = client.get(
@@ -1715,7 +1715,7 @@ def test_debt_linked_expected_payment_mark_received_reduces_receivable_balance(c
     )
     assert received.status_code == 200, received.text
     payload = received.json()
-    assert payload["status"] == "RECEIVED"
+    assert payload["status"] == "PARTIALLY_RECEIVED"
     assert payload["amount"] == 400_000
     assert payload["received_amount"] == 300_000
     assert payload["linked_transaction_id"] is not None
@@ -1729,8 +1729,8 @@ def test_debt_linked_expected_payment_mark_received_reduces_receivable_balance(c
         headers=headers,
     )
     assert summary.status_code == 200, summary.text
-    assert summary.json()["expected_income_remaining"] == 0
-    assert summary.json()["backing_total"] == 10_300_000
+    assert summary.json()["expected_income_remaining"] == 100_000
+    assert summary.json()["backing_total"] == 10_400_000
 
 
 def test_budget_month_summary_exposes_expected_income_lifecycle_totals_and_items(client):
@@ -1871,7 +1871,7 @@ def test_create_budget_rejects_plan_above_free_money_plus_expected_income(client
     assert detail["expected_income_remaining"] == 2_000_000
 
 
-def test_expected_income_status_change_can_make_existing_plan_over_planned(client):
+def test_expected_income_status_cannot_bypass_lifecycle_commands(client):
     headers = create_user_and_token(
         client, "budgetexpectedstatus", "budgetexpectedstatus@example.com", "Password123!"
     )
@@ -1899,7 +1899,8 @@ def test_expected_income_status_change_can_make_existing_plan_over_planned(clien
         json={"status": "RECEIVED"},
         headers=headers,
     )
-    assert status_update.status_code == 200, status_update.text
+    assert status_update.status_code == 409, status_update.text
+    assert status_update.json()["detail"] == "expected_inflow.use_lifecycle_command"
 
     summary = client.get(
         f"/budgets/month-summary?budget_year={today.year}&budget_month={today.month}",
@@ -1907,17 +1908,9 @@ def test_expected_income_status_change_can_make_existing_plan_over_planned(clien
     )
     assert summary.status_code == 200, summary.text
     payload = summary.json()
-    assert payload["expected_income_remaining"] == 0
-    assert payload["plan_status"] == "over_planned"
-    assert payload["backing_shortfall"] == 2_000_000
-
-    increase = client.patch(
-        f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Groceries",
-        json={"monthly_limit": 12_500_000},
-        headers=headers,
-    )
-    assert increase.status_code == 400
-    assert increase.json()["detail"]["code"] == "budgets.plan_exceeds_backing"
+    assert payload["expected_income_remaining"] == 5_000_000
+    assert payload["plan_status"] == "waiting_on_income"
+    assert payload["backing_shortfall"] == 0
 
     reduce = client.patch(
         f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Groceries",

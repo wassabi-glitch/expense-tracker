@@ -7,7 +7,7 @@
  */
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { silentRefresh } from "@/lib/api";
 import { AuthContext } from "@/lib/AuthContext";
 import { NotificationProvider } from "@/lib/context/NotificationContext";
@@ -27,6 +27,7 @@ import Dashboard from "@/features/dashboard/Dashboard";
 import Expenses from "@/features/expenses/Expenses";
 import ExpenseDetails from "@/features/expenses/ExpenseDetails";
 import Income from "@/features/income/Income";
+import ExpectedInflowDetails from "@/features/income/ExpectedInflowDetails";
 import Budgets from "@/features/budgets/Budgets";
 import BudgetDetails from "@/features/budgets/BudgetDetails";
 import Analytics from "@/features/analytics/Analytics";
@@ -38,6 +39,17 @@ import Premium from "@/features/premium/Premium";
 import Obligations from "@/features/obligations/Obligations";
 import Wallets from "@/features/wallets/Wallets";
 import Assets from "@/features/assets/Assets";
+
+function LegacyMoneyInRedirect() {
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  const pathname = params.get("tab") === "expected"
+    ? "/money-in/expected-inflow"
+    : "/money-in";
+  params.delete("tab");
+  const search = params.toString();
+  return <Navigate to={`${pathname}${search ? `?${search}` : ""}`} replace />;
+}
 
 export default function App() {
   const authBootstrapQuery = useQuery({
@@ -78,7 +90,10 @@ export default function App() {
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/expenses" element={<Expenses />} />
               <Route path="/expenses/:id" element={<ExpenseDetails />} />
-              <Route path="/income" element={<Income />} />
+              <Route path="/money-in" element={<Income />} />
+              <Route path="/money-in/expected-inflow" element={<Income />} />
+              <Route path="/money-in/expected-inflow/:id" element={<ExpectedInflowDetails />} />
+              <Route path="/income" element={<LegacyMoneyInRedirect />} />
               <Route path="/budgets" element={<Budgets />} />
               <Route path="/budgets/:budgetYear/:budgetMonth/:category" element={<BudgetDetails />} />
               <Route path="/savings" element={<Savings />} />

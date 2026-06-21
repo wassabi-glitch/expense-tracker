@@ -349,9 +349,28 @@ class InstallmentPaymentComponentType(str, enum.Enum):
 
 class ExpectedIncomeStatus(str, enum.Enum):
     EXPECTED = "EXPECTED"
+    PARTIALLY_RECEIVED = "PARTIALLY_RECEIVED"
+    RESOLVED = "RESOLVED"
+    SUPERSEDED = "SUPERSEDED"
+    WRITTEN_OFF = "WRITTEN_OFF"
     RECEIVED = "RECEIVED"
     MISSED = "MISSED"
     CANCELLED = "CANCELLED"
+
+
+class ExpectedInflowKind(str, enum.Enum):
+    EARNED = "EARNED"
+    RECEIVABLE = "RECEIVABLE"
+    REFUND = "REFUND"
+    ASSET_SALE = "ASSET_SALE"
+
+
+class ExpectedInflowPromiseStatus(str, enum.Enum):
+    EXPECTED = "EXPECTED"
+    PARTIALLY_RECEIVED = "PARTIALLY_RECEIVED"
+    RESOLVED = "RESOLVED"
+    CANCELLED = "CANCELLED"
+    WRITTEN_OFF = "WRITTEN_OFF"
 
 
 class ProjectStatus(str, enum.Enum):
@@ -432,6 +451,10 @@ class User(Base):
         "IncomeEntry", back_populates="owner", cascade="all, delete")
     expected_incomes = relationship(
         "ExpectedIncome", back_populates="owner", cascade="all, delete-orphan")
+    expected_inflow_promises = relationship(
+        "ExpectedInflowPromise", back_populates="owner", cascade="all, delete-orphan")
+    expected_inflow_realizations = relationship(
+        "ExpectedInflowRealization", back_populates="owner", cascade="all, delete-orphan")
     budgets = relationship(
         "Budget", back_populates="owner", cascade="all, delete")
     budget_subcategory_limits = relationship(
@@ -645,6 +668,7 @@ class IncomeSource(Base):
     owner = relationship("User", back_populates="income_sources")
     income_entries = relationship("IncomeEntry", back_populates="source")
     expected_incomes = relationship("ExpectedIncome", back_populates="source")
+    expected_inflow_promises = relationship("ExpectedInflowPromise", back_populates="source")
 
 
 class IncomeEntry(Base):
@@ -681,6 +705,66 @@ class IncomeEntry(Base):
     source = relationship("IncomeSource", back_populates="income_entries")
 
 
+class ExpectedInflowPromise(Base):
+    __tablename__ = "expected_inflow_promises"
+    __table_args__ = (
+        CheckConstraint("original_amount > 0", name="ck_expected_inflow_promises_amount_positive"),
+        CheckConstraint("original_amount <= 999999999999", name="ck_expected_inflow_promises_amount_limit"),
+        CheckConstraint(
+            "(CASE WHEN source_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN debt_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN asset_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN refund_event_id IS NOT NULL THEN 1 ELSE 0 END) = 1",
+            name="ck_expected_inflow_promises_exactly_one_source",
+        ),
+        Index("ix_expected_inflow_promises_owner_status", "owner_id", "status"),
+        Index("ix_expected_inflow_promises_owner_kind", "owner_id", "kind"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind = Column(String(32), nullable=False, default=ExpectedInflowKind.EARNED.value, index=True)
+    source_id = Column(Integer, ForeignKey("income_sources.id", ondelete="RESTRICT"), nullable=True, index=True)
+    debt_id = Column(Integer, ForeignKey("debts.id", ondelete="RESTRICT"), nullable=True, index=True)
+    asset_id = Column(Integer, ForeignKey("assets.id", ondelete="RESTRICT"), nullable=True, index=True)
+    refund_event_id = Column(Integer, ForeignKey("financial_events.id", ondelete="RESTRICT"), nullable=True, index=True)
+    title = Column(String(100), nullable=False)
+    original_amount = Column(BigInteger, nullable=False)
+    status = Column(
+        Enum(ExpectedInflowPromiseStatus),
+        nullable=False,
+        default=ExpectedInflowPromiseStatus.EXPECTED,
+    )
+    backing_eligible = Column(Boolean, nullable=False, default=True)
+    note = Column(String(200), nullable=True)
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    owner = relationship("User", back_populates="expected_inflow_promises")
+    source = relationship("IncomeSource", back_populates="expected_inflow_promises")
+    debt = relationship("Debt", foreign_keys=[debt_id])
+    asset = relationship("Asset", foreign_keys=[asset_id])
+    refund_event = relationship("FinancialEvent", foreign_keys=[refund_event_id])
+    schedules = relationship(
+        "ExpectedIncome",
+        back_populates="promise",
+        cascade="all, delete-orphan",
+        order_by="ExpectedIncome.due_date, ExpectedIncome.id",
+    )
+    realizations = relationship("ExpectedInflowRealization", back_populates="promise")
+    write_offs = relationship(
+        "ExpectedInflowWriteOff",
+        back_populates="promise",
+        cascade="all, delete-orphan",
+    )
+
+
 class ExpectedIncome(Base):
     __tablename__ = "expected_incomes"
     __table_args__ = (
@@ -689,21 +773,42 @@ class ExpectedIncome(Base):
         CheckConstraint("due_date >= '2020-01-01'", name="ck_expected_incomes_due_date_min_2020_01_01"),
         CheckConstraint("budget_month >= 1 AND budget_month <= 12", name="ck_expected_incomes_budget_month_1_12"),
         CheckConstraint("budget_year >= 2020", name="ck_expected_incomes_budget_year_min_2020"),
+        CheckConstraint(
+            "(CASE WHEN source_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN debt_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN asset_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN refund_event_id IS NOT NULL THEN 1 ELSE 0 END) = 1",
+            name="ck_expected_incomes_exactly_one_source",
+        ),
         Index("ix_expected_incomes_owner_month_status", "owner_id", "budget_year", "budget_month", "status"),
+        Index("ix_expected_incomes_owner_kind_status", "owner_id", "kind", "status"),
         Index("ix_expected_incomes_owner_source", "owner_id", "source_id"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    promise_id = Column(
+        Integer,
+        ForeignKey("expected_inflow_promises.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    kind = Column(String(32), nullable=False, default=ExpectedInflowKind.EARNED.value, index=True)
     source_id = Column(Integer, ForeignKey("income_sources.id", ondelete="SET NULL"), nullable=True, index=True)
     debt_id = Column(Integer, ForeignKey("debts.id", ondelete="SET NULL"), nullable=True, index=True)
+    asset_id = Column(Integer, ForeignKey("assets.id", ondelete="SET NULL"), nullable=True, index=True)
+    refund_event_id = Column(Integer, ForeignKey("financial_events.id", ondelete="SET NULL"), nullable=True, index=True)
+    parent_id = Column(Integer, ForeignKey("expected_incomes.id", ondelete="RESTRICT"), nullable=True, index=True)
     amount = Column(BigInteger, nullable=False)
-    received_amount = Column(BigInteger, nullable=True)
+    received_amount = Column(BigInteger, nullable=True, default=0)
     linked_transaction_id = Column(Integer, ForeignKey("financial_events.id", ondelete="SET NULL"), nullable=True, index=True)
     due_date = Column(Date, nullable=False)
     budget_year = Column(Integer, nullable=False)
     budget_month = Column(Integer, nullable=False)
     status = Column(Enum(ExpectedIncomeStatus), nullable=False, default=ExpectedIncomeStatus.EXPECTED)
+    backing_eligible = Column(Boolean, nullable=False, default=True)
+    close_reason = Column(String(32), nullable=True)
+    closed_at = Column(DateTime(timezone=True), nullable=True)
     note = Column(String(200), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
@@ -714,9 +819,153 @@ class ExpectedIncome(Base):
     )
 
     owner = relationship("User", back_populates="expected_incomes")
+    promise = relationship("ExpectedInflowPromise", back_populates="schedules")
     source = relationship("IncomeSource", back_populates="expected_incomes")
     debt = relationship("Debt", back_populates="expected_incomes")
-    linked_transaction = relationship("FinancialEvent")
+    asset = relationship("Asset", foreign_keys=[asset_id])
+    refund_event = relationship("FinancialEvent", foreign_keys=[refund_event_id])
+    linked_transaction = relationship("FinancialEvent", foreign_keys=[linked_transaction_id])
+    parent = relationship("ExpectedIncome", remote_side=[id], back_populates="children", foreign_keys=[parent_id])
+    children = relationship("ExpectedIncome", back_populates="parent", foreign_keys=[parent_id], passive_deletes=True)
+    realization_allocations = relationship(
+        "ExpectedInflowRealizationAllocation",
+        back_populates="expected_inflow",
+        passive_deletes=True,
+    )
+    write_offs = relationship(
+        "ExpectedInflowWriteOff",
+        back_populates="schedule",
+        passive_deletes=True,
+    )
+
+
+class ExpectedInflowRealization(Base):
+    __tablename__ = "expected_inflow_realizations"
+    __table_args__ = (
+        CheckConstraint("actual_amount > 0", name="ck_expected_inflow_realizations_amount_positive"),
+        UniqueConstraint("owner_id", "idempotency_key", name="uq_expected_inflow_realizations_owner_idempotency"),
+        Index("ix_expected_inflow_realizations_owner_date", "owner_id", "received_date"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    promise_id = Column(
+        Integer,
+        ForeignKey("expected_inflow_promises.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    actual_amount = Column(BigInteger, nullable=False)
+    received_date = Column(Date, nullable=False)
+    note = Column(String(200), nullable=True)
+    idempotency_key = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    owner = relationship("User", back_populates="expected_inflow_realizations")
+    promise = relationship("ExpectedInflowPromise", back_populates="realizations")
+    allocations = relationship(
+        "ExpectedInflowRealizationAllocation",
+        back_populates="realization",
+        cascade="all, delete-orphan",
+    )
+    event_links = relationship(
+        "ExpectedInflowRealizationEvent",
+        back_populates="realization",
+        cascade="all, delete-orphan",
+    )
+
+
+class ExpectedInflowRealizationAllocation(Base):
+    __tablename__ = "expected_inflow_realization_allocations"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_expected_inflow_realization_allocations_amount_positive"),
+        UniqueConstraint(
+            "realization_id",
+            "expected_inflow_id",
+            name="uq_expected_inflow_realization_allocation",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    realization_id = Column(
+        Integer,
+        ForeignKey("expected_inflow_realizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    expected_inflow_id = Column(
+        Integer,
+        ForeignKey("expected_incomes.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    amount = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    realization = relationship("ExpectedInflowRealization", back_populates="allocations")
+    expected_inflow = relationship("ExpectedIncome", back_populates="realization_allocations")
+
+
+class ExpectedInflowRealizationEvent(Base):
+    __tablename__ = "expected_inflow_realization_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "realization_id",
+            "financial_event_id",
+            name="uq_expected_inflow_realization_event",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    realization_id = Column(
+        Integer,
+        ForeignKey("expected_inflow_realizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    financial_event_id = Column(
+        Integer,
+        ForeignKey("financial_events.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    realization = relationship("ExpectedInflowRealization", back_populates="event_links")
+    financial_event = relationship("FinancialEvent")
+
+
+class ExpectedInflowWriteOff(Base):
+    __tablename__ = "expected_inflow_write_offs"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_expected_inflow_write_offs_amount_positive"),
+        CheckConstraint("amount <= 999999999999", name="ck_expected_inflow_write_offs_amount_limit"),
+        Index("ix_expected_inflow_write_offs_promise_date", "promise_id", "written_off_date"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    promise_id = Column(
+        Integer,
+        ForeignKey("expected_inflow_promises.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    schedule_id = Column(
+        Integer,
+        ForeignKey("expected_incomes.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    amount = Column(BigInteger, nullable=False)
+    reason = Column(String(200), nullable=False)
+    written_off_date = Column(Date, nullable=False)
+    reversed_at = Column(DateTime(timezone=True), nullable=True)
+    reversal_note = Column(String(200), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    promise = relationship("ExpectedInflowPromise", back_populates="write_offs")
+    schedule = relationship("ExpectedIncome", back_populates="write_offs")
 
 
 class RecurringExpense(Base):

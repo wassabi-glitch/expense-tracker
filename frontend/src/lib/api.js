@@ -19,12 +19,8 @@ export {
     getBudgets,
     getBudgetDetail,
     getBudgetMonthSummary,
-    getBudgetExpectedIncomes,
     getBudgetSubcategories,
     reallocateBudget,
-    createBudgetExpectedIncome,
-    updateBudgetExpectedIncome,
-    deleteBudgetExpectedIncome,
     createBudgetSubcategory,
     updateBudgetSubcategory,
     reallocateBudgetSubcategory,
@@ -176,3 +172,18 @@ export {
     reconcileWalletBalance,
 } from "./api/wallets";
 export { getAssets, getAsset, createAsset, updateAsset, sellAsset, giftAsset, disposeAsset, markAssetLost } from "./api/assets";
+export {
+    getExpectedInflows,
+    getExpectedInflow,
+    createExpectedInflow,
+    updateExpectedInflow,
+    deleteExpectedInflow,
+    realizeExpectedInflow,
+    rescheduleExpectedInflow,
+    cancelExpectedInflow,
+    writeOffExpectedInflow,
+    reverseExpectedInflowWriteOff,
+    reopenExpectedInflow,
+    reconcileExpectedInflow,
+    getExpectedInflowTimeline,
+} from "./api/expectedInflows";

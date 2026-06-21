@@ -43,7 +43,7 @@ const mainNavItems = [
   { to: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
   { to: "/wallets", labelKey: "nav.wallets", icon: CreditCard },
   { to: "/expenses", labelKey: "nav.expenses", icon: Receipt },
-  { to: "/income", labelKey: "nav.income", icon: Landmark },
+  { to: "/money-in", labelKey: "nav.income", icon: Landmark },
   { to: "/budgets", labelKey: "nav.budgets", icon: PiggyBank },
   { to: "/savings", labelKey: "nav.savings", icon: Wallet },
   { to: "/assets", labelKey: "nav.assets", icon: BriefcaseBusiness },

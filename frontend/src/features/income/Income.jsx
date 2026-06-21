@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowDownToLine,
   BriefcaseBusiness,
@@ -9,9 +9,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
-  Ban,
-  CheckCircle2,
-  Pencil,
   Landmark,
   PackageCheck,
   Plus,
@@ -20,7 +17,6 @@ import {
   Search,
   Trash2,
   Wallet,
-  XCircle,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -39,32 +35,24 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CurrencyAmount } from "@/components/CurrencyAmount";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
-import {
-  createBudgetExpectedIncome,
-  deleteBudgetExpectedIncome,
-  getBudgetExpectedIncomes,
-  getWallets,
-  updateBudgetExpectedIncome,
-} from "@/lib/api";
+import { getWallets } from "@/lib/api";
 import { toISODateInTimeZone } from "@/lib/date";
 import { useDebounce } from "@/hooks/useDebounce";
 import {
   formatAmountInput,
   formatDisplayDate,
   formatDisplayDateTime,
-  formatMonthYear,
   formatUzs,
   parseAmountInput,
 } from "@/lib/format";
 import { localizeApiError } from "@/lib/errorMessages";
 import { cn } from "@/lib/utils";
-import { useToast } from "@/lib/context/ToastContext";
 import { MAX_INCOME_AMOUNT, MAX_INCOME_NOTE_LENGTH } from "./incomeSchemas";
 import { useIncomeSourcesQuery, useMoneyInQuery } from "./hooks/useIncomeQueries";
 import { useCreateIncomeEntryMutation } from "./hooks/useIncomeMutations";
+import { ExpectedInflowsPanel } from "./ExpectedInflowsPanel";
 
 const PAGE_SIZE = 20;
 const MAX_AMOUNT_DIGITS = String(MAX_INCOME_AMOUNT).length;
@@ -80,31 +68,8 @@ const KIND_OPTIONS = [
 
 const MONEY_IN_TABS = [
   { value: "stream", label: "Money In" },
-  { value: "expected", label: "Expected Income" },
+  { value: "expected", label: "Expected Inflows" },
 ];
-
-const EXPECTED_STATUS_META = {
-  EXPECTED: {
-    label: "Expected",
-    description: "Counts toward planning until the user changes it.",
-    tone: "border-sky-500/25 bg-sky-500/10 text-sky-600 dark:text-sky-400",
-  },
-  RECEIVED: {
-    label: "Received",
-    description: "No longer counts as expected income.",
-    tone: "border-emerald-500/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  },
-  MISSED: {
-    label: "Missed",
-    description: "Removed from expected backing.",
-    tone: "border-rose-500/25 bg-rose-500/10 text-rose-600 dark:text-rose-400",
-  },
-  CANCELLED: {
-    label: "Cancelled",
-    description: "Ignored for planning.",
-    tone: "border-zinc-500/25 bg-zinc-500/10 text-zinc-600 dark:text-zinc-300",
-  },
-};
 
 const parsePageParam = (value) => {
   const raw = String(value ?? "").trim();
@@ -112,10 +77,6 @@ const parsePageParam = (value) => {
   const parsed = Number(raw);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
 };
-
-const parseTabParam = (value) => (
-  MONEY_IN_TABS.some((option) => option.value === value) ? value : "stream"
-);
 
 const parseKindParam = (value) => {
   const raw = String(value || "all");
@@ -171,10 +132,6 @@ function getKindMeta(kind) {
   };
 }
 
-function getExpectedStatusMeta(status) {
-  return EXPECTED_STATUS_META[status] || EXPECTED_STATUS_META.EXPECTED;
-}
-
 function currentMonthValue(todayISO) {
   return String(todayISO || toISODateInTimeZone()).slice(0, 7);
 }
@@ -184,20 +141,6 @@ function parseMonthValue(value, fallbackISO = toISODateInTimeZone()) {
   const raw = /^\d{4}-\d{2}$/.test(String(value || "")) ? String(value) : fallback;
   const [year, month] = raw.split("-").map(Number);
   return { value: raw, year, month };
-}
-
-function getMonthBounds(monthValue) {
-  const { year, month } = parseMonthValue(monthValue);
-  const start = `${year}-${String(month).padStart(2, "0")}-01`;
-  const end = new Date(year, month, 0);
-  const endValue = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, "0")}-${String(end.getDate()).padStart(2, "0")}`;
-  return { start, end: endValue };
-}
-
-function getDefaultDueDate(monthValue, todayISO) {
-  const { start, end } = getMonthBounds(monthValue);
-  if (todayISO >= start && todayISO <= end) return todayISO;
-  return start;
 }
 
 function titleFor(item) {
@@ -284,236 +227,6 @@ function DetailRow({ label, value }) {
       <span className="text-sm text-muted-foreground">{label}</span>
       <span className="max-w-[62%] text-right text-sm font-medium">{value || "-"}</span>
     </div>
-  );
-}
-
-function ExpectedIncomeRow({ item, appLang, onEdit, onDelete, onStatusChange, isUpdating }) {
-  const meta = getExpectedStatusMeta(item.status);
-  const sourceName = item.source?.name || "Source removed";
-  const statusActions =
-    item.status === "EXPECTED"
-      ? [
-          { status: "RECEIVED", label: "Received", icon: CheckCircle2, variant: "default" },
-          { status: "MISSED", label: "Missed", icon: XCircle, variant: "outline" },
-          { status: "CANCELLED", label: "Cancel", icon: Ban, variant: "outline" },
-        ]
-      : [
-          { status: "EXPECTED", label: "Reopen", icon: RotateCcw, variant: "outline" },
-        ];
-
-  return (
-    <div className="rounded-2xl border border-border/70 bg-background/75 p-4 shadow-sm">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="truncate text-base font-semibold tracking-tight">{sourceName}</h3>
-            <Badge className={cn("rounded-full border px-2.5 py-0.5", meta.tone)}>{meta.label}</Badge>
-          </div>
-          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
-            <span>{formatDisplayDate(item.due_date, appLang)}</span>
-            <span>/</span>
-            <span>{meta.description}</span>
-          </p>
-          {item.note ? (
-            <p className="mt-3 rounded-xl border border-border/50 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-              {item.note}
-            </p>
-          ) : null}
-        </div>
-
-        <div className="flex flex-col gap-3 xl:min-w-[24rem] xl:items-end">
-          <CurrencyAmount
-            value={Number(item.amount || 0)}
-            format="display"
-            tooltip="compact"
-            className="flex items-baseline gap-1 text-xl font-bold tracking-tight text-foreground xl:justify-end"
-            currencyClassName="text-muted-foreground/70"
-          />
-          <div className="flex flex-wrap gap-2 xl:justify-end">
-            {statusActions.map((action) => {
-              const Icon = action.icon;
-              return (
-                <Button
-                  key={action.status}
-                  size="sm"
-                  variant={action.variant}
-                  className="rounded-2xl"
-                  disabled={isUpdating}
-                  onClick={() => onStatusChange(item, action.status)}
-                >
-                  <Icon className="mr-2 h-4 w-4" />
-                  {action.label}
-                </Button>
-              );
-            })}
-            <Button size="icon" variant="ghost" className="rounded-2xl" onClick={() => onEdit(item)} disabled={isUpdating}>
-              <Pencil className="h-4 w-4" />
-              <span className="sr-only">Edit expected income</span>
-            </Button>
-            <Button size="icon" variant="ghost" className="rounded-2xl text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => onDelete(item)} disabled={isUpdating}>
-              <Trash2 className="h-4 w-4" />
-              <span className="sr-only">Delete expected income</span>
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ExpectedIncomeDialog({
-  open,
-  onOpenChange,
-  item,
-  monthValue,
-  sources,
-  todayISO,
-  appLang,
-  onSubmit,
-  isSubmitting,
-}) {
-  const mode = item ? "edit" : "create";
-  const activeSources = useMemo(() => {
-    const currentSourceId = Number(item?.source_id || 0);
-    return (sources || []).filter((source) => source.is_active || source.id === currentSourceId);
-  }, [item?.source_id, sources]);
-  const { start, end } = useMemo(() => getMonthBounds(monthValue), [monthValue]);
-  const [sourceId, setSourceId] = useState("");
-  const [amount, setAmount] = useState("");
-  const [dueDate, setDueDate] = useState("");
-  const [note, setNote] = useState("");
-  const [status, setStatus] = useState("EXPECTED");
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!open) return;
-    setSourceId(item?.source_id ? String(item.source_id) : (activeSources[0]?.id ? String(activeSources[0].id) : ""));
-    setAmount(item?.amount ? formatAmountInput(String(item.amount), MAX_AMOUNT_DIGITS) : "");
-    setDueDate(item?.due_date || getDefaultDueDate(monthValue, todayISO));
-    setNote(item?.note || "");
-    setStatus(item?.status || "EXPECTED");
-    setError("");
-  }, [activeSources, item, monthValue, open, todayISO]);
-
-  const amountValue = parseAmountInput(amount);
-  const canSubmit =
-    Boolean(sourceId) &&
-    amountValue > 0 &&
-    amountValue <= MAX_INCOME_AMOUNT &&
-    dueDate >= start &&
-    dueDate <= end &&
-    !isSubmitting;
-
-  const submit = async () => {
-    setError("");
-    if (!canSubmit) {
-      setError("Choose a source, date, and positive amount inside the selected month.");
-      return;
-    }
-    try {
-      const { year, month } = parseMonthValue(monthValue);
-      await onSubmit({
-        source_id: Number(sourceId),
-        amount: amountValue,
-        due_date: dueDate,
-        budget_year: year,
-        budget_month: month,
-        status,
-        note: note.trim() || null,
-      });
-      onOpenChange(false);
-    } catch (err) {
-      setError(err?.message || "Expected income could not be saved.");
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{mode === "edit" ? "Edit expected income" : "Add expected income"}</DialogTitle>
-          <DialogDescription>
-            Expected income supports planning for {formatMonthYear(monthValue, appLang)} until you manually change its status.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1">
-              <label className="text-sm text-muted-foreground">Source</label>
-              <Select value={sourceId || undefined} onValueChange={setSourceId}>
-                <SelectTrigger className="rounded-2xl">
-                  <SelectValue placeholder="Income source" />
-                </SelectTrigger>
-                <SelectContent>
-                  {activeSources.map((source) => (
-                    <SelectItem key={source.id} value={String(source.id)}>{source.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {activeSources.length === 0 ? (
-                <p className="text-xs text-muted-foreground">Create an active income source before adding expected income.</p>
-              ) : null}
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm text-muted-foreground">Amount</label>
-              <Input
-                inputMode="numeric"
-                value={amount}
-                onChange={(event) => setAmount(formatAmountInput(event.target.value, MAX_AMOUNT_DIGITS))}
-                placeholder="0"
-                className="rounded-2xl"
-              />
-            </div>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1">
-              <label className="text-sm text-muted-foreground">Expected date</label>
-              <Input
-                type="date"
-                min={start}
-                max={end}
-                value={dueDate}
-                onChange={(event) => setDueDate(event.target.value)}
-                className="rounded-2xl"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm text-muted-foreground">Status</label>
-              <Select value={status} onValueChange={setStatus}>
-                <SelectTrigger className="rounded-2xl">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(EXPECTED_STATUS_META).map(([value, meta]) => (
-                    <SelectItem key={value} value={value}>{meta.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-sm text-muted-foreground">Note</label>
-            <Input
-              value={note}
-              maxLength={MAX_INCOME_NOTE_LENGTH}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="Optional"
-              className="rounded-2xl"
-            />
-          </div>
-
-          {error ? <p className="text-sm text-red-500">{error}</p> : null}
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>Cancel</Button>
-          <Button onClick={submit} disabled={!canSubmit}>{mode === "edit" ? "Save" : "Add expected"}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -805,14 +518,14 @@ function RecordIncomeDialog({ open, onOpenChange, wallets, sources, defaultWalle
 }
 
 export default function Income() {
-  const { t, i18n } = useTranslation();
-  const queryClient = useQueryClient();
-  const toast = useToast();
+  const { i18n } = useTranslation();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const appLang = String(i18n.resolvedLanguage || i18n.language || "en").toLowerCase();
   const todayISO = useMemo(() => toISODateInTimeZone(), []);
   const monthStartISO = useMemo(() => `${todayISO.slice(0, 7)}-01`, [todayISO]);
-  const [activeTab, setActiveTab] = useState(() => parseTabParam(searchParams.get("tab")));
+  const activeTab = location.pathname === "/money-in/expected-inflow" ? "expected" : "stream";
   const [kind, setKind] = useState(() => parseKindParam(searchParams.get("kind")));
   const [page, setPage] = useState(() => parsePageParam(searchParams.get("page")));
   const [search, setSearch] = useState(() => searchParams.get("search") || "");
@@ -822,18 +535,10 @@ export default function Income() {
   const [expectedMonth, setExpectedMonth] = useState(() => parseMonthValue(searchParams.get("expected_month"), todayISO).value);
   const [recordOpen, setRecordOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
-  const [expectedDialogOpen, setExpectedDialogOpen] = useState(false);
-  const [editingExpectedIncome, setEditingExpectedIncome] = useState(null);
-  const [deletingExpectedIncome, setDeletingExpectedIncome] = useState(null);
+  const [expectedCreateToken, setExpectedCreateToken] = useState(() => searchParams.get("action") === "add" ? 1 : 0);
 
   const walletsQuery = useQuery({ queryKey: ["wallets"], queryFn: getWallets });
   const sourcesQuery = useIncomeSourcesQuery(true);
-  const expectedMonthParts = useMemo(() => parseMonthValue(expectedMonth, todayISO), [expectedMonth, todayISO]);
-  const expectedIncomesQuery = useQuery({
-    queryKey: ["budgets", "expected-incomes", expectedMonthParts.year, expectedMonthParts.month],
-    queryFn: () => getBudgetExpectedIncomes(expectedMonthParts.year, expectedMonthParts.month),
-    enabled: activeTab === "expected",
-  });
   const dateError = startDate && endDate && startDate > endDate ? "Start date must be before end date." : "";
   const moneyInParams = useMemo(
     () => ({
@@ -847,43 +552,6 @@ export default function Income() {
     [debouncedSearch, endDate, kind, page, startDate]
   );
   const moneyInQuery = useMoneyInQuery(moneyInParams, activeTab === "stream" && !dateError);
-  const invalidateExpectedIncome = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["budgets", "expected-incomes"] }),
-      queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary"] }),
-      queryClient.invalidateQueries({ queryKey: ["budgets", "list"] }),
-    ]);
-  };
-  const createExpectedIncomeMutation = useMutation({
-    mutationFn: createBudgetExpectedIncome,
-    onSuccess: async () => {
-      await invalidateExpectedIncome();
-      toast.success("Expected income added");
-    },
-    onError: (error) => {
-      toast.error("Failed to add expected income", localizeApiError(error?.message, t) || error?.message);
-    },
-  });
-  const updateExpectedIncomeMutation = useMutation({
-    mutationFn: ({ id, payload }) => updateBudgetExpectedIncome(id, payload),
-    onSuccess: async () => {
-      await invalidateExpectedIncome();
-      toast.success("Expected income updated");
-    },
-    onError: (error) => {
-      toast.error("Failed to update expected income", localizeApiError(error?.message, t) || error?.message);
-    },
-  });
-  const deleteExpectedIncomeMutation = useMutation({
-    mutationFn: deleteBudgetExpectedIncome,
-    onSuccess: async () => {
-      await invalidateExpectedIncome();
-      toast.success("Expected income deleted");
-    },
-    onError: (error) => {
-      toast.error("Failed to delete expected income", localizeApiError(error?.message, t) || error?.message);
-    },
-  });
   const wallets = activeWallets(walletsQuery.data);
   const defaultWalletId = useMemo(() => {
     const wallet = wallets.find((item) => item.is_default) || wallets[0];
@@ -891,27 +559,16 @@ export default function Income() {
   }, [wallets]);
 
   const items = moneyInQuery.data?.items || [];
-  const expectedIncomes = Array.isArray(expectedIncomesQuery.data) ? expectedIncomesQuery.data : [];
   const total = Number(moneyInQuery.data?.total || 0);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const visibleAmount = items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const planningAmount = items.reduce((sum, item) => sum + (item.counts_as_income ? Number(item.amount || 0) : 0), 0);
-  const expectedOpenTotal = expectedIncomes
-    .filter((item) => item.status === "EXPECTED")
-    .reduce((sum, item) => sum + Number(item.amount || 0), 0);
-  const expectedReceivedTotal = expectedIncomes
-    .filter((item) => item.status === "RECEIVED")
-    .reduce((sum, item) => sum + Number(item.amount || 0), 0);
-  const expectedInactiveCount = expectedIncomes.filter((item) => item.status !== "EXPECTED").length;
   const activeFilterCount = [debouncedSearch.trim(), kind !== "all", Boolean(startDate), Boolean(endDate)].filter(Boolean).length;
   const loading = moneyInQuery.isLoading || walletsQuery.isLoading || sourcesQuery.isLoading;
-  const expectedLoading = expectedIncomesQuery.isLoading || sourcesQuery.isLoading;
   const error = dateError || moneyInQuery.error?.message || walletsQuery.error?.message || sourcesQuery.error?.message || "";
-  const expectedError = expectedIncomesQuery.error?.message || sourcesQuery.error?.message || "";
 
   useEffect(() => {
     const next = new URLSearchParams();
-    if (activeTab !== "stream") next.set("tab", activeTab);
     if (activeTab === "stream" || page > 1) next.set("page", String(page));
     if (debouncedSearch.trim()) next.set("search", debouncedSearch.trim());
     if (kind !== "all") next.set("kind", kind);
@@ -938,38 +595,10 @@ export default function Income() {
   };
 
   const openCreateExpectedIncome = () => {
-    setEditingExpectedIncome(null);
-    setExpectedDialogOpen(true);
-  };
-
-  const openEditExpectedIncome = (item) => {
-    setEditingExpectedIncome(item);
-    setExpectedDialogOpen(true);
-  };
-
-  const handleExpectedSubmit = async (payload) => {
-    if (editingExpectedIncome) {
-      await updateExpectedIncomeMutation.mutateAsync({
-        id: editingExpectedIncome.id,
-        payload,
-      });
-      setEditingExpectedIncome(null);
-      return;
+    if (activeTab !== "expected") {
+      navigate(`/money-in/expected-inflow?expected_month=${expectedMonth}`);
     }
-    await createExpectedIncomeMutation.mutateAsync(payload);
-  };
-
-  const handleExpectedStatusChange = async (item, status) => {
-    await updateExpectedIncomeMutation.mutateAsync({
-      id: item.id,
-      payload: { status },
-    });
-  };
-
-  const handleDeleteExpectedIncome = async () => {
-    if (!deletingExpectedIncome) return;
-    await deleteExpectedIncomeMutation.mutateAsync(deletingExpectedIncome.id);
-    setDeletingExpectedIncome(null);
+    setExpectedCreateToken((value) => value + 1);
   };
 
   return (
@@ -993,8 +622,12 @@ export default function Income() {
       <Tabs
         value={activeTab}
         onValueChange={(value) => {
-          setActiveTab(value);
-          if (value === "stream") resetToFirstPage();
+          if (value === "expected") {
+            navigate(`/money-in/expected-inflow?expected_month=${expectedMonth}`);
+            return;
+          }
+          resetToFirstPage();
+          navigate("/money-in");
         }}
         className="space-y-6"
       >
@@ -1159,91 +792,13 @@ export default function Income() {
         </TabsContent>
 
         <TabsContent value="expected" className="space-y-6">
-          <Card className="shadow-sm">
-            <CardHeader>
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-                <div className="space-y-1">
-                  <CardTitle>Expected Income</CardTitle>
-                  <CardDescription>Manual planning entries for money you expect, but have not recorded as wallet cash.</CardDescription>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Input
-                    type="month"
-                    value={expectedMonth}
-                    min="2020-01"
-                    onChange={(event) => setExpectedMonth(parseMonthValue(event.target.value, todayISO).value)}
-                    className="w-44 rounded-2xl"
-                  />
-                  <Button className="rounded-2xl" onClick={openCreateExpectedIncome}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add expected
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-          </Card>
-
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <SummaryStat title="Expected backing" value={<CurrencyAmount value={expectedOpenTotal} format="display" />} hint="Still counted for budget planning" />
-            <SummaryStat title="Received status" value={<CurrencyAmount value={expectedReceivedTotal} format="display" />} hint="Marked received manually" />
-            <SummaryStat title="Inactive items" value={expectedInactiveCount} hint="Missed, cancelled, or received" />
-            <SummaryStat title="Month" value={formatMonthYear(expectedMonth, appLang)} hint={`${expectedIncomes.length} expected entries`} />
-          </div>
-
-          {expectedError ? (
-            <Card className="border-red-500/20">
-              <CardContent className="p-5 text-sm text-red-500">
-                {localizeApiError(expectedError, t) || expectedError}
-              </CardContent>
-            </Card>
-          ) : null}
-
-          <Card className="overflow-hidden border border-border/70 bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80">
-            <CardHeader className="border-b border-border/60 bg-gradient-to-br from-muted/50 via-background to-background">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-                <div className="space-y-1">
-                  <CardTitle>Expected income list</CardTitle>
-                  <CardDescription>Change status manually when the expected income is resolved.</CardDescription>
-                </div>
-                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                  <Badge variant="outline" className="rounded-full px-3 py-1">
-                    {formatMonthYear(expectedMonth, appLang)}
-                  </Badge>
-                  <Badge variant="outline" className="rounded-full px-3 py-1">
-                    Manual status
-                  </Badge>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-4 sm:p-6">
-              {expectedLoading ? (
-                <div className="flex min-h-40 items-center justify-center">
-                  <LoadingSpinner className="h-8 w-8" />
-                </div>
-              ) : expectedIncomes.length === 0 ? (
-                <EmptyState
-                  icon={CalendarDays}
-                  title="No expected income"
-                  description="Add salary, freelance, or other earned income expected for this month."
-                  className="my-4"
-                />
-              ) : (
-                <div className="space-y-3">
-                  {expectedIncomes.map((item) => (
-                    <ExpectedIncomeRow
-                      key={item.id}
-                      item={item}
-                      appLang={appLang}
-                      onEdit={openEditExpectedIncome}
-                      onDelete={setDeletingExpectedIncome}
-                      onStatusChange={handleExpectedStatusChange}
-                      isUpdating={updateExpectedIncomeMutation.isPending || deleteExpectedIncomeMutation.isPending}
-                    />
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <ExpectedInflowsPanel
+            monthValue={expectedMonth}
+            onMonthChange={(value) => setExpectedMonth(parseMonthValue(value, todayISO).value)}
+            todayISO={todayISO}
+            appLang={appLang}
+            createToken={expectedCreateToken}
+          />
         </TabsContent>
       </Tabs>
 
@@ -1253,36 +808,6 @@ export default function Income() {
         wallets={wallets}
         sources={sourcesQuery.data || []}
         defaultWalletId={defaultWalletId}
-      />
-      <ExpectedIncomeDialog
-        open={expectedDialogOpen}
-        onOpenChange={(nextOpen) => {
-          setExpectedDialogOpen(nextOpen);
-          if (!nextOpen) setEditingExpectedIncome(null);
-        }}
-        item={editingExpectedIncome}
-        monthValue={expectedMonth}
-        sources={sourcesQuery.data || []}
-        todayISO={todayISO}
-        appLang={appLang}
-        onSubmit={handleExpectedSubmit}
-        isSubmitting={createExpectedIncomeMutation.isPending || updateExpectedIncomeMutation.isPending}
-      />
-      <ConfirmDialog
-        open={Boolean(deletingExpectedIncome)}
-        onOpenChange={(open) => {
-          if (!open) setDeletingExpectedIncome(null);
-        }}
-        title="Delete expected income"
-        description={
-          deletingExpectedIncome
-            ? `${deletingExpectedIncome.source?.name || "This expected income"} will be removed from planning.`
-            : "This expected income will be removed from planning."
-        }
-        onConfirm={handleDeleteExpectedIncome}
-        confirmText="Delete"
-        cancelText="Cancel"
-        isConfirming={deleteExpectedIncomeMutation.isPending}
       />
       <MoneyInDetailsDialog
         item={selectedItem}

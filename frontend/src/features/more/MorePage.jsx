@@ -14,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 
 const wealthItems = [
-  { to: "/income", labelKey: "nav.income", icon: Landmark },
+  { to: "/money-in", labelKey: "nav.income", icon: Landmark },
   { to: "/savings", labelKey: "nav.savings", icon: Wallet },
   { to: "/analytics", labelKey: "nav.analytics", icon: LineChart },
 ];

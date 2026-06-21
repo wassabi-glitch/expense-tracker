@@ -32,6 +32,8 @@ from .models import (
     DebtType,
     DebtStatus,
     ExpectedIncomeStatus,
+    ExpectedInflowKind,
+    ExpectedInflowPromiseStatus,
     InstallmentFrequency,
     PaymentPlanType,
     InstallmentStatus,
@@ -550,6 +552,269 @@ class ExpectedIncomeOut(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ExpectedInflowCreate(BaseModel):
+    kind: ExpectedInflowKind
+    source_id: Optional[int] = None
+    debt_id: Optional[int] = None
+    asset_id: Optional[int] = None
+    refund_event_id: Optional[int] = None
+    title: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    amount: int = Field(gt=0, le=MAX_INCOME_AMOUNT)
+    due_date: date
+    note: Optional[str] = Field(default=None, max_length=200)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("due_date")
+    @classmethod
+    def validate_due_date(cls, value: date):
+        if value.year < MIN_BUDGET_YEAR:
+            raise ValueError("income.date_too_early")
+        return value
+
+    @model_validator(mode="after")
+    def validate_source_shape(self):
+        source_values = {
+            ExpectedInflowKind.EARNED: self.source_id,
+            ExpectedInflowKind.RECEIVABLE: self.debt_id,
+            ExpectedInflowKind.REFUND: self.refund_event_id,
+            ExpectedInflowKind.ASSET_SALE: self.asset_id,
+        }
+        if source_values[self.kind] is None:
+            raise ValueError("expected_inflow.source_required")
+        if sum(value is not None for value in source_values.values()) != 1:
+            raise ValueError("expected_inflow.exactly_one_source_required")
+        return self
+
+
+class ExpectedInflowUpdate(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    amount: Optional[int] = Field(default=None, gt=0, le=MAX_INCOME_AMOUNT)
+    due_date: Optional[date] = None
+    note: Optional[str] = Field(default=None, max_length=200)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("due_date")
+    @classmethod
+    def validate_due_date(cls, value: Optional[date]):
+        if value is not None and value.year < MIN_BUDGET_YEAR:
+            raise ValueError("income.date_too_early")
+        return value
+
+
+class ExpectedInflowExpectationAllocationCreate(BaseModel):
+    expected_inflow_id: int
+    amount: int = Field(gt=0, le=MAX_INCOME_AMOUNT)
+
+
+class ExpectedInflowScheduleAllocationCreate(BaseModel):
+    schedule_id: int
+    amount: int = Field(gt=0, le=MAX_INCOME_AMOUNT)
+
+
+class ExpectedInflowRealizeCreate(BaseModel):
+    actual_amount: int = Field(gt=0, le=MAX_INCOME_AMOUNT)
+    received_date: Optional[date] = None
+    wallet_allocations: List[IncomeWalletAllocationIn]
+    schedule_allocations: List[ExpectedInflowScheduleAllocationCreate] = Field(default_factory=list)
+    expectation_allocations: List[ExpectedInflowExpectationAllocationCreate] = Field(default_factory=list)
+    note: Optional[str] = Field(default=None, max_length=200)
+    idempotency_key: Optional[str] = Field(default=None, min_length=8, max_length=64)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def validate_allocation_shape(self):
+        if self.schedule_allocations and self.expectation_allocations:
+            raise ValueError("expected_inflow.one_allocation_shape_required")
+        return self
+
+
+class ExpectedInflowRescheduleAllocationCreate(BaseModel):
+    amount: int = Field(gt=0, le=MAX_INCOME_AMOUNT)
+    due_date: date
+    note: Optional[str] = Field(default=None, max_length=200)
+
+    @field_validator("due_date")
+    @classmethod
+    def validate_due_date(cls, value: date):
+        if value.year < MIN_BUDGET_YEAR:
+            raise ValueError("income.date_too_early")
+        return value
+
+
+class ExpectedInflowRescheduleCreate(BaseModel):
+    source_schedule_id: Optional[int] = None
+    allocations: List[ExpectedInflowRescheduleAllocationCreate] = Field(min_length=1, max_length=24)
+    note: Optional[str] = Field(default=None, max_length=200)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ExpectedInflowCloseCreate(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=200)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ExpectedInflowWriteOffCreate(BaseModel):
+    amount: int = Field(gt=0, le=MAX_INCOME_AMOUNT)
+    reason: str = Field(min_length=1, max_length=200)
+    written_off_date: Optional[date] = None
+    schedule_allocations: List[ExpectedInflowScheduleAllocationCreate] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ExpectedInflowWriteOffReverseCreate(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=200)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ExpectedInflowRealizationOut(BaseModel):
+    id: int
+    actual_amount: int
+    received_date: date
+    note: Optional[str] = None
+    event_ids: List[int] = Field(default_factory=list)
+    created_at: datetime
+
+
+class ExpectedInflowScheduleOut(BaseModel):
+    id: int
+    promise_id: int
+    parent_id: Optional[int] = None
+    amount: int
+    received_amount: int
+    written_off_amount: int
+    remaining_amount: int
+    due_date: date
+    budget_year: int
+    budget_month: int
+    status: ExpectedIncomeStatus
+    close_reason: Optional[str] = None
+    is_active: bool
+    is_overdue: bool
+    note: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ExpectedInflowWriteOffOut(BaseModel):
+    id: int
+    schedule_id: int
+    amount: int
+    reason: str
+    written_off_date: date
+    reversed_at: Optional[datetime] = None
+    reversal_note: Optional[str] = None
+    created_at: datetime
+
+
+class ExpectedInflowActivityOut(BaseModel):
+    id: str
+    activity_type: str
+    activity_date: date
+    amount: Optional[int] = None
+    schedule_id: Optional[int] = None
+    note: Optional[str] = None
+
+
+class ExpectedInflowPromiseOut(BaseModel):
+    id: int
+    owner_id: int
+    kind: ExpectedInflowKind
+    source_id: Optional[int] = None
+    debt_id: Optional[int] = None
+    asset_id: Optional[int] = None
+    refund_event_id: Optional[int] = None
+    title: str
+    source_label: str
+    amount: int
+    original_amount: int
+    received_amount: int
+    written_off_amount: int
+    remaining_amount: int
+    outstanding_amount: int
+    due_date: Optional[date] = None
+    next_due_date: Optional[date] = None
+    budget_year: Optional[int] = None
+    budget_month: Optional[int] = None
+    status: ExpectedInflowPromiseStatus
+    backing_eligible: bool
+    backing_amount: int
+    period_scheduled_amount: int
+    period_backing_amount: int
+    is_pristine: bool
+    is_rescheduled: bool
+    is_partially_written_off: bool
+    is_overdue: bool
+    close_reason: Optional[str] = None
+    closed_at: Optional[datetime] = None
+    note: Optional[str] = None
+    realization_event_ids: List[int] = Field(default_factory=list)
+    schedules: List[ExpectedInflowScheduleOut] = Field(default_factory=list)
+    realizations: List[ExpectedInflowRealizationOut] = Field(default_factory=list)
+    write_offs: List[ExpectedInflowWriteOffOut] = Field(default_factory=list)
+    activity: List[ExpectedInflowActivityOut] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class ExpectedInflowOut(BaseModel):
+    id: int
+    owner_id: int
+    kind: ExpectedInflowKind
+    source_id: Optional[int] = None
+    debt_id: Optional[int] = None
+    asset_id: Optional[int] = None
+    refund_event_id: Optional[int] = None
+    parent_id: Optional[int] = None
+    source_label: str
+    amount: int
+    received_amount: int
+    remaining_amount: int
+    due_date: date
+    budget_year: int
+    budget_month: int
+    status: ExpectedIncomeStatus
+    backing_eligible: bool
+    backing_amount: int
+    close_reason: Optional[str] = None
+    closed_at: Optional[datetime] = None
+    note: Optional[str] = None
+    is_overdue: bool = False
+    realization_event_ids: List[int] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class ExpectedInflowRescheduleOut(BaseModel):
+    source: ExpectedInflowPromiseOut
+    replacements: List[ExpectedInflowScheduleOut]
+
+
+class ExpectedInflowRealizeOut(BaseModel):
+    realization: ExpectedInflowRealizationOut
+    inflow: ExpectedInflowPromiseOut
+    inflows: List[ExpectedInflowPromiseOut] = Field(default_factory=list)
+
+
+class ExpectedInflowTimelineItemOut(BaseModel):
+    id: int
+    kind: ExpectedInflowKind
+    source_label: str
+    due_date: date
+    expected_amount: int
+    received_amount: int
+    remaining_amount: int
+    status: ExpectedIncomeStatus
+    backing_eligible: bool
+    is_overdue: bool
 
 
 class MoneyInKind(str, Enum):
