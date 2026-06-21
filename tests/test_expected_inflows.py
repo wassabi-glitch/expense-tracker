@@ -238,7 +238,7 @@ def test_earned_receipt_can_exceed_expected_amount_without_overallocating_schedu
     assert payload["inflow"]["status"] == "RESOLVED"
     event = session.get(models.FinancialEvent, payload["realization"]["event_ids"][0])
     assert event is not None
-    assert sum(int(row.amount) for row in event.wallet_ledgers) == 350_000
+    assert sum(int(row.amount) for row in event.wallet_legs) == 350_000
 
 
 def test_receivable_realization_links_principal_and_charge_events(client, session):
