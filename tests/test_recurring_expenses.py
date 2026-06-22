@@ -399,7 +399,7 @@ def test_resume_advances_past_paused_dates_without_catch_up(client):
 
 def test_scheduler_materializes_confirmation_occurrence_once(client):
     email = "req_scheduler_confirm_once@example.com"
-    headers = create_user_and_token(client, "req_scheduler_confirm_once", email, "Password123!")
+    create_user_and_token(client, "req_scheduler_confirm_once", email, "Password123!")
     _make_user_premium(email)
     today = user_timezone_today()
     template_id = _create_recurring_row(

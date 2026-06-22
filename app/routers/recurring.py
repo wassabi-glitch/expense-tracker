@@ -6,7 +6,6 @@ from datetime import tzinfo
 
 from app import models, schemas, oauth2
 from app.session import get_db
-from app.services.recurring_schedule_service import calculate_next_due_date
 from app.timezone import get_effective_user_timezone, today_in_tz
 from app.redis_rate_limiter import consume_token_bucket
 from app.services.recurring_occurrence_service import (
@@ -429,7 +428,8 @@ def change_recurring_wallet(
         current_user.id,
         payload.wallet_id,
     )
-    assert new_wallet is not None
+    if new_wallet is None:
+        raise HTTPException(status_code=400, detail="Wallet could not be validated")
 
     old_wallet_id = recurring.wallet_id
     # 2. Update the wallet

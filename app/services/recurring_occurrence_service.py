@@ -317,7 +317,7 @@ def confirm_recurring_occurrence(
             target_due_date=occurrence.scheduled_due_date,
             old_next_due_date=old_next_due,
             new_next_due_date=new_next_due,
-            metadata_notes=f"Confirmed. Math applied.",
+            metadata_notes="Confirmed. Math applied.",
         )
     )
     return occurrence
