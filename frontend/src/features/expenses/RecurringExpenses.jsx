@@ -36,8 +36,6 @@ import {
     useUpdateRecurringMutation,
     useDeleteRecurringMutation,
     useToggleRecurringMutation,
-    useSkipRecurringMutation,
-    usePayNowRecurringMutation,
     useChangeRecurringWalletMutation
 } from "./hooks/useRecurringMutations";
 import { getWallets } from "@/lib/api";
@@ -259,8 +257,6 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
     const editRecurringMutation = useUpdateRecurringMutation();
     const deleteRecurringMutation = useDeleteRecurringMutation();
     const toggleRecurringMutation = useToggleRecurringMutation();
-    const skipMutation = useSkipRecurringMutation();
-    const payNowMutation = usePayNowRecurringMutation();
     const changeWalletMutation = useChangeRecurringWalletMutation();
 
     const isAdding = addRecurringMutation.isPending;
@@ -461,24 +457,6 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                 category: parsed.data.category,
                 startDate: parsed.data.start_date,
             }));
-        }
-    };
-
-    const handleSkip = async (id) => {
-        try {
-            await skipMutation.mutateAsync(id);
-            setRecurringMenuForId(null);
-        } catch (e) {
-            setError(localizeApiError(e?.message, t) || e?.message || t("recurring.skipFailed"));
-        }
-    };
-
-    const handlePayNow = async (id) => {
-        try {
-            await payNowMutation.mutateAsync(id);
-            setRecurringMenuForId(null);
-        } catch (e) {
-            setError(localizeApiError(e?.message, t) || e?.message || t("recurring.payNowFailed"));
         }
     };
 
@@ -1140,35 +1118,8 @@ export default function RecurringExpenses({ onAddClick, onCountUpdate }) {
                     const e = expenses.find(x => x.id === recurringMenuForId);
                     if (!e) return null;
 
-                    const isFuture = e.next_due_date > todayISO;
-                    const isFailed = Boolean(e.failing_due_date);
-                    const isDue = e.next_due_date <= todayISO;
-                    
-                    // Rules:
-                    // 1. Payable if it's currently failing OR it's due today/overdue.
-                    // 2. Cannot pay if DISABLED.
-                    const isPayable = (isFailed || (e.status === "ACTIVE" && isDue)) && e.status !== "DISABLED";
-                    
-                    // 3. Skippable if it's currently due (to jump past it).
-                    const isSkippable = isDue && e.status !== "DISABLED";
-
                     return (
                         <>
-                            <ActionMenuItem
-                                icon={SkipForward}
-                                label={isFuture ? t("recurring.skipFuture", { defaultValue: "Skip Next occurrence" }) : t("recurring.skipOccurrence", { defaultValue: "Skip this time" })}
-                                onClick={() => handleSkip(e.id)}
-                                disabled={!isSkippable}
-                                className={!isSkippable ? "opacity-30 grayscale" : ""}
-                            />
-                            <ActionMenuItem
-                                icon={Zap}
-                                label={t("recurring.payNow", { defaultValue: "Pay Now" })}
-                                                onClick={() => handlePayNow(e.id)}
-                                                disabled={!isPayable}
-                                                className={!isPayable ? "opacity-30 grayscale" : ""}
-                                            />
-                                            <ActionMenuDivider />
                                             <ActionMenuItem
                                                 icon={Wallet}
                                                 label={t("recurring.changeWallet", { defaultValue: "Change Wallet" })}

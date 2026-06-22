@@ -132,6 +132,12 @@ class CycleBehavior(str, enum.Enum):
     FIXED = "FIXED"        # Next due date anchored to calendar (rent, cleaner)
     FLEXIBLE = "FLEXIBLE"  # Next due date shifts on late payment (Netflix, gym)
 
+class RecurringOccurrenceStatus(str, enum.Enum):
+    PENDING_CONFIRMATION = "PENDING_CONFIRMATION"
+    FULFILLED = "FULFILLED"
+    SKIPPED = "SKIPPED"
+    CANCELLED = "CANCELLED"
+
 
 class RecurringEventType(str, enum.Enum):
     CREATED = "CREATED"
@@ -445,6 +451,8 @@ class User(Base):
         "Asset", back_populates="owner", cascade="all, delete")
     recurring_expenses = relationship(
         "RecurringExpense", back_populates="owner", cascade="all, delete")
+    recurring_occurrences = relationship(
+        "RecurringOccurrence", back_populates="owner", cascade="all, delete-orphan")
     income_sources = relationship(
         "IncomeSource", back_populates="owner", cascade="all, delete")
     income_entries = relationship(
@@ -996,37 +1004,88 @@ class RecurringExpense(Base):
     wallet_id = Column(Integer, ForeignKey(
         "wallets.id", ondelete="SET NULL"), nullable=True, index=True)
     wallet = relationship("Wallet")
+    archived_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    paused_at = Column(DateTime(timezone=True), nullable=True)
 
     # ── State Machine ─────────────────────────────────────────────────
-    # status: User Intent (ACTIVE/DISABLED).
-    # failing_due_date: The date of the specific bill that is currently stuck.
-    #                  If NULL, the template is healthy.
     status = Column(Enum(RecurringStatus), nullable=False, default=RecurringStatus.ACTIVE)
-    failing_due_date = Column(Date, nullable=True)
 
     # ── Cycle Behavior ────────────────────────────────────────────────
-    # FIXED    → Next due date anchored to calendar (rent, cleaner).
-    #            Paid late on Wednesday? Next due is still next Sunday.
-    # FLEXIBLE → Next due date shifts on late payment (Netflix, gym).
-    #            Paid 9 days late? next_due = payment_date + interval.
     cycle_behavior = Column(Enum(CycleBehavior), nullable=False, default=CycleBehavior.FIXED)
 
     # ── Date Anchoring ────────────────────────────────────────────────
-    # The original day of the month/year the user intended (e.g. 31).
-    # Used to "snap back" to the correct day after a short month like February.
     original_due_day = Column(Integer, nullable=True)
 
-    # ── Retry Tracking ────────────────────────────────────────────────
-    # How many consecutive hourly retries have failed. Reset to 0 on success.
-    # At 72 (3 days × 24 hours), the system auto-pauses the template.
-    retry_count = Column(Integer, nullable=False, default=0)
-    # Timestamp of the most recent failed attempt. Used to throttle notifications
-    # to once per day (so the user doesn't get 24 alerts for the same failure).
-    last_retry_at = Column(DateTime(timezone=True), nullable=True)
     custom_projection_horizons = Column(JSON, nullable=True)
+
     
     # Relationships
     events = relationship("RecurringEvent", back_populates="recurring_expense", cascade="all, delete-orphan")
+    occurrences = relationship(
+        "RecurringOccurrence",
+        back_populates="template",
+        cascade="all, delete-orphan",
+        order_by="RecurringOccurrence.scheduled_due_date",
+    )
+
+
+class RecurringOccurrence(Base):
+    __tablename__ = "recurring_occurrences"
+    __table_args__ = (
+        CheckConstraint("expected_amount > 0", name="ck_recurring_occurrences_expected_amount_positive"),
+        CheckConstraint(
+            "actual_amount IS NULL OR actual_amount > 0",
+            name="ck_recurring_occurrences_actual_amount_positive",
+        ),
+        UniqueConstraint(
+            "template_id",
+            "scheduled_due_date",
+            name="uq_recurring_occurrences_template_due_date",
+        ),
+        Index("ix_recurring_occurrences_owner_status", "owner_id", "status"),
+        Index("ix_recurring_occurrences_owner_due_date", "owner_id", "scheduled_due_date"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    template_id = Column(
+        Integer,
+        ForeignKey("recurring_expenses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    scheduled_due_date = Column(Date, nullable=False, index=True)
+    expected_title = Column(String(32), nullable=False)
+    expected_amount = Column(BigInteger, nullable=False)
+    expected_category = Column(Enum(ExpenseCategory), nullable=False)
+    status = Column(
+        Enum(RecurringOccurrenceStatus),
+        nullable=False,
+        default=RecurringOccurrenceStatus.PENDING_CONFIRMATION,
+    )
+    actual_amount = Column(BigInteger, nullable=True)
+    actual_date = Column(Date, nullable=True)
+    linked_financial_event_id = Column(
+        Integer,
+        ForeignKey("financial_events.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    initial_notified_at = Column(DateTime(timezone=True), nullable=True)
+    remind_at = Column(DateTime(timezone=True), nullable=True)
+    failure_code = Column(String(100), nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    owner = relationship("User", back_populates="recurring_occurrences")
+    template = relationship("RecurringExpense", back_populates="occurrences")
+    linked_financial_event = relationship("FinancialEvent")
 
 
 class Budget(Base):
