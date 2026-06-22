@@ -25,13 +25,8 @@ export async function patchRecurringActive(id, status) {
     return response.data;
 }
 
-export async function skipRecurringOccurrence(id) {
-    const response = await apiClient.patch(`/recurring/${id}/skip`);
-    return response.data;
-}
-
-export async function payNowRecurring(id) {
-    const response = await apiClient.post(`/recurring/${id}/pay-now`);
+export async function skipRecurringOccurrence(id, payload) {
+    const response = await apiClient.post(`/recurring/occurrences/${id}/skip`, payload);
     return response.data;
 }
 
@@ -57,5 +52,16 @@ export async function previewRecurringProjections(id, horizons) {
 
 export async function saveRecurringProjectionHorizons(id, horizons) {
     const response = await apiClient.put(`/recurring/${id}/projection-horizons`, { horizons });
+    return response.data;
+}
+
+export async function getRecurringOccurrences(status) {
+    const url = status ? `/recurring/occurrences?occurrence_status=${status}` : '/recurring/occurrences';
+    const response = await apiClient.get(url);
+    return response.data;
+}
+
+export async function confirmRecurringOccurrence(id, payload) {
+    const response = await apiClient.post(`/recurring/occurrences/${id}/confirm`, payload);
     return response.data;
 }

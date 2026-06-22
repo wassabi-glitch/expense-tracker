@@ -82,9 +82,9 @@ export {
     deleteRecurringExpense,
     patchRecurringActive,
     skipRecurringOccurrence,
-    payNowRecurring,
     changeRecurringWallet,
-    getRecurringEvents
+    getRecurringEvents,
+    getRecurringOccurrences
 } from "./api/recurring";
 export { getThisMonthStats, getDashboardSummary, getDailyTrend, getAnalyticsHistory, getMonthToDateTrend, getCategoryBreakdown } from "./api/analytics";
 export {

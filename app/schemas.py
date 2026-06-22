@@ -1,3 +1,4 @@
+# pyrefly: ignore [missing-import]
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 import datetime as dt
 from datetime import datetime, date
@@ -18,6 +19,7 @@ from .models import (
     ProjectStatus,
     RecurringFrequency,
     RecurringStatus,
+    RecurringOccurrenceStatus,
     CycleBehavior,
     RecurringEventType,
     SavingsTransactionType,
@@ -2166,10 +2168,7 @@ class RecurringExpenseBase(BaseModel):
 
 
 class RecurringExpenseCreate(RecurringExpenseBase):
-    # Override: wallet_id is REQUIRED for creation.
-    # The user must explicitly choose which wallet to charge.
-    # No silent fallback to default — user controls their money.
-    wallet_id: int
+    pass
 
 
 class RecurringExpenseUpdate(BaseModel):
@@ -2223,11 +2222,11 @@ class RecurringExpenseOut(RecurringExpenseBase):
     next_due_date: date
     days_until_due: int
     status: RecurringStatus
-    failing_due_date: Optional[date] = None
     wallet_id: Optional[int] = None
     cycle_behavior: CycleBehavior
-    retry_count: int = 0
     original_due_day: Optional[int] = None
+    archived_at: Optional[datetime] = None
+    paused_at: Optional[datetime] = None
     created_at: datetime
     owner: UserOut
 
@@ -2252,6 +2251,49 @@ class RecurringEventOut(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class RecurringOccurrenceOut(BaseModel):
+    id: int
+    owner_id: int
+    template_id: int
+    scheduled_due_date: date
+    expected_title: str
+    expected_amount: int
+    expected_category: ExpenseCategory
+    status: RecurringOccurrenceStatus
+    actual_amount: Optional[int] = None
+    actual_date: Optional[date] = None
+    linked_financial_event_id: Optional[int] = None
+    initial_notified_at: Optional[datetime] = None
+    remind_at: Optional[datetime] = None
+    failure_code: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RecurringOccurrenceWalletAllocationIn(BaseModel):
+    wallet_id: int
+    amount: int = Field(gt=0)
+
+
+class RecurringOccurrenceConfirmIn(BaseModel):
+    actual_amount: int = Field(gt=0)
+    actual_date: date
+    wallet_allocations: List[RecurringOccurrenceWalletAllocationIn] = Field(default_factory=list)
+    update_template_amount: bool = False
+
+    @field_validator("actual_amount")
+    @classmethod
+    def validate_actual_amount_max(cls, v: int):
+        if v > MAX_EXPENSE_AMOUNT:
+            raise ValueError("expenses.amount_too_large")
+        return v
+
+class RecurringOccurrenceSkipIn(BaseModel):
+    actual_date: date
 
 
 class RecurringProjectionUnit(str, Enum):

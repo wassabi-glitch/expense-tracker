@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from fastapi import HTTPException, status
 
 from app import models, schemas
-from app.scheduler import calculate_next_due_date
+from app.services.recurring_schedule_service import calculate_next_due_date
 
 
 DEFAULT_HORIZONS: dict[models.RecurringFrequency, list[tuple[str, int]]] = {

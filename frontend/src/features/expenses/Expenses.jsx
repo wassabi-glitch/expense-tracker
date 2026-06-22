@@ -35,6 +35,7 @@ import {
 } from "./hooks/useExpenseMutations";
 import { useExpenseCategoriesQuery } from "./hooks/useExpenseCategoriesQuery";
 import { useExpensesQuery } from "./hooks/useExpensesQuery";
+import { NeedsConfirmationSection } from "./components/NeedsConfirmationSection";
 import { toISODateInTimeZone } from "@/lib/date";
 import { localizeApiError } from "@/lib/errorMessages";
 import { cn } from "@/lib/utils";
@@ -1337,10 +1338,6 @@ export default function Expenses() {
 
   const handleMarkAsRecurring = async () => {
     if (!recurringTarget || markExpenseAsRecurringMutation.isPending) return;
-    if (!recurringWalletId) {
-      setActionError(t("recurring_expenses.wallet_required", { defaultValue: "Wallet is required" }));
-      return;
-    }
     if (!recurringStartDate) {
       setActionError(t("expenses.dateRequired", { defaultValue: "Date is required" }));
       return;
@@ -1351,7 +1348,7 @@ export default function Expenses() {
         id: recurringTarget.id,
         frequency: recurringFrequency,
         start_date: recurringStartDate,
-        wallet_id: Number(recurringWalletId),
+        wallet_id: recurringWalletId ? Number(recurringWalletId) : null,
         cycle_behavior: recurringCycleBehavior,
       });
       setRecurringOpen(false);
@@ -1755,6 +1752,7 @@ export default function Expenses() {
         </PageHeader>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
+
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-4 shadow-none">
           <TabsList className="grid w-full h-10 sm:h-12 grid-cols-2 rounded-xl">
             <TabsTrigger value="one-time" className="rounded-lg text-xs sm:text-sm">{t("expenses.oneTime", { defaultValue: "One-Time" })}</TabsTrigger>
@@ -2617,7 +2615,8 @@ export default function Expenses() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="recurring" className="mt-4">
+          <TabsContent value="recurring" className="mt-4 space-y-4">
+            <NeedsConfirmationSection />
             <RecurringExpenses
               onAddClick={(fn) => { recurringAddRef.current = fn; }}
               onCountUpdate={setRecurringCount}
@@ -3810,12 +3809,19 @@ export default function Expenses() {
                 <Input type="date" min={MIN_EXPENSE_DATE} value={recurringStartDate} onChange={(e) => setRecurringStartDate(e.target.value)} />
               </div>
             </div>
+
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="grid gap-1.5">
-                <label className="text-xs font-semibold">{t("wallet.label", { defaultValue: "Wallet / Card" })}</label>
-                <Select value={recurringWalletId || undefined} onValueChange={setRecurringWalletId}>
+                <label className="text-xs font-semibold">
+                  {t("recurring.preferredWallet")}
+                </label>
+                <Select
+                  value={recurringWalletId || "__none"}
+                  onValueChange={(value) => setRecurringWalletId(value === "__none" ? "" : value)}
+                >
                   <SelectTrigger className={selectTriggerClass}><SelectValue placeholder={t("wallet.placeholder", { defaultValue: "Select Wallet" })} /></SelectTrigger>
                   <SelectContent className={selectContentClass}>
+                    <SelectItem value="__none">{t("recurring.noPreferredWallet")}</SelectItem>
                     {operationalWallets.map((wallet) => (
                       <SelectItem key={wallet.id} value={String(wallet.id)}>{wallet.name}</SelectItem>
                     ))}
@@ -3828,7 +3834,7 @@ export default function Expenses() {
                   <SelectTrigger className={selectTriggerClass}><SelectValue /></SelectTrigger>
                   <SelectContent className={selectContentClass}>
                     <SelectItem value="FIXED">{t("recurring.fixed", { defaultValue: "Fixed" })}</SelectItem>
-                    <SelectItem value="ROLLING">{t("recurring.rolling", { defaultValue: "Rolling" })}</SelectItem>
+                    <SelectItem value="FLEXIBLE">{t("recurring.flexible", { defaultValue: "Flexible" })}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

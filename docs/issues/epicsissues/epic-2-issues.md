@@ -78,20 +78,64 @@ Category floors in this issue are derived, non-binding warning calculations. The
 
 ---
 
-## Issue 4: Recurring Floors Projection Contract
+## Issue 4: Advanced Recurring Occurrence Architecture & Floors
 
 ### What to build
-Extract the backend recurring projection and floor-generation contract needed by budget intelligence. Recurring expenses due in the month should generate category floors used by the G9 month-summary math, and recurring detail should expose deterministic cost projection rows. The full month setup wizard UI remains deferred.
+Implement the G30 recurring architecture before completing recurring floor integration. Separate mutable Recurring Templates from durable dated Recurring Occurrences, give templates `Confirm each occurrence` and `Automatically record` modes, preserve occurrence history through edits/archive/pause, and reuse the ordinary multi-wallet expense-posting path for confirmed or automatic financial truth.
+
+Then deepen the already-existing recurring projection feature into one authoritative, read-only occurrence projector used by recurring details and category-floor warnings. A recurring recommendation is scoped to the selected user-local calendar month, not a rolling next-30-days window. It represents the complete month by combining fulfilled actuals, pending/outstanding expectations, and still-projected future expectations without persisting floors or mutating saved category budgets.
+
+Execute this issue in three ordered internal phases. Phase A is the occurrence/lifecycle foundation. Phase B is confirmation and automatic-recording behavior. Phase C is the shared projector and floor integration. Do not begin Phase C against the legacy mutable-template-only model.
 
 ### Acceptance criteria
-- [ ] Recurring expenses due in a selected month contribute to category floors with source details.
-- [ ] Recurring floor data uses the same floor contract returned by budget month summary.
-- [ ] Default recurring projection horizons are frequency-appropriate and returned by a backend API.
-- [ ] Projection rows count scheduled occurrences over the requested horizon and multiply by recurring amount.
-- [ ] Projection output does not mutate due dates, budgets, wallets, debts, expenses, or floor records.
-- [ ] Custom projection horizons can be validated and saved as preference metadata if the current recurring API does not already support them.
-- [ ] Budget month summary, future timeline work, and recurring detail can reuse the same projection semantics.
-- [ ] Route-level tests verify recurring floors and projection rows through public APIs.
+
+#### Phase A - Occurrence and lifecycle foundation
+
+- [x] A first-class Recurring Occurrence stores template ownership, scheduled due date, expected amount/category snapshots, lifecycle status, optional actual facts, and optional linked financial event.
+- [x] `(template_id, scheduled_due_date)` or an equivalent invariant prevents duplicate occurrence materialization.
+- [x] Templates support `CONFIRM_EACH` and `AUTO_RECORD`; new-template UI preselects confirmation while existing templates retain automatic behavior after migration.
+- [x] Confirmation-mode templates may omit a wallet or keep an optional preferred wallet; automatic templates require one active preferred wallet.
+- [x] Templates do not persist multi-wallet split rules; confirmation may choose one or more wallets, while automatic recording uses exactly one configured wallet.
+- [x] Updating amount/category affects only the next unresolved and later occurrences; fulfilled occurrences retain event-time truth.
+- [x] Delete archives instead of hard-deleting, stops unmaterialized future occurrences, and preserves occurrence/audit history.
+- [x] Pause suppresses paused-period occurrences; resume starts at the next future schedule date without catch-up.
+- [x] Skip closes one occurrence without posting money; failed automatic occurrences remain actionable.
+- [x] Template/occurrence lifecycle commands and scheduler work use compatible row locking and transactional boundaries.
+- [x] Debts and payment plans remain outside the recurring architecture and are neither linked nor mirrored as recurring templates.
+
+Phase A verification (2026-06-22): migration upgraded in Docker and `alembic check` reported no schema drift; focused recurring tests passed (`16 passed, 1 skipped`); the existing category-floor contract test passed; and the frontend production image build completed successfully.
+
+#### Phase B - Confirmation and automatic recording
+
+- [x] For `CONFIRM_EACH`, the scheduler materializes one pending occurrence and notification without changing wallets, budgets, or financial ledgers.
+- [x] Hourly scheduler runs create at most one initial notification per occurrence; notification read/delete does not resolve the occurrence, explicit snooze controls any later reminder, and backlog discovery uses a grouped notification rather than an alert burst.
+- [x] For `AUTO_RECORD`, the scheduler atomically posts the expected expense through the ordinary expense-posting service or leaves an actionable failure.
+- [x] Confirmation accepts actual amount, actual date, and one or more wallet allocations whose total exactly equals actual amount.
+- [x] Actual amount may be lower or higher than expected within ordinary expense limits; zero uses skip.
+- [x] A lower confirmed amount fully closes the occurrence in this release; partial recurring settlement is not introduced.
+- [x] Confirmation may explicitly apply the actual amount to future template expectations; default confirmation changes only the occurrence.
+- [x] Multi-wallet posting, goal protection, owned/borrowed funding classification, budget effects, and occurrence fulfillment commit atomically.
+- [x] Confirmation and scheduler retries are idempotent and cannot duplicate financial events or wallet movements.
+- [x] A voided linked financial event cannot remain accepted as fulfilled and surfaces as needing reconciliation.
+- [x] Recurring UI exposes recording-mode selection, pending confirmations, expected-versus-actual variance, wallet allocations, skip, and history.
+- [x] `Expenses > Recurring` owns the durable `Needs confirmation` queue; notification-bell and Dashboard actions deep-link to the same shared desktop-dialog/mobile-sheet confirmation flow.
+
+#### Phase C - Shared projection and floor integration
+
+- [ ] One pure range-bounded occurrence projector serves recurring projection rows and recurring category-floor warnings.
+- [ ] Existing default and custom projection APIs reuse the shared projector; saved custom horizons remain preference metadata.
+- [ ] Projection output is read-only and never mutates templates, occurrences, due dates, wallets, budgets, expenses, notifications, or floor records.
+- [ ] Current-month defaults use the effective user timezone; explicit selected months use user-local calendar boundaries rather than rolling 30-day windows.
+- [ ] Full-month recurring recommendations combine valid fulfilled actual amounts, pending/outstanding expected amounts, and projected future expected amounts without double counting.
+- [ ] Paying or confirming an occurrence does not make the full-month recommendation shrink merely because `next_due_date` advanced.
+- [ ] Skipped, cancelled, paused-period, and archived future occurrences do not contribute; failed-but-still-outstanding occurrences do contribute.
+- [ ] Mid-month amount and category edits preserve fulfilled old values and use current values only for unresolved/future occurrences.
+- [ ] Recurring reasons use the Issue 3 floor-warning contract and provide grouped source detail suitable for daily/weekly schedules.
+- [ ] Budget month summary, recurring details, and future timeline work can reuse the same occurrence semantics.
+- [ ] Public route and scheduler-boundary tests cover lifecycle, confirmation, multi-wallet posting, timezones, projections, floors, idempotency, concurrency, and read-only guarantees.
+- [ ] Migrations and backend tests run in Docker; relevant frontend tests and production build pass.
+
+Full product and testing decisions: `docs/prd/g30-advanced-recurring-occurrence-architecture.md`.
 
 ### Blocked by
 - Issue 3: Budget Explainability & Credit Survival Math
@@ -112,11 +156,13 @@ Synchronize the Budget Workspace frontend with the backend budget intelligence c
 - [ ] The UI no longer reverse-engineers backend plan formulas.
 - [ ] Existing budget cards still render normal spending, remaining, over-limit, and empty states cleanly on desktop and mobile.
 - [ ] Frontend copy avoids envelope language and uses plan backing/category floor/cash reserve terminology.
+- [ ] Wallet UI allows goal-funding eligibility to be enabled for overdraft-capable debit/prepaid wallets and credit wallets; only their positive, unprotected balance is presented as available for goals.
+- [ ] Goal-funding UI clearly explains that credit limits, overdraft capacity, zero balances, and negative balances cannot fund goals, even when the wallet is eligible to hold goal protection.
 - [ ] Supported translations include the new visible budget backing and floor copy.
 - [ ] Frontend build passes.
 
 ### Blocked by
-- Issue 4: Recurring Floors Projection Contract
+- Issue 4: Advanced Recurring Occurrence Architecture & Floors
 
 ---
 

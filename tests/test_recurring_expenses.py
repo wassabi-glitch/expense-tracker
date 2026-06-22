@@ -1,5 +1,6 @@
+# pyrefly: ignore [missing-import]
 import pytest
-from datetime import date
+from datetime import date, timedelta
 
 from tests.helpers import create_user_and_token, create_budget, user_timezone_today
 from app.main import app
@@ -215,6 +216,302 @@ def test_delete_recurring_expense(client):
     assert get_res.status_code == 200
     assert len(get_res.json()) == 0
 
+
+def test_confirmation_template_materializes_pending_occurrence_without_wallet_mutation(client):
+    email = "req_confirm_foundation@example.com"
+    headers = create_user_and_token(client, "req_confirm_foundation", email, "Password123!")
+    _make_user_premium(email)
+    today = user_timezone_today()
+
+    db_gen, db = _get_test_db()
+    try:
+        user = db.query(models.User).filter(models.User.email == email).one()
+        wallet = db.query(models.Wallet).filter(models.Wallet.owner_id == user.id).one()
+        balance_before = int(wallet.current_balance)
+        event_count_before = db.query(models.FinancialEvent).filter(
+            models.FinancialEvent.owner_id == user.id,
+        ).count()
+    finally:
+        db.close()
+        try:
+            next(db_gen)
+        except StopIteration:
+            pass
+
+    created = client.post(
+        "/recurring/",
+        json={
+            "title": "Variable utility",
+            "amount": 300_000,
+            "category": "Utilities",
+            "frequency": "MONTHLY",
+            "start_date": today.isoformat(),
+            "wallet_id": None,
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    payload = created.json()
+    assert payload["wallet_id"] is None
+
+    occurrences = client.get(
+        "/recurring/occurrences?occurrence_status=PENDING_CONFIRMATION",
+        headers=headers,
+    )
+    assert occurrences.status_code == 200, occurrences.text
+    assert len(occurrences.json()) == 1
+    assert occurrences.json()[0]["scheduled_due_date"] == today.isoformat()
+    assert occurrences.json()[0]["expected_amount"] == 300_000
+
+    db_gen, db = _get_test_db()
+    try:
+        user = db.query(models.User).filter(models.User.email == email).one()
+        wallet = db.query(models.Wallet).filter(models.Wallet.owner_id == user.id).one()
+        assert int(wallet.current_balance) == balance_before
+        assert db.query(models.FinancialEvent).filter(
+            models.FinancialEvent.owner_id == user.id,
+        ).count() == event_count_before
+    finally:
+        db.close()
+        try:
+            next(db_gen)
+        except StopIteration:
+            pass
+
+
+
+def test_template_edits_update_unresolved_snapshot(client):
+    email = "req_unresolved_snapshot_update@example.com"
+    headers = create_user_and_token(client, "req_unresolved_snapshot_update", email, "Password123!")
+    _make_user_premium(email)
+
+    created = client.post(
+        "/recurring/",
+        json={
+            "title": "Expected utility",
+            "amount": 300_000,
+            "category": "Utilities",
+            "frequency": "MONTHLY",
+            "start_date": user_timezone_today().isoformat(),
+            "wallet_id": None,
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+
+    updated = client.put(
+        f"/recurring/{created.json()['id']}",
+        json={"amount": 347_000, "category": "Housing"},
+        headers=headers,
+    )
+    assert updated.status_code == 200, updated.text
+
+    occurrence = client.get("/recurring/occurrences", headers=headers).json()[0]
+    assert occurrence["expected_amount"] == 347_000
+    assert occurrence["expected_category"] == "Housing"
+
+
+def test_delete_archives_template_and_preserves_occurrence(client):
+    email = "req_archive_occurrence@example.com"
+    headers = create_user_and_token(client, "req_archive_occurrence", email, "Password123!")
+    _make_user_premium(email)
+
+    created = client.post(
+        "/recurring/",
+        json={
+            "title": "Archive safely",
+            "amount": 20_000,
+            "category": "Subscriptions",
+            "frequency": "MONTHLY",
+            "start_date": user_timezone_today().isoformat(),
+            "wallet_id": None,
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    template_id = created.json()["id"]
+
+    deleted = client.delete(f"/recurring/{template_id}", headers=headers)
+    assert deleted.status_code == 204
+    assert client.get("/recurring/", headers=headers).json() == []
+
+    db_gen, db = _get_test_db()
+    try:
+        template = db.query(models.RecurringExpense).filter(
+            models.RecurringExpense.id == template_id,
+        ).one()
+        assert template.archived_at is not None
+        assert template.status == models.RecurringStatus.DISABLED
+        assert db.query(models.RecurringOccurrence).filter(
+            models.RecurringOccurrence.template_id == template_id,
+        ).count() == 1
+    finally:
+        db.close()
+        try:
+            next(db_gen)
+        except StopIteration:
+            pass
+
+
+def test_resume_advances_past_paused_dates_without_catch_up(client):
+    email = "req_pause_no_catchup@example.com"
+    headers = create_user_and_token(client, "req_pause_no_catchup", email, "Password123!")
+    _make_user_premium(email)
+    today = user_timezone_today()
+
+    template_id = _create_recurring_row(
+        email,
+        title="Paused daily",
+        amount=5_000,
+        frequency=models.RecurringFrequency.DAILY,
+        next_due_date=today,
+    )
+    paused = client.patch(
+        f"/recurring/{template_id}/toggle",
+        json={"status": "DISABLED"},
+        headers=headers,
+    )
+    assert paused.status_code == 200, paused.text
+
+    db_gen, db = _get_test_db()
+    try:
+        template = db.query(models.RecurringExpense).filter(
+            models.RecurringExpense.id == template_id,
+        ).one()
+        template.next_due_date = today - timedelta(days=3)
+        db.commit()
+    finally:
+        db.close()
+        try:
+            next(db_gen)
+        except StopIteration:
+            pass
+
+    resumed = client.patch(
+        f"/recurring/{template_id}/toggle",
+        json={"status": "ACTIVE"},
+        headers=headers,
+    )
+    assert resumed.status_code == 200, resumed.text
+    assert date.fromisoformat(resumed.json()["next_due_date"]) > today
+    assert resumed.json()["paused_at"] is None
+
+
+def test_scheduler_materializes_confirmation_occurrence_once(client):
+    email = "req_scheduler_confirm_once@example.com"
+    headers = create_user_and_token(client, "req_scheduler_confirm_once", email, "Password123!")
+    _make_user_premium(email)
+    today = user_timezone_today()
+    template_id = _create_recurring_row(
+        email,
+        title="Scheduler confirmation",
+        amount=15_000,
+        frequency=models.RecurringFrequency.MONTHLY,
+        next_due_date=today,
+    )
+
+    db_gen, db = _get_test_db()
+    try:
+        user = db.query(models.User).filter(models.User.email == email).first()
+        template = db.query(models.RecurringExpense).filter(
+            models.RecurringExpense.id == template_id,
+        ).one()
+        template.wallet_id = None
+        db.commit()
+
+        process_due_recurring_expenses(db)
+        process_due_recurring_expenses(db)
+
+        occurrences = db.query(models.RecurringOccurrence).filter(
+            models.RecurringOccurrence.template_id == template_id,
+        ).all()
+        assert len(occurrences) == 1
+        assert occurrences[0].status == models.RecurringOccurrenceStatus.PENDING_CONFIRMATION
+        db.refresh(template)
+        assert template.next_due_date > today
+        
+        # Verify notification
+        notifications = db.query(models.Notification).filter(
+            models.Notification.owner_id == user.id,
+            models.Notification.type == models.NotificationType.RECURRING_DUE.value
+        ).all()
+        assert len(notifications) == 1
+    finally:
+        db.close()
+        try:
+            next(db_gen)
+        except StopIteration:
+            pass
+
+def test_confirm_recurring_occurrence(client):
+    email = "req_confirm_api@example.com"
+    headers = create_user_and_token(client, "req_confirm_api", email, "Password123!")
+    _make_user_premium(email)
+    create_budget(client, headers, category="Utilities", monthly_limit=500000)
+    today = user_timezone_today()
+
+    template_id = _create_recurring_row(
+        email,
+        title="To Confirm",
+        amount=15_000,
+        frequency=models.RecurringFrequency.MONTHLY,
+        next_due_date=today,
+    )
+    
+    db_gen, db = _get_test_db()
+    try:
+        template = db.query(models.RecurringExpense).filter(
+            models.RecurringExpense.id == template_id,
+        ).one()
+        template.wallet_id = None
+        db.commit()
+
+        process_due_recurring_expenses(db)
+        occurrence = db.query(models.RecurringOccurrence).filter(
+            models.RecurringOccurrence.template_id == template_id,
+        ).first()
+        occurrence_id = occurrence.id
+    finally:
+        db.close()
+        try:
+            next(db_gen)
+        except StopIteration:
+            pass
+
+    confirm_res = client.post(
+        f"/recurring/occurrences/{occurrence_id}/confirm",
+        json={
+            "actual_amount": 16_000,
+            "actual_date": today.isoformat(),
+            "wallet_allocations": [
+                {"wallet_id": _default_wallet_id(email), "amount": 16_000}
+            ],
+            "update_template_amount": True
+        },
+        headers=headers
+    )
+    assert confirm_res.status_code == 200, confirm_res.text
+    
+    db_gen, db = _get_test_db()
+    try:
+        occurrence = db.query(models.RecurringOccurrence).filter(
+            models.RecurringOccurrence.id == occurrence_id,
+        ).one()
+        assert occurrence.status == models.RecurringOccurrenceStatus.FULFILLED
+        assert occurrence.actual_amount == 16_000
+        assert occurrence.linked_financial_event_id is not None
+        
+        template = db.query(models.RecurringExpense).filter(
+            models.RecurringExpense.id == template_id,
+        ).one()
+        assert template.amount == 16_000
+    finally:
+        db.close()
+        try:
+            next(db_gen)
+        except StopIteration:
+            pass
+
 def test_free_user_forbidden(client):
     email = "req_free@example.com"
     headers = create_user_and_token(client, "req_free", email, "Password123!")
@@ -231,41 +528,6 @@ def test_free_user_forbidden(client):
     assert res.status_code == 403
 
 
-def test_create_recurring_auto_creates_fallback_budget_when_no_history(client):
-    email = "req_autobudget@example.com"
-    headers = create_user_and_token(client, "req_autobudget", email, "Password123!")
-    _make_user_premium(email)
-    today = date.today()
-
-    res = client.post("/recurring/", json={
-        "title": "Auto Budget Seed",
-        "amount": 12000,
-        "category": "Utilities",
-        "frequency": "MONTHLY",
-        "start_date": today.isoformat(),
-        "wallet_id": _default_wallet_id(email),
-    }, headers=headers)
-    assert res.status_code == 201
-
-    db_gen, db = _get_test_db()
-    try:
-        user = db.query(models.User).filter(models.User.email == email).first()
-        assert user is not None
-        budget = db.query(models.Budget).filter(
-            models.Budget.owner_id == user.id,
-            models.Budget.category == models.ExpenseCategory.UTILITIES,
-            models.Budget.budget_year == today.year,
-            models.Budget.budget_month == today.month,
-        ).first()
-        assert budget is not None
-        assert budget.auto_created is True
-        assert budget.monthly_limit == 50000
-    finally:
-        db.close()
-        try:
-            next(db_gen)
-        except StopIteration:
-            pass
 
 
 @pytest.mark.skip(reason="Temporarily disabled due to scheduler deadlock in CI")

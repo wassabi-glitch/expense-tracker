@@ -36,3 +36,20 @@ _Avoid_: Event amount, Transaction line
 A monthly spending permission limit, not a physical wallet-backed envelope.
 _Use_: Spending permission, Plan backing, Borrowing pressure, Red state, Repair action, Subcategory lane, Project overlay
 _Avoid_: Envelope balance, Budget cash, Move budget money, Fund the category, Credit-backed budget
+
+**Category Floor Warning**:
+A derived, non-binding suggested minimum for a budget category in one selected calendar month. It represents the full-month total of relevant categorized obligations, including amounts already fulfilled and amounts still due, without reserving money or changing the category limit.
+_Avoid_: Mandatory floor, Floor record, Next-30-days floor, Remaining-obligations floor
+
+**Recurring Template**:
+The user's current instruction for generating future repeating expenses. Editing, pausing, or archiving it changes future intent but does not rewrite fulfilled occurrences.
+_Avoid_: Recurring payment history, Recurring floor
+
+**Recurring Occurrence**:
+One dated realization or disposition of a recurring template, such as fulfilled, failed, skipped, or cancelled. Its historical amount and category remain those that applied to that occurrence even if the template later changes.
+_Avoid_: Current template state, Projection row
+
+**Recurring Recording Mode**:
+The user's chosen rule for turning a due recurring occurrence into financial truth: either ask for confirmation of the real expense or automatically record the expected expense. The recording mode does not change the recurrence schedule itself.
+_Use_: Confirm each occurrence, Automatically record
+_Avoid_: Automatically pay, Scheduler payment

@@ -12,7 +12,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app.redis_rate_limiter import check_and_consume, consume_token_bucket
-from app.scheduler import calculate_next_due_date
+from app.services.recurring_schedule_service import calculate_next_due_date
 from app.timezone import get_effective_user_timezone, now_in_tz, resolve_effective_timezone, today_in_tz
 from app.utils import check_budget_alerts
 from .. import models, oauth2, schemas
@@ -2078,12 +2078,14 @@ def mark_expense_as_recurring(
     _raise_if_split_parent(event)
     wallet = _single_wallet_for_event(event)
     wallet_id = payload.wallet_id or (wallet.id if wallet else None)
-    if wallet_id is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="recurring_expenses.wallet_required")
+    if payload.recording_mode == models.RecurringRecordingMode.AUTO_RECORD and wallet_id is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="recurring_expenses.auto_wallet_required")
 
-    recurring_wallet = _get_owned_wallet_or_404(db, current_user.id, wallet_id)
-    if not recurring_wallet.is_active:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="recurring_expenses.wallet_archived")
+    recurring_wallet = None
+    if wallet_id is not None:
+        recurring_wallet = _get_owned_wallet_or_404(db, current_user.id, wallet_id)
+        if not recurring_wallet.is_active:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="recurring_expenses.wallet_archived")
 
     seed_date = payload.start_date or event.date
     if seed_date.year < 2020:
@@ -2106,8 +2108,9 @@ def mark_expense_as_recurring(
         frequency=payload.frequency,
         start_date=seed_date,
         next_due_date=next_due_date,
-        wallet_id=recurring_wallet.id,
+        wallet_id=recurring_wallet.id if recurring_wallet is not None else None,
         cycle_behavior=payload.cycle_behavior,
+        recording_mode=payload.recording_mode,
         status=models.RecurringStatus.ACTIVE,
         original_due_day=seed_date.day,
     )
@@ -2140,6 +2143,7 @@ def mark_expense_as_recurring(
         status=recurring.status,
         wallet_id=recurring.wallet_id,
         cycle_behavior=recurring.cycle_behavior,
+        recording_mode=recurring.recording_mode,
         retry_count=recurring.retry_count,
         created_at=recurring.created_at,
         owner=schemas.UserOut.model_validate(current_user),
