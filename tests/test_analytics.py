@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import timedelta
 from tests.helpers import create_user_and_token, create_budget, create_expense, user_timezone_today
 
 
