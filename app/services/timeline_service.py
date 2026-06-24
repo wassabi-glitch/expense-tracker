@@ -1,4 +1,3 @@
-from datetime import date
 from typing import List
 # pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session

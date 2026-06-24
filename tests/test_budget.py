@@ -2624,153 +2624,6 @@ def test_budget_write_rate_limit_blocks_burst(client):
     assert "Retry-After" in blocked.headers
     assert blocked.json()["detail"] == "budgets.write_rate_limited"
 
-# pyrefly: ignore [parse-error]
-def test_budget_effective_limit_ignores_historical_rollover_ledger(client, session):
-    email = "historicalrollover@example.com"
-    headers = create_user_and_token(client, "historicalrollover", email, "Password123!")
-    today = user_timezone_today()
-    created = create_budget(
-        client,
-        headers,
-        category="Food",
-        monthly_limit=1_000,
-        budget_year=today.year,
-        budget_month=today.month,
-    )
-    assert created.status_code == 201, created.text
-
-    user = _get_user(session, email)
-    session.add(
-        models.BudgetLedger(
-            owner_id=user.id,
-            category=models.ExpenseCategory.GROCERIES,
-            budget_year=today.year,
-            budget_month=today.month,
-            entry_type="ROLLOVER",
-            amount=250,
-        )
-    )
-    session.commit()
-
-    budget = client.get(
-        f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Groceries",
-        headers=headers,
-    )
-    assert budget.status_code == 200, budget.text
-    payload = budget.json()
-    assert payload["effective_monthly_limit"] == 1_000
-    assert "rollover_amount" not in payload
-
-
-def test_budget_effective_limit_ignores_historical_sweep_ledger(client, session):
-    email = "historicalsweep@example.com"
-    headers = create_user_and_token(client, "historicalsweep", email, "Password123!")
-    today = user_timezone_today()
-    created = create_budget(
-        client,
-        headers,
-        category="Food",
-        monthly_limit=1_000,
-        budget_year=today.year,
-        budget_month=today.month,
-    )
-    assert created.status_code == 201, created.text
-
-    user = _get_user(session, email)
-    session.add(
-        models.BudgetLedger(
-            owner_id=user.id,
-            category=models.ExpenseCategory.GROCERIES,
-            budget_year=today.year,
-            budget_month=today.month,
-            entry_type="SWEEP",
-            amount=-250,
-        )
-    )
-    session.commit()
-
-    budget = client.get(
-        f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Groceries",
-        headers=headers,
-    )
-    assert budget.status_code == 200, budget.text
-    payload = budget.json()
-    assert payload["effective_monthly_limit"] == 1_000
-    assert "sweep_amount" not in payload
-
-
-def test_delete_budget(client):
-    headers = create_user_and_token(
-        client, "deletebudget", "deletebudget@example.com", "Password123!"
-    )
-    today = date.today()
-    create_budget(client, headers, category="Food", monthly_limit=300, budget_year=today.year, budget_month=today.month)
-    res = client.delete(f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Groceries", headers=headers)
-    assert res.status_code == 204
-    res_list = client.get("/budgets/", headers=headers)
-    assert res_list.status_code == 200
-    assert res_list.json() == []
-
-
-def test_delete_budget_blocks_when_linked_expenses_exist(client):
-    headers = create_user_and_token(
-        client, "deletebudgetlinked", "deletebudgetlinked@example.com", "Password123!"
-    )
-    today = date.today()
-    create_budget(
-        client,
-        headers,
-        category="Food",
-        monthly_limit=300,
-        budget_year=today.year,
-        budget_month=today.month,
-    )
-    expense_res = client.post(
-        "/expenses/",
-        json={
-            "title": "Linked expense",
-            "amount": 10,
-            "category": "Groceries",
-            "description": "test",
-            "date": today.isoformat(),
-        },
-        headers=headers,
-    )
-    assert expense_res.status_code == 201, expense_res.text
-
-    res = client.delete(f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Groceries", headers=headers)
-    assert res.status_code == 409
-    assert res.json()["detail"] == "budgets.has_linked_expenses"
-
-    still_exists = client.get(f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Groceries", headers=headers)
-    assert still_exists.status_code == 200
-
-
-def test_budget_write_rate_limit_blocks_burst(client):
-    for key in redis_client.scan_iter("tb:budgets_write:*"):
-        redis_client.delete(key)
-
-    headers = create_user_and_token(
-        client, "budgetrtlim", "budgetrtlim@example.com", "Password123!"
-    )
-    
-    blocked = None
-    # BUDGET_WRITE_BUCKET_CAPACITY is 10, so 15 requests should trigger it
-    for i in range(15):
-        res = client.post(
-            "/budgets/",
-            json={"category": "Groceries", "monthly_limit": 500 + i, "budget_year": 2026, "budget_month": i % 12 + 1},
-            headers=headers
-        )
-        if res.status_code == 429:
-            blocked = res
-            break
-
-    assert blocked is not None
-    assert blocked.status_code == 429
-    assert "Retry-After" in blocked.headers
-    assert blocked.json()["detail"] == "budgets.write_rate_limited"
-
 
 def test_budget_cash_allocation_uses_hamilton_method(client, session):
     email = "budgethamilton@example.com"
@@ -2793,10 +2646,10 @@ def test_budget_cash_allocation_uses_hamilton_method(client, session):
     session.commit()
     session.refresh(credit_wallet)
 
-    food = create_budget(
+    _ = create_budget(
         client, headers, category="Groceries", monthly_limit=5_000_000, budget_year=today.year, budget_month=today.month
     )
-    transport = create_budget(
+    _ = create_budget(
         client, headers, category="Transport", monthly_limit=5_000_000, budget_year=today.year, budget_month=today.month
     )
 
