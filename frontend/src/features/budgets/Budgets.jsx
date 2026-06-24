@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Trash2, Circle, Plus, BriefcaseBusiness, MoreHorizontal, Eye, Pencil, ReceiptText, ListTree, ChartColumn, FolderKanban, Layers3, ExternalLink, GitMerge, ArrowRightLeft, AlertTriangle } from "lucide-react";
+import { Trash2, Circle, Plus, BriefcaseBusiness, MoreHorizontal, Eye, Pencil, ReceiptText, ListTree, ChartColumn, FolderKanban, Layers3, ExternalLink, GitMerge, ArrowRightLeft, AlertTriangle, Shield } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -70,6 +70,8 @@ import {
 } from "@/lib/api";
 import { useToast } from "@/lib/context/ToastContext";
 import { Input } from "@/components/ui/input";
+import { ConfigureSurvivalDialog } from "./components/ConfigureSurvivalDialog";
+import { BudgetTimeline } from "./components/BudgetTimeline";
 
 const EMPTY_ARRAY = [];
 
@@ -332,6 +334,8 @@ function BudgetActivityRow({ item, t, appLang }) {
 }
 
 export default function Budgets() {
+  const [showSurvivalDialog, setShowSurvivalDialog] = React.useState(false);
+  const [showCashBackingDetails, setShowCashBackingDetails] = React.useState(false);
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const toast = useToast();
@@ -1488,6 +1492,9 @@ export default function Budgets() {
           <Button variant="outline" onClick={openProject}>
             <BriefcaseBusiness className="mr-2 h-4 w-4" /> {t("projects.create", { defaultValue: "Create Project" })}
           </Button>
+          <Button variant="outline" onClick={() => setShowSurvivalDialog(true)}>
+            <Shield className="mr-2 h-4 w-4" /> {t("budgets.configureSurvival", { defaultValue: "Survival Mode" })}
+          </Button>
           <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={openAdd}>
             <Plus className="mr-2 h-4 w-4" /> {t("budgets.addBudget")}
           </Button>
@@ -1627,17 +1634,21 @@ export default function Budgets() {
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
               <Card className="shadow-sm">
                 <CardContent className="p-5">
-                  <p className="text-ui-micro uppercase tracking-widest text-muted-foreground">
-                    {t("budgets.freeMoneyNow", { defaultValue: "Free money now" })}
-                  </p>
-                  <div className="mt-2">
-                    <CurrencyAmount value={monthSummary?.free_money_now || 0} format="display" className="text-xl font-bold tracking-tight" />
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-ui-micro uppercase tracking-widest text-muted-foreground">
+                        {t("budgets.cashBacking", { defaultValue: "Cash backing" })}
+                      </p>
+                      <div className="mt-2">
+                        <CurrencyAmount value={monthSummary?.cash_backing_total || 0} format="display" className="text-xl font-bold tracking-tight" />
+                      </div>
+                    </div>
                   </div>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {t("budgets.freeMoneyNowHint", {
-                      defaultValue: "Owned wallet money minus protected goal money.",
-                    })}
-                  </p>
+                  <div className="mt-2 flex">
+                    <Button variant="link" className="h-auto p-0 text-sm font-medium text-primary" onClick={() => setShowCashBackingDetails(true)}>
+                      {t("budgets.seeDetails", { defaultValue: "See details" })}
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
               <Card className="shadow-sm">
@@ -1691,46 +1702,76 @@ export default function Budgets() {
               </Card>
               <Card className="shadow-sm">
                 <CardContent className="p-5">
-                  <p className="text-ui-micro uppercase tracking-widest text-muted-foreground">
-                    {t("budgets.budgetRoomAfterPlan", { defaultValue: "Budget room after plan" })}
-                  </p>
-                  <div className="mt-2">
-                    <CurrencyAmount
-                      value={monthSummary?.plan_free_money_remaining || 0}
-                      format="display"
-                      className={cn(
-                        "text-xl font-bold tracking-tight",
-                        Number(monthSummary?.plan_free_money_remaining || 0) < 0
-                          ? "text-red-600 dark:text-red-400"
-                          : "text-emerald-600 dark:text-emerald-400"
-                      )}
-                    />
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-ui-micro uppercase tracking-widest text-muted-foreground">
+                        {monthSummary?.backing_shortfall > 0 
+                          ? t("budgets.backingShortfall", { defaultValue: "Backing shortfall" })
+                          : t("budgets.planBackingRemaining", { defaultValue: "Plan backing remaining" })}
+                      </p>
+                      <div className="mt-2">
+                        <CurrencyAmount
+                          value={monthSummary?.backing_shortfall > 0 ? monthSummary.backing_shortfall : (monthSummary?.plan_backing_remaining || 0)}
+                          format="display"
+                          className={cn(
+                            "text-xl font-bold tracking-tight",
+                            monthSummary?.backing_shortfall > 0
+                              ? "text-red-600 dark:text-red-400"
+                              : "text-emerald-600 dark:text-emerald-400"
+                          )}
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {t("budgets.budgetRoomAfterPlanHint", {
-                      defaultValue: "Free money now after all monthly limits.",
-                    })}
-                  </p>
+                  <div className="mt-3 flex items-center gap-2 border-t border-border/50 pt-3">
+                    <div className={cn("h-2 w-2 rounded-full", planStatusMeta.tone.replace('text-', 'bg-').replace('dark:text-', 'dark:bg-'))} />
+                    <p className="text-sm font-medium text-muted-foreground">
+                      {planStatusMeta.label}
+                    </p>
+                  </div>
                 </CardContent>
               </Card>
-              <Card className="shadow-sm">
-                <CardContent className="p-5">
-                  <p className="text-ui-micro uppercase tracking-widest text-muted-foreground">
-                    {t("budgets.planHealth", { defaultValue: "Plan health" })}
-                  </p>
-                  <p className={cn("mt-2 text-xl font-bold tracking-tight", planStatusMeta.tone)}>
-                    {planStatusMeta.label}
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {monthSummary?.borrowing_pressure
-                      ? t("budgets.borrowingPressureHint", {
-                          defaultValue: "Some budgeted spending used borrowed capacity.",
-                        })
-                      : planStatusMeta.hint}
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
+
+                {monthSummary?.borrowing_survival?.enabled && (
+                  <Card className="shadow-sm border-purple-500/30 bg-purple-500/5">
+                    <CardContent className="p-5">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-ui-micro uppercase tracking-widest text-purple-700 dark:text-purple-400">
+                            {t("budgets.borrowingSurvival", { defaultValue: "Borrowing Survival" })}
+                          </p>
+                          <div className="mt-2">
+                            <CurrencyAmount value={monthSummary.borrowing_survival.borrowed_usage} format="display" className="text-xl font-bold tracking-tight text-purple-700 dark:text-purple-400" />
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-ui-micro uppercase tracking-widest text-muted-foreground">
+                            {t("budgets.survivalCap", { defaultValue: "Cap" })}
+                          </p>
+                          <div className="mt-2">
+                            <CurrencyAmount value={monthSummary.borrowing_survival.monthly_cap} format="display" className="text-sm font-medium tracking-tight text-muted-foreground" />
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="mt-3 flex items-center justify-between text-sm">
+                        <span className="text-purple-700/80 dark:text-purple-400/80">
+                          {monthSummary.borrowing_survival.exceeded_amount > 0 
+                            ? t("budgets.survivalExceeded", { defaultValue: "Cap exceeded by" })
+                            : t("budgets.survivalRemaining", { defaultValue: "Remaining cap" })
+                          }
+                        </span>
+                        <span className="font-medium text-purple-700 dark:text-purple-400">
+                          {monthSummary.borrowing_survival.exceeded_amount > 0 
+                            ? <CurrencyAmount value={monthSummary.borrowing_survival.exceeded_amount} />
+                            : <CurrencyAmount value={monthSummary.borrowing_survival.remaining_cap} />
+                          }
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
 
             {monthSummary?.plan_status === "waiting_on_income" || monthSummary?.plan_status === "over_planned" ? (
               <Card
@@ -1770,6 +1811,24 @@ export default function Budgets() {
                 </CardContent>
               </Card>
             ) : null}
+
+            <Card className="overflow-hidden border border-border/70 bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80">
+              <CardHeader className="border-b border-border/60 bg-gradient-to-br from-muted/40 via-background to-background">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+                  <div className="space-y-1">
+                    <CardTitle>{t("budgets.timeline.title", { defaultValue: "Monthly Timeline" })}</CardTitle>
+                    <CardDescription>
+                      {t("budgets.timeline.desc", {
+                        defaultValue: "Upcoming events and expected cash flows for this month.",
+                      })}
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 sm:p-6 bg-slate-50/50">
+                <BudgetTimeline budgetYear={summaryTarget.year} budgetMonth={summaryTarget.month} />
+              </CardContent>
+            </Card>
 
             <Card className="overflow-hidden border border-border/70 bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80">
               <CardHeader className="border-b border-border/60 bg-gradient-to-br from-muted/40 via-background to-background">
@@ -2111,6 +2170,8 @@ export default function Budgets() {
               const spentFullLabel = formatUzs(b.spent);
               const limitFullLabel = formatUzs(b.effectiveLimit);
               const usedOfLabel = t("budgets.usedOf", { spent: spentLabel, limit: limitLabel });
+              const floorData = monthSummary?.category_floors?.find(f => f.category === b.category);
+              const hasFloorPressure = floorData && floorData.warning_gap > 0;
               return (
                 <Card
                   key={b.id}
@@ -2127,12 +2188,59 @@ export default function Budgets() {
                           return <CategoryIcon className="size-icon-sm text-muted-foreground" aria-hidden="true" />;
                         })()}
                         <TitleTooltip title={tCategory(b.category)}>
-                          <div className="font-bold tracking-tight text-foreground truncate cursor-default transition-all duration-200 text-ui-title leading-normal">
+                          <div className={cn("font-bold tracking-tight truncate cursor-default transition-all duration-200 text-ui-title leading-normal", hasFloorPressure ? "text-amber-500 dark:text-amber-400" : "text-foreground")}>
                             {tCategory(b.category)}
                           </div>
                         </TitleTooltip>
                       </CardTitle>
                       <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-end">
+                        {hasFloorPressure && (
+                          <TooltipProvider>
+                            <Tooltip delayDuration={300}>
+                              <TooltipTrigger asChild>
+                                <div className="flex items-center justify-center rounded-full bg-amber-500/10 p-1.5 cursor-help transition-colors hover:bg-amber-500/20">
+                                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-[260px] space-y-1 text-sm">
+                                <p className="font-semibold text-amber-500">{t("budgets.floorWarning", { defaultValue: "Limit below required floor" })}</p>
+                                <p className="text-muted-foreground text-xs leading-tight">
+                                  {t("budgets.floorGapDesc", { defaultValue: "Your monthly limit is short by {{amount}} to cover known obligations in this category.", amount: formatUzs(floorData.warning_gap) })}
+                                </p>
+                                {floorData.reasons?.length > 0 && (
+                                  <div className="mt-2 space-y-1 border-t border-border/50 pt-2 text-xs">
+                                    {floorData.reasons.map((r, i) => (
+                                      <div key={i} className="flex justify-between gap-3">
+                                        <span className="truncate text-muted-foreground">{r.title}</span>
+                                        <span className="font-medium shrink-0">{formatUzs(r.amount)}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                <div className="mt-3 pt-2 border-t border-border/50 flex justify-end">
+                                  <Button 
+                                    size="sm" 
+                                    variant="secondary" 
+                                    className="w-full text-amber-600 bg-amber-500/10 hover:bg-amber-500/20"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      updateBudgetMutation.mutateAsync({
+                                        category: b.category,
+                                        monthlyLimit: floorData.floor_amount,
+                                        budgetYear: b.budgetYear,
+                                        budgetMonth: b.budgetMonth
+                                      });
+                                    }}
+                                    disabled={updateBudgetMutation.isPending}
+                                  >
+                                    {t("budgets.fixFloorLimit", { defaultValue: "Raise limit to {{amount}}", amount: formatUzs(floorData.floor_amount) })}
+                                  </Button>
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
                         <span
                           className={cn(
                             "inline-flex shrink-0 items-center justify-center rounded-full text-center font-medium leading-[1.3] transition-all duration-200 min-h-6 sm:min-h-7 md:min-h-8 px-1.5 sm:px-2 md:px-3 py-[3px] md:py-1 text-mobile-caption sm:text-xs md:text-xs whitespace-nowrap md:whitespace-normal max-w-fit md:min-w-[70px] lg:min-w-[86px]",
@@ -3388,6 +3496,61 @@ export default function Budgets() {
         isConfirming={isDeletingBudget}
         error={actionError}
       />
+
+      <ConfigureSurvivalDialog
+        open={showSurvivalDialog}
+        onOpenChange={setShowSurvivalDialog}
+        budgetYear={summaryTarget.year}
+        budgetMonth={summaryTarget.month}
+        initialEnabled={monthSummary?.borrowing_survival?.enabled || false}
+        initialCap={monthSummary?.borrowing_survival?.monthly_cap || 0}
+      />
+
+      <Dialog open={showCashBackingDetails} onOpenChange={setShowCashBackingDetails}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>{t("budgets.cashBackingDetailsTitle", { defaultValue: "Cash Backing Receipt" })}</DialogTitle>
+            <DialogDescription>
+              {t("budgets.cashBackingDetailsDesc", { defaultValue: "How your wallet balances translate into your plan's available cash backing." })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 font-mono text-sm py-4">
+            <div className="flex justify-between items-start group">
+              <div className="space-y-1">
+                <p className="font-medium">{t("budgets.receiptFreeMoney", { defaultValue: "Free money in wallets" })}</p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("budgets.receiptFreeMoneyHint", { defaultValue: "Excluding protected goals" })}</p>
+              </div>
+              <CurrencyAmount value={monthSummary?.free_money_now || 0} format="display" className="font-semibold" />
+            </div>
+            
+            <div className="flex justify-between items-start group">
+              <div className="space-y-1">
+                <p className="font-medium text-emerald-600 dark:text-emerald-400">+ {t("budgets.receiptSpent", { defaultValue: "Cash spent on budgets" })}</p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("budgets.receiptSpentHint", { defaultValue: "Added back to prevent double counting" })}</p>
+              </div>
+              <CurrencyAmount value={monthSummary?.valid_budget_spent || 0} format="display" className="font-semibold text-emerald-600 dark:text-emerald-400" />
+            </div>
+
+            <div className="flex justify-between items-start group">
+              <div className="space-y-1">
+                <p className="font-medium text-amber-600 dark:text-amber-400">- {t("budgets.receiptObligations", { defaultValue: "Debt obligations" })}</p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("budgets.receiptObligationsHint", { defaultValue: "Reserved for pure cash debts" })}</p>
+              </div>
+              <CurrencyAmount value={monthSummary?.cash_obligation_reserve_total || 0} format="display" className="font-semibold text-amber-600 dark:text-amber-400" />
+            </div>
+
+            <div className="border-t-2 border-dashed border-border pt-4">
+              <div className="flex justify-between items-center text-base">
+                <p className="font-bold">{t("budgets.receiptTotal", { defaultValue: "Total Cash Backing" })}</p>
+                <CurrencyAmount value={monthSummary?.cash_backing_total || 0} format="display" className="font-bold" />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCashBackingDetails(false)}>{t("common.close", { defaultValue: "Close" })}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

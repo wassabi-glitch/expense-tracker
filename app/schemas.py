@@ -2593,8 +2593,8 @@ class BudgetMonthSummaryOut(BaseModel):
     expected_income_totals: List[ExpectedIncomeLifecycleTotalOut] = []
     expected_income_items: List[ExpectedIncomeOut] = []
     cash_obligation_reserve_total: int = 0
+    cash_backing_total: int = 0
     backing_total: int = 0
-    available_plan_backing: int = 0
     monthly_budget_limit_total: int
     monthly_effective_limit_total: int
     monthly_budget_total: int = 0
@@ -3521,3 +3521,33 @@ class InstallmentChargeCreate(BaseModel):
         if normalized not in {"FEE", "PENALTY"}:
             raise ValueError("installments.invalid_charge_type")
         return normalized
+
+
+# --- TIMELINE SCHEMAS ---
+
+class TimelineEventType(str, Enum):
+    EXPECTED_INFLOW = "EXPECTED_INFLOW"
+    RECURRING_EXPENSE = "RECURRING_EXPENSE"
+    DEBT_PAYMENT = "DEBT_PAYMENT"
+    INSTALLMENT = "INSTALLMENT"
+
+
+class TimelineEventDirection(str, Enum):
+    INFLOW = "INFLOW"
+    OUTFLOW = "OUTFLOW"
+
+
+class TimelineEvent(BaseModel):
+    id: str
+    title: str
+    amount: int
+    direction: TimelineEventDirection
+    event_type: TimelineEventType
+    date: dt.date
+    status: str
+    category_id: Optional[int] = None
+    source_id: int
+
+
+class TimelineEventList(BaseModel):
+    items: List[TimelineEvent]

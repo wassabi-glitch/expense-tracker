@@ -1,11 +1,26 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 from fastapi import HTTPException, status
+# pyrefly: ignore [missing-import]
+from sqlalchemy.orm import Session
+# pyrefly: ignore [missing-import]
+from sqlalchemy import select
 
 from app import models, schemas
 from app.services.recurring_schedule_service import calculate_next_due_date
+
+
+@dataclass
+class ProjectedOccurrence:
+    category: models.ExpenseCategory
+    amount: int
+    source_id: int
+    title: str
+    due_date: date
+    is_materialized: bool
 
 
 DEFAULT_HORIZONS: dict[models.RecurringFrequency, list[tuple[str, int]]] = {
@@ -131,30 +146,71 @@ def validate_projection_horizons(
     return normalized
 
 
-def _count_occurrences_before(
-    recurring: models.RecurringExpense,
-    exclusive_end: date,
-) -> int:
-    if recurring.frequency == models.RecurringFrequency.ONE_TIME:
-        return 1 if recurring.next_due_date <= exclusive_end else 0
-
-    current_due = recurring.next_due_date
-    original_due_day = recurring.original_due_day or recurring.start_date.day
-    count = 0
+def project_occurrences_for_range(
+    db: Session,
+    template: models.RecurringExpense,
+    start_date: date,
+    end_date: date,
+) -> list[ProjectedOccurrence]:
+    results: list[ProjectedOccurrence] = []
+    
+    occurrences = db.scalars(
+        select(models.RecurringOccurrence)
+        .where(models.RecurringOccurrence.template_id == template.id)
+        .where(models.RecurringOccurrence.scheduled_due_date >= start_date)
+        .where(models.RecurringOccurrence.scheduled_due_date <= end_date)
+    ).all()
+    
+    for occ in occurrences:
+        if occ.status in (models.RecurringOccurrenceStatus.SKIPPED, models.RecurringOccurrenceStatus.CANCELLED):
+            continue
+            
+        amount = occ.expected_amount
+        if occ.status == models.RecurringOccurrenceStatus.FULFILLED and occ.actual_amount is not None:
+            amount = occ.actual_amount
+            
+        results.append(ProjectedOccurrence(
+            category=occ.expected_category,
+            amount=amount,
+            source_id=template.id,
+            title=template.title,
+            due_date=occ.scheduled_due_date,
+            is_materialized=True,
+        ))
+        
+    curr_date = template.next_due_date
+    original_due_day = template.original_due_day or template.start_date.day
+    
     guard = 0
-    while current_due < exclusive_end:
-        count += 1
-        next_due = calculate_next_due_date(current_due, recurring.frequency, original_due_day)
-        if next_due <= current_due:
+    while curr_date and curr_date <= end_date:
+        if curr_date >= start_date:
+            results.append(ProjectedOccurrence(
+                category=template.category,
+                amount=template.amount,
+                source_id=template.id,
+                title=template.title,
+                due_date=curr_date,
+                is_materialized=False,
+            ))
+            
+        if template.frequency == models.RecurringFrequency.ONE_TIME:
             break
-        current_due = next_due
+            
+        next_due = calculate_next_due_date(curr_date, template.frequency, original_due_day)
+        if next_due <= curr_date:
+            break
+        curr_date = next_due
+        
         guard += 1
         if guard > 2000:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="recurring.projection_horizon_too_large")
-    return count
+            break
+            
+    results.sort(key=lambda x: x.due_date)
+    return results
 
 
 def build_projection_rows(
+    db: Session,
     recurring: models.RecurringExpense,
     *,
     source: str,
@@ -166,12 +222,24 @@ def build_projection_rows(
         unit = str(horizon["unit"])
         value = int(horizon["value"])
         if unit == "occurrences":
-            occurrence_count = 1
-            horizon_end = recurring.next_due_date
+            safe_end = anchor_date + timedelta(days=365*5)
+            projected = project_occurrences_for_range(db, recurring, anchor_date, safe_end)
+            if projected:
+                first_occ = projected[0]
+                horizon_end = first_occ.due_date
+                occurrence_count = 1
+                total_amount = first_occ.amount
+            else:
+                horizon_end = recurring.next_due_date
+                occurrence_count = 0
+                total_amount = 0
         else:
             exclusive_end = _exclusive_horizon_end(anchor_date, unit, value)
-            occurrence_count = _count_occurrences_before(recurring, exclusive_end)
             horizon_end = exclusive_end - timedelta(days=1)
+            projected = project_occurrences_for_range(db, recurring, anchor_date, horizon_end)
+            occurrence_count = len(projected)
+            total_amount = sum(p.amount for p in projected)
+            
         rows.append(
             schemas.RecurringProjectionRowOut(
                 source=source,
@@ -181,13 +249,14 @@ def build_projection_rows(
                 horizon_start=anchor_date,
                 horizon_end=horizon_end,
                 occurrence_count=occurrence_count,
-                total_amount=occurrence_count * int(recurring.amount or 0),
+                total_amount=total_amount,
             )
         )
     return rows
 
 
 def build_recurring_projection_output(
+    db: Session,
     recurring: models.RecurringExpense,
     *,
     anchor_date: date,
@@ -207,18 +276,21 @@ def build_recurring_projection_output(
         recurring_id=int(recurring.id),
         anchor_date=anchor_date,
         default_projections=build_projection_rows(
+            db,
             recurring,
             source="default",
             horizons=default_horizons,
             anchor_date=anchor_date,
         ),
         custom_projections=build_projection_rows(
+            db,
             recurring,
             source="custom",
             horizons=custom,
             anchor_date=anchor_date,
         ),
         ad_hoc_projections=build_projection_rows(
+            db,
             recurring,
             source="ad_hoc",
             horizons=ad_hoc,

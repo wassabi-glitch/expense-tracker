@@ -93,3 +93,17 @@ export async function deleteBudget(category, budget_year, budget_month) {
     );
     return response.data;
 }
+
+
+export async function configureBorrowingSurvival(data) {
+    const response = await apiClient.put(`/budgets/borrowing-survival`, data);
+    return response.data;
+}
+
+export async function getBudgetTimeline(budget_year, budget_month) {
+    const response = await apiClient.get("/budgets/timeline", {
+        params: { budget_year, budget_month },
+    });
+    return response.data;
+}
+

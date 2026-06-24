@@ -652,21 +652,19 @@ export default function Wallets() {
                   setWalletMenuForId(null);
                 }}
               />
-              {w.wallet_type !== "CREDIT" && (
-                <ActionMenuItem
-                  icon={Target}
-                  disabled={!isOperational}
-                  label={
-                    w.can_fund_goals
-                      ? t("wallets.disable_goal_funding", { defaultValue: "Disable Goal Funding" })
-                      : t("wallets.enable_goal_funding", { defaultValue: "Enable Goal Funding" })
-                  }
-                  onClick={() => {
-                    handleToggleGoalFunding(w);
-                    setWalletMenuForId(null);
-                  }}
-                />
-              )}
+              <ActionMenuItem
+                icon={Target}
+                disabled={!isOperational}
+                label={
+                  w.can_fund_goals
+                    ? t("wallets.disable_goal_funding", { defaultValue: "Disable Goal Funding" })
+                    : t("wallets.enable_goal_funding", { defaultValue: "Enable Goal Funding" })
+                }
+                onClick={() => {
+                  handleToggleGoalFunding(w);
+                  setWalletMenuForId(null);
+                }}
+              />
               <ActionMenuDivider />
               <ActionMenuItem
                 icon={Pencil}

@@ -13377,3 +13377,62 @@ A user gets paid on the 5th of the month. On the 1st of the month, their wallet 
 
 ### Expected Behavior
 Sarflog adopts a "Permissive Warning" philosophy (Option A). The system NEVER hard-blocks the user from entering budget limits. Instead, it relies on real-time visual feedback and unignorable "Look-Ahead Warnings". If a user tries to save a budget where `Proposed Limits > (Cash + Expected Inflows)`, the UI throws a red warning: *"You are planning more than you have. Want to log your upcoming paycheck as an Expected Inflow to fix this?"* The user is allowed to save the plan in a mathematically broken state, placing the burden on them to fix it via "whack-a-mole" rebalancing or logging future income.
+
+
+## EC-048 - Category Floor UI Polish: Enhance Reason Metadata
+
+**Status:** REPORTED
+**Severity:** S3
+**Area:** UI / Budgets
+
+### Scenario
+Currently, the category floor warning tooltip lists reasons using only their title and amount. This can lead to a long, repetitive list (e.g. multiple "TestRecurringTemplate" rows with the same name) and doesn't provide enough context about *when* the obligation is due or *what type* of obligation it is.
+
+### Expected Behavior
+The backend "reasons" payload for Category Floors should be expanded to include:
+- 	ype (e.g., "installment", "debt", "recurring")
+- due_date (or expected date)
+
+The UI should then use this extra metadata to group, format, or polish the list of reasons inside the tooltip. This will prevent a confusing wall of duplicate titles and help the user better understand the specific obligations driving their budget floor.
+
+
+
+## Future Ideation: Borrowing Survival Mode V2
+
+### 1. Pre-Action Warnings (Checkout Line Effect)
+While the app ledger is post-action (we cannot block the user from recording reality), the Add Expense screen acts as a pre-action decision dashboard. 
+- **Idea:** If a user types an amount that will breach the Survival Cap, flash a real-time warning before they hit save. This can modify their behavior *before* they actually swipe their card at the store.
+
+### 2. Systemic Consequences for Cap Breach (The So What?)
+Currently, breaching the Survival Cap only provides a visual warning (guilt). For strict zero-based budgeting, a breached limit must have financial teeth.
+- **Fix Action A (Immediate):** If the cap is breached but the user has cash sitting in protected Goals, prompt them to Raid a Goal to cover the breach. Force them to feel the trade-off of borrowing.
+- **Fix Action B (The Next-Month Hangover):** If unresolved, the breached amount must automatically spawn as a mandatory Debt Repayment Obligation in the following month's budget setup. This locks up their new salary to pay for last month's survival borrowing before they can allocate funds to new categories.
+
+---
+
+## EC-009: Overdue Debts Ignored in Future Planning (Deferred)
+
+**Status:** DEFERRED  
+**Severity:** S2  
+**Area:** Budgets / Debts / UI  
+**Discovered on:** 2026-06-24  
+**Reported by:** User / AI Agent  
+
+### Scenario
+
+Currently, cash_obligation_reserve_total only reserves money for debts strictly due within the currently viewed budget month. If a debt is due in June and left unpaid, it disappears from July’s plan obligations, incorrectly inflating the available backing for July.
+
+### Expected Behavior
+
+Any unpaid debt from previous months should carry over and subtract from the current month plan backing as an overdue cash obligation.
+
+### Proposed Fix Philosophy
+
+- **Backend Math:** Modify get_cash_obligation_reserve_total() to remove the >= start boundary constraint. The logic should include any unpaid debt where expected_return_date < end of the budget month.
+- **Partial Payments:** Backend already calculates obligations using func.sum(models.Debt.remaining_amount). If a 1M debt has 300k paid, only the unpaid 700k carries over.
+- **Fungibility of Informal Debt Charges:** Informal debt charges are added to remaining_amount. Because informal debt payments are fungible (we do not force users to split payment between principal and charge), the entire remaining_amount stays together as a raw Cash Obligation, rather than splitting the charge out to Category Floors. This avoids massive UI friction.
+- **Overdue Debt UI Nudge:** Expose overdue_cash_obligations_items to the frontend. Add an interactive modal to the Budgets page warning the user about overdue debts permanently draining cash backing. The modal should list each debt with Pay and Reschedule buttons.
+
+### Decision
+
+**DEFERRED.** This involves deep debt interactions, UI flows (Pay/Reschedule), and debt module rules that need holistic consideration. It will be implemented when the overall Debts Epic is targeted.

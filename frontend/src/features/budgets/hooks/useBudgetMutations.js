@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { createBudget, deleteBudget, updateBudget } from "@/lib/api";
+import { createBudget, deleteBudget, updateBudget, configureBorrowingSurvival } from "@/lib/api";
 import { useToast } from "@/lib/context/ToastContext";
 import { formatUzs } from "@/lib/format";
 import { localizeApiError } from "@/lib/errorMessages";
@@ -85,6 +85,28 @@ export function useDeleteBudgetMutation() {
         onError: (error) => {
             const msg = localizeApiError(error.message, t) || error.message;
             toast.error(t("toasts.budget.failedToDelete"), msg);
+        },
+    });
+}
+
+export function useConfigureBorrowingSurvivalMutation() {
+    const { t } = useTranslation();
+    const queryClient = useQueryClient();
+    const toast = useToast();
+
+    return useMutation({
+        mutationFn: (data) => configureBorrowingSurvival(data),
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary"] }),
+            ]);
+            toast.success(
+                t("toasts.budget.survivalConfigured", { defaultValue: "Borrowing survival configured" })
+            );
+        },
+        onError: (error) => {
+            const msg = localizeApiError(error.message, t) || error.message;
+            toast.error(t("toasts.budget.failedToConfigureSurvival", { defaultValue: "Failed to configure borrowing survival" }), msg);
         },
     });
 }

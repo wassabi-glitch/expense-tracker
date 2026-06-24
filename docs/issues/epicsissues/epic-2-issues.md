@@ -122,15 +122,15 @@ Phase A verification (2026-06-22): migration upgraded in Docker and `alembic che
 
 #### Phase C - Shared projection and floor integration
 
-- [ ] One pure range-bounded occurrence projector serves recurring projection rows and recurring category-floor warnings.
-- [ ] Existing default and custom projection APIs reuse the shared projector; saved custom horizons remain preference metadata.
-- [ ] Projection output is read-only and never mutates templates, occurrences, due dates, wallets, budgets, expenses, notifications, or floor records.
-- [ ] Current-month defaults use the effective user timezone; explicit selected months use user-local calendar boundaries rather than rolling 30-day windows.
-- [ ] Full-month recurring recommendations combine valid fulfilled actual amounts, pending/outstanding expected amounts, and projected future expected amounts without double counting.
-- [ ] Paying or confirming an occurrence does not make the full-month recommendation shrink merely because `next_due_date` advanced.
-- [ ] Skipped, cancelled, paused-period, and archived future occurrences do not contribute; failed-but-still-outstanding occurrences do contribute.
-- [ ] Mid-month amount and category edits preserve fulfilled old values and use current values only for unresolved/future occurrences.
-- [ ] Recurring reasons use the Issue 3 floor-warning contract and provide grouped source detail suitable for daily/weekly schedules.
+- [x] One pure range-bounded occurrence projector serves recurring projection rows and recurring category-floor warnings.
+- [x] Existing default and custom projection APIs reuse the shared projector; saved custom horizons remain preference metadata.
+- [x] Projection output is read-only and never mutates templates, occurrences, due dates, wallets, budgets, expenses, notifications, or floor records.
+- [x] Current-month defaults use the effective user timezone; explicit selected months use user-local calendar boundaries rather than rolling 30-day windows.
+- [x] Full-month recurring recommendations combine valid fulfilled actual amounts, pending/outstanding expected amounts, and projected future expected amounts without double counting.
+- [x] Paying or confirming an occurrence does not make the full-month recommendation shrink merely because `next_due_date` advanced.
+- [x] Skipped, cancelled, paused-period, and archived future occurrences do not contribute; failed-but-still-outstanding occurrences do contribute.
+- [x] Mid-month amount and category edits preserve fulfilled old values and use current values only for unresolved/future occurrences.
+- [x] Recurring reasons use the Issue 3 floor-warning contract and provide grouped source detail suitable for daily/weekly schedules.
 - [ ] Budget month summary, recurring details, and future timeline work can reuse the same occurrence semantics.
 - [ ] Public route and scheduler-boundary tests cover lifecycle, confirmation, multi-wallet posting, timezones, projections, floors, idempotency, concurrency, and read-only guarantees.
 - [ ] Migrations and backend tests run in Docker; relevant frontend tests and production build pass.
@@ -148,18 +148,18 @@ Full product and testing decisions: `docs/prd/g30-advanced-recurring-occurrence-
 Synchronize the Budget Workspace frontend with the backend budget intelligence contract. The UI should render backend plan backing fields and category floors directly instead of deriving plan health from legacy free-money variables or duplicating formulas in React.
 
 ### Acceptance criteria
-- [ ] Budget summary cards use `plan_backing_remaining` and `backing_shortfall` instead of legacy free-money-only remaining fields.
-- [ ] Plan health label, color, and warning logic rely on backend `plan_status` and returned shortfall/cause data.
-- [ ] Budget cards show required category floor badges or warnings when their category has floor pressure.
-- [ ] Budget details or summary surfaces floor source details for debts, installments, and recurring expenses.
-- [ ] A category whose limit is below its required floor is visually distinguished.
-- [ ] The UI no longer reverse-engineers backend plan formulas.
-- [ ] Existing budget cards still render normal spending, remaining, over-limit, and empty states cleanly on desktop and mobile.
-- [ ] Frontend copy avoids envelope language and uses plan backing/category floor/cash reserve terminology.
-- [ ] Wallet UI allows goal-funding eligibility to be enabled for overdraft-capable debit/prepaid wallets and credit wallets; only their positive, unprotected balance is presented as available for goals.
-- [ ] Goal-funding UI clearly explains that credit limits, overdraft capacity, zero balances, and negative balances cannot fund goals, even when the wallet is eligible to hold goal protection.
-- [ ] Supported translations include the new visible budget backing and floor copy.
-- [ ] Frontend build passes.
+- [x] Budget summary cards use `plan_backing_remaining` and `backing_shortfall` instead of legacy free-money-only remaining fields.
+- [x] Plan health label, color, and warning logic rely on backend `plan_status` and returned shortfall/cause data.
+- [x] Budget cards show required category floor badges or warnings when their category has floor pressure.
+- [x] Budget details or summary surfaces floor source details for debts, installments, and recurring expenses.
+- [x] A category whose limit is below its required floor is visually distinguished.
+- [x] The UI no longer reverse-engineers backend plan formulas.
+- [x] Existing budget cards still render normal spending, remaining, over-limit, and empty states cleanly on desktop and mobile.
+- [x] Frontend copy avoids envelope language and uses plan backing/category floor/cash reserve terminology.
+- [x] Wallet UI allows goal-funding eligibility to be enabled for overdraft-capable debit/prepaid wallets and credit wallets; only their positive, unprotected balance is presented as available for goals.
+- [x] Goal-funding UI clearly explains that credit limits, overdraft capacity, zero balances, and negative balances cannot fund goals, even when the wallet is eligible to hold goal protection.
+- [x] Supported translations include the new visible budget backing and floor copy.
+- [x] Frontend build passes.
 
 ### Blocked by
 - Issue 4: Advanced Recurring Occurrence Architecture & Floors
@@ -169,19 +169,19 @@ Synchronize the Budget Workspace frontend with the backend budget intelligence c
 ## Issue 6: Future Timeline & Budget Cashflow Simulator
 
 ### What to build
-Add the Commitment Intelligence layer that turns budget planning into a chronological cashflow simulation. The backend should aggregate expected inflows and known obligations into one deterministic future timeline, while the Budgets page gets a 30-day simulator and the Dashboard gets a compact next-5-days pulse.
+Add the Commitment Intelligence layer that turns budget planning into a chronological cashflow simulation. The backend should aggregate expected inflows and known obligations into one deterministic future timeline, while the Budgets page gets a 30-day(current month) simulator and the Dashboard(no need to tackle dashboard now) gets a compact next-5-days pulse.
 
 ### Acceptance criteria
-- [ ] A future timeline API aggregates expected inflows, debts, installment payments, and recurring expenses into dated timeline events.
-- [ ] Timeline events include enough metadata for UI labels, source type, category, amount direction, due date, and resolved/active state.
-- [ ] Timeline events are sorted chronologically and can be filtered to 30 days or 5 days.
-- [ ] Budgets page renders a 30-day Future Timeline using the shared timeline API.
-- [ ] Dashboard renders a Next 5 Days pulse widget from the same data source.
-- [ ] Dashboard exposes a deterministic Financial Truth Status such as covered now, waiting on income, or at risk.
-- [ ] Budget category cards warn when planned limits threaten upcoming category floors or obligations.
-- [ ] Floor warning repair includes a one-click action to set or create a category budget at the required floor.
-- [ ] The simulator distinguishes expected inflows from obligations instead of creating a separate "Expected Expenses" tab.
-- [ ] Tests cover interleaved inflows and obligations, timeline sorting, 30-day budget view data, 5-day dashboard data, and deterministic status calculation.
+- [x] A future timeline API aggregates expected inflows, debts, installment payments, and recurring expenses into dated timeline events.
+- [x] Timeline events include enough metadata for UI labels, source type, category, amount direction, due date, and resolved/active state.
+- [x] Timeline events are sorted chronologically and can be filtered to 30 days(current month) or 5 days(not now)
+- [x] Budgets page renders a 30-day(current month not 30days from today) Future Timeline using the shared timeline API.
+- [ ] Dashboard renders a Next 5 Days pulse widget from the same data source.(not now)
+- [ ] Dashboard exposes a deterministic Financial Truth Status such as covered now, waiting on income, or at risk.(not now)
+- [x] Budget category cards warn when planned limits threaten upcoming category floors or obligations.
+- [x] Floor warning repair includes a one-click action to set or create a category budget at the required floor.
+- [x] The simulator distinguishes expected inflows from obligations instead of creating a separate "Expected Expenses" tab.
+- [x] Tests cover interleaved inflows and obligations, timeline sorting, 30-day budget view data, (5-day dashboard data and deterministic status calculation postponed).
 
 ### Blocked by
 - Issue 5: Budget Backing UI Sync

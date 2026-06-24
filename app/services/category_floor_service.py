@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
+# pyrefly: ignore [missing-import]
 from sqlalchemy import and_, or_, select
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
 
 from app import models
@@ -65,7 +67,7 @@ def build_category_floor_warnings(
     start: date,
     end: date,
     effective_limits: dict[models.ExpenseCategory, int],
-    include_legacy_recurring_preview: bool = True,
+    include_recurring: bool = True,
 ) -> list[CategoryFloorWarning]:
     """
     Build non-binding monthly category warnings from authoritative obligations.
@@ -104,26 +106,29 @@ def build_category_floor_warnings(
             )
         )
 
-    if include_legacy_recurring_preview:
+    if include_recurring:
+        from app.services.recurring_projection_service import project_occurrences_for_range
+        from datetime import timedelta
         recurring_rows = (
             db.query(models.RecurringExpense)
             .filter(
                 models.RecurringExpense.owner_id == owner_id,
                 models.RecurringExpense.status == models.RecurringStatus.ACTIVE,
-                models.RecurringExpense.next_due_date >= start,
-                models.RecurringExpense.next_due_date < end,
             )
             .all()
         )
+        inclusive_end = end - timedelta(days=1)
         for recurring in recurring_rows:
-            add_reason(
-                recurring.category,
-                kind="RECURRING",
-                source_id=recurring.id,
-                title=recurring.title,
-                due_date=recurring.next_due_date,
-                amount=int(recurring.amount or 0),
-            )
+            projected = project_occurrences_for_range(db, recurring, start, inclusive_end)
+            for occ in projected:
+                add_reason(
+                    occ.category,
+                    kind="RECURRING",
+                    source_id=occ.source_id,
+                    title=occ.title,
+                    due_date=occ.due_date,
+                    amount=occ.amount,
+                )
 
     installment_rows = (
         db.query(models.InstallmentPayment)
@@ -181,11 +186,6 @@ def build_category_floor_warnings(
             models.Debt.status.in_(_active_payable_debt_statuses()),
             models.Debt.remaining_amount > 0,
             models.Debt.expense_category.isnot(None),
-            models.Debt.origin_kind != models.DebtOriginKind.CASH_BORROWED,
-            or_(
-                models.Debt.product_kind.is_(None),
-                models.Debt.product_kind != models.DebtProductKind.INFORMAL_DEBT,
-            ),
             or_(
                 and_(models.Debt.expected_return_date >= start, models.Debt.expected_return_date < end),
                 models.Debt.id.in_(formal_due_debt_ids),

@@ -270,7 +270,7 @@ def get_recurring_projections(
     user_tz: tzinfo = Depends(get_effective_user_timezone),
 ):
     recurring = _get_owned_recurring_or_404(db, current_user.id, id)
-    return build_recurring_projection_output(
+    return build_recurring_projection_output(db,
         recurring,
         anchor_date=today_in_tz(user_tz),
     )
@@ -285,7 +285,7 @@ def preview_recurring_projections(
     user_tz: tzinfo = Depends(get_effective_user_timezone),
 ):
     recurring = _get_owned_recurring_or_404(db, current_user.id, id)
-    return build_recurring_projection_output(
+    return build_recurring_projection_output(db,
         recurring,
         anchor_date=today_in_tz(user_tz),
         ad_hoc_horizons=payload.horizons,
@@ -310,7 +310,7 @@ def save_recurring_projection_horizons(
     recurring.custom_projection_horizons = horizons
     db.commit()
     db.refresh(recurring)
-    return build_recurring_projection_output(
+    return build_recurring_projection_output(db,
         recurring,
         anchor_date=today_in_tz(user_tz),
     )

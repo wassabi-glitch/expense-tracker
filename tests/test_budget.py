@@ -1323,7 +1323,7 @@ def test_budget_month_summary_classifies_payable_debt_floor_by_expense_route(cli
                 status=models.DebtStatus.ACTIVE,
                 date=today,
                 expected_return_date=today,
-                expense_category=models.ExpenseCategory.HOUSING,
+                expense_category=None,
             ),
         ]
     )
@@ -2623,3 +2623,220 @@ def test_budget_write_rate_limit_blocks_burst(client):
     assert blocked.status_code == 429
     assert "Retry-After" in blocked.headers
     assert blocked.json()["detail"] == "budgets.write_rate_limited"
+
+# pyrefly: ignore [parse-error]
+def test_budget_effective_limit_ignores_historical_rollover_ledger(client, session):
+    email = "historicalrollover@example.com"
+    headers = create_user_and_token(client, "historicalrollover", email, "Password123!")
+    today = user_timezone_today()
+    created = create_budget(
+        client,
+        headers,
+        category="Food",
+        monthly_limit=1_000,
+        budget_year=today.year,
+        budget_month=today.month,
+    )
+    assert created.status_code == 201, created.text
+
+    user = _get_user(session, email)
+    session.add(
+        models.BudgetLedger(
+            owner_id=user.id,
+            category=models.ExpenseCategory.GROCERIES,
+            budget_year=today.year,
+            budget_month=today.month,
+            entry_type="ROLLOVER",
+            amount=250,
+        )
+    )
+    session.commit()
+
+    budget = client.get(
+        f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Groceries",
+        headers=headers,
+    )
+    assert budget.status_code == 200, budget.text
+    payload = budget.json()
+    assert payload["effective_monthly_limit"] == 1_000
+    assert "rollover_amount" not in payload
+
+
+def test_budget_effective_limit_ignores_historical_sweep_ledger(client, session):
+    email = "historicalsweep@example.com"
+    headers = create_user_and_token(client, "historicalsweep", email, "Password123!")
+    today = user_timezone_today()
+    created = create_budget(
+        client,
+        headers,
+        category="Food",
+        monthly_limit=1_000,
+        budget_year=today.year,
+        budget_month=today.month,
+    )
+    assert created.status_code == 201, created.text
+
+    user = _get_user(session, email)
+    session.add(
+        models.BudgetLedger(
+            owner_id=user.id,
+            category=models.ExpenseCategory.GROCERIES,
+            budget_year=today.year,
+            budget_month=today.month,
+            entry_type="SWEEP",
+            amount=-250,
+        )
+    )
+    session.commit()
+
+    budget = client.get(
+        f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Groceries",
+        headers=headers,
+    )
+    assert budget.status_code == 200, budget.text
+    payload = budget.json()
+    assert payload["effective_monthly_limit"] == 1_000
+    assert "sweep_amount" not in payload
+
+
+def test_delete_budget(client):
+    headers = create_user_and_token(
+        client, "deletebudget", "deletebudget@example.com", "Password123!"
+    )
+    today = date.today()
+    create_budget(client, headers, category="Food", monthly_limit=300, budget_year=today.year, budget_month=today.month)
+    res = client.delete(f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Groceries", headers=headers)
+    assert res.status_code == 204
+    res_list = client.get("/budgets/", headers=headers)
+    assert res_list.status_code == 200
+    assert res_list.json() == []
+
+
+def test_delete_budget_blocks_when_linked_expenses_exist(client):
+    headers = create_user_and_token(
+        client, "deletebudgetlinked", "deletebudgetlinked@example.com", "Password123!"
+    )
+    today = date.today()
+    create_budget(
+        client,
+        headers,
+        category="Food",
+        monthly_limit=300,
+        budget_year=today.year,
+        budget_month=today.month,
+    )
+    expense_res = client.post(
+        "/expenses/",
+        json={
+            "title": "Linked expense",
+            "amount": 10,
+            "category": "Groceries",
+            "description": "test",
+            "date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert expense_res.status_code == 201, expense_res.text
+
+    res = client.delete(f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Groceries", headers=headers)
+    assert res.status_code == 409
+    assert res.json()["detail"] == "budgets.has_linked_expenses"
+
+    still_exists = client.get(f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Groceries", headers=headers)
+    assert still_exists.status_code == 200
+
+
+def test_budget_write_rate_limit_blocks_burst(client):
+    for key in redis_client.scan_iter("tb:budgets_write:*"):
+        redis_client.delete(key)
+
+    headers = create_user_and_token(
+        client, "budgetrtlim", "budgetrtlim@example.com", "Password123!"
+    )
+    
+    blocked = None
+    # BUDGET_WRITE_BUCKET_CAPACITY is 10, so 15 requests should trigger it
+    for i in range(15):
+        res = client.post(
+            "/budgets/",
+            json={"category": "Groceries", "monthly_limit": 500 + i, "budget_year": 2026, "budget_month": i % 12 + 1},
+            headers=headers
+        )
+        if res.status_code == 429:
+            blocked = res
+            break
+
+    assert blocked is not None
+    assert blocked.status_code == 429
+    assert "Retry-After" in blocked.headers
+    assert blocked.json()["detail"] == "budgets.write_rate_limited"
+
+
+def test_budget_cash_allocation_uses_hamilton_method(client, session):
+    email = "budgethamilton@example.com"
+    headers = create_user_and_token(client, "budgethamilton", email, "Password123!")
+    today = user_timezone_today()
+    user = _get_user(session, email)
+    default_wallet = _default_wallet(session, user.id)
+    
+    credit_wallet = models.Wallet(
+        owner_id=user.id,
+        name="Credit Card",
+        wallet_type=models.WalletType.CREDIT,
+        accounting_type=models.AccountingType.LIABILITY,
+        initial_balance=0,
+        current_balance=0,
+        credit_limit=10_000_000,
+        is_default=False,
+    )
+    session.add(credit_wallet)
+    session.commit()
+    session.refresh(credit_wallet)
+
+    food = create_budget(
+        client, headers, category="Groceries", monthly_limit=5_000_000, budget_year=today.year, budget_month=today.month
+    )
+    transport = create_budget(
+        client, headers, category="Transport", monthly_limit=5_000_000, budget_year=today.year, budget_month=today.month
+    )
+
+    # 100 total spent. 33 cash, 67 credit.
+    # Split: 50 Food, 50 Transport.
+    # Base allocation: (50 * 33) / 100 = 16.5
+    # Integer division would give 16 to both (total 32, losing 1).
+    # Hamilton method should give 17 to one, 16 to the other.
+    expense = client.post(
+        "/expenses/",
+        json={
+            "title": "Split uneven",
+            "amount": 100,
+            "category": "Groceries",
+            "date": today.isoformat(),
+            "wallet_allocations": [
+                {"wallet_id": default_wallet.id, "amount": 33},
+                {"wallet_id": credit_wallet.id, "amount": 67},
+            ]
+        },
+        headers=headers,
+    )
+    assert expense.status_code == 201, expense.text
+    expense_id = expense.json()["id"]
+
+    split = client.post(
+        f"/expenses/{expense_id}/split",
+        json={
+            "items": [
+                {"amount": 50, "category": "Groceries", "label": "Food portion"},
+                {"amount": 50, "category": "Transport", "label": "Transport portion"},
+            ]
+        },
+        headers=headers,
+    )
+    assert split.status_code == 200 or split.status_code == 201, split.text
+
+    summary = client.get(f"/budgets/month-summary?budget_year={today.year}&budget_month={today.month}", headers=headers)
+    assert summary.status_code == 200, summary.text
+    payload = summary.json()
+    
+    # Check that exactly 33 cash was allocated
+    assert payload["valid_budget_spent"] == 33

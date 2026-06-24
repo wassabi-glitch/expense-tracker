@@ -333,12 +333,11 @@ export function AddWalletDialog({ isOpen, onOpenChange, onSave, isPending, t }) 
                 </div>
               )}
 
-              {formData.wallet_type !== "CREDIT" && (
                 <div className="flex items-center justify-between rounded-2xl border border-border/40 bg-muted/30 p-4">
                   <div className="space-y-0.5">
                     <Label className="text-xs font-bold">{t("wallets.can_fund_goals", { defaultValue: "Can fund goals" })}</Label>
                     <p className="text-[10px] text-muted-foreground leading-tight">
-                      {t("wallets.can_fund_goals_hint", { defaultValue: "Allow this wallet's real balance to be allocated to goals." })}
+                      {t("wallets.can_fund_goals_hint", { defaultValue: "Allow this wallet's positive balance to be allocated to goals. Credit limits and overdrafts cannot fund goals." })}
                     </p>
                   </div>
                   <Switch
@@ -346,7 +345,6 @@ export function AddWalletDialog({ isOpen, onOpenChange, onSave, isPending, t }) 
                     onCheckedChange={(v) => updateField("can_fund_goals", v)}
                   />
                 </div>
-              )}
 
               <div className="space-y-4 pb-2">
                 <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{t("wallets.chooseStyle")}</Label>
