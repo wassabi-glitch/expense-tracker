@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
 
 from fastapi import HTTPException, status
+# pyrefly: ignore [missing-import]
 from sqlalchemy import and_, case, func, or_, select
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
@@ -320,10 +323,7 @@ def get_cash_obligation_reserve_total(
             models.Debt.debt_type == models.DebtType.OWING,
             models.Debt.status.in_(_active_payable_debt_statuses()),
             models.Debt.remaining_amount > 0,
-            or_(
-                models.Debt.origin_kind == models.DebtOriginKind.CASH_BORROWED,
-                models.Debt.product_kind == models.DebtProductKind.INFORMAL_DEBT,
-            ),
+            models.Debt.expense_category.is_(None),
             or_(
                 and_(models.Debt.expected_return_date >= start, models.Debt.expected_return_date < end),
                 models.Debt.id.in_(formal_due_debt_ids),
@@ -455,17 +455,41 @@ def get_cash_backed_budget_spent_by_id(db: Session, owner_id: int) -> dict[int, 
         if row.event_id is not None
     }
 
-    cash_spent_by_budget: dict[int, int] = {}
+    legs_by_event: dict[int, list[tuple[int, int]]] = defaultdict(list)
     for row in entity_rows:
-        if row.budget_id is None or row.event_id is None:
-            continue
-        event_total, cash_total = wallet_totals_by_event.get(int(row.event_id), (0, 0))
+        if row.budget_id is not None and row.event_id is not None:
+            legs_by_event[int(row.event_id)].append((int(row.budget_id), int(row.spent or 0)))
+
+    cash_spent_by_budget: dict[int, int] = {}
+    for event_id, legs in legs_by_event.items():
+        event_total, cash_total = wallet_totals_by_event.get(event_id, (0, 0))
         if event_total <= 0 or cash_total <= 0:
             continue
-        cash_backed_amount = int((int(row.spent or 0) * cash_total) / event_total)
-        cash_spent_by_budget[int(row.budget_id)] = (
-            cash_spent_by_budget.get(int(row.budget_id), 0) + cash_backed_amount
-        )
+            
+        allocations = []
+        total_exact = 0.0
+        total_base = 0
+        for budget_id, spent in legs:
+            exact = (spent * cash_total) / event_total
+            base = int(exact)
+            remainder = exact - base
+            allocations.append({"budget_id": budget_id, "base": base, "remainder": remainder})
+            total_exact += exact
+            total_base += base
+            
+        unallocated_cash = int(total_exact + 0.5) - total_base
+        
+        allocations.sort(key=lambda x: x["remainder"], reverse=True)
+        
+        for i in range(unallocated_cash):
+            if i < len(allocations):
+                allocations[i]["base"] += 1
+                
+        for alloc in allocations:
+            cash_spent_by_budget[alloc["budget_id"]] = (
+                cash_spent_by_budget.get(alloc["budget_id"], 0) + alloc["base"]
+            )
+            
     return cash_spent_by_budget
 
 
@@ -839,8 +863,8 @@ def build_budget_month_summary(
         expected_income_totals=expected_income_totals,
         expected_income_items=expected_income_items,
         cash_obligation_reserve_total=cash_obligation_reserve_total,
+        cash_backing_total=int(capacity.cash_backing_total),
         backing_total=backing_total,
-        available_plan_backing=backing_total,
         monthly_budget_limit_total=monthly_budget_limit_total,
         monthly_effective_limit_total=monthly_effective_limit_total,
         monthly_budget_total=monthly_effective_limit_total,

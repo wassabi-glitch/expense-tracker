@@ -28,6 +28,7 @@ export {
     createBudget,
     updateBudget,
     deleteBudget,
+    configureBorrowingSurvival,
 } from "./api/budgets";
 export {
     getProjects,

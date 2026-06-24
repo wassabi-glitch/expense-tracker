@@ -51,7 +51,7 @@ def test_positive_credit_balance_is_owned_and_goal_protection_reduces_free_money
     assert payload["owned_money_now"] == 10_500_000
     assert payload["protected_goal_money"] == 200_000
     assert payload["free_money_now"] == 10_300_000
-    assert payload["available_plan_backing"] == 10_300_000
+    assert payload["backing_total"] == 10_300_000
     assert {cause["code"] for cause in payload["plan_causes"]} == {"GOAL_PROTECTION"}
 
     assert client.post("/users/me/toggle-premium", headers=headers).status_code == 200

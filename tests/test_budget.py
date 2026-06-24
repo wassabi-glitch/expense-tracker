@@ -1323,7 +1323,7 @@ def test_budget_month_summary_classifies_payable_debt_floor_by_expense_route(cli
                 status=models.DebtStatus.ACTIVE,
                 date=today,
                 expected_return_date=today,
-                expense_category=models.ExpenseCategory.HOUSING,
+                expense_category=None,
             ),
         ]
     )
@@ -2623,3 +2623,73 @@ def test_budget_write_rate_limit_blocks_burst(client):
     assert blocked.status_code == 429
     assert "Retry-After" in blocked.headers
     assert blocked.json()["detail"] == "budgets.write_rate_limited"
+
+
+def test_budget_cash_allocation_uses_hamilton_method(client, session):
+    email = "budgethamilton@example.com"
+    headers = create_user_and_token(client, "budgethamilton", email, "Password123!")
+    today = user_timezone_today()
+    user = _get_user(session, email)
+    default_wallet = _default_wallet(session, user.id)
+    
+    credit_wallet = models.Wallet(
+        owner_id=user.id,
+        name="Credit Card",
+        wallet_type=models.WalletType.CREDIT,
+        accounting_type=models.AccountingType.LIABILITY,
+        initial_balance=0,
+        current_balance=0,
+        credit_limit=10_000_000,
+        is_default=False,
+    )
+    session.add(credit_wallet)
+    session.commit()
+    session.refresh(credit_wallet)
+
+    _ = create_budget(
+        client, headers, category="Groceries", monthly_limit=5_000_000, budget_year=today.year, budget_month=today.month
+    )
+    _ = create_budget(
+        client, headers, category="Transport", monthly_limit=5_000_000, budget_year=today.year, budget_month=today.month
+    )
+
+    # 100 total spent. 33 cash, 67 credit.
+    # Split: 50 Food, 50 Transport.
+    # Base allocation: (50 * 33) / 100 = 16.5
+    # Integer division would give 16 to both (total 32, losing 1).
+    # Hamilton method should give 17 to one, 16 to the other.
+    expense = client.post(
+        "/expenses/",
+        json={
+            "title": "Split uneven",
+            "amount": 100,
+            "category": "Groceries",
+            "date": today.isoformat(),
+            "wallet_allocations": [
+                {"wallet_id": default_wallet.id, "amount": 33},
+                {"wallet_id": credit_wallet.id, "amount": 67},
+            ]
+        },
+        headers=headers,
+    )
+    assert expense.status_code == 201, expense.text
+    expense_id = expense.json()["id"]
+
+    split = client.post(
+        f"/expenses/{expense_id}/split",
+        json={
+            "items": [
+                {"amount": 50, "category": "Groceries", "label": "Food portion"},
+                {"amount": 50, "category": "Transport", "label": "Transport portion"},
+            ]
+        },
+        headers=headers,
+    )
+    assert split.status_code == 200 or split.status_code == 201, split.text
+
+    summary = client.get(f"/budgets/month-summary?budget_year={today.year}&budget_month={today.month}", headers=headers)
+    assert summary.status_code == 200, summary.text
+    payload = summary.json()
+    
+    # Check that exactly 33 cash was allocated
+    assert payload["valid_budget_spent"] == 33

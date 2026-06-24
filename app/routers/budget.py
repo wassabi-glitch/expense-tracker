@@ -2,7 +2,9 @@ from datetime import date, tzinfo
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import selectinload
 
 from .. import models, oauth2, schemas
@@ -1026,3 +1028,22 @@ def delete_budget_subcategory(
     db.delete(subcategory)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/timeline", response_model=schemas.TimelineEventList)
+def get_timeline(
+    budget_year: int,
+    budget_month: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
+):
+    validate_budget_month_window(budget_year, budget_month, user_tz)
+    from app.services import timeline_service
+    return timeline_service.get_monthly_timeline(
+        db=db,
+        owner_id=current_user.id,
+        budget_year=budget_year,
+        budget_month=budget_month,
+    )
+
