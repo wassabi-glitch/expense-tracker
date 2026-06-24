@@ -1460,7 +1460,7 @@ def test_create_expense_invalid_date(client):
     )
     create_budget(client, headers, category="Food", monthly_limit=500)
 
-    future_date = (date.today() + timedelta(days=1)).isoformat()
+    future_date = (user_timezone_today() + timedelta(days=1)).isoformat()
     res_future = client.post("/expenses/", json={
         "title": "Future",
         "amount": 10,
@@ -1623,8 +1623,8 @@ def test_list_expenses_time_range(client):
     headers = create_user_and_token(
         client, "expuser13", "expuser13@example.com", "Password123!"
     )
-    old_date = (date.today() - timedelta(days=40)).isoformat()
-    recent_date = (date.today() - timedelta(days=5)).isoformat()
+    old_date = (user_timezone_today() - timedelta(days=40)).isoformat()
+    recent_date = (user_timezone_today() - timedelta(days=5)).isoformat()
     old_dt = date.fromisoformat(old_date)
     recent_dt = date.fromisoformat(recent_date)
     create_budget(client, headers, category="Food", monthly_limit=500, budget_year=old_dt.year, budget_month=old_dt.month)

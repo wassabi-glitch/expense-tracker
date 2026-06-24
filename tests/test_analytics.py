@@ -1,5 +1,5 @@
 from datetime import date, timedelta
-from tests.helpers import create_user_and_token, create_budget, create_expense
+from tests.helpers import create_user_and_token, create_budget, create_expense, user_timezone_today
 
 
 def test_analytics_history(client, session):
@@ -25,7 +25,7 @@ def test_analytics_daily_trend(client):
     )
     create_budget(client, headers, category="Food", monthly_limit=500)
 
-    today = date.today()
+    today = user_timezone_today()
     # Only use yesterday if it's the same month, otherwise use today
     if today.day > 1:
         expense_date = today - timedelta(days=1)
@@ -73,7 +73,7 @@ def test_analytic_daily_trend_invalid_days(client):
     assert res1.status_code == 400
     assert res2.status_code == 400
 
-    today = date.today()
+    today = user_timezone_today()
     just_within = today - timedelta(days=365)
 
     res_missing_end = client.get(
@@ -101,7 +101,7 @@ def test_daily_trend_date_range_filters(client):
     )
     create_budget(client, headers, category="Food", monthly_limit=500)
 
-    today = date.today()
+    today = user_timezone_today()
     # Use dates that stay within the same month
     if today.day >= 3:
         two_days_ago = today.replace(day=today.day - 2)
@@ -133,7 +133,7 @@ def test_daily_trend_invalid_range(client):
     )
     create_budget(client, headers, category="Food", monthly_limit=500)
 
-    today = date.today()
+    today = user_timezone_today()
     yesterday = today - timedelta(days=1)
 
     res = client.get(
@@ -198,7 +198,7 @@ def test_dashboard_summary_positive_remaining(client):
     assert data["spent"] == 250_000
     assert data["remaining"] == -250_000
     assert data["overall_balance"] == 750_000
-    assert data["daily_average"] == round(250_000 / max(1, date.today().day))
+    assert data["daily_average"] == round(250_000 / max(1, user_timezone_today().day))
 
 
 def test_dashboard_summary_negative_remaining(client):
@@ -228,4 +228,4 @@ def test_dashboard_summary_negative_remaining(client):
     assert data["spent"] == 360_000
     assert data["remaining"] == -360_000
     assert data["overall_balance"] == 140_000
-    assert data["daily_average"] == round(360_000 / max(1, date.today().day))
+    assert data["daily_average"] == round(360_000 / max(1, user_timezone_today().day))
