@@ -1127,7 +1127,7 @@ def get_budget_subcategory_limit_map(
     db: Session,
     owner_id: int,
     budget_id: int,
-) -> dict[int, int]:
+) -> dict[int, int | None]:
     rows = (
         db.query(models.BudgetSubcategoryLimit)
         .filter(
@@ -1136,7 +1136,7 @@ def get_budget_subcategory_limit_map(
         )
         .all()
     )
-    return {int(row.subcategory_id): int(row.monthly_limit) for row in rows}
+    return {int(row.subcategory_id): (int(row.monthly_limit) if row.monthly_limit is not None else None) for row in rows}
 
 
 def get_budget_subcategory_limit(
@@ -1211,14 +1211,20 @@ def get_budget_detail(
     )
     limits_by_subcategory = get_budget_subcategory_limit_map(db, owner_id, int(budget.id))
 
-    budget_out.subcategories = [
-        build_budget_subcategory_out(
-            subcategory,
-            limits_by_subcategory.get(int(subcategory.id)),
-            spent=int(spent_by_subcategory.get(subcategory.id, 0)),
+    sub_outs = []
+    for subcategory in subcategories:
+        limit = limits_by_subcategory.get(int(subcategory.id))
+        spent = int(spent_by_subcategory.get(subcategory.id, 0))
+        if int(subcategory.id) not in limits_by_subcategory and spent == 0:
+            continue
+        sub_outs.append(
+            build_budget_subcategory_out(
+                subcategory,
+                limit,
+                spent=spent,
+            )
         )
-        for subcategory in subcategories
-    ]
+    budget_out.subcategories = sub_outs
 
     activity_rows = (
         db.query(

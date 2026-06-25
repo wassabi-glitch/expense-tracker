@@ -1,13 +1,18 @@
 from fastapi import FastAPI, Depends, HTTPException, Request
+# pyrefly: ignore [missing-import]
 from fastapi.middleware.cors import CORSMiddleware
+# pyrefly: ignore [missing-import]
 from fastapi.responses import Response
+# pyrefly: ignore [missing-import]
 from sqlalchemy import text
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
+# pyrefly: ignore [missing-import]
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 import logging
 
 from app.session import get_db
-from app.routers import users, expenses, budget, analytics, auth, oauth_google, recurring, income, savings, goals, payments, notifications, debts, installments, wallets, assets, projects, expected_inflows
+from app.routers import users, expenses, budget, analytics, auth, oauth_google, recurring, income, savings, goals, payments, notifications, debts, installments, wallets, assets, projects, expected_inflows, subcategories
 from .models import ExpenseCategory
 from config import settings
 
@@ -141,3 +146,4 @@ app.include_router(wallets.router)
 app.include_router(assets.router)
 app.include_router(projects.router)
 app.include_router(expected_inflows.router)
+app.include_router(subcategories.router)

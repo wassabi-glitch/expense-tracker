@@ -54,8 +54,10 @@ export async function reallocateBudgetSubcategory(budgetId, payload) {
     return response.data;
 }
 
-export async function deleteBudgetSubcategory(subcategoryId) {
-    const response = await apiClient.delete(`/budgets/subcategories/${subcategoryId}`);
+export async function deleteBudgetSubcategory(subcategoryId, budgetId) {
+    const response = await apiClient.delete(`/budgets/subcategories/${subcategoryId}`, {
+        params: { budget_id: budgetId }
+    });
     return response.data;
 }
 

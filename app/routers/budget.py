@@ -723,7 +723,26 @@ def reallocate_budget(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="budgets.reallocate_same_category")
 
     from_budget = _get_budget_or_404(db, current_user.id, payload.budget_year, payload.budget_month, payload.from_category)
-    to_budget = _get_budget_or_404(db, current_user.id, payload.budget_year, payload.budget_month, payload.to_category)
+    to_budget = (
+        db.query(models.Budget)
+        .filter(
+            models.Budget.owner_id == current_user.id,
+            models.Budget.budget_year == payload.budget_year,
+            models.Budget.budget_month == payload.budget_month,
+            models.Budget.category == payload.to_category,
+        )
+        .first()
+    )
+    if not to_budget:
+        to_budget = models.Budget(
+            owner_id=current_user.id,
+            category=payload.to_category,
+            budget_year=payload.budget_year,
+            budget_month=payload.budget_month,
+            monthly_limit=0,
+        )
+        db.add(to_budget)
+        db.flush()
     from_computation = compute_budget_chain(db, current_user.id, [from_budget])[0]
     if from_computation.effective_available < payload.amount:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="budgets.reallocate_insufficient_remaining")
@@ -920,14 +939,45 @@ def create_budget_subcategory(
         incoming_limit=payload.monthly_limit,
     )
 
-    subcategory = models.UserSubcategory(
-        owner_id=current_user.id,
-        category=payload.category,
-        name=payload.name.strip(),
-        is_active=payload.is_active,
-    )
-    db.add(subcategory)
-    db.flush()
+    subcategory = None
+
+    if payload.existing_id:
+        subcategory = db.query(models.UserSubcategory).filter(
+            models.UserSubcategory.id == payload.existing_id,
+            models.UserSubcategory.owner_id == current_user.id,
+            models.UserSubcategory.category == payload.category
+        ).first()
+        if not subcategory:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="subcategories.not_found")
+        if not subcategory.is_active:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="subcategories.archived")
+    else:
+        subcategory = db.query(models.UserSubcategory).filter(
+            models.UserSubcategory.owner_id == current_user.id,
+            models.UserSubcategory.category == payload.category,
+            models.UserSubcategory.name == payload.name.strip()
+        ).first()
+        if not subcategory:
+            subcategory = models.UserSubcategory(
+                owner_id=current_user.id,
+                category=payload.category,
+                name=payload.name.strip(),
+                is_active=payload.is_active,
+            )
+            db.add(subcategory)
+            db.flush()
+        else:
+            if not subcategory.is_active:
+                subcategory.is_active = True
+                db.flush()
+
+    existing_limit = db.query(models.BudgetSubcategoryLimit).filter(
+        models.BudgetSubcategoryLimit.budget_id == budget.id,
+        models.BudgetSubcategoryLimit.subcategory_id == subcategory.id
+    ).first()
+    if existing_limit:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="budgets.subcategory_already_assigned")
+
     if payload.monthly_limit is not None:
         db.add(
             models.BudgetSubcategoryLimit(
@@ -1012,20 +1062,21 @@ def update_budget_subcategory(
 @router.delete("/subcategories/{subcategory_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_budget_subcategory(
     subcategory_id: int,
+    budget_id: int,
     response: Response,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
 ):
     _apply_headers(response, enforce_budget_write_rate_limit(current_user.id))
+    budget = _get_budget_by_id_or_404(db, current_user.id, budget_id)
     subcategory = get_owned_subcategory_or_404(db, current_user.id, subcategory_id)
-    has_linked_entries = (
-        db.query(models.EntityLedger.id)
-        .filter(models.EntityLedger.subcategory_id == subcategory.id)
-        .first()
-    )
-    if has_linked_entries:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="budgets.subcategory_has_linked_expenses")
-    db.delete(subcategory)
+    _require_subcategory_in_budget_category(subcategory, budget)
+
+    limit = get_budget_subcategory_limit(db, current_user.id, int(budget.id), int(subcategory.id))
+    if not limit:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="budgets.subcategory_limit_not_found")
+    
+    db.delete(limit)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

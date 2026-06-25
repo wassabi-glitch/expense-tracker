@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Trash2, Circle, Plus, BriefcaseBusiness, MoreHorizontal, Eye, Pencil, ReceiptText, ListTree, ChartColumn, FolderKanban, Layers3, ExternalLink, GitMerge, ArrowRightLeft, AlertTriangle, Shield } from "lucide-react";
+import { Trash2, Circle, Plus, BriefcaseBusiness, MoreHorizontal, Eye, Pencil, ReceiptText, ListTree, ChartColumn, FolderKanban, Layers3, ExternalLink, GitMerge, ArrowRightLeft, AlertTriangle, Shield, Check, ChevronsUpDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -41,6 +41,7 @@ import {
   useCreateBudgetMutation,
   useDeleteBudgetMutation,
   useUpdateBudgetMutation,
+  useReallocateBudgetMutation,
 } from "./hooks/useBudgetMutations";
 import { budgetCreateFormSchema, budgetDeleteFormSchema, budgetUpdateFormSchema, MAX_BUDGET_AMOUNT } from "./budgetSchemas";
 import { localizeApiError } from "@/lib/errorMessages";
@@ -70,8 +71,12 @@ import {
 } from "@/lib/api";
 import { useToast } from "@/lib/context/ToastContext";
 import { Input } from "@/components/ui/input";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useSubcategoriesQuery } from "./hooks/useSubcategoriesQuery";
 import { ConfigureSurvivalDialog } from "./components/ConfigureSurvivalDialog";
 import { BudgetTimeline } from "./components/BudgetTimeline";
+import { TaxonomyHub } from "./TaxonomyHub";
 
 const EMPTY_ARRAY = [];
 
@@ -344,6 +349,7 @@ export default function Budgets() {
   const currentYear = today.getFullYear();
   const currentMonth = today.getMonth() + 1;
   const [actionError, setActionError] = React.useState("");
+  const [viewMode, setViewMode] = React.useState("monthly_plan");
   const [windowWidth, setWindowWidth] = React.useState(typeof window !== "undefined" ? window.innerWidth : 1280);
 
   React.useEffect(() => {
@@ -360,6 +366,10 @@ export default function Budgets() {
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [viewExpensesOpen, setViewExpensesOpen] = React.useState(false);
   const [viewDetailsOpen, setViewDetailsOpen] = React.useState(false);
+  const [parentReallocateOpen, setParentReallocateOpen] = React.useState(false);
+  const [parentReallocateSourceBudget, setParentReallocateSourceBudget] = React.useState(null);
+  const [parentReallocateTargetCategory, setParentReallocateTargetCategory] = React.useState("");
+  const [parentReallocateAmount, setParentReallocateAmount] = React.useState("");
   const [searchParams, setSearchParams] = useSearchParams();
 
   const showHistory = searchParams.get("history") === "true";
@@ -429,6 +439,8 @@ export default function Budgets() {
   const [editingProjectSubcategoryIsActive, setEditingProjectSubcategoryIsActive] = React.useState("true");
   const [subcategoryTargetBudget, setSubcategoryTargetBudget] = React.useState(null);
   const [subcategoryName, setSubcategoryName] = React.useState("");
+  const [subcategoryExistingId, setSubcategoryExistingId] = React.useState(null);
+  const [subcategoryComboboxOpen, setSubcategoryComboboxOpen] = React.useState(false);
   const [subcategoryLimit, setSubcategoryLimit] = React.useState("");
   const [subcategoryIsActive, setSubcategoryIsActive] = React.useState("true");
   const [editingSubcategoryId, setEditingSubcategoryId] = React.useState(null);
@@ -466,6 +478,7 @@ export default function Budgets() {
     budgetMonth: summaryTarget.month,
   });
   const categoriesQuery = useBudgetCategoriesQuery();
+  const globalSubcategoriesQuery = useSubcategoriesQuery(subcategoryTargetBudget?.category);
   const subcategoriesQuery = useQuery({
     queryKey: ["budgets", subcategoryTargetBudget?.id, "subcategories", "manage"],
     queryFn: () => getBudgetSubcategories(subcategoryTargetBudget?.id),
@@ -831,6 +844,7 @@ export default function Budgets() {
   const addBudgetMutation = useCreateBudgetMutation();
   const updateBudgetMutation = useUpdateBudgetMutation();
   const deleteBudgetMutation = useDeleteBudgetMutation();
+  const reallocateBudgetMutation = useReallocateBudgetMutation();
   const createProjectMutation = useMutation({
     mutationFn: createProject,
     onSuccess: async () => {
@@ -981,7 +995,7 @@ export default function Budgets() {
     },
   });
   const deleteSubcategoryMutation = useMutation({
-    mutationFn: (subcategoryId) => deleteBudgetSubcategory(subcategoryId),
+    mutationFn: ({ subcategoryId, budgetId }) => deleteBudgetSubcategory(subcategoryId, budgetId),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["budgets"] }),
@@ -1078,6 +1092,8 @@ export default function Budgets() {
     setActionError("");
     setSubcategoryTargetBudget(budget);
     setSubcategoryName("");
+    setSubcategoryExistingId(null);
+    setSubcategoryComboboxOpen(false);
     setSubcategoryLimit("");
     setSubcategoryIsActive("true");
     setEditingSubcategoryId(null);
@@ -1088,6 +1104,14 @@ export default function Budgets() {
     setReallocationSourceId("buffer");
     setReallocationAmount(repair?.amount ? formatBudgetAmountInput(String(repair.amount)) : "");
     setSubcategoriesOpen(true);
+  };
+
+  const openParentReallocate = (budget) => {
+    setActionError("");
+    setParentReallocateSourceBudget(budget);
+    setParentReallocateTargetCategory("");
+    setParentReallocateAmount("");
+    setParentReallocateOpen(true);
   };
 
   async function handleCreateProjectCategoryLimit() {
@@ -1333,11 +1357,14 @@ export default function Budgets() {
         payload: {
           category: subcategoryTargetBudget.category,
           name: subcategoryName.trim(),
+          existing_id: subcategoryExistingId || undefined,
           monthly_limit: monthlyLimit,
           is_active: subcategoryIsActive === "true",
         },
       });
       setSubcategoryName("");
+      setSubcategoryExistingId(null);
+      setSubcategoryComboboxOpen(false);
       setSubcategoryLimit("");
       setSubcategoryIsActive("true");
     } catch (e) {
@@ -1396,6 +1423,32 @@ export default function Budgets() {
       setReallocationTargetId("");
       setReallocationSourceId("buffer");
       setReallocationAmount("");
+    } catch (e) {
+      setActionError(getBudgetActionErrorMessage(e));
+    }
+  }
+
+  async function handleParentReallocate() {
+    if (!parentReallocateSourceBudget || reallocateBudgetMutation.isPending) return;
+    setActionError("");
+    const amount = parentReallocateAmount ? Number(String(parentReallocateAmount).replace(/\s+/g, "")) : 0;
+    if (!parentReallocateTargetCategory || !Number.isFinite(amount) || amount <= 0) {
+      setActionError(t("budgets.parentReallocationInvalid", { defaultValue: "Choose a target category and a positive amount." }));
+      return;
+    }
+    if (amount > parentReallocateSourceBudget.remaining) {
+      setActionError(t("budgets.parentReallocationInsufficient", { defaultValue: "Amount exceeds remaining available funds." }));
+      return;
+    }
+    try {
+      await reallocateBudgetMutation.mutateAsync({
+        fromCategory: parentReallocateSourceBudget.category,
+        toCategory: parentReallocateTargetCategory,
+        amount,
+        budgetYear: parentReallocateSourceBudget.budgetYear,
+        budgetMonth: parentReallocateSourceBudget.budgetMonth,
+      });
+      setParentReallocateOpen(false);
     } catch (e) {
       setActionError(getBudgetActionErrorMessage(e));
     }
@@ -1482,31 +1535,80 @@ export default function Budgets() {
     </>
   );
 
+  const parentReallocateFooter = (
+    <>
+      <Button variant="outline" onClick={() => setParentReallocateOpen(false)} disabled={reallocateBudgetMutation.isPending}>
+        {t("common.cancel")}
+      </Button>
+      <Button
+        onClick={handleParentReallocate}
+        disabled={reallocateBudgetMutation.isPending || !parentReallocateTargetCategory || !parentReallocateAmount}
+        className="relative min-w-24 disabled:pointer-events-auto disabled:cursor-not-allowed"
+      >
+        {reallocateBudgetMutation.isPending ? (
+          <>
+            <span className="invisible">{t("budgets.reallocate", { defaultValue: "Reallocate" })}</span>
+            <span className="absolute inset-0 flex items-center justify-center">
+              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+            </span>
+          </>
+        ) : (
+          t("budgets.reallocate", { defaultValue: "Reallocate" })
+        )}
+      </Button>
+    </>
+  );
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="w-full px-page py-8 space-y-6">
         <PageHeader title={t("budgets.title")} description={t("budgets.subtitle")}>
-          <Button variant="outline" onClick={() => setShowHistory((v) => !v)}>
-            {showHistory ? t("budgets.hideHistory") : t("budgets.showHistory")}
-          </Button>
-          <Button variant="outline" onClick={openProject}>
-            <BriefcaseBusiness className="mr-2 h-4 w-4" /> {t("projects.create", { defaultValue: "Create Project" })}
-          </Button>
-          <Button variant="outline" onClick={() => setShowSurvivalDialog(true)}>
-            <Shield className="mr-2 h-4 w-4" /> {t("budgets.configureSurvival", { defaultValue: "Survival Mode" })}
-          </Button>
-          <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={openAdd}>
-            <Plus className="mr-2 h-4 w-4" /> {t("budgets.addBudget")}
-          </Button>
+          <div className="flex bg-muted p-1 rounded-md">
+            <Button
+              variant={viewMode === "monthly_plan" ? "secondary" : "ghost"}
+              className="text-sm h-8 px-4"
+              onClick={() => setViewMode("monthly_plan")}
+            >
+              {t("budgets.modeMonthlyPlan", { defaultValue: "Monthly Plan" })}
+            </Button>
+            <Button
+              variant={viewMode === "taxonomy" ? "secondary" : "ghost"}
+              className="text-sm h-8 px-4"
+              onClick={() => setViewMode("taxonomy")}
+            >
+              {t("budgets.modeTaxonomy", { defaultValue: "Taxonomy Hub" })}
+            </Button>
+          </div>
+          {viewMode === "monthly_plan" && (
+            <>
+              <Button variant="outline" onClick={() => setShowHistory((v) => !v)}>
+                {showHistory ? t("budgets.hideHistory") : t("budgets.showHistory")}
+              </Button>
+              <Button variant="outline" onClick={openProject}>
+                <BriefcaseBusiness className="mr-2 h-4 w-4" /> {t("projects.create", { defaultValue: "Create Project" })}
+              </Button>
+              <Button variant="outline" onClick={() => setShowSurvivalDialog(true)}>
+                <Shield className="mr-2 h-4 w-4" /> {t("budgets.configureSurvival", { defaultValue: "Survival Mode" })}
+              </Button>
+              <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={openAdd}>
+                <Plus className="mr-2 h-4 w-4" /> {t("budgets.addBudget")}
+              </Button>
+            </>
+          )}
         </PageHeader>
-        {!loading && !error && (
-          <Card className="shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">{t("budgets.filtersTitle")}</CardTitle>
-              <CardDescription>{t("budgets.filtersDesc")}</CardDescription>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+
+        {viewMode === "taxonomy" ? (
+          <TaxonomyHub />
+        ) : (
+          <>
+            {!loading && !error && (
+              <Card className="shadow-sm">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">{t("budgets.filtersTitle")}</CardTitle>
+                  <CardDescription>{t("budgets.filtersDesc")}</CardDescription>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                 <Select value={filterCategory} onValueChange={setFilterCategory}>
                   <SelectTrigger className={selectTriggerClass}>
                     <SelectValue />
@@ -2349,6 +2451,12 @@ export default function Budgets() {
                             {t("budgets.addSubLimit", { defaultValue: "Add sub-limit" })}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
+                          {b.remaining > 0 && (
+                            <DropdownMenuItem onSelect={() => openParentReallocate(b)}>
+                              <ArrowRightLeft className="h-4 w-4" />
+                              {t("budgets.reallocate", { defaultValue: "Reallocate limits" })}
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem variant="destructive" onSelect={() => openDelete(b)}>
                             <Trash2 className="h-4 w-4" />
                             {t("budgets.delete")}
@@ -2372,6 +2480,8 @@ export default function Budgets() {
             description={t("budgets.emptyFilteredDesc")}
             className="my-10"
           />
+        )}
+        </>
         )}
       </div>
 
@@ -3216,11 +3326,77 @@ export default function Budgets() {
           <div className="rounded-2xl border border-border/60 bg-muted/15 p-4">
             <p className="text-sm font-semibold">{t("budgets.addSubcategory", { defaultValue: "Add subcategory" })}</p>
             <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_140px_auto]">
-              <Input
-                value={subcategoryName}
-                onChange={(e) => setSubcategoryName(e.target.value)}
-                placeholder={t("budgets.subcategoryName", { defaultValue: "Subcategory name" })}
-              />
+              <Popover open={subcategoryComboboxOpen} onOpenChange={setSubcategoryComboboxOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={subcategoryComboboxOpen}
+                    className="justify-between"
+                  >
+                    {subcategoryName || t("budgets.subcategoryName", { defaultValue: "Subcategory name" })}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[300px] p-0" align="start">
+                  <Command>
+                    <CommandInput 
+                      placeholder={t("budgets.searchSubcategories", { defaultValue: "Search subcategories..." })} 
+                      value={subcategoryName}
+                      onValueChange={(val) => {
+                        setSubcategoryName(val);
+                        setSubcategoryExistingId(null);
+                      }}
+                    />
+                    <CommandList>
+                      <CommandEmpty>
+                        {subcategoryName.trim() ? (
+                          <Button
+                            variant="ghost"
+                            className="w-full justify-start font-normal text-sm"
+                            onClick={() => {
+                              setSubcategoryExistingId(null);
+                              setSubcategoryComboboxOpen(false);
+                            }}
+                          >
+                            <Plus className="mr-2 h-4 w-4" />
+                            {t("budgets.createNew", { defaultValue: "Create new" })}: &quot;{subcategoryName}&quot;
+                          </Button>
+                        ) : (
+                          t("common.noResults", { defaultValue: "No results found." })
+                        )}
+                      </CommandEmpty>
+                      {Array.isArray(globalSubcategoriesQuery.data) && globalSubcategoriesQuery.data.filter(
+                        (tag) => !subcategoriesQuery.data?.some((existing) => existing.name.toLowerCase() === tag.name.toLowerCase())
+                      ).length > 0 && (
+                        <CommandGroup heading={t("budgets.existingTags", { defaultValue: "Existing Tags" })}>
+                          {globalSubcategoriesQuery.data
+                            .filter((tag) => !subcategoriesQuery.data?.some((existing) => existing.name.toLowerCase() === tag.name.toLowerCase()))
+                            .map((tag) => (
+                              <CommandItem
+                                key={tag.id}
+                                value={tag.name}
+                                onSelect={() => {
+                                  setSubcategoryName(tag.name);
+                                  setSubcategoryExistingId(tag.id);
+                                  setSubcategoryComboboxOpen(false);
+                                }}
+                              >
+                                <Check
+                                  className={cn(
+                                    "mr-2 h-4 w-4",
+                                    subcategoryExistingId === tag.id ? "opacity-100" : "opacity-0"
+                                  )}
+                                />
+                                {tag.name}
+                              </CommandItem>
+                            ))}
+                        </CommandGroup>
+                      )}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
               <Input
                 value={subcategoryLimit}
                 onChange={(e) => setSubcategoryLimit(formatBudgetAmountInput(e.target.value))}
@@ -3330,7 +3506,7 @@ export default function Budgets() {
                           variant="ghost"
                           size="sm"
                           className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                          onClick={() => deleteSubcategoryMutation.mutate(subcategory.id)}
+                          onClick={() => deleteSubcategoryMutation.mutate({ subcategoryId: subcategory.id, budgetId: subcategoryTargetBudget?.id })}
                           disabled={deleteSubcategoryMutation.isPending}
                         >
                           <Trash2 className="mr-2 h-4 w-4" />
@@ -3477,6 +3653,66 @@ export default function Budgets() {
               value={newLimit}
               onChange={(e) => setNewLimit(formatBudgetAmountInput(e.target.value))}
             />
+            {actionError && <p className="text-sm text-red-600">{actionError}</p>}
+          </div>
+      </ResponsiveBudgetFormShell>
+
+      <ResponsiveBudgetFormShell
+        compact={useBottomSheetForms}
+        open={parentReallocateOpen}
+        onOpenChange={setParentReallocateOpen}
+        title={t("budgets.reallocateDialogTitle", { defaultValue: "Reallocate Limits" })}
+        description={
+          parentReallocateSourceBudget
+            ? t("budgets.reallocateDialogDesc", { category: tCategory(parentReallocateSourceBudget.category), defaultValue: "Move available limits to another category." })
+            : ""
+        }
+        footer={parentReallocateFooter}
+      >
+          <div className={cn("space-y-4", useBottomSheetForms && "pb-1")}>
+            <div className="space-y-1.5 rounded-lg border border-border/60 bg-muted/20 p-3">
+              <p className="text-sm font-medium text-muted-foreground">{t("budgets.sourceAvailable", { defaultValue: "Available to move" })}</p>
+              <CurrencyAmount
+                value={parentReallocateSourceBudget?.remaining || 0}
+                format="display"
+                className="text-lg font-semibold text-foreground"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label>{t("budgets.targetCategory", { defaultValue: "Target Category" })}</label>
+              <Select value={parentReallocateTargetCategory || undefined} onValueChange={setParentReallocateTargetCategory}>
+                <SelectTrigger className={selectTriggerClass}>
+                  <SelectValue placeholder={t("budgets.selectTargetCategory", { defaultValue: "Select target category..." })} />
+                </SelectTrigger>
+                <SelectContent className={selectContentClass} position="popper" side="bottom">
+                  {orderedCategoryOptions.filter(c => c !== parentReallocateSourceBudget?.category).map((c) => {
+                    const Icon = categoryIconMap[c] || Circle;
+                    return (
+                      <SelectItem key={c} value={c}>
+                        <div className="flex flex-col gap-1 py-1">
+                          <div className="flex items-center gap-2 font-medium">
+                            <Icon className="h-4 w-4 text-muted-foreground" />
+                            <span>{tCategory(c)}</span>
+                          </div>
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <label>{t("budgets.amountToMove", { defaultValue: "Amount to move" })}</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={maxBudgetAmountInputLength}
+                className={inputBaseClass}
+                value={parentReallocateAmount}
+                onChange={(e) => setParentReallocateAmount(formatBudgetAmountInput(e.target.value))}
+              />
+            </div>
             {actionError && <p className="text-sm text-red-600">{actionError}</p>}
           </div>
       </ResponsiveBudgetFormShell>
