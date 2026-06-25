@@ -3553,10 +3553,6 @@ class TimelineEventList(BaseModel):
     items: List[TimelineEvent]
 
 # --- Subcategories ---
-import datetime as dt
-from pydantic import Field
-from app.models import ExpenseCategory
-
 class UserSubcategoryOut(BaseModel):
     id: int
     category: ExpenseCategory

@@ -1,4 +1,3 @@
-from datetime import date
 from tests.helpers import create_user_and_token, create_budget, user_timezone_today
 
 def test_taxonomy_hub_returns_empty_when_no_tags(client):
@@ -21,9 +20,8 @@ def test_taxonomy_hub_scorecard_calculations(client, session):
     tag1_id = tag1_res.json()["id"]
 
     # Tag 2: no spending
-    tag2_res = client.post(f"/budgets/{budget_id}/subcategories", json={"category": "Groceries", "name": "Never Used", "monthly_limit": 1000}, headers=headers)
-    assert tag2_res.status_code == 201
-    tag2_id = tag2_res.json()["id"]
+    client.post(f"/budgets/{budget_id}/subcategories", json={"category": "Groceries", "name": "Never Used", "monthly_limit": 1000}, headers=headers)
+
 
     # Create expenses for Tag 1
     res1 = client.post("/expenses/", json={
@@ -87,8 +85,7 @@ def test_update_subcategory_rename_and_archive(client, session):
     tag1_res = client.post(f"/budgets/{budget_id}/subcategories", json={"category": "Groceries", "name": "Burger", "monthly_limit": 1000}, headers=headers)
     tag1_id = tag1_res.json()["id"]
 
-    tag2_res = client.post(f"/budgets/{budget_id}/subcategories", json={"category": "Groceries", "name": "Pizza", "monthly_limit": 1000}, headers=headers)
-    tag2_id = tag2_res.json()["id"]
+    client.post(f"/budgets/{budget_id}/subcategories", json={"category": "Groceries", "name": "Pizza", "monthly_limit": 1000}, headers=headers)
 
     # 1. Rename success
     res = client.patch(f"/subcategories/{tag1_id}", json={"name": "Burgers & Fries"}, headers=headers)

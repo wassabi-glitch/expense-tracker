@@ -4,9 +4,6 @@ from sqlalchemy.orm import Session
 # pyrefly: ignore [missing-import]
 from sqlalchemy import func
 from typing import List, Optional
-# pyrefly: ignore [missing-import]
-from pydantic import BaseModel
-from datetime import datetime, date
 
 from app.session import get_db
 # pyrefly: ignore [missing-import]
@@ -39,7 +36,7 @@ def get_user_subcategories(
     """
     query = db.query(UserSubcategory).filter(
         UserSubcategory.owner_id == current_user.id,
-        UserSubcategory.is_active == True
+        UserSubcategory.is_active == True  # noqa: E712
     )
 
     if category:
@@ -61,7 +58,7 @@ def get_taxonomy_hub(
     # Base query for user's subcategories
     subcategories = db.query(UserSubcategory).filter(
         UserSubcategory.owner_id == current_user.id,
-        UserSubcategory.is_deleted == False
+        UserSubcategory.is_deleted == False  # noqa: E712
     ).order_by(
         UserSubcategory.category,
         UserSubcategory.name
