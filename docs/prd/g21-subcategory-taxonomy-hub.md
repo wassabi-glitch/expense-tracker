@@ -36,7 +36,7 @@ The current subcategory architecture cleanly separates global tags (`UserSubcate
   - `POST /subcategories/merge`: Accepts a list of `source_ids` and a `target_id`. It will update all `EntityLedger` rows pointing to the source IDs to point to the target ID, then delete the source `UserSubcategory` rows.
 - **Frontend Changes**:
   - Replace the `<Input>` in `Budgets.jsx` with a Combobox component.
-  - Create a new route/page: `Settings -> Subcategory Taxonomy Hub`.
+  - Create a new tab/view inside the Budgets page for the Subcategory Taxonomy Hub, keeping it tightly integrated with the user's budgeting workflow rather than burying it in Settings.
 
 ## Testing Decisions
 

@@ -2685,7 +2685,7 @@ class BudgetSubcategoryBase(BaseModel):
 
 
 class BudgetSubcategoryCreate(BudgetSubcategoryBase):
-    pass
+    existing_id: Optional[int] = None
 
 
 class BudgetSubcategoryUpdate(BaseModel):
@@ -3551,3 +3551,36 @@ class TimelineEvent(BaseModel):
 
 class TimelineEventList(BaseModel):
     items: List[TimelineEvent]
+
+# --- Subcategories ---
+class UserSubcategoryOut(BaseModel):
+    id: int
+    category: ExpenseCategory
+    name: str
+    is_active: bool
+    created_at: dt.datetime
+
+    model_config = {
+        "from_attributes": True
+    }
+
+class SubcategoryLifetimeStatsOut(BaseModel):
+    first_used: Optional[dt.date] = None
+    last_used: Optional[dt.date] = None
+    tx_count: int
+    lifetime_spent: int
+
+class SubcategoryTaxonomyOut(UserSubcategoryOut):
+    scorecard: SubcategoryLifetimeStatsOut
+
+class SubcategoryUpdateIn(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    is_active: Optional[bool] = None
+
+class SubcategoryCreateIn(BaseModel):
+    category: ExpenseCategory
+    name: str = Field(..., min_length=1, max_length=100)
+
+class SubcategoryMergeIn(BaseModel):
+    target_id: int
+    source_ids: List[int] = Field(..., min_length=1)

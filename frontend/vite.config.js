@@ -14,7 +14,8 @@ export default defineConfig({
     proxy: [
       "/auth", "/users", "/expenses", "/budgets", "/analytics",
       "/income", "/money-in", "/savings", "/goals", "/projects", "/recurring", "/notifications",
-      "/payments", "/meta", "/health", "/debts", "/installments", "/wallets", "/assets", "/expected-inflows"
+      "/payments", "/meta", "/health", "/debts", "/installments", "/wallets", "/assets", "/expected-inflows",
+      "/subcategories"
     ].reduce((acc, route) => {
       // These are paths where the frontend React Router UI uses the EXACT same 
       // root path as the backend API Python router.
