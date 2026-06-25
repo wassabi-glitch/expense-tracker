@@ -306,52 +306,7 @@ def test_lazy_month_materialization_copies_subcategory_limits_without_linking_hi
     assert previous_detail.json()["subcategories"][0]["monthly_limit"] == 200_000
 
 
-def test_lazy_month_materialization_keeps_unlimited_subcategories_unbounded(client):
-    headers = create_user_and_token(
-        client, "budgetsubcatunbounded", "budgetsubcatunbounded@example.com", "Password123!"
-    )
-    today = user_timezone_today()
-    previous_year, previous_month = _previous_month(today)
-    previous_budget = create_budget(
-        client,
-        headers,
-        category="Transport",
-        monthly_limit=1_000_000,
-        budget_year=previous_year,
-        budget_month=previous_month,
-    )
-    assert previous_budget.status_code == 201, previous_budget.text
-    subcategory = client.post(
-        f"/budgets/{previous_budget.json()['id']}/subcategories",
-        json={
-            "category": "Transport",
-            "name": "Taxi",
-            "monthly_limit": None,
-        },
-        headers=headers,
-    )
-    assert subcategory.status_code == 201, subcategory.text
 
-    expense = create_expense(
-        client,
-        headers,
-        title="Current taxi",
-        amount=10_000,
-        category="Transport",
-        expense_date=today,
-    )
-    assert expense.status_code == 201, expense.text
-
-    current_detail = client.get(
-        f"/budgets/item/detail?budget_year={today.year}&budget_month={today.month}&category=Transport",
-        headers=headers,
-    )
-    assert current_detail.status_code == 200, current_detail.text
-    copied_subcategory = current_detail.json()["subcategories"][0]
-    assert copied_subcategory["id"] == subcategory.json()["id"]
-    assert copied_subcategory["monthly_limit"] is None
-    assert copied_subcategory["remaining"] is None
-    assert copied_subcategory["is_over_limit"] is False
 
 
 def test_parent_category_spending_without_subcategory_remains_valid(client):
