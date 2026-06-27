@@ -91,7 +91,6 @@ def test_payment_plan_creation_uses_plan_owned_schedule_and_details(client):
 
     details = client.get(f"/payment-plans/{plan['id']}/details", headers=headers)
     assert details.status_code in (200, 201), details.text
-    payload = details.json()
 
 
 def test_payment_plan_creation_rejects_start_date_before_supported_boundary(client):

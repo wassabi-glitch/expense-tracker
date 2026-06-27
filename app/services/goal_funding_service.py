@@ -590,7 +590,6 @@ def sync_debt_goal_targets(db: Session, user_id: int, debt_id: int) -> None:
     )
     for goal in goals:
         consumed_amount = get_goal_consumed_amount(db, user_id, goal.id)
-        unreleased_amount = get_goal_funded_amount(db, user_id, goal.id)
 
         payable_through_goal = int(consumed_amount) + int(debt.remaining_amount or 0)
         if goal.debt_goal_tracking_mode == models.DebtGoalTrackingMode.FULL_REMAINING_DEBT:

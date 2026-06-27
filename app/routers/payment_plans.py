@@ -19,9 +19,7 @@ from ..services.budget_service import (
     validate_subcategory_limit,
 )
 from ..services.debt_service import (
-    create_debt_ledger_entry,
     reconcile_debt,
-    reverse_debt_transaction_ledger,
 )
 from ..services.goal_funding_service import validate_wallet_goal_protection_for_outflow
 from ..services.session_draft_service import validate_session_item_links
@@ -29,8 +27,6 @@ from ..services.wallet_service import WalletService
 from ..session import get_db
 from .debts import (
     _create_financial_event_reversal,
-    _create_debt_payment,
-    _find_payment_events,
 )
 from .wallets import _get_owned_wallet_or_404
 
@@ -669,7 +665,7 @@ def _create_loan_disbursement_event(
             event_id=event.id,
             label=title,
             amount=int(amount),
-            plan_id=plan.id,
+            debt_id=debt.id,
         )
     )
     db.flush()
@@ -1712,7 +1708,6 @@ def undo_write_off_payment(
     plan = payment.plan
 
     # Reverse remaining amount
-    component_type = _payment_component_type(payment)
     plan.remaining_amount = int(plan.remaining_amount or 0) + int(payment.written_off_amount or 0)
 
     payment.written_off_amount = 0
