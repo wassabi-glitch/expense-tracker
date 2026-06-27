@@ -252,7 +252,7 @@ def test_category_floor_warning_returns_multiple_structured_reasons(client, sess
     headers = create_user_and_token(client, "floorreasons", email, "Password123!")
     user = _user(session, email)
     today = user_timezone_today()
-    plan = models.InstallmentPlan(
+    plan = models.PaymentPlan(
         owner_id=user.id,
         item_name="Phone",
         plan_type=models.PaymentPlanType.STORE_INSTALLMENT,
@@ -261,10 +261,10 @@ def test_category_floor_warning_returns_multiple_structured_reasons(client, sess
         remaining_amount=500_000,
         months=1,
         payment_count=1,
-        frequency=models.InstallmentFrequency.MONTHLY,
+        frequency=models.PaymentPlanFrequency.MONTHLY,
         monthly_payment_amount=500_000,
         regular_payment_amount=500_000,
-        status=models.InstallmentStatus.ACTIVE,
+        status=models.PaymentPlanStatus.ACTIVE,
         start_date=today,
         expense_category=models.ExpenseCategory.ELECTRONICS,
     )
@@ -284,13 +284,13 @@ def test_category_floor_warning_returns_multiple_structured_reasons(client, sess
     session.add_all([plan, debt])
     session.flush()
     session.add(
-        models.InstallmentPayment(
+        models.PaymentPlanPayment(
             owner_id=user.id,
             plan_id=plan.id,
             amount=500_000,
             paid_amount=0,
             written_off_amount=0,
-            status=models.InstallmentPaymentStatus.PENDING,
+            status=models.PaymentPlanPaymentStatus.PENDING,
             due_date=today,
         )
     )
@@ -317,6 +317,6 @@ def test_category_floor_warning_returns_multiple_structured_reasons(client, sess
     assert warning["current_limit"] == 700_000
     assert warning["warning_gap"] == 150_000
     assert {reason["kind"] for reason in warning["reasons"]} == {
-        "INSTALLMENT",
+        "PAYMENT_PLAN",
         "DEFERRED_EXPENSE",
     }

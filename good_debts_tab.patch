@@ -1,0 +1,79 @@
+diff --git a/frontend/src/features/obligations/components/DebtsTab.jsx b/frontend/src/features/obligations/components/DebtsTab.jsx
+index c439bf6..fa1ce57 100644
+--- a/frontend/src/features/obligations/components/DebtsTab.jsx
++++ b/frontend/src/features/obligations/components/DebtsTab.jsx
+@@ -36,6 +36,7 @@ import { toISODateInTimeZone } from "@/lib/date";
+ import { useCreateDebtMutation, useDeleteDebtMutation, usePayWalletBackedObligationMutation } from "../hooks/useDebtsMutations";
+ import { useDebtsQuery, useDebtsSummaryQuery } from "../hooks/useDebtsQueries";
+ import { DebtDetailsDialog } from "./DebtDetailsDialog";
++import { MIN_SUPPORTED_USER_DATE } from "../obligationSchemas";
+ import {
+   defaultWalletAllocation,
+   normalizeWalletAllocations,
+@@ -300,6 +301,10 @@ function DebtCreationDialog({ open, onOpenChange, wallets, incomeSources }) {
+   };
+ 
+   const dateError = () => {
++    if (!date) return "Debt date is required.";
++    if (date < MIN_SUPPORTED_USER_DATE) return "Date cannot be before 2020-01-01.";
++    if (!dueDate) return "Due date is required.";
++    if (dueDate < MIN_SUPPORTED_USER_DATE) return "Due date cannot be before 2020-01-01.";
+     if (dueDate && date && dueDate < date) return "Expected date cannot be before the debt date.";
+     return "";
+   };
+@@ -353,7 +358,7 @@ function DebtCreationDialog({ open, onOpenChange, wallets, incomeSources }) {
+       initial_amount: debtAmount,
+       currency: "UZS",
+       date,
+-      expected_return_date: dueDate || null,
++      expected_return_date: dueDate,
+       is_money_transferred: moneyMoved,
+       initial_wallet_id: normalizedWalletAllocations.length === 1 ? normalizedWalletAllocations[0].wallet_id : null,
+       initial_wallet_allocations: normalizedWalletAllocations,
+@@ -392,7 +397,7 @@ function DebtCreationDialog({ open, onOpenChange, wallets, incomeSources }) {
+ 
+   return (
+     <Dialog open={open} onOpenChange={handleOpenChange}>
+-      <DialogContent className="max-w-5xl p-0">
++      <DialogContent className="sm:max-w-5xl p-0">
+         <DialogHeader>
+           <div className="border-b border-border px-6 py-5">
+             <DialogTitle>Create debt</DialogTitle>
+@@ -490,7 +495,7 @@ function DebtCreationDialog({ open, onOpenChange, wallets, incomeSources }) {
+                 </div>
+                 <div className="space-y-1">
+                   <Label>Debt date</Label>
+-                  <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="h-11 rounded-md text-base" />
++                  <Input type="date" min={MIN_SUPPORTED_USER_DATE} value={date} onChange={(event) => setDate(event.target.value)} className="h-11 rounded-md text-base" />
+                 </div>
+                 <div className="space-y-1">
+                   <Label>Total debt amount</Label>
+@@ -557,8 +562,8 @@ function DebtCreationDialog({ open, onOpenChange, wallets, incomeSources }) {
+                     ? "When do you expect to settle this?"
+                     : "When do you expect to receive this?"}
+                 </Label>
+-                <Input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} className="h-11 rounded-md text-base" />
+-                <p className="text-xs text-muted-foreground">Optional. Leave it blank if there is no clear date yet.</p>
++                <Input type="date" min={date || MIN_SUPPORTED_USER_DATE} value={dueDate} onChange={(event) => setDueDate(event.target.value)} className="h-11 rounded-md text-base" />
++                <p className="text-xs text-muted-foreground">Required. It keeps debt reports and reminders predictable.</p>
+               </div>
+             </div>
+           ) : null}
+@@ -573,7 +578,7 @@ function DebtCreationDialog({ open, onOpenChange, wallets, incomeSources }) {
+                 <SummaryTile icon={direction === "OWING" ? ArrowUpRight : ArrowDownLeft} label="Debt" value={direction === "OWING" ? "You owe" : "Owed to you"} helper={`${counterpartyName || "No name"} - ${formatUzs(debtAmount)} UZS`} />
+                 <SummaryTile icon={relationship === "FORMAL" ? Landmark : UserRound} label="Relationship" value={relationship === "FORMAL" ? "Formal" : "Personal"} helper={selectedReason?.title || "No reason chosen"} />
+                 <SummaryTile icon={WalletCards} label="Money today" value={moneyMoved ? `${formatUzs(debtAmount)} UZS` : "No wallet change"} helper={moneyImpactText} />
+-                <SummaryTile icon={CalendarDays} label="Expected date" value={dueDate ? formatDisplayDate(dueDate, "en") : "No date yet"} helper={date ? `Debt date ${formatDisplayDate(date, "en")}` : "No debt date"} />
++                <SummaryTile icon={CalendarDays} label="Expected date" value={formatDisplayDate(dueDate, "en")} helper={date ? `Debt date ${formatDisplayDate(date, "en")}` : "No debt date"} />
+               </div>
+               <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
+                 <p className="font-semibold text-foreground">What Sarflog will do</p>
+@@ -725,19 +730,6 @@ -832,7 +824,7 @@ export function DebtsTab() {
+       <div className="grid gap-3 md:grid-cols-4">
+         <SummaryTile icon={ArrowUpRight} label="I owe" value={`${formatUzs(summary.total_i_owe || 0)} UZS`} helper="Open payable balance" tone="danger" />
+         <SummaryTile icon={ArrowDownLeft} label="Owed to me" value={`${formatUzs(summary.total_owed_to_me || 0)} UZS`} helper="Open receivable balance" tone="success" />
+-        <SummaryTile icon={ShieldCheck} label="Formal debts" value={formalCount} helper="Loans, installments, provider contracts" tone="info" />
++        <SummaryTile icon={ShieldCheck} label="Formal debts" value={formalCount} helper="Loans, payment plans, provider contracts" tone="info" />
+         <div className="rounded-lg border border-primary/20 bg-primary/10 p-4">
+           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Create</p>
+           <p className="mt-3 text-sm text-muted-foreground">Question-led entry keeps the model clean.</p>

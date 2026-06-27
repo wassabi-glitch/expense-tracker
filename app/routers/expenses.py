@@ -592,8 +592,8 @@ def _is_linked_expense(event: models.FinancialEvent, asset_ids: dict[int, int]) 
         if (
             leg.project_id is not None
             or leg.debt_id is not None
-            or leg.installment_plan_id is not None
-            or leg.installment_payment_id is not None
+            or leg.payment_plan_id is not None
+            or leg.payment_plan_payment_id is not None
         ):
             return True
     return False
@@ -634,7 +634,7 @@ def _event_has_asset(db: Session, owner_id: int, event_id: int) -> bool:
     )
 
 
-def _event_has_debt_or_installment_dependency(
+def _event_has_debt_or_payment_plan_dependency(
     db: Session,
     owner_id: int,
     event: models.FinancialEvent,
@@ -650,7 +650,7 @@ def _event_has_debt_or_installment_dependency(
     if has_debt:
         return True
     return any(
-        leg.debt_id or leg.installment_plan_id or leg.installment_payment_id
+        leg.debt_id or leg.payment_plan_id or leg.payment_plan_payment_id
         for leg in event.entity_legs
     )
 
@@ -665,7 +665,7 @@ def _raise_if_asset_origin_ineligible(
     _raise_if_split_parent(event)
     if _event_has_refund(db, owner_id, event.id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expenses.has_refund_lock")
-    if _event_has_debt_or_installment_dependency(db, owner_id, event):
+    if _event_has_debt_or_payment_plan_dependency(db, owner_id, event):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expenses.linked_dependency_lock")
 
 
@@ -901,6 +901,7 @@ def create_expense(
                 description=expense.title,
                 status=models.DebtStatus.ACTIVE,
                 date=expense.date,
+                expected_return_date=expense.date,
                 linked_event_id=new_event.id,
                 expense_category=expense.category,
                 expense_subcategory_id=expense.subcategory_id,
@@ -1933,7 +1934,7 @@ def delete_expense(
         .first()
     )
     linked_entity_dependency = any(
-        leg.debt_id or leg.installment_plan_id or leg.installment_payment_id
+        leg.debt_id or leg.payment_plan_id or leg.payment_plan_payment_id
         for leg in event.entity_legs
     )
     if has_debt or linked_entity_dependency:
@@ -2179,7 +2180,7 @@ def split_expense(
 
     if event.id in _asset_ids_by_event(db, current_user.id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expenses.asset_split_lock")
-    if any(leg.debt_id or leg.installment_plan_id or leg.installment_payment_id for leg in event.entity_legs):
+    if any(leg.debt_id or leg.payment_plan_id or leg.payment_plan_payment_id for leg in event.entity_legs):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expenses.linked_dependency_lock")
 
     has_refund = (

@@ -16,7 +16,6 @@ export {
   useRecordDebtPaymentForDebtMutation,
   useRecordDebtPaymentMutation,
   useReverseDebtLedgerEntryMutation,
-  useSettleDebtMutation,
   useUpdateDebtFormalDetailsMutation,
   useUpdateDebtMutation,
 } from "./useDebtsMutations";

@@ -105,7 +105,7 @@ def active_backing_amount(row: models.ExpectedIncome) -> int:
     if kind == models.ExpectedInflowKind.RECEIVABLE and (
         row.debt is None
         or row.debt.debt_type != models.DebtType.OWED
-        or row.debt.status != models.DebtStatus.ACTIVE
+        or row.debt.archived_at is not None
         or int(row.debt.remaining_amount or 0) <= 0
     ):
         return 0
@@ -288,7 +288,7 @@ def validate_source(
             models.Debt.id == payload.debt_id,
             models.Debt.owner_id == owner_id,
             models.Debt.debt_type == models.DebtType.OWED,
-            models.Debt.status == models.DebtStatus.ACTIVE,
+            models.Debt.archived_at.is_(None),
             models.Debt.remaining_amount > 0,
         ).first()
         if debt is None:

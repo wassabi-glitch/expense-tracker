@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { createElement, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
@@ -9,21 +9,22 @@ import {
   CheckCircle2,
   CreditCard,
   Eye,
+  Edit2,
   FileText,
   Layers3,
   Plus,
   ReceiptText,
   ShieldCheck,
   WalletCards,
-  MoreHorizontal,
   ShieldAlert,
   RotateCcw,
+  Trash2,
 } from "lucide-react";
 
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,28 +32,32 @@ import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SPENDING_CATEGORIES } from "@/lib/category";
 import { getWallets } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { formatAmountInput, formatDisplayDate, formatDisplayDateTime, formatUzs, parseAmountInput } from "@/lib/format";
+import { formatAmountInput, formatDisplayDate, formatUzs, parseAmountInput } from "@/lib/format";
 import { toISODateInTimeZone } from "@/lib/date";
 import {
-  useAddInstallmentChargeMutation,
-  useCreateInstallmentPlanMutation,
-  useInstallmentPlanDetailsQuery,
-  useInstallmentPlansQuery,
-  useInstallmentSummaryQuery,
-  useRecordInstallmentPaymentMutation,
-  useUndoLatestInstallmentPaymentMutation,
-  useWriteOffPaymentMutation,
-  useUndoWriteOffPaymentMutation,
-} from "../hooks/useInstallments";
+  useAddPaymentPlanChargeMutation,
+  useCreatePaymentPlanMutation,
+  useDeletePaymentPlanMutation,
+  usePaymentPlanDetailsQuery,
+  usePaymentPlansQuery,
+  usePaymentPlanSummaryQuery,
+  useRecordPaymentPlanPaymentMutation,
+  useUndoLatestPaymentPlanPaymentMutation,
+  useUpdatePaymentPlanMutation,
+  useWriteOffPaymentPlanPaymentMutation,
+  useUndoPaymentPlanPaymentWriteOffMutation,
+} from "../hooks/usePaymentPlans";
 import {
   defaultWalletAllocation,
   normalizeWalletAllocations,
   WalletAllocationEditor,
   walletAllocationTotal,
 } from "./WalletAllocationEditor";
+import { MIN_SUPPORTED_USER_DATE } from "../obligationSchemas";
 
 const PAYMENT_PLAN_TYPES = [
   {
@@ -179,6 +184,21 @@ function unpaidPayments(plan) {
   return sortedPayments(plan?.payments || []).filter((payment) => payment.status !== "PAID" && payment.status !== "SKIPPED" && remainingForPayment(payment) > 0);
 }
 
+function isPristinePaymentPlan(plan) {
+  return sortedPayments(plan?.payments || []).every((payment) => (
+    Number(payment?.paid_amount || 0) === 0
+    && Number(payment?.written_off_amount || 0) === 0
+    && !payment?.event_id
+    && !payment?.payment_plan_ledger_entry_id
+    && !payment?.payment_plan_charge_id
+    && (payment?.component_type || "PRINCIPAL") === "PRINCIPAL"
+    && !(payment?.allocations || []).length
+  ));
+}
+
+const LOCKED_SETUP_REASON = "Recorded activity prevents changing financial history.";
+const LOCKED_DELETE_REASON = "Recorded activity prevents deleting this payment plan.";
+
 function paymentStatusLabel(payment) {
   if (writtenOffForPayment(payment) > 0) return "WRITTEN OFF";
   return payment?.status || "PENDING";
@@ -194,7 +214,7 @@ function paymentStatusClass(payment) {
 }
 
 function paymentComponentLabel(payment) {
-  return payment?.component_type === "CHARGE" ? "Fee or penalty" : "Installment";
+  return payment?.component_type === "CHARGE" ? "Fee or penalty" : "Scheduled payment";
 }
 
 function planStatusClass(status) {
@@ -240,12 +260,13 @@ function scheduledDueDate(startDate, frequency, index) {
   return date.toISOString().slice(0, 10);
 }
 
-function SummaryTile({ icon: Icon, label, value, helper, tone = "default" }) {
+function SummaryTile({ icon, label, value, helper, tone = "default" }) {
+  const iconClassName = cn("h-4 w-4", tone === "success" && "text-emerald-500", tone === "danger" && "text-destructive", tone === "warn" && "text-amber-500");
   return (
     <div className="rounded-lg border border-border bg-card p-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
-        <Icon className={cn("h-4 w-4", tone === "success" && "text-emerald-500", tone === "danger" && "text-destructive", tone === "warn" && "text-amber-500")} />
+        {icon ? createElement(icon, { className: iconClassName }) : null}
       </div>
       <p className="mt-3 text-2xl font-semibold tabular-nums">{value}</p>
       <p className="mt-1 text-xs text-muted-foreground">{helper}</p>
@@ -253,8 +274,8 @@ function SummaryTile({ icon: Icon, label, value, helper, tone = "default" }) {
   );
 }
 
-function CreateInstallmentDialog({ open, onOpenChange, wallets }) {
-  const mutation = useCreateInstallmentPlanMutation();
+function CreatePaymentPlanDialog({ open, onOpenChange, wallets }) {
+  const mutation = useCreatePaymentPlanMutation();
   const availableWallets = useMemo(() => activeWallets(wallets), [wallets]);
   const bankLoanWallets = useMemo(() => loanDisbursementWallets(wallets), [wallets]);
   const [step, setStep] = useState(1);
@@ -292,7 +313,7 @@ function CreateInstallmentDialog({ open, onOpenChange, wallets }) {
   useEffect(() => {
     if (!open || !defaultWalletId) return;
     setWalletAllocations((rows) => (rows.some((row) => row.wallet_id) ? rows : defaultWalletAllocation(availableWallets)));
-  }, [open, defaultWalletId]);
+  }, [open, defaultWalletId, availableWallets]);
 
   useEffect(() => {
     const suggestedCategory = paymentPlanTypeConfig(planType).category;
@@ -363,6 +384,7 @@ function CreateInstallmentDialog({ open, onOpenChange, wallets }) {
     if (targetStep === 4) {
       if (paymentCountValue <= 0) return "Number of payments must be greater than zero.";
       if (!startDate) return "Choose the first payment due date.";
+      if (startDate < MIN_SUPPORTED_USER_DATE) return "First payment due date cannot be before 2020-01-01.";
       if (financedAmount <= 0) return "The amount left to repay must be greater than zero.";
     }
     return "";
@@ -428,7 +450,7 @@ function CreateInstallmentDialog({ open, onOpenChange, wallets }) {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-5xl p-0">
+      <DialogContent className="sm:max-w-5xl p-0">
         <DialogHeader>
           <div className="border-b border-border px-6 py-5">
             <DialogTitle>Create payment plan</DialogTitle>
@@ -576,7 +598,7 @@ function CreateInstallmentDialog({ open, onOpenChange, wallets }) {
               <div className="rounded-lg border border-border bg-card p-4">
                 <p className="text-sm font-semibold">Amount left to repay</p>
                 <p className="mt-2 text-2xl font-semibold tabular-nums">{formatUzs(financedAmount)} UZS</p>
-                <p className="mt-1 text-xs text-muted-foreground">This becomes the linked debt balance for the payment plan.</p>
+                <p className="mt-1 text-xs text-muted-foreground">This becomes the plan-owned balance.</p>
               </div>
             </div>
           ) : null}
@@ -606,7 +628,7 @@ function CreateInstallmentDialog({ open, onOpenChange, wallets }) {
                 </div>
                 <div className="space-y-1">
                   <Label>First payment due</Label>
-                  <Input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="h-11 rounded-md text-base" />
+                  <Input type="date" min={MIN_SUPPORTED_USER_DATE} value={startDate} onChange={(event) => setStartDate(event.target.value)} className="h-11 rounded-md text-base" />
                 </div>
               </div>
               <div className="rounded-lg border border-border bg-muted/15 p-4">
@@ -660,7 +682,7 @@ function CreateInstallmentDialog({ open, onOpenChange, wallets }) {
               <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
                 <p className="font-semibold text-foreground">Records created</p>
                 <ul className="mt-2 space-y-1">
-                  <li>Linked debt starts at {formatUzs(financedAmount)} UZS.</li>
+                  <li>Plan-owned balance starts at {formatUzs(financedAmount)} UZS.</li>
                   <li>{paymentCountValue || 0} scheduled payment rows are generated from {startDate ? formatDisplayDate(startDate, "en") : "the first due date"}.</li>
                   {isBankLoan && loanReceived ? <li>Wallet receives {formatUzs(totalValue)} UZS as `loan_disbursement`.</li> : null}
                   {!isBankLoan && needsWallet ? <li>Upfront payment records {formatUzs(downValue)} UZS from selected wallet(s).</li> : null}
@@ -696,8 +718,234 @@ function CreateInstallmentDialog({ open, onOpenChange, wallets }) {
   );
 }
 
+function EditPaymentPlanDialog({ plan, open, onOpenChange }) {
+  const mutation = useUpdatePaymentPlanMutation();
+  const [itemName, setItemName] = useState("");
+  const [provider, setProvider] = useState("");
+  const [category, setCategory] = useState("");
+  const [totalPrice, setTotalPrice] = useState("");
+  const [downPayment, setDownPayment] = useState("");
+  const [paymentCount, setPaymentCount] = useState("");
+  const [frequency, setFrequency] = useState("MONTHLY");
+  const [startDate, setStartDate] = useState("");
+  const [error, setError] = useState("");
+
+  const isPristine = isPristinePaymentPlan(plan);
+  const isArchived = plan?.status === "ARCHIVED";
+  const config = paymentPlanTypeConfig(plan?.plan_type);
+  const isBankLoan = plan?.plan_type === "BANK_LOAN";
+  const totalValue = parseAmountInput(totalPrice);
+  const downValue = isBankLoan ? 0 : parseAmountInput(downPayment);
+  const paymentCountValue = Number(paymentCount || 0);
+  const financedAmount = Math.max(totalValue - downValue, 0);
+  const regularPayment = paymentCountValue > 0 ? Math.floor(financedAmount / paymentCountValue) : 0;
+  const finalDueDate = scheduledDueDate(startDate, frequency, Math.max(paymentCountValue - 1, 0));
+
+  useEffect(() => {
+    if (!open || !plan) return;
+    setItemName(plan.item_name || "");
+    setProvider(plan.store_or_bank_name || "");
+    setCategory(plan.expense_category || "");
+    setTotalPrice(formatAmountInput(String(plan.total_price || ""), 15));
+    setDownPayment(formatAmountInput(String(plan.down_payment || 0), 15));
+    setPaymentCount(String(plan.months || plan.payment_count || ""));
+    setFrequency(plan.frequency || "MONTHLY");
+    setStartDate(plan.start_date || "");
+    setError("");
+  }, [open, plan]);
+
+  const submit = async () => {
+    if (!plan?.id || mutation.isPending) return;
+    if (isArchived) {
+      setError("Archived payment plans cannot be edited.");
+      return;
+    }
+    if (!itemName.trim()) {
+      setError("Name is required.");
+      return;
+    }
+    if (!category) {
+      setError("Choose the real category for reports and budgets.");
+      return;
+    }
+    const payload = {
+      item_name: itemName.trim(),
+      store_or_bank_name: provider.trim() || null,
+      expense_category: category,
+    };
+    if (isPristine) {
+      if (totalValue <= 0) {
+        setError(`${config.totalLabel} is required.`);
+        return;
+      }
+      if (downValue > totalValue) {
+        setError("Upfront payment cannot exceed the total amount.");
+        return;
+      }
+      if (paymentCountValue <= 0) {
+        setError("Number of payments must be greater than zero.");
+        return;
+      }
+      if (!startDate) {
+        setError("Choose the first payment due date.");
+        return;
+      }
+      if (startDate < MIN_SUPPORTED_USER_DATE) {
+        setError("First payment due date cannot be before 2020-01-01.");
+        return;
+      }
+      if (financedAmount <= 0) {
+        setError("The amount left to repay must be greater than zero.");
+        return;
+      }
+      Object.assign(payload, {
+        total_price: totalValue,
+        down_payment: downValue,
+        months: paymentCountValue,
+        frequency,
+        start_date: startDate,
+      });
+    }
+
+    setError("");
+    await mutation.mutateAsync({ planId: plan.id, payload });
+    onOpenChange(false);
+  };
+
+  if (!plan) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-4xl p-0">
+        <DialogHeader className="border-b border-border px-6 py-5">
+          <DialogTitle>Edit payment plan</DialogTitle>
+          <DialogDescription>{plan.item_name} - plan-owned schedule</DialogDescription>
+        </DialogHeader>
+
+        <div className="max-h-[calc(100vh-13rem)] overflow-y-auto px-6 py-5">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-1 md:col-span-2">
+              <Label>{config.itemQuestion}</Label>
+              <Input
+                value={itemName}
+                onChange={(event) => setItemName(event.target.value)}
+                className="h-11 rounded-md text-base"
+                disabled={isArchived || mutation.isPending}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>{config.providerLabel}</Label>
+              <Input
+                value={provider}
+                onChange={(event) => setProvider(event.target.value)}
+                className="h-11 rounded-md text-base"
+                disabled={isArchived || mutation.isPending}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Category</Label>
+              <Select value={category || undefined} onValueChange={setCategory} disabled={isArchived || mutation.isPending}>
+                <SelectTrigger className="h-11 rounded-md text-base"><SelectValue placeholder="Choose the real category" /></SelectTrigger>
+                <SelectContent>
+                  {SPENDING_CATEGORIES.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-lg border border-border bg-muted/15 p-4">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <p className="font-semibold">Financial setup</p>
+              {!isPristine ? (
+                <Badge variant="outline" className="w-fit rounded-md border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                  Locked
+                </Badge>
+              ) : null}
+            </div>
+            {!isPristine ? (
+              <p className="mt-2 text-sm text-muted-foreground">{LOCKED_SETUP_REASON}</p>
+            ) : null}
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div className="space-y-1">
+                <Label>{config.totalLabel}</Label>
+                <Input
+                  value={totalPrice}
+                  onChange={(event) => setTotalPrice(formatAmountInput(event.target.value, 15))}
+                  inputMode="numeric"
+                  className="h-11 rounded-md text-base"
+                  disabled={!isPristine || isArchived || mutation.isPending}
+                />
+              </div>
+              {!isBankLoan ? (
+                <div className="space-y-1">
+                  <Label>{config.upfrontLabel || "Down payment"}</Label>
+                  <Input
+                    value={downPayment}
+                    onChange={(event) => setDownPayment(formatAmountInput(event.target.value, 15))}
+                    inputMode="numeric"
+                    className="h-11 rounded-md text-base"
+                    disabled={!isPristine || isArchived || mutation.isPending}
+                  />
+                </div>
+              ) : null}
+              <div className="space-y-1">
+                <Label>Number of payments</Label>
+                <Input
+                  value={paymentCount}
+                  onChange={(event) => setPaymentCount(event.target.value.replace(/\D/g, ""))}
+                  inputMode="numeric"
+                  className="h-11 rounded-md text-base"
+                  disabled={!isPristine || isArchived || mutation.isPending}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Frequency</Label>
+                <Select value={frequency} onValueChange={setFrequency} disabled={!isPristine || isArchived || mutation.isPending}>
+                  <SelectTrigger className="h-11 rounded-md text-base"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {FREQUENCY_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label>First payment due</Label>
+                <Input
+                  type="date"
+                  min={MIN_SUPPORTED_USER_DATE}
+                  value={startDate}
+                  onChange={(event) => setStartDate(event.target.value)}
+                  className="h-11 rounded-md text-base"
+                  disabled={!isPristine || isArchived || mutation.isPending}
+                />
+              </div>
+              <div className="rounded-md border border-border bg-background p-3">
+                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Projected payment</p>
+                <p className="mt-1 text-xl font-semibold tabular-nums">{formatUzs(regularPayment)} UZS</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {finalDueDate ? `Final due ${formatDisplayDate(finalDueDate, "en")}` : "Final due date not calculated"}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {error ? <p className="px-6 text-sm font-medium text-destructive">{error}</p> : null}
+        <DialogFooter className="border-t border-border px-6 py-4">
+          <Button variant="outline" className="rounded-md" onClick={() => onOpenChange(false)} disabled={mutation.isPending}>Cancel</Button>
+          <Button className="rounded-md" onClick={submit} disabled={isArchived || mutation.isPending}>
+            Save changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function PaymentDialog({ plan, wallets, open, onOpenChange, preselectWalletId }) {
-  const mutation = useRecordInstallmentPaymentMutation();
+  const mutation = useRecordPaymentPlanPaymentMutation();
   const availableWallets = useMemo(() => activeWallets(wallets), [wallets]);
   const nextPayment = unpaidPayments(plan)[0];
   const defaultAmount = nextPayment
@@ -740,7 +988,7 @@ function PaymentDialog({ plan, wallets, open, onOpenChange, preselectWalletId })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl p-0">
+      <DialogContent className="sm:max-w-5xl p-0">
         <DialogHeader className="border-b border-border px-6 py-5">
           <DialogTitle>Record payment plan payment</DialogTitle>
           <DialogDescription>{plan.item_name} - remaining {formatUzs(plan.remaining_amount)} UZS</DialogDescription>
@@ -791,7 +1039,7 @@ function PaymentDialog({ plan, wallets, open, onOpenChange, preselectWalletId })
 }
 
 function ChargeDialog({ plan, open, onOpenChange }) {
-  const mutation = useAddInstallmentChargeMutation();
+  const mutation = useAddPaymentPlanChargeMutation();
   const [chargeType, setChargeType] = useState("FEE");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(toISODateInTimeZone());
@@ -814,10 +1062,10 @@ function ChargeDialog({ plan, open, onOpenChange }) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Add payment plan charge</DialogTitle>
-          <DialogDescription>Fees and penalties increase the linked debt first. The user pays them later through the schedule.</DialogDescription>
+          <DialogDescription>Fees and penalties increase the plan-owned balance. The user pays them later through the schedule.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-1">
@@ -854,36 +1102,36 @@ function ChargeDialog({ plan, open, onOpenChange }) {
   );
 }
 
-function InstallmentDetailsDialog({ plan, open, onOpenChange, onPay, onCharge }) {
+function PaymentPlanDetailsDialog({ plan, open, onOpenChange, onPay, onCharge, onEdit, onDelete }) {
   const { t } = useTranslation();
-  const detailsQuery = useInstallmentPlanDetailsQuery(plan?.id, { enabled: open && !!plan?.id });
-  const writeOffMutation = useWriteOffPaymentMutation();
-  const undoWriteOffMutation = useUndoWriteOffPaymentMutation();
-  const undoLatestPaymentMutation = useUndoLatestInstallmentPaymentMutation();
+  const detailsQuery = usePaymentPlanDetailsQuery(plan?.id, { enabled: open && !!plan?.id });
+  const writeOffMutation = useWriteOffPaymentPlanPaymentMutation();
+  const undoWriteOffMutation = useUndoPaymentPlanPaymentWriteOffMutation();
+  const undoLatestPaymentMutation = useUndoLatestPaymentPlanPaymentMutation();
   const details = detailsQuery.data;
   const currentPlan = details?.plan || plan;
   const payments = sortedPayments(currentPlan?.payments || []);
-  const debtActivity = details?.debt_activity || [];
-  const debt = details?.debt;
+  const isPristine = isPristinePaymentPlan(currentPlan);
+  const isArchived = currentPlan?.status === "ARCHIVED";
 
   if (!currentPlan) return null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl p-0">
+      <DialogContent className="sm:max-w-6xl p-0">
         <DialogHeader className="border-b border-border px-5 py-4">
           <DialogTitle className="flex items-center gap-2">
             <ReceiptText className="h-5 w-5 text-primary" />
             {currentPlan.item_name}
           </DialogTitle>
-          <DialogDescription>{currentPlan.store_or_bank_name || "No provider"} - linked debt #{currentPlan.debt_id || "none"}</DialogDescription>
+          <DialogDescription>{currentPlan.store_or_bank_name || "No provider"} - plan-owned schedule</DialogDescription>
         </DialogHeader>
         <div className="grid max-h-[calc(100vh-9rem)] overflow-hidden lg:grid-cols-[minmax(0,1fr)_360px]">
           <div className="overflow-y-auto p-5">
             <div className="grid gap-3 sm:grid-cols-3">
-              <SummaryTile icon={CreditCard} label="Remaining" value={`${formatUzs(currentPlan.remaining_amount)} UZS`} helper="Debt-backed balance" tone="danger" />
+              <SummaryTile icon={CreditCard} label="Remaining" value={`${formatUzs(currentPlan.remaining_amount)} UZS`} helper="Plan-owned balance" tone="danger" />
               <SummaryTile icon={Layers3} label="Rows" value={payments.length} helper="Scheduled obligations" />
-              <SummaryTile icon={ShieldCheck} label="Status" value={currentPlan.status} helper={debt ? `Debt ${debt.status}` : "Schedule only"} tone="success" />
+              <SummaryTile icon={ShieldCheck} label="Status" value={currentPlan.status} helper="Schedule only" tone="success" />
             </div>
 
             <div className="mt-5 rounded-lg border border-border">
@@ -925,7 +1173,7 @@ function InstallmentDetailsDialog({ plan, open, onOpenChange, onPay, onCharge })
                               <ShieldAlert className="h-4 w-4" />
                             </Button>
                           )}
-                          {payment.status === "PAID" && writtenOffForPayment(payment) > 0 && payment.debt_ledger_entry_id && (
+                          {payment.status === "PAID" && writtenOffForPayment(payment) > 0 && payment.payment_plan_ledger_entry_id && (
                             <Button
                               variant="ghost"
                               size="icon"
@@ -974,28 +1222,40 @@ function InstallmentDetailsDialog({ plan, open, onOpenChange, onPay, onCharge })
                 <Plus className="mr-2 h-4 w-4" />
                 Add fee or penalty
               </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start rounded-md"
+                disabled={isArchived}
+                onClick={() => onEdit(currentPlan)}
+              >
+                <Edit2 className="mr-2 h-4 w-4" />
+                Edit plan
+              </Button>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="block">
+                      <Button
+                        variant="outline"
+                        className="w-full justify-start rounded-md text-destructive hover:text-destructive"
+                        disabled={!isPristine || isArchived}
+                        onClick={() => onDelete(currentPlan)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete plan
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  {!isPristine || isArchived ? (
+                    <TooltipContent>{isArchived ? "Archived payment plans cannot be deleted here." : LOCKED_DELETE_REASON}</TooltipContent>
+                  ) : null}
+                </Tooltip>
+              </TooltipProvider>
             </div>
 
             <div className="mt-5">
-              <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">Debt activity</p>
-              <div className="space-y-3">
-                {debtActivity.map((item) => (
-                  <div key={item.ledger_entry_id} className="rounded-lg border border-border bg-background p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold">{item.title}</p>
-                        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                          <span>Business {formatDisplayDate(item.entry_date, "en")}</span>
-                          <span>Recorded {formatDisplayDateTime(item.created_at, "en")}</span>
-                        </div>
-                      </div>
-                      <Badge variant="outline" className="rounded-md">{item.kind}</Badge>
-                    </div>
-                    <p className="mt-2 text-sm font-semibold tabular-nums">{item.amount_delta > 0 ? "+" : ""}{formatUzs(item.amount_delta)} UZS</p>
-                  </div>
-                ))}
-                {!debtActivity.length ? <p className="text-sm text-muted-foreground">No ledger activity loaded yet.</p> : null}
-              </div>
+              <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">Plan activity</p>
+              <p className="text-sm text-muted-foreground">Plan-owned payments, charges, write-offs, and undo entries appear in the schedule storyline.</p>
             </div>
           </aside>
         </div>
@@ -1004,7 +1264,7 @@ function InstallmentDetailsDialog({ plan, open, onOpenChange, onPay, onCharge })
   );
 }
 
-function InstallmentPlanCard({ plan, onOpen, onPay, onCharge }) {
+function PaymentPlanCard({ plan, onOpen, onPay, onCharge, onEdit, onDelete }) {
   const payments = sortedPayments(plan.payments || []);
   const unpaid = unpaidPayments(plan);
   const nextPayment = unpaid[0];
@@ -1017,6 +1277,8 @@ function InstallmentPlanCard({ plan, onOpen, onPay, onCharge }) {
   const overdueCount = unpaid.filter((payment) => payment.due_date < today).length;
   const nextAmount = nextPayment ? remainingForPayment(nextPayment) : 0;
   const isPaid = plan.status === "PAID";
+  const isPristine = isPristinePaymentPlan(plan);
+  const isArchived = plan.status === "ARCHIVED";
 
   return (
     <Card className="overflow-hidden rounded-lg border-border py-0 shadow-none transition-colors hover:border-primary/35">
@@ -1113,7 +1375,31 @@ function InstallmentPlanCard({ plan, onOpen, onPay, onCharge }) {
                 <WalletCards className="h-4 w-4" />
                 Pay
               </Button>
-              <Button variant="ghost" className="col-span-2 h-10 rounded-md border border-border bg-background/60" onClick={() => onCharge(plan)}>
+              <Button variant="outline" className="h-10 rounded-md" disabled={isArchived} onClick={() => onEdit(plan)}>
+                <Edit2 className="h-4 w-4" />
+                Edit
+              </Button>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="block">
+                      <Button
+                        variant="outline"
+                        className="h-10 w-full rounded-md text-destructive hover:text-destructive"
+                        disabled={!isPristine || isArchived}
+                        onClick={() => onDelete(plan)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  {!isPristine || isArchived ? (
+                    <TooltipContent>{isArchived ? "Archived payment plans cannot be deleted here." : LOCKED_DELETE_REASON}</TooltipContent>
+                  ) : null}
+                </Tooltip>
+              </TooltipProvider>
+              <Button variant="ghost" className="col-span-2 h-10 rounded-md border border-border bg-background/60" disabled={isArchived} onClick={() => onCharge(plan)}>
                 <Plus className="h-4 w-4" />
                 Charge
               </Button>
@@ -1125,19 +1411,22 @@ function InstallmentPlanCard({ plan, onOpen, onPay, onCharge }) {
   );
 }
 
-export function InstallmentsTab() {
+export function PaymentPlansTab() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [createOpen, setCreateOpen] = useState(false);
   const [detailsPlan, setDetailsPlan] = useState(null);
   const [paymentPlan, setPaymentPlan] = useState(null);
   const [preselectWalletId, setPreselectWalletId] = useState(null);
   const [chargePlan, setChargePlan] = useState(null);
-  const summaryQuery = useInstallmentSummaryQuery();
-  const plansQuery = useInstallmentPlansQuery({ limit: 100 });
+  const [editPlan, setEditPlan] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const summaryQuery = usePaymentPlanSummaryQuery();
+  const plansQuery = usePaymentPlansQuery({ limit: 100 });
   const walletsQuery = useQuery({ queryKey: ["wallets"], queryFn: getWallets });
+  const deleteMutation = useDeletePaymentPlanMutation();
 
   const wallets = useMemo(() => (Array.isArray(walletsQuery.data) ? walletsQuery.data : []), [walletsQuery.data]);
-  const plans = Array.isArray(plansQuery.data?.items) ? plansQuery.data.items : [];
+  const plans = useMemo(() => (Array.isArray(plansQuery.data?.items) ? plansQuery.data.items : []), [plansQuery.data]);
   const summary = summaryQuery.data || {};
 
   useEffect(() => {
@@ -1157,6 +1446,13 @@ export function InstallmentsTab() {
     }
   }, [searchParams, plans, setSearchParams]);
 
+  const confirmDelete = async () => {
+    if (!deleteTarget?.id || !isPristinePaymentPlan(deleteTarget)) return;
+    await deleteMutation.mutateAsync(deleteTarget.id);
+    if (detailsPlan?.id === deleteTarget.id) setDetailsPlan(null);
+    setDeleteTarget(null);
+  };
+
   return (
     <div className="space-y-5">
       <div className="grid gap-3 md:grid-cols-4">
@@ -1175,12 +1471,14 @@ export function InstallmentsTab() {
 
       <div className="space-y-3">
         {plans.map((plan) => (
-          <InstallmentPlanCard
+          <PaymentPlanCard
             key={plan.id}
             plan={plan}
             onOpen={setDetailsPlan}
             onPay={setPaymentPlan}
             onCharge={setChargePlan}
+            onEdit={setEditPlan}
+            onDelete={setDeleteTarget}
           />
         ))}
         {!plans.length && !plansQuery.isLoading ? (
@@ -1197,16 +1495,36 @@ export function InstallmentsTab() {
         ) : null}
       </div>
 
-      <CreateInstallmentDialog open={createOpen} onOpenChange={setCreateOpen} wallets={wallets} />
+      <CreatePaymentPlanDialog open={createOpen} onOpenChange={setCreateOpen} wallets={wallets} />
+      <EditPaymentPlanDialog open={!!editPlan} onOpenChange={(open) => !open && setEditPlan(null)} plan={editPlan} />
       <PaymentDialog open={!!paymentPlan} onOpenChange={(open) => { if (!open) { setPaymentPlan(null); setPreselectWalletId(null); } }} plan={paymentPlan} wallets={wallets} preselectWalletId={preselectWalletId} />
       <ChargeDialog open={!!chargePlan} onOpenChange={(open) => !open && setChargePlan(null)} plan={chargePlan} />
-      <InstallmentDetailsDialog
+      <PaymentPlanDetailsDialog
         open={!!detailsPlan}
         onOpenChange={(open) => !open && setDetailsPlan(null)}
         plan={detailsPlan}
         onPay={setPaymentPlan}
         onCharge={setChargePlan}
+        onEdit={setEditPlan}
+        onDelete={setDeleteTarget}
       />
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="Delete payment plan"
+        description={deleteTarget ? `Delete ${deleteTarget.item_name}? This is only allowed before any recorded plan activity exists.` : ""}
+        confirmText="Delete"
+        cancelText="Cancel"
+        isConfirming={deleteMutation.isPending}
+        confirmDisabled={!deleteTarget || !isPristinePaymentPlan(deleteTarget)}
+        onConfirm={confirmDelete}
+      >
+        {deleteTarget && !isPristinePaymentPlan(deleteTarget) ? (
+          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+            {LOCKED_DELETE_REASON}
+          </p>
+        ) : null}
+      </ConfirmDialog>
     </div>
   );
 }

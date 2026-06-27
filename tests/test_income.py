@@ -272,6 +272,7 @@ def test_money_in_lists_and_classifies_incoming_money(client, session):
             "initial_amount": 300_000,
             "currency": "UZS",
             "date": user_timezone_today().isoformat(),
+            "expected_return_date": user_timezone_today().isoformat(),
             "is_money_transferred": True,
             "initial_wallet_allocations": [
                 {"wallet_id": default_wallet.id, "amount": 300_000},

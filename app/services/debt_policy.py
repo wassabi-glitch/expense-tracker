@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable
 
 from sqlalchemy import exists
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from .. import models
 from .debt_service import POSTED_DEBT_LEDGER_STATUS
@@ -19,7 +18,6 @@ OPEN_DEBT_STATUSES = {
 
 CLOSED_DEBT_STATUSES = {
     models.DebtStatus.PAID,
-    models.DebtStatus.SETTLED,
     models.DebtStatus.FORGIVEN,
     models.DebtStatus.WRITTEN_OFF,
 }
@@ -48,20 +46,6 @@ REVERSIBLE_ENTRY_TYPES = {
     models.DebtLedgerEntryType.ADJUSTMENT,
     models.DebtLedgerEntryType.ASSET_SETTLEMENT,
 }
-
-PAYMENT_PLAN_MANAGED_ACTIONS = {
-    models.DebtActionKind.RECORD_PAYMENT,
-    models.DebtActionKind.ADD_CHARGE,
-    models.DebtActionKind.FORGIVE_PARTIAL,
-    models.DebtActionKind.FORGIVE_FULL,
-    models.DebtActionKind.ADJUST_BALANCE,
-    models.DebtActionKind.REVERSE_ENTRY,
-    models.DebtActionKind.SETTLE,
-    models.DebtActionKind.LINK_ASSET,
-    models.DebtActionKind.SET_COLLATERAL,
-    models.DebtActionKind.RESTRUCTURE_TERMS,
-}
-
 
 @dataclass(frozen=True)
 class DebtActionDecision:
@@ -176,24 +160,18 @@ def is_informal_debt(debt: models.Debt) -> bool:
 
 
 def is_open_debt(debt: models.Debt) -> bool:
-    return debt.status in OPEN_DEBT_STATUSES
+    return not is_archived_debt(debt) and int(debt.remaining_amount or 0) > 0
 
 
 def is_closed_debt(debt: models.Debt) -> bool:
-    return debt.status in CLOSED_DEBT_STATUSES
+    return not is_archived_debt(debt) and int(debt.remaining_amount or 0) <= 0
 
 
-def payment_plan_managed_id(debt: models.Debt) -> int | None:
-    plan = getattr(debt, "installment_plan", None)
-    if plan is not None:
-        return int(plan.id)
-    return None
+def is_archived_debt(debt: models.Debt) -> bool:
+    return getattr(debt, "archived_at", None) is not None or debt.status == models.DebtStatus.ARCHIVED
 
 
 def is_pristine_debt(db: Session, debt: models.Debt) -> bool:
-    if payment_plan_managed_id(debt) is not None:
-        return False
-
     return not db.query(
         exists().where(
             models.DebtLedgerEntry.owner_id == debt.owner_id,
@@ -204,78 +182,16 @@ def is_pristine_debt(db: Session, debt: models.Debt) -> bool:
     ).scalar()
 
 
-def get_active_action_restrictions(
-    db: Session,
-    debt: models.Debt,
-    action_kind: models.DebtActionKind,
-) -> list[models.DebtActionRestriction]:
-    return (
-        db.query(models.DebtActionRestriction)
-        .filter(
-            models.DebtActionRestriction.owner_id == debt.owner_id,
-            models.DebtActionRestriction.debt_id == debt.id,
-            models.DebtActionRestriction.action_kind == action_kind,
-            models.DebtActionRestriction.is_active,
-        )
-        .order_by(models.DebtActionRestriction.id.asc())
-        .all()
-    )
-
-
 def _base_decision(action_kind: models.DebtActionKind) -> DebtActionDecision:
     return DebtActionDecision(action_kind=action_kind, allowed=True)
-
-
-def _apply_persisted_restrictions(
-    decision: DebtActionDecision,
-    restrictions: Iterable[models.DebtActionRestriction],
-) -> DebtActionDecision:
-    current = decision
-    for restriction in restrictions:
-        details = dict(restriction.details or {})
-        if restriction.level == models.DebtActionRestrictionLevel.BLOCKED:
-            return current.blocked(
-                restriction.reason_code,
-                source=restriction.source,
-                details=details,
-            )
-        if restriction.level == models.DebtActionRestrictionLevel.REQUIRES_CONFIRMATION:
-            current = current.with_confirmation(
-                restriction.reason_code,
-                source=restriction.source,
-                details=details,
-            )
-        elif restriction.level == models.DebtActionRestrictionLevel.UNDO_UNAVAILABLE:
-            current = current.without_undo(
-                restriction.reason_code,
-                source=restriction.source,
-                details=details,
-            )
-    return current
 
 
 def _evaluate_debt_state(
     debt: models.Debt,
     action_kind: models.DebtActionKind,
     decision: DebtActionDecision,
-    *,
-    allow_payment_plan_managed: bool = False,
 ) -> DebtActionDecision:
-    managed_plan_id = payment_plan_managed_id(debt)
-    if (
-        managed_plan_id is not None
-        and not allow_payment_plan_managed
-        and action_kind in PAYMENT_PLAN_MANAGED_ACTIONS
-    ):
-        return decision.blocked(
-            "debts.policy.managed_by_payment_plan",
-            details={
-                "installment_plan_id": managed_plan_id,
-                "action_owner": "PAYMENT_PLANS",
-            },
-        )
-
-    if debt.status == models.DebtStatus.ARCHIVED:
+    if is_archived_debt(debt):
         if action_kind == models.DebtActionKind.RESTORE:
             return decision
         return decision.blocked("debts.policy.archived_immutable")
@@ -284,9 +200,7 @@ def _evaluate_debt_state(
         return decision.blocked("debts.policy.restore_only_archived")
 
     if action_kind == models.DebtActionKind.ARCHIVE:
-        if is_closed_debt(debt):
-            return decision
-        return decision.blocked("debts.policy.archive_only_closed")
+        return decision
 
     if action_kind in {
         models.DebtActionKind.RECORD_PAYMENT,
@@ -294,7 +208,6 @@ def _evaluate_debt_state(
         models.DebtActionKind.FORGIVE_PARTIAL,
         models.DebtActionKind.FORGIVE_FULL,
         models.DebtActionKind.ADJUST_BALANCE,
-        models.DebtActionKind.SETTLE,
         models.DebtActionKind.LINK_ASSET,
         models.DebtActionKind.SET_COLLATERAL,
         models.DebtActionKind.RESTRUCTURE_TERMS,
@@ -316,14 +229,7 @@ def _evaluate_action_meaning(
         models.DebtActionKind.FORGIVE_PARTIAL,
         models.DebtActionKind.FORGIVE_FULL,
     }:
-        if is_informal_debt(debt):
-            return decision
-        return decision.blocked("debts.policy.forgiveness_only_informal")
-
-    if action_kind == models.DebtActionKind.SETTLE:
-        if is_formal_debt(debt):
-            return decision.with_confirmation("debts.policy.formal_settlement_confirm")
-        return decision.blocked("debts.policy.settlement_only_formal")
+        return decision
 
     if action_kind in {
         models.DebtActionKind.SET_COLLATERAL,
@@ -345,38 +251,24 @@ def evaluate_debt_action(
     db: Session,
     debt: models.Debt,
     action_kind: models.DebtActionKind,
-    *,
-    allow_payment_plan_managed: bool = False,
 ) -> DebtActionDecision:
     decision = _base_decision(action_kind)
     decision = _evaluate_debt_state(
         debt,
         action_kind,
         decision,
-        allow_payment_plan_managed=allow_payment_plan_managed,
     )
     if decision.allowed:
         decision = _evaluate_action_meaning(debt, action_kind, decision)
-
-    return _apply_persisted_restrictions(
-        decision,
-        get_active_action_restrictions(db, debt, action_kind),
-    )
+    return decision
 
 
 def evaluate_debt_actions(
     db: Session,
     debt: models.Debt,
-    *,
-    allow_payment_plan_managed: bool = False,
 ) -> dict[models.DebtActionKind, DebtActionDecision]:
     return {
-        action_kind: evaluate_debt_action(
-            db,
-            debt,
-            action_kind,
-            allow_payment_plan_managed=allow_payment_plan_managed,
-        )
+        action_kind: evaluate_debt_action(db, debt, action_kind)
         for action_kind in models.DebtActionKind
     }
 
@@ -390,18 +282,36 @@ def _entry_has_posted_reversal(db: Session, entry: models.DebtLedgerEntry) -> bo
     ).scalar()
 
 
+def _latest_unreversed_reversible_entry(db: Session, debt: models.Debt) -> models.DebtLedgerEntry | None:
+    reversal = aliased(models.DebtLedgerEntry)
+    return (
+        db.query(models.DebtLedgerEntry)
+        .filter(
+            models.DebtLedgerEntry.owner_id == debt.owner_id,
+            models.DebtLedgerEntry.debt_id == debt.id,
+            models.DebtLedgerEntry.status == POSTED_DEBT_LEDGER_STATUS,
+            models.DebtLedgerEntry.entry_type != models.DebtLedgerEntryType.INITIAL,
+            models.DebtLedgerEntry.entry_type != models.DebtLedgerEntryType.REVERSAL,
+            models.DebtLedgerEntry.is_reversible,
+            ~exists().where(
+                reversal.reverses_entry_id == models.DebtLedgerEntry.id,
+                reversal.status == POSTED_DEBT_LEDGER_STATUS,
+            ),
+        )
+        .order_by(models.DebtLedgerEntry.id.desc())
+        .first()
+    )
+
+
 def evaluate_ledger_entry_reversal(
     db: Session,
     debt: models.Debt,
     entry: models.DebtLedgerEntry,
-    *,
-    allow_payment_plan_managed: bool = False,
 ) -> DebtActionDecision:
     decision = evaluate_debt_action(
         db,
         debt,
         models.DebtActionKind.REVERSE_ENTRY,
-        allow_payment_plan_managed=allow_payment_plan_managed,
     )
     if not decision.allowed:
         return decision
@@ -418,6 +328,17 @@ def evaluate_ledger_entry_reversal(
         return decision.blocked("debts.policy.entry_marked_not_reversible")
     if _entry_has_posted_reversal(db, entry):
         return decision.blocked("debts.policy.entry_already_reversed")
+
+    latest_entry = _latest_unreversed_reversible_entry(db, debt)
+    if latest_entry is not None and latest_entry.id != entry.id:
+        return decision.blocked(
+            "debts.policy.reverse_latest_first",
+            details={
+                "latest_entry_id": latest_entry.id,
+                "latest_entry_type": latest_entry.entry_type.value,
+                "blocked_entry_id": entry.id,
+            },
+        )
 
     if entry.source != models.DebtLedgerEntrySource.USER:
         return decision.with_confirmation("debts.policy.non_user_entry_reversal_confirm")

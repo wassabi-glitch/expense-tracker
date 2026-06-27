@@ -1,22 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useTranslation } from "react-i18next";
 import {
-  AlertTriangle,
+  Archive,
   Banknote,
-  CheckCircle2,
   ClipboardList,
   Landmark,
   MinusCircle,
+  Pencil,
   PlusCircle,
   RefreshCcw,
+  RotateCcw,
   Scale,
-  ShieldAlert,
   WalletCards,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,11 +30,13 @@ import { useDebtDetailsQuery } from "../hooks/useDebtsQueries";
 import {
   useAddChargeMutation,
   useAdjustDebtBalanceMutation,
+  useArchiveDebtMutation,
   useForgiveDebtAmountMutation,
   useRecordDebtPaymentForDebtMutation,
   useReverseDebtLedgerEntryMutation,
-  useSettleDebtMutation,
+  useRestoreDebtMutation,
 } from "../hooks/useDebtsMutations";
+import { EditDebtModal } from "./EditDebtModal";
 import {
   defaultWalletAllocation,
   normalizeWalletAllocations,
@@ -180,16 +182,25 @@ function ChargeForm({ debt, onClose }) {
 
 function ForgivenessForm({ debt, onClose }) {
   const mutation = useForgiveDebtAmountMutation();
-  const [amount, setAmount] = useState(formatAmountInput(String(debt?.remaining_amount || "")));
+  const principalRemaining = Number(debt?.remaining_principal_amount || 0);
+  const chargeRemaining = Number(debt?.remaining_charge_amount || debt?.total_charges || 0);
+  const totalRemaining = Number(debt?.remaining_amount || 0);
+  const [component, setComponent] = useState(chargeRemaining > 0 ? "CHARGES" : "PRINCIPAL");
+  const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const amountValue = parseAmountInput(amount);
+  const componentLimit = component === "CHARGES" ? chargeRemaining : principalRemaining;
+  const afterPrincipal = component === "PRINCIPAL" ? Math.max(0, principalRemaining - amountValue) : principalRemaining;
+  const afterCharges = component === "CHARGES" ? Math.max(0, chargeRemaining - amountValue) : chargeRemaining;
+  const afterTotal = afterPrincipal + afterCharges;
 
   const submit = async () => {
-    if (amountValue <= 0) return;
+    if (amountValue <= 0 || amountValue > componentLimit) return;
     await mutation.mutateAsync({
       debtId: debt.id,
       payload: {
         amount: amountValue,
+        component,
         date: toISODateInTimeZone(),
         note: note || null,
       },
@@ -200,84 +211,41 @@ function ForgivenessForm({ debt, onClose }) {
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-700 dark:text-sky-300">
-        Forgiveness reduces the obligation without moving wallet money. Use it only when the counterparty truly forgives part of the balance.
+        Choose what the other person actually forgave. No wallet money moves.
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Button type="button" variant={component === "PRINCIPAL" ? "default" : "outline"} className="rounded-md" onClick={() => setComponent("PRINCIPAL")}>
+          Original debt
+        </Button>
+        <Button type="button" variant={component === "CHARGES" ? "default" : "outline"} className="rounded-md" disabled={chargeRemaining <= 0} onClick={() => setComponent("CHARGES")}>
+          Charges / fees
+        </Button>
       </div>
       <div className="space-y-1">
-        <Label>Forgiven amount</Label>
+        <Label>{component === "CHARGES" ? "Waived charge amount" : "Forgiven original debt amount"}</Label>
         <Input value={amount} onChange={(event) => setAmount(formatAmountInput(event.target.value, 15))} inputMode="numeric" className="rounded-md" />
+      </div>
+      <div className="grid gap-2 rounded-lg border border-border bg-muted/15 p-3 text-xs sm:grid-cols-3">
+        <div>
+          <p className="text-muted-foreground">Original debt</p>
+          <p className="font-semibold">{formatUzs(principalRemaining)} to {formatUzs(afterPrincipal)} UZS</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground">Charges / fees</p>
+          <p className="font-semibold">{formatUzs(chargeRemaining)} to {formatUzs(afterCharges)} UZS</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground">Total remaining</p>
+          <p className="font-semibold">{formatUzs(totalRemaining)} to {formatUzs(afterTotal)} UZS</p>
+        </div>
       </div>
       <div className="space-y-1">
         <Label>Note</Label>
         <Textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Why this amount is forgiven" className="min-h-20 rounded-md" />
       </div>
-      <Button className="w-full rounded-md" disabled={amountValue <= 0 || amountValue > Number(debt?.remaining_amount || 0) || mutation.isPending} onClick={submit}>
+      <Button className="w-full rounded-md" disabled={amountValue <= 0 || amountValue > componentLimit || mutation.isPending} onClick={submit}>
         <MinusCircle className="mr-2 h-4 w-4" />
-        Record forgiveness
-      </Button>
-    </div>
-  );
-}
-
-function SettlementForm({ debt, wallets, onClose }) {
-  const mutation = useSettleDebtMutation();
-  const remaining = Number(debt?.remaining_amount || 0);
-  const [paymentAmount, setPaymentAmount] = useState("");
-  const [discount, setDiscount] = useState("");
-  const [note, setNote] = useState("");
-  const [walletAllocations, setWalletAllocations] = useState(() => defaultWalletAllocation(wallets));
-  const defaultWalletId = wallets.find((wallet) => wallet.is_default)?.id || wallets[0]?.id;
-  const payment = parseAmountInput(paymentAmount);
-  const settlementDiscount = parseAmountInput(discount);
-  const total = payment + settlementDiscount;
-  const walletTotal = walletAllocationTotal(walletAllocations);
-  const canSubmit = total === remaining && walletTotal === payment && !mutation.isPending;
-
-  useEffect(() => {
-    if (!defaultWalletId) return;
-    setWalletAllocations((rows) => (rows.some((row) => row.wallet_id) ? rows : defaultWalletAllocation(wallets)));
-  }, [defaultWalletId]);
-
-  const submit = async () => {
-    if (!canSubmit) return;
-    await mutation.mutateAsync({
-      debtId: debt.id,
-      payload: {
-        payment_amount: payment,
-        settlement_discount: settlementDiscount,
-        date: toISODateInTimeZone(),
-        note: note || null,
-        wallet_allocations: normalizeWalletAllocations(walletAllocations),
-      },
-    });
-    onClose();
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-300">
-        Settlement closes a formal debt by combining a real payment and an agreed discount. Payment + discount must equal the remaining balance.
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-1">
-          <Label>Payment now</Label>
-          <Input value={paymentAmount} onChange={(event) => setPaymentAmount(formatAmountInput(event.target.value, 15))} inputMode="numeric" className="h-11 rounded-md text-base" />
-        </div>
-        <div className="space-y-1">
-          <Label>Discount / write-down</Label>
-          <Input value={discount} onChange={(event) => setDiscount(formatAmountInput(event.target.value, 15))} inputMode="numeric" className="h-11 rounded-md text-base" />
-        </div>
-      </div>
-      <WalletAllocationEditor wallets={wallets} rows={walletAllocations} onChange={setWalletAllocations} expectedAmount={payment} disabled={mutation.isPending} />
-      <div className="space-y-1">
-        <Label>Note</Label>
-        <Textarea value={note} onChange={(event) => setNote(event.target.value)} className="min-h-24 rounded-md" />
-      </div>
-      <div className={cn("rounded-lg border p-4 text-sm", total === remaining ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-border bg-muted/15 text-muted-foreground")}>
-        {formatUzs(total)} / {formatUzs(remaining)} UZS accounted for
-      </div>
-      <Button className="h-11 w-full rounded-md text-base" disabled={!canSubmit} onClick={submit}>
-        <CheckCircle2 className="mr-2 h-4 w-4" />
-        Settle and close
+        {component === "CHARGES" ? "Waive charges" : "Record forgiveness"}
       </Button>
     </div>
   );
@@ -285,18 +253,35 @@ function SettlementForm({ debt, wallets, onClose }) {
 
 function BalanceAdjustmentForm({ debt, onClose }) {
   const mutation = useAdjustDebtBalanceMutation();
-  const [confirmedBalance, setConfirmedBalance] = useState(formatAmountInput(String(debt?.remaining_amount || "")));
+  const principalRemaining = Number(debt?.remaining_principal_amount || 0);
+  const chargeRemaining = Number(debt?.remaining_charge_amount || debt?.total_charges || 0);
+  const [component, setComponent] = useState("PRINCIPAL");
+  const [confirmedBalance, setConfirmedBalance] = useState(formatAmountInput(String(principalRemaining)));
   const [note, setNote] = useState("");
   const value = parseAmountInput(confirmedBalance);
+  const afterPrincipal = component === "PRINCIPAL" ? value : principalRemaining;
+  const afterCharges = component === "CHARGES" ? value : chargeRemaining;
+  const afterTotal = afterPrincipal + afterCharges;
+
+  const chooseComponent = (nextComponent) => {
+    setComponent(nextComponent);
+    setConfirmedBalance(formatAmountInput(String(nextComponent === "CHARGES" ? chargeRemaining : principalRemaining)));
+  };
 
   const submit = async () => {
+    const payload = {
+      component,
+      date: toISODateInTimeZone(),
+      note: note || null,
+    };
+    if (component === "CHARGES") {
+      payload.confirmed_charge_balance = value;
+    } else {
+      payload.confirmed_principal_balance = value;
+    }
     await mutation.mutateAsync({
       debtId: debt.id,
-      payload: {
-        confirmed_balance: value,
-        date: toISODateInTimeZone(),
-        note: note || null,
-      },
+      payload,
     });
     onClose();
   };
@@ -304,11 +289,33 @@ function BalanceAdjustmentForm({ debt, onClose }) {
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 p-3 text-sm text-violet-700 dark:text-violet-300">
-        Use this when a statement or counterparty confirms the real balance differs from your app balance.
+        Use this when the original debt or charges were recorded incorrectly. This does not count as a payment.
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Button type="button" variant={component === "PRINCIPAL" ? "default" : "outline"} className="rounded-md" onClick={() => chooseComponent("PRINCIPAL")}>
+          Correct original debt
+        </Button>
+        <Button type="button" variant={component === "CHARGES" ? "default" : "outline"} className="rounded-md" onClick={() => chooseComponent("CHARGES")}>
+          Correct charges / fees
+        </Button>
       </div>
       <div className="space-y-1">
-        <Label>Confirmed balance</Label>
+        <Label>{component === "CHARGES" ? "Correct charges / fees remaining" : "Correct original debt remaining"}</Label>
         <Input value={confirmedBalance} onChange={(event) => setConfirmedBalance(formatAmountInput(event.target.value, 15))} inputMode="numeric" className="rounded-md" />
+      </div>
+      <div className="grid gap-2 rounded-lg border border-border bg-muted/15 p-3 text-xs sm:grid-cols-3">
+        <div>
+          <p className="text-muted-foreground">Original debt</p>
+          <p className="font-semibold">{formatUzs(principalRemaining)} to {formatUzs(afterPrincipal)} UZS</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground">Charges / fees</p>
+          <p className="font-semibold">{formatUzs(chargeRemaining)} to {formatUzs(afterCharges)} UZS</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground">Total remaining</p>
+          <p className="font-semibold">{formatUzs(Number(debt?.remaining_amount || 0))} to {formatUzs(afterTotal)} UZS</p>
+        </div>
       </div>
       <div className="space-y-1">
         <Label>Note</Label>
@@ -326,17 +333,19 @@ function ActionPanel({ mode, debt, wallets, onClose }) {
   if (mode === "payment") return <PaymentForm debt={debt} wallets={wallets} onClose={onClose} />;
   if (mode === "charge") return <ChargeForm debt={debt} onClose={onClose} />;
   if (mode === "forgive") return <ForgivenessForm debt={debt} onClose={onClose} />;
-  if (mode === "settle") return <SettlementForm debt={debt} wallets={wallets} onClose={onClose} />;
   if (mode === "adjust") return <BalanceAdjustmentForm debt={debt} onClose={onClose} />;
   return null;
 }
 
 export function DebtDetailsDialog({ debt, open, onOpenChange, appLang = "en" }) {
-  const { t } = useTranslation();
   const detailsQuery = useDebtDetailsQuery(debt?.id, { enabled: open && !!debt?.id });
   const walletsQuery = useQuery({ queryKey: ["wallets"], queryFn: getWallets, enabled: open });
   const reverseMutation = useReverseDebtLedgerEntryMutation();
+  const archiveMutation = useArchiveDebtMutation();
+  const restoreMutation = useRestoreDebtMutation();
   const [mode, setMode] = useState(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
 
   const details = detailsQuery.data;
   const currentDebt = details?.debt || debt;
@@ -344,22 +353,38 @@ export function DebtDetailsDialog({ debt, open, onOpenChange, appLang = "en" }) 
   const actions = details?.actions || [];
   const activity = details?.activity || [];
   const total = Number(currentDebt?.initial_amount || 0) + Number(currentDebt?.total_charges || 0);
-  const paid = Math.max(total - Number(currentDebt?.remaining_amount || 0), 0);
+  const paid = currentDebt?.total_paid || 0;
   const progress = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
 
   const canPayment = actionAllowed(actions, "RECORD_PAYMENT");
   const canCharge = actionAllowed(actions, "ADD_CHARGE");
   const canForgivePartial = actionAllowed(actions, "FORGIVE_PARTIAL") || actionAllowed(actions, "FORGIVE_FULL");
-  const canSettle = actionAllowed(actions, "SETTLE");
   const canAdjust = actionAllowed(actions, "ADJUST_BALANCE");
+  const canArchive = actionAllowed(actions, "ARCHIVE");
+  const canRestore = actionAllowed(actions, "RESTORE");
+  const isArchived = currentDebt?.is_archived === true;
+  const stateLabel = currentDebt?.is_archived
+    ? "Archived"
+    : currentDebt?.lifecycle_status === "CLOSED"
+      ? "Closed"
+      : currentDebt?.time_status === "OVERDUE"
+        ? "Overdue"
+        : "Open";
 
   const closePanel = () => {
     setMode(null);
   };
 
+  const confirmArchive = async () => {
+    if (!currentDebt?.id) return;
+    await archiveMutation.mutateAsync(currentDebt.id);
+    setArchiveOpen(false);
+  };
+
   return (
+    <>
     <Dialog open={open} onOpenChange={(value) => { if (!value) setMode(null); onOpenChange(value); }}>
-      <DialogContent className="max-w-[92rem] p-0">
+      <DialogContent className="sm:max-w-[92rem] p-0">
         <DialogHeader className="border-b border-border px-5 py-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
@@ -368,12 +393,12 @@ export function DebtDetailsDialog({ debt, open, onOpenChange, appLang = "en" }) 
                 {currentDebt?.description || currentDebt?.counterparty_name || "Debt details"}
               </DialogTitle>
               <DialogDescription>
-                {currentDebt?.counterparty_name} - {currentDebt?.product_kind || currentDebt?.origin_kind || "Debt"} - {currentDebt?.status}
+                {currentDebt?.counterparty_name} - {currentDebt?.product_kind || currentDebt?.origin_kind || "Debt"} - {stateLabel}
               </DialogDescription>
             </div>
             <div className="flex flex-wrap gap-2">
               <Badge variant="outline" className="rounded-md">{currentDebt?.debt_type === "OWING" ? "I owe" : "Owed to me"}</Badge>
-              <Badge variant={currentDebt?.status === "ACTIVE" ? "default" : "secondary"} className="rounded-md">{currentDebt?.status}</Badge>
+              <Badge variant={currentDebt?.lifecycle_status === "OPEN" ? "default" : "secondary"} className="rounded-md">{stateLabel}</Badge>
             </div>
           </div>
         </DialogHeader>
@@ -408,6 +433,9 @@ export function DebtDetailsDialog({ debt, open, onOpenChange, appLang = "en" }) 
                 {activity.map((item) => {
                   const Icon = activityIcon(item.kind);
                   const reversible = item.reversal?.allowed === true;
+                  const reverseBlockedReason = item.reversal?.reason_code === "debts.policy.reverse_latest_first"
+                    ? "Undo newer debt actions first. If this older action was real but later changed, use charge waiver, correction, or refund instead."
+                    : "This will restore app wallet money only when the real payment failed, was cancelled, refunded, or was recorded by mistake.";
                   return (
                     <div key={item.ledger_entry_id} className="relative grid grid-cols-[36px_minmax(0,1fr)] gap-3">
                       <div className={cn("relative z-10 flex h-9 w-9 items-center justify-center rounded-md border", activityColor(item.kind))}>
@@ -430,6 +458,18 @@ export function DebtDetailsDialog({ debt, open, onOpenChange, appLang = "en" }) 
                               <span className="font-medium text-foreground/70">Recorded:</span>{" "}
                               {formatDisplayDateTime(item.created_at, appLang)}
                             </span>
+                            {item.principal_delta ? (
+                              <span>
+                                <span className="font-medium text-foreground/70">Original debt:</span>{" "}
+                                {item.principal_delta > 0 ? "+" : ""}{formatUzs(item.principal_delta)} UZS
+                              </span>
+                            ) : null}
+                            {item.charge_delta ? (
+                              <span>
+                                <span className="font-medium text-foreground/70">Charges / fees:</span>{" "}
+                                {item.charge_delta > 0 ? "+" : ""}{formatUzs(item.charge_delta)} UZS
+                              </span>
+                            ) : null}
                           </div>
                         </div>
                         <div className="flex flex-col items-start gap-2 sm:items-end">
@@ -442,13 +482,9 @@ export function DebtDetailsDialog({ debt, open, onOpenChange, appLang = "en" }) 
                             size="sm"
                             className="h-8 rounded-md"
                             disabled={!reversible || reverseMutation.isPending}
-                            title={t("debts.reversal.reverseWarning", {
-                              defaultValue: "This will restore app wallet money only when the real payment failed, was cancelled, refunded, or was recorded by mistake.",
-                            })}
+                            title={reverseBlockedReason}
                             onClick={() => {
-                              const confirmed = window.confirm(t("debts.reversal.reverseWarning", {
-                                defaultValue: "This will restore app wallet money only when the real payment failed, was cancelled, refunded, or was recorded by mistake.",
-                              }));
+                              const confirmed = window.confirm(reverseBlockedReason);
                               if (!confirmed) return;
                               reverseMutation.mutate({ debtId: currentDebt.id, entryId: item.ledger_entry_id, payload: { note: "Reversed from debt details" } });
                             }}
@@ -484,40 +520,57 @@ export function DebtDetailsDialog({ debt, open, onOpenChange, appLang = "en" }) 
                 <MinusCircle className="mr-2 h-4 w-4" />
                 Forgive balance
               </Button>
-              <Button variant="outline" className="h-11 w-full justify-start rounded-md" disabled={!canSettle} onClick={() => setMode(mode === "settle" ? null : "settle")}>
-                <CheckCircle2 className="mr-2 h-4 w-4" />
-                Formal settlement
-              </Button>
               <Button variant="outline" className="h-11 w-full justify-start rounded-md" disabled={!canAdjust} onClick={() => setMode(mode === "adjust" ? null : "adjust")}>
                 <Scale className="mr-2 h-4 w-4" />
                 Correct balance
               </Button>
+              <Button variant="outline" className="h-11 w-full justify-start rounded-md" disabled={isArchived} onClick={() => setEditOpen(true)}>
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit debt
+              </Button>
+              {isArchived ? (
+                <Button
+                  variant="outline"
+                  className="h-11 w-full justify-start rounded-md"
+                  disabled={!canRestore || restoreMutation.isPending}
+                  onClick={() => currentDebt?.id && restoreMutation.mutate(currentDebt.id)}
+                >
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  Restore debt
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  className="h-11 w-full justify-start rounded-md"
+                  disabled={!canArchive || archiveMutation.isPending}
+                  onClick={() => setArchiveOpen(true)}
+                >
+                  <Archive className="mr-2 h-4 w-4" />
+                  Archive debt
+                </Button>
+              )}
             </div>
 
             {mode ? (
               <div className="mt-6 rounded-lg border border-border bg-background p-5">
                 <ActionPanel mode={mode} debt={currentDebt} wallets={wallets} onClose={closePanel} />
               </div>
-            ) : (
-              <div className="mt-5 space-y-3 rounded-lg border border-border bg-background p-4">
-                <div className="flex items-start gap-3">
-                  <ShieldAlert className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-semibold">Policy-aware actions</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Unavailable actions are blocked by debt status, debt type, or formal/informal policy rules.</p>
-                  </div>
-                </div>
-                {actions.filter((action) => !action.allowed).slice(0, 4).map((action) => (
-                  <div key={action.action_kind} className="flex items-start gap-2 rounded-md bg-muted/30 p-2 text-xs text-muted-foreground">
-                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5" />
-                    <span>{action.action_kind}: {action.reason_code || "not available"}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            ) : null}
           </aside>
         </div>
       </DialogContent>
     </Dialog>
+    <EditDebtModal isOpen={editOpen} onClose={() => setEditOpen(false)} debt={currentDebt} />
+    <ConfirmDialog
+      open={archiveOpen}
+      onOpenChange={setArchiveOpen}
+      title="Archive debt"
+      description={currentDebt ? `Archive ${currentDebt.description || currentDebt.counterparty_name}? It will be hidden from the main debts view until restored.` : ""}
+      confirmText="Archive"
+      cancelText="Cancel"
+      onConfirm={confirmArchive}
+      isConfirming={archiveMutation.isPending}
+    />
+    </>
   );
 }

@@ -1,6 +1,9 @@
+from datetime import datetime, timezone
+
 from app import models
 from app.services.debt_policy import (
     evaluate_debt_action,
+    evaluate_debt_actions,
     evaluate_ledger_entry_reversal,
     is_formal_debt,
     is_informal_debt,
@@ -27,6 +30,7 @@ def _make_debt(session, user, **overrides):
         "description": "Dinner split",
         "status": models.DebtStatus.ACTIVE,
         "date": user_timezone_today(),
+        "expected_return_date": user_timezone_today(),
     }
     defaults.update(overrides)
     debt = models.Debt(**defaults)
@@ -35,7 +39,7 @@ def _make_debt(session, user, **overrides):
     return debt
 
 
-def test_informal_debt_allows_forgiveness_and_blocks_formal_settlement(client, session):
+def test_informal_debt_allows_component_forgiveness_without_settlement_action(client, session):
     create_user_and_token(client, "policy1", "policy1@example.com", "Password123!")
     user = _user(session, "policy1@example.com")
     debt = _make_debt(session, user)
@@ -45,15 +49,14 @@ def test_informal_debt_allows_forgiveness_and_blocks_formal_settlement(client, s
 
     partial = evaluate_debt_action(session, debt, models.DebtActionKind.FORGIVE_PARTIAL)
     full = evaluate_debt_action(session, debt, models.DebtActionKind.FORGIVE_FULL)
-    settlement = evaluate_debt_action(session, debt, models.DebtActionKind.SETTLE)
 
     assert partial.allowed is True
     assert full.allowed is True
-    assert settlement.allowed is False
-    assert settlement.reason_code == "debts.policy.settlement_only_formal"
+    action_names = {action.value for action in evaluate_debt_actions(session, debt)}
+    assert "SETTLE" not in action_names
 
 
-def test_formal_debt_blocks_personal_forgiveness_and_allows_settlement(client, session):
+def test_formal_debt_uses_same_component_forgiveness_as_informal_debt(client, session):
     create_user_and_token(client, "policy2", "policy2@example.com", "Password123!")
     user = _user(session, "policy2@example.com")
     debt = _make_debt(
@@ -78,18 +81,13 @@ def test_formal_debt_blocks_personal_forgiveness_and_allows_settlement(client, s
     assert is_formal_debt(debt)
 
     forgiveness = evaluate_debt_action(session, debt, models.DebtActionKind.FORGIVE_PARTIAL)
-    settlement = evaluate_debt_action(session, debt, models.DebtActionKind.SETTLE)
     collateral = evaluate_debt_action(session, debt, models.DebtActionKind.SET_COLLATERAL)
 
-    assert forgiveness.allowed is False
-    assert forgiveness.reason_code == "debts.policy.forgiveness_only_informal"
-    assert settlement.allowed is True
-    assert settlement.requires_confirmation is True
-    assert settlement.reason_code == "debts.policy.formal_settlement_confirm"
+    assert forgiveness.allowed is True
     assert collateral.allowed is True
 
 
-def test_payment_plan_managed_debt_redirects_mutating_actions(client, session):
+def test_legacy_payment_plan_link_does_not_create_managed_debt_policy(client, session):
     create_user_and_token(client, "policyplan", "policyplan@example.com", "Password123!")
     user = _user(session, "policyplan@example.com")
     debt = _make_debt(
@@ -101,7 +99,7 @@ def test_payment_plan_managed_debt_redirects_mutating_actions(client, session):
         product_kind=models.DebtProductKind.STORE_INSTALLMENT,
         counterparty_name="Store",
     )
-    plan = models.InstallmentPlan(
+    plan = models.PaymentPlan(
         owner_id=user.id,
         debt_id=debt.id,
         item_name="Phone",
@@ -112,10 +110,10 @@ def test_payment_plan_managed_debt_redirects_mutating_actions(client, session):
         remaining_amount=500_000,
         months=5,
         payment_count=5,
-        frequency=models.InstallmentFrequency.MONTHLY,
+        frequency=models.PaymentPlanFrequency.MONTHLY,
         monthly_payment_amount=100_000,
         regular_payment_amount=100_000,
-        status=models.InstallmentStatus.ACTIVE,
+        status=models.PaymentPlanStatus.ACTIVE,
         start_date=user_timezone_today(),
         expense_category=models.ExpenseCategory.ELECTRONICS,
     )
@@ -124,18 +122,8 @@ def test_payment_plan_managed_debt_redirects_mutating_actions(client, session):
 
     payment = evaluate_debt_action(session, debt, models.DebtActionKind.RECORD_PAYMENT)
     charge = evaluate_debt_action(session, debt, models.DebtActionKind.ADD_CHARGE)
-    allowed_from_plan_route = evaluate_debt_action(
-        session,
-        debt,
-        models.DebtActionKind.RECORD_PAYMENT,
-        allow_payment_plan_managed=True,
-    )
-
-    assert payment.allowed is False
-    assert payment.reason_code == "debts.policy.managed_by_payment_plan"
-    assert payment.details["installment_plan_id"] == plan.id
-    assert charge.allowed is False
-    assert allowed_from_plan_route.allowed is True
+    assert payment.allowed is True
+    assert charge.allowed is True
 
 
 def test_pristine_debt_allows_only_initial_ledger_history(client, session):
@@ -196,55 +184,36 @@ def test_closed_and_archived_debt_actions_are_restricted(client, session):
         counterparty_name="Archived",
         status=models.DebtStatus.ARCHIVED,
     )
+    open_debt = _make_debt(session, user, counterparty_name="Open archive candidate")
 
     payment = evaluate_debt_action(session, paid_debt, models.DebtActionKind.RECORD_PAYMENT)
     archive = evaluate_debt_action(session, paid_debt, models.DebtActionKind.ARCHIVE)
+    open_archive = evaluate_debt_action(session, open_debt, models.DebtActionKind.ARCHIVE)
     archived_payment = evaluate_debt_action(session, archived_debt, models.DebtActionKind.RECORD_PAYMENT)
     restore = evaluate_debt_action(session, archived_debt, models.DebtActionKind.RESTORE)
 
     assert payment.allowed is False
     assert payment.reason_code == "debts.policy.closed_debt_immutable"
     assert archive.allowed is True
+    assert open_archive.allowed is True
     assert archived_payment.allowed is False
     assert archived_payment.reason_code == "debts.policy.archived_immutable"
     assert restore.allowed is True
 
 
-def test_persisted_restrictions_override_computed_policy(client, session):
+def test_archived_debt_immutability_and_restore_are_derived_from_archive_metadata(client, session):
     create_user_and_token(client, "policy4", "policy4@example.com", "Password123!")
     user = _user(session, "policy4@example.com")
     debt = _make_debt(session, user)
-    session.add_all(
-        [
-            models.DebtActionRestriction(
-                owner_id=user.id,
-                debt_id=debt.id,
-                action_kind=models.DebtActionKind.ADD_CHARGE,
-                level=models.DebtActionRestrictionLevel.BLOCKED,
-                reason_code="debts.policy.manual_lock",
-                source=models.DebtActionRestrictionSource.USER,
-            ),
-            models.DebtActionRestriction(
-                owner_id=user.id,
-                debt_id=debt.id,
-                action_kind=models.DebtActionKind.FORGIVE_PARTIAL,
-                level=models.DebtActionRestrictionLevel.REQUIRES_CONFIRMATION,
-                reason_code="debts.policy.confirm_family_debt",
-                source=models.DebtActionRestrictionSource.USER,
-            ),
-        ]
-    )
+    debt.archived_at = datetime.now(timezone.utc)
     session.flush()
 
     charge = evaluate_debt_action(session, debt, models.DebtActionKind.ADD_CHARGE)
-    forgiveness = evaluate_debt_action(session, debt, models.DebtActionKind.FORGIVE_PARTIAL)
+    restore = evaluate_debt_action(session, debt, models.DebtActionKind.RESTORE)
 
     assert charge.allowed is False
-    assert charge.reason_code == "debts.policy.manual_lock"
-    assert charge.source == models.DebtActionRestrictionSource.USER
-    assert forgiveness.allowed is True
-    assert forgiveness.requires_confirmation is True
-    assert forgiveness.reason_code == "debts.policy.confirm_family_debt"
+    assert charge.reason_code == "debts.policy.archived_immutable"
+    assert restore.allowed is True
 
 
 def test_ledger_entry_reversal_blocks_already_reversed_entries(client, session):

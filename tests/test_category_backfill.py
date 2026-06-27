@@ -57,8 +57,8 @@ def _legacy_expense_event(
     amount,
     old_budget_id=None,
     debt_id=None,
-    installment_plan_id=None,
-    installment_payment_id=None,
+    payment_plan_id=None,
+    payment_plan_payment_id=None,
 ):
     event = models.FinancialEvent(
         owner_id=owner_id,
@@ -78,11 +78,11 @@ def _legacy_expense_event(
         models.EntityLedger(
             label=title,
             amount=amount,
-            category=models.ExpenseCategory.INSTALLMENTS_DEBT,
+            category=models.ExpenseCategory.PAYMENT_PLANS_DEBT,
             budget_id=old_budget_id,
             debt_id=debt_id,
-            installment_plan_id=installment_plan_id,
-            installment_payment_id=installment_payment_id,
+            payment_plan_id=payment_plan_id,
+            payment_plan_payment_id=payment_plan_payment_id,
         )
     )
     session.add(event)
@@ -98,7 +98,7 @@ def test_backfill_migrates_linked_legacy_financing_category_rows(client, session
     old_budget_id = _legacy_budget(
         session,
         owner_id=user.id,
-        category=models.ExpenseCategory.INSTALLMENTS_DEBT,
+        category=models.ExpenseCategory.PAYMENT_PLANS_DEBT,
         budget_year=2026,
         budget_month=6,
     )
@@ -106,7 +106,7 @@ def test_backfill_migrates_linked_legacy_financing_category_rows(client, session
     dining_budget_id = _budget_id(client, headers, category="Dining Out", budget_year=2026, budget_month=6)
     charge_budget_id = _budget_id(client, headers, category="Debt Charges", budget_year=2026, budget_month=6)
 
-    plan = models.InstallmentPlan(
+    plan = models.PaymentPlan(
         owner_id=user.id,
         item_name="Legacy phone",
         store_or_bank_name="Phone Store",
@@ -116,10 +116,10 @@ def test_backfill_migrates_linked_legacy_financing_category_rows(client, session
         remaining_amount=200_000,
         months=3,
         payment_count=3,
-        frequency=models.InstallmentFrequency.MONTHLY,
+        frequency=models.PaymentPlanFrequency.MONTHLY,
         monthly_payment_amount=100_000,
         regular_payment_amount=100_000,
-        status=models.InstallmentStatus.ACTIVE,
+        status=models.PaymentPlanStatus.ACTIVE,
         start_date=event_date,
         expense_category=models.ExpenseCategory.ELECTRONICS,
     )
@@ -135,20 +135,21 @@ def test_backfill_migrates_linked_legacy_financing_category_rows(client, session
         currency="UZS",
         status=models.DebtStatus.ACTIVE,
         date=event_date,
+        expected_return_date=event_date,
         is_money_transferred=False,
         expense_category=models.ExpenseCategory.DINING_OUT,
     )
     session.add_all([plan, debt])
     session.flush()
-    principal_payment = models.InstallmentPayment(
+    principal_payment = models.PaymentPlanPayment(
         owner_id=user.id,
         plan_id=plan.id,
         amount=100_000,
         paid_amount=100_000,
         due_date=event_date,
         paid_date=event_date,
-        component_type=models.InstallmentPaymentComponentType.PRINCIPAL,
-        status=models.InstallmentPaymentStatus.PAID,
+        component_type=models.PaymentPlanPaymentComponentType.PRINCIPAL,
+        status=models.PaymentPlanPaymentStatus.PAID,
     )
     session.add(principal_payment)
     session.flush()
@@ -157,13 +158,13 @@ def test_backfill_migrates_linked_legacy_financing_category_rows(client, session
         session,
         owner_id=user.id,
         wallet_id=wallet.id,
-        title="Legacy phone installment",
-        reference_type=models.ReferenceType.INSTALLMENT_PAYMENT,
+        title="Legacy phone payment_plan",
+        reference_type=models.ReferenceType.PAYMENT_PLAN_PAYMENT,
         event_date=event_date,
         amount=100_000,
         old_budget_id=old_budget_id,
-        installment_plan_id=plan.id,
-        installment_payment_id=principal_payment.id,
+        payment_plan_id=plan.id,
+        payment_plan_payment_id=principal_payment.id,
     )
     debt_event = _legacy_expense_event(
         session,
@@ -213,7 +214,7 @@ def test_backfill_migrates_linked_legacy_financing_category_rows(client, session
     assert debt_event.entity_legs[0].budget_id == dining_budget_id
     assert charge_event.entity_legs[0].category == models.ExpenseCategory.DEBT_CHARGES
     assert charge_event.entity_legs[0].budget_id == charge_budget_id
-    assert manual_event.entity_legs[0].category == models.ExpenseCategory.INSTALLMENTS_DEBT
+    assert manual_event.entity_legs[0].category == models.ExpenseCategory.PAYMENT_PLANS_DEBT
     assert manual_event.entity_legs[0].budget_id == old_budget_id
 
     second_result = backfill_deprecated_financing_category_rows(session, owner_id=user.id)

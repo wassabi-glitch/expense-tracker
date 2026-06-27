@@ -5,12 +5,15 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUpRight,
+  Archive,
   Banknote,
   Building2,
   CalendarDays,
   HandCoins,
   Landmark,
+  Pencil,
   Plus,
+  RotateCcw,
   Search,
   ShieldAlert,
   ShieldCheck,
@@ -33,9 +36,11 @@ import { getIncomeSources, getWallets } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatAmountInput, formatDisplayDate, formatUzs, parseAmountInput } from "@/lib/format";
 import { toISODateInTimeZone } from "@/lib/date";
-import { useCreateDebtMutation, useDeleteDebtMutation, usePayWalletBackedObligationMutation } from "../hooks/useDebtsMutations";
+import { useArchiveDebtMutation, useCreateDebtMutation, useDeleteDebtMutation, usePayWalletBackedObligationMutation, useRestoreDebtMutation } from "../hooks/useDebtsMutations";
 import { useDebtsQuery, useDebtsSummaryQuery } from "../hooks/useDebtsQueries";
 import { DebtDetailsDialog } from "./DebtDetailsDialog";
+import { EditDebtModal } from "./EditDebtModal";
+import { MIN_SUPPORTED_USER_DATE } from "../obligationSchemas";
 import {
   defaultWalletAllocation,
   normalizeWalletAllocations,
@@ -43,7 +48,12 @@ import {
   walletAllocationTotal,
 } from "./WalletAllocationEditor";
 
-const STATUS_OPTIONS = ["ACTIVE", "OVERDUE", "DEFAULTED", "IN_COLLECTION", "PAID", "SETTLED", "FORGIVEN", "WRITTEN_OFF", "ARCHIVED"];
+const STATUS_OPTIONS = [
+  { value: "OPEN", label: "Open" },
+  { value: "CLOSED", label: "Closed" },
+  { value: "OVERDUE", label: "Overdue" },
+  { value: "ARCHIVED", label: "Archived" },
+];
 const DEBT_REASON_OPTIONS = {
   OWING: {
     PERSONAL: [
@@ -199,16 +209,22 @@ function kindIcon(debt) {
   return UserRound;
 }
 
-function statusTone(status) {
-  if (["ACTIVE"].includes(status)) return "default";
-  if (["PAID", "SETTLED"].includes(status)) return "success";
-  if (["OVERDUE", "DEFAULTED", "IN_COLLECTION"].includes(status)) return "danger";
-  if (["FORGIVEN", "WRITTEN_OFF"].includes(status)) return "info";
-  return "muted";
+function statusTone(debt) {
+  if (debt.is_archived) return "muted";
+  if (debt.lifecycle_status === "CLOSED" || Number(debt.remaining_amount || 0) <= 0) return "success";
+  if (debt.time_status === "OVERDUE") return "danger";
+  return "default";
 }
 
-function StatusBadge({ status }) {
-  const tone = statusTone(status);
+function debtStatusLabel(debt) {
+  if (debt.is_archived) return "Archived";
+  if (debt.lifecycle_status === "CLOSED" || Number(debt.remaining_amount || 0) <= 0) return "Closed";
+  if (debt.time_status === "OVERDUE") return "Overdue";
+  return "Open";
+}
+
+function StatusBadge({ debt }) {
+  const tone = statusTone(debt);
   return (
     <Badge
       variant={tone === "default" ? "default" : "outline"}
@@ -220,7 +236,7 @@ function StatusBadge({ status }) {
         tone === "muted" && "text-muted-foreground"
       )}
     >
-      {status}
+      {debtStatusLabel(debt)}
     </Badge>
   );
 }
@@ -300,6 +316,10 @@ function DebtCreationDialog({ open, onOpenChange, wallets, incomeSources }) {
   };
 
   const dateError = () => {
+    if (!date) return "Debt date is required.";
+    if (date < MIN_SUPPORTED_USER_DATE) return "Date cannot be before 2020-01-01.";
+    if (!dueDate) return "Due date is required.";
+    if (dueDate < MIN_SUPPORTED_USER_DATE) return "Due date cannot be before 2020-01-01.";
     if (dueDate && date && dueDate < date) return "Expected date cannot be before the debt date.";
     return "";
   };
@@ -353,7 +373,7 @@ function DebtCreationDialog({ open, onOpenChange, wallets, incomeSources }) {
       initial_amount: debtAmount,
       currency: "UZS",
       date,
-      expected_return_date: dueDate || null,
+      expected_return_date: dueDate,
       is_money_transferred: moneyMoved,
       initial_wallet_id: normalizedWalletAllocations.length === 1 ? normalizedWalletAllocations[0].wallet_id : null,
       initial_wallet_allocations: normalizedWalletAllocations,
@@ -392,7 +412,7 @@ function DebtCreationDialog({ open, onOpenChange, wallets, incomeSources }) {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-5xl p-0">
+      <DialogContent className="sm:max-w-5xl p-0">
         <DialogHeader>
           <div className="border-b border-border px-6 py-5">
             <DialogTitle>Create debt</DialogTitle>
@@ -490,7 +510,7 @@ function DebtCreationDialog({ open, onOpenChange, wallets, incomeSources }) {
                 </div>
                 <div className="space-y-1">
                   <Label>Debt date</Label>
-                  <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="h-11 rounded-md text-base" />
+                  <Input type="date" min={MIN_SUPPORTED_USER_DATE} value={date} onChange={(event) => setDate(event.target.value)} className="h-11 rounded-md text-base" />
                 </div>
                 <div className="space-y-1">
                   <Label>Total debt amount</Label>
@@ -557,8 +577,8 @@ function DebtCreationDialog({ open, onOpenChange, wallets, incomeSources }) {
                     ? "When do you expect to settle this?"
                     : "When do you expect to receive this?"}
                 </Label>
-                <Input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} className="h-11 rounded-md text-base" />
-                <p className="text-xs text-muted-foreground">Optional. Leave it blank if there is no clear date yet.</p>
+                <Input type="date" min={date || MIN_SUPPORTED_USER_DATE} value={dueDate} onChange={(event) => setDueDate(event.target.value)} className="h-11 rounded-md text-base" />
+                <p className="text-xs text-muted-foreground">Required. It keeps debt reports and reminders predictable.</p>
               </div>
             </div>
           ) : null}
@@ -573,7 +593,7 @@ function DebtCreationDialog({ open, onOpenChange, wallets, incomeSources }) {
                 <SummaryTile icon={direction === "OWING" ? ArrowUpRight : ArrowDownLeft} label="Debt" value={direction === "OWING" ? "You owe" : "Owed to you"} helper={`${counterpartyName || "No name"} - ${formatUzs(debtAmount)} UZS`} />
                 <SummaryTile icon={relationship === "FORMAL" ? Landmark : UserRound} label="Relationship" value={relationship === "FORMAL" ? "Formal" : "Personal"} helper={selectedReason?.title || "No reason chosen"} />
                 <SummaryTile icon={WalletCards} label="Money today" value={moneyMoved ? `${formatUzs(debtAmount)} UZS` : "No wallet change"} helper={moneyImpactText} />
-                <SummaryTile icon={CalendarDays} label="Expected date" value={dueDate ? formatDisplayDate(dueDate, "en") : "No date yet"} helper={date ? `Debt date ${formatDisplayDate(date, "en")}` : "No debt date"} />
+                <SummaryTile icon={CalendarDays} label="Expected date" value={formatDisplayDate(dueDate, "en")} helper={date ? `Debt date ${formatDisplayDate(date, "en")}` : "No debt date"} />
               </div>
               <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
                 <p className="font-semibold text-foreground">What Sarflog will do</p>
@@ -728,13 +748,14 @@ function WalletObligationPayoffDialog({ debt, wallets, open, onOpenChange }) {
   );
 }
 
-function DebtRow({ debt, onOpen, onDelete, onPayoff }) {
+function DebtRow({ debt, onOpen, onEdit, onArchive, onRestore, onDelete, onPayoff, isRestoring }) {
   const Icon = kindIcon(debt);
   const total = Number(debt.initial_amount || 0) + Number(debt.total_charges || 0);
-  const paid = Math.max(total - Number(debt.remaining_amount || 0), 0);
+  const paid = debt.total_paid || 0;
   const progress = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
   const isOwing = debt.debt_type === "OWING";
   const isWalletObligation = debt.source_type === "WALLET";
+  const isArchived = debt.is_archived === true;
   const RowIcon = isWalletObligation ? WalletCards : Icon;
 
   return (
@@ -769,7 +790,7 @@ function DebtRow({ debt, onOpen, onDelete, onPayoff }) {
           </div>
 
           <div className="space-y-1">
-            <StatusBadge status={debt.status} />
+            <StatusBadge debt={debt} />
             <p className="flex items-center gap-1 text-xs text-muted-foreground">
               <CalendarDays className="h-3 w-3" />
               {debt.expected_return_date ? formatDisplayDate(debt.expected_return_date, "en") : "No due date"}
@@ -782,6 +803,27 @@ function DebtRow({ debt, onOpen, onDelete, onPayoff }) {
             ) : (
               <>
                 <Button variant="outline" className="rounded-md" onClick={() => onOpen(debt)}>Open</Button>
+                {isArchived ? (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="rounded-md"
+                    title="Restore debt"
+                    disabled={isRestoring}
+                    onClick={() => onRestore(debt)}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </Button>
+                ) : (
+                  <>
+                    <Button variant="ghost" size="icon" className="rounded-md" title="Edit debt" onClick={() => onEdit(debt)}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="rounded-md text-muted-foreground" title="Archive debt" onClick={() => onArchive(debt)}>
+                      <Archive className="h-4 w-4" />
+                    </Button>
+                  </>
+                )}
                 <Button variant="ghost" size="icon" className="rounded-md text-muted-foreground hover:text-destructive" onClick={() => onDelete(debt)}>
                   <Trash2 className="h-4 w-4" />
                 </Button>
@@ -797,27 +839,46 @@ function DebtRow({ debt, onOpen, onDelete, onPayoff }) {
 export function DebtsTab() {
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedDebt, setSelectedDebt] = useState(null);
+  const [editTarget, setEditTarget] = useState(null);
+  const [archiveTarget, setArchiveTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [payoffTarget, setPayoffTarget] = useState(null);
   const [typeFilter, setTypeFilter] = useState("ALL");
-  const [statusFilter, setStatusFilter] = useState("ACTIVE");
+  const [statusFilter, setStatusFilter] = useState("OPEN");
   const [search, setSearch] = useState("");
 
   const summaryQuery = useDebtsSummaryQuery();
-  const debtsQuery = useDebtsQuery({
-    debt_type: typeFilter === "ALL" ? undefined : typeFilter,
-    status: statusFilter === "ALL" ? undefined : statusFilter,
-    search: search || undefined,
-    limit: 100,
-  });
+  const debtQueryParams = useMemo(() => {
+    const params = {
+      debt_type: typeFilter === "ALL" ? undefined : typeFilter,
+      search: search || undefined,
+      limit: 100,
+    };
+    if (statusFilter === "OPEN") {
+      params.lifecycle_status = "OPEN";
+    } else if (statusFilter === "CLOSED") {
+      params.lifecycle_status = "CLOSED";
+    } else if (statusFilter === "OVERDUE") {
+      params.lifecycle_status = "OPEN";
+      params.time_status = "OVERDUE";
+    } else if (statusFilter === "ARCHIVED") {
+      params.archived = true;
+      params.include_archived = true;
+    }
+    return params;
+  }, [search, statusFilter, typeFilter]);
+
+  const debtsQuery = useDebtsQuery(debtQueryParams);
   const walletsQuery = useQuery({ queryKey: ["wallets"], queryFn: getWallets });
   const incomeSourcesQuery = useQuery({ queryKey: ["incomeSources"], queryFn: getIncomeSources });
+  const archiveMutation = useArchiveDebtMutation();
+  const restoreMutation = useRestoreDebtMutation();
   const deleteMutation = useDeleteDebtMutation();
 
   const debts = Array.isArray(debtsQuery.data?.items) ? debtsQuery.data.items : [];
   const summary = summaryQuery.data || {};
   const formalCount = debts.filter((debt) => ["BANK_LOAN", "CAR_LOAN", "MORTGAGE", "STORE_INSTALLMENT", "SERVICE_PAY_LATER"].includes(debt.product_kind)).length;
-  const riskCount = debts.filter((debt) => ["OVERDUE", "DEFAULTED", "IN_COLLECTION"].includes(debt.status)).length;
+  const riskCount = debts.filter((debt) => debt.time_status === "OVERDUE" && !debt.is_archived).length;
   const wallets = useMemo(() => (Array.isArray(walletsQuery.data) ? walletsQuery.data : []), [walletsQuery.data]);
   const incomeSources = useMemo(() => (Array.isArray(incomeSourcesQuery.data) ? incomeSourcesQuery.data : []), [incomeSourcesQuery.data]);
 
@@ -827,12 +888,18 @@ export function DebtsTab() {
     setDeleteTarget(null);
   };
 
+  const confirmArchive = async () => {
+    if (!archiveTarget) return;
+    await archiveMutation.mutateAsync(archiveTarget.id);
+    setArchiveTarget(null);
+  };
+
   return (
     <div className="space-y-5">
       <div className="grid gap-3 md:grid-cols-4">
         <SummaryTile icon={ArrowUpRight} label="I owe" value={`${formatUzs(summary.total_i_owe || 0)} UZS`} helper="Open payable balance" tone="danger" />
         <SummaryTile icon={ArrowDownLeft} label="Owed to me" value={`${formatUzs(summary.total_owed_to_me || 0)} UZS`} helper="Open receivable balance" tone="success" />
-        <SummaryTile icon={ShieldCheck} label="Formal debts" value={formalCount} helper="Loans, installments, provider contracts" tone="info" />
+        <SummaryTile icon={ShieldCheck} label="Formal debts" value={formalCount} helper="Loans, payment plans, provider contracts" tone="info" />
         <div className="rounded-lg border border-primary/20 bg-primary/10 p-4">
           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Create</p>
           <p className="mt-3 text-sm text-muted-foreground">Question-led entry keeps the model clean.</p>
@@ -861,7 +928,7 @@ export function DebtsTab() {
             <SelectTrigger className="rounded-md"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">All statuses</SelectItem>
-              {STATUS_OPTIONS.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}
+              {STATUS_OPTIONS.map((status) => <SelectItem key={status.value} value={status.value}>{status.label}</SelectItem>)}
             </SelectContent>
           </Select>
           <Badge variant={riskCount ? "destructive" : "outline"} className="h-10 rounded-md px-3">
@@ -872,7 +939,17 @@ export function DebtsTab() {
 
       <div className="space-y-3">
         {debts.map((debt) => (
-          <DebtRow key={debt.id} debt={debt} onOpen={setSelectedDebt} onDelete={setDeleteTarget} onPayoff={setPayoffTarget} />
+          <DebtRow
+            key={debt.id}
+            debt={debt}
+            onOpen={setSelectedDebt}
+            onEdit={setEditTarget}
+            onArchive={setArchiveTarget}
+            onRestore={(item) => restoreMutation.mutate(item.id)}
+            onDelete={setDeleteTarget}
+            onPayoff={setPayoffTarget}
+            isRestoring={restoreMutation.isPending}
+          />
         ))}
         {!debts.length && !debtsQuery.isLoading ? (
           <Card className="rounded-lg border-dashed py-0 shadow-none">
@@ -894,6 +971,17 @@ export function DebtsTab() {
         onOpenChange={(open) => !open && setPayoffTarget(null)}
       />
       <DebtDetailsDialog debt={selectedDebt} open={!!selectedDebt} onOpenChange={(open) => !open && setSelectedDebt(null)} />
+      <EditDebtModal isOpen={!!editTarget} onClose={() => setEditTarget(null)} debt={editTarget} />
+      <ConfirmDialog
+        open={!!archiveTarget}
+        onOpenChange={(open) => !open && setArchiveTarget(null)}
+        title="Archive debt"
+        description={archiveTarget ? `Archive ${archiveTarget.description || archiveTarget.counterparty_name}? It will be hidden from the main debts view until restored.` : ""}
+        confirmText="Archive"
+        cancelText="Cancel"
+        onConfirm={confirmArchive}
+        isConfirming={archiveMutation.isPending}
+      />
       <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}

@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone, tzinfo
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.timezone import get_effective_user_timezone, today_in_tz
@@ -15,6 +15,9 @@ from ..services.debt_service import (
     POSTED_DEBT_LEDGER_STATUS,
     create_debt_ledger_entry,
     get_debt_total_charges,
+    get_debt_total_charges_by_debt_ids,
+    get_debt_total_paid,
+    get_debt_total_paid_by_debt_ids,
     reconcile_debt,
     reverse_debt_transaction_ledger,
     reverse_wallet_effect,
@@ -25,7 +28,6 @@ from ..services.debt_policy import (
     evaluate_debt_actions,
     evaluate_ledger_entry_reversal,
     is_pristine_debt,
-    payment_plan_managed_id,
 )
 from ..services.goal_funding_service import sync_debt_goal_targets, validate_wallet_goal_protection_for_outflow
 from ..services.expense_posting_service import post_expense_event
@@ -57,6 +59,46 @@ ACTIVE_PAYABLE_DEBT_STATUSES = (
     models.DebtStatus.DEFAULTED,
     models.DebtStatus.IN_COLLECTION,
 )
+
+
+def _is_debt_archived(debt: models.Debt) -> bool:
+    return getattr(debt, "archived_at", None) is not None or debt.status == models.DebtStatus.ARCHIVED
+
+
+def _debt_lifecycle_status(debt: models.Debt) -> schemas.DebtLifecycleStatus:
+    if int(debt.remaining_amount or 0) <= 0:
+        return schemas.DebtLifecycleStatus.CLOSED
+    return schemas.DebtLifecycleStatus.OPEN
+
+
+def _debt_time_status(
+    debt: models.Debt,
+    *,
+    today: date | None = None,
+) -> schemas.DebtTimeStatus | None:
+    if _debt_lifecycle_status(debt) == schemas.DebtLifecycleStatus.CLOSED:
+        return None
+    due_date = getattr(debt, "expected_return_date", None)
+    if due_date is not None and due_date < (today or date.today()):
+        return schemas.DebtTimeStatus.OVERDUE
+    return schemas.DebtTimeStatus.ON_TRACK
+
+
+def _matches_debt_lifecycle_filter(debt: models.Debt, lifecycle_status: schemas.DebtLifecycleStatus | None) -> bool:
+    if lifecycle_status is None:
+        return True
+    return _debt_lifecycle_status(debt) == lifecycle_status
+
+
+def _matches_debt_time_filter(
+    debt: models.Debt,
+    time_status: schemas.DebtTimeStatus | None,
+    *,
+    today: date,
+) -> bool:
+    if time_status is None:
+        return True
+    return _debt_time_status(debt, today=today) == time_status
 
 
 def enforce_debts_write_rate_limit(user_id: int) -> dict[str, str]:
@@ -233,15 +275,42 @@ def _update_event_amounts(
 def _build_debt_out(
     debt: models.Debt,
     total_charges: int = 0,
+    total_paid: int = 0,
+    remaining_principal_amount: int = 0,
+    remaining_charge_amount: int = 0,
     has_archived_transactions: bool = False,
     today: date | None = None,
 ) -> schemas.DebtOut:
     debt_out = schemas.DebtOut.model_validate(debt)
+    debt_out.lifecycle_status = _debt_lifecycle_status(debt)
+    debt_out.time_status = _debt_time_status(debt, today=today)
+    debt_out.is_archived = _is_debt_archived(debt)
     debt_out.total_charges = int(total_charges)
+    debt_out.total_paid = int(total_paid)
+    debt_out.remaining_principal_amount = int(remaining_principal_amount)
+    debt_out.remaining_charge_amount = int(remaining_charge_amount)
     debt_out.has_archived_transactions = has_archived_transactions
-    debt_out.managed_by_installment_plan_id = payment_plan_managed_id(debt)
     debt_out.workflow_warnings = _debt_workflow_warnings(debt, today=today)
     return debt_out
+
+
+def _build_debt_out_with_ledger_totals(
+    db: Session,
+    debt: models.Debt,
+    *,
+    has_archived_transactions: bool = False,
+    today: date | None = None,
+) -> schemas.DebtOut:
+    principal_balance, charge_balance = _debt_component_balances(db, debt)
+    return _build_debt_out(
+        debt,
+        total_charges=get_debt_total_charges(db, debt.id),
+        total_paid=get_debt_total_paid(db, debt.id),
+        remaining_principal_amount=principal_balance,
+        remaining_charge_amount=charge_balance,
+        has_archived_transactions=has_archived_transactions,
+        today=today,
+    )
 
 
 def _is_wallet_backed_obligation(wallet: models.Wallet) -> bool:
@@ -268,19 +337,24 @@ def _build_wallet_obligation_out(wallet: models.Wallet) -> schemas.DebtOut:
         description="Wallet-backed liability",
         date=wallet.created_at.date() if wallet.created_at is not None else date.today(),
         expected_return_date=None,
-        status=models.DebtStatus.ACTIVE,
+        lifecycle_status=schemas.DebtLifecycleStatus.OPEN,
+        time_status=schemas.DebtTimeStatus.ON_TRACK,
+        archived_at=None,
+        is_archived=False,
         created_at=wallet.created_at or datetime.now(timezone.utc),
         updated_at=wallet.updated_at or wallet.created_at or datetime.now(timezone.utc),
         is_money_transferred=False,
         initial_wallet_id=wallet.id,
         has_archived_transactions=not bool(wallet.is_active),
         total_charges=0,
+        total_paid=0,
+        remaining_principal_amount=amount,
+        remaining_charge_amount=0,
         expense_category=None,
         expense_subcategory_id=None,
         project_id=None,
         project_subcategory_id=None,
         income_source_id=None,
-        managed_by_installment_plan_id=None,
         workflow_warnings=[],
         source_type="WALLET",
         wallet_id=wallet.id,
@@ -292,35 +366,25 @@ def _build_wallet_obligation_out(wallet: models.Wallet) -> schemas.DebtOut:
 
 def _debt_workflow_warnings(debt: models.Debt, *, today: date | None = None) -> list[str]:
     warnings: list[str] = []
-    if payment_plan_managed_id(debt) is not None:
-        warnings.append("debts.warning.managed_by_payment_plan")
-    elif debt.product_kind in FORMAL_SCHEDULE_PRODUCT_KINDS:
+    if _is_debt_archived(debt):
+        return warnings
+
+    if debt.product_kind in FORMAL_SCHEDULE_PRODUCT_KINDS:
         warnings.append("debts.warning.formal_scheduled_debt_consider_payment_plan")
     if (
         debt.debt_type == models.DebtType.OWING
-        and debt.status in ACTIVE_PAYABLE_DEBT_STATUSES
-        and int(debt.remaining_amount or 0) > 0
+        and _debt_lifecycle_status(debt) == schemas.DebtLifecycleStatus.OPEN
     ):
         effective_today = today or date.today()
         if debt.expected_return_date is None:
-            if debt.status == models.DebtStatus.ACTIVE:
-                warnings.append("debts.suggestion.open_ended_paydown")
-        elif (
-            debt.expected_return_date < effective_today
-            or debt.status
-            in (
-                models.DebtStatus.OVERDUE,
-                models.DebtStatus.DEFAULTED,
-                models.DebtStatus.IN_COLLECTION,
-            )
-        ):
+            warnings.append("debts.suggestion.open_ended_paydown")
+        elif debt.expected_return_date < effective_today:
             warnings.append("debts.warning.payable_overdue_hard")
         else:
             warnings.append("debts.warning.payable_due_hard")
     if (
         debt.debt_type == models.DebtType.OWED
-        and debt.status == models.DebtStatus.ACTIVE
-        and int(debt.remaining_amount or 0) > 0
+        and _debt_lifecycle_status(debt) == schemas.DebtLifecycleStatus.OPEN
     ):
         warnings.append("debts.warning.receivable_expected_payment_requires_explicit_plan")
     return warnings
@@ -342,7 +406,7 @@ def _validate_debt_planning_links(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="debts.validation.expense_category.required",
             )
-        if expense_category == models.ExpenseCategory.INSTALLMENTS_DEBT:
+        if expense_category == models.ExpenseCategory.PAYMENT_PLANS_DEBT:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="debts.validation.real_expense_category_required",
@@ -425,16 +489,10 @@ def _build_action_decision_out(decision) -> schemas.DebtActionDecisionOut:
 def _build_action_decisions_out(
     db: Session,
     debt: models.Debt,
-    *,
-    allow_payment_plan_managed: bool = False,
 ) -> list[schemas.DebtActionDecisionOut]:
     return [
         _build_action_decision_out(decision)
-        for decision in evaluate_debt_actions(
-            db,
-            debt,
-            allow_payment_plan_managed=allow_payment_plan_managed,
-        ).values()
+        for decision in evaluate_debt_actions(db, debt).values()
     ]
 
 
@@ -478,21 +536,120 @@ def _posted_charge_balance(db: Session, debt_id: int) -> int:
     )
 
 
+def _posted_principal_balance(db: Session, debt_id: int) -> int:
+    return max(
+        0,
+        int(
+            db.query(func.coalesce(func.sum(models.DebtLedgerEntry.principal_delta), 0))
+            .filter(
+                models.DebtLedgerEntry.debt_id == debt_id,
+                models.DebtLedgerEntry.status == POSTED_DEBT_LEDGER_STATUS,
+            )
+            .scalar()
+            or 0
+        ),
+    )
+
+
+def _debt_component_balances(db: Session, debt: models.Debt) -> tuple[int, int]:
+    charge_balance = _posted_charge_balance(db, debt.id)
+    principal_balance = _posted_principal_balance(db, debt.id)
+    remaining = int(debt.remaining_amount or 0)
+    component_total = principal_balance + charge_balance
+    if component_total != remaining:
+        principal_balance = max(0, remaining - charge_balance)
+    return principal_balance, charge_balance
+
+
 def _split_amount_between_charges_and_principal(
     db: Session,
     debt: models.Debt,
     amount: int,
 ) -> tuple[int, int]:
-    charge_balance = _posted_charge_balance(db, debt.id)
-    principal_balance = max(0, int(debt.remaining_amount or 0) - int(charge_balance))
+    principal_balance, charge_balance = _debt_component_balances(db, debt)
     principal_amount = min(int(amount), int(principal_balance))
     charge_amount = int(amount) - principal_amount
     return principal_amount, charge_amount
 
 
+def _forgiveness_component_amounts(
+    db: Session,
+    debt: models.Debt,
+    amount: int,
+    component: schemas.DebtForgivenessComponent | None,
+) -> tuple[int, int, str]:
+    principal_balance, charge_balance = _debt_component_balances(db, debt)
+    remaining = int(debt.remaining_amount or 0)
+    if component is None:
+        if int(amount) != remaining:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="debts.forgiveness.component_required",
+            )
+        component = schemas.DebtForgivenessComponent.TOTAL
+
+    if component == schemas.DebtForgivenessComponent.PRINCIPAL:
+        if int(amount) > principal_balance:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.forgiveness.amount_too_high")
+        return int(amount), 0, "PRINCIPAL_FORGIVE"
+    if component == schemas.DebtForgivenessComponent.CHARGES:
+        if int(amount) > charge_balance:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.forgiveness.amount_too_high")
+        return 0, int(amount), "CHARGE_WAIVER"
+
+    if int(amount) != remaining:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="debts.forgiveness.total_requires_full_remaining",
+        )
+    return principal_balance, charge_balance, "FULL_FORGIVE"
+
+
+def _balance_correction_deltas(
+    db: Session,
+    debt: models.Debt,
+    payload: schemas.DebtBalanceAdjustmentCreate,
+) -> tuple[int, int, int, str, dict]:
+    principal_balance, charge_balance = _debt_component_balances(db, debt)
+    remaining = int(debt.remaining_amount or 0)
+    component = payload.component
+
+    if component == schemas.DebtBalanceCorrectionComponent.PRINCIPAL:
+        if payload.confirmed_principal_balance is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.adjustment.principal_required")
+        principal_delta = int(payload.confirmed_principal_balance) - principal_balance
+        return principal_delta, principal_delta, 0, "PRINCIPAL_CORRECTION", {
+            "component": component.value,
+            "before_principal": principal_balance,
+            "after_principal": int(payload.confirmed_principal_balance),
+        }
+
+    if component == schemas.DebtBalanceCorrectionComponent.CHARGES:
+        if payload.confirmed_charge_balance is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.adjustment.charges_required")
+        charge_delta = int(payload.confirmed_charge_balance) - charge_balance
+        return charge_delta, 0, charge_delta, "CHARGE_CORRECTION", {
+            "component": component.value,
+            "before_charges": charge_balance,
+            "after_charges": int(payload.confirmed_charge_balance),
+        }
+
+    if payload.confirmed_balance is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.adjustment.confirmed_balance_required")
+    delta = int(payload.confirmed_balance) - remaining
+    return delta, delta, 0, "TOTAL_BALANCE_CORRECTION", {
+        "component": component.value,
+        "allocation_strategy": "TOTAL_DIFFERENCE_ALLOCATED_TO_PRINCIPAL",
+        "before_total": remaining,
+        "after_total": int(payload.confirmed_balance),
+        "before_principal": principal_balance,
+        "before_charges": charge_balance,
+    }
+
+
 def _activity_title(entry: models.DebtLedgerEntry) -> str:
-    if entry.event_subtype == "INSTALLMENT_WRITE_OFF":
-        return "Installment written off"
+    if entry.event_subtype == "PAYMENT_PLAN_WRITE_OFF":
+        return "Payment plan payment written off"
     if entry.entry_type == models.DebtLedgerEntryType.INITIAL:
         return "Debt created"
     if entry.entry_type == models.DebtLedgerEntryType.PAYMENT:
@@ -1111,8 +1268,8 @@ def _create_financial_event_reversal(
                 budget_id=entity_leg.budget_id,
                 debt_id=entity_leg.debt_id,
                 income_source_id=entity_leg.income_source_id,
-                installment_plan_id=entity_leg.installment_plan_id,
-                installment_payment_id=entity_leg.installment_payment_id,
+                payment_plan_id=entity_leg.payment_plan_id,
+                payment_plan_payment_id=entity_leg.payment_plan_payment_id,
             )
         )
 
@@ -1134,7 +1291,9 @@ def get_debt_summary(
         .filter(
             models.Debt.owner_id == current_user.id,
             models.Debt.debt_type == models.DebtType.OWING,
-            models.Debt.status == models.DebtStatus.ACTIVE,
+            models.Debt.remaining_amount > 0,
+            models.Debt.archived_at.is_(None),
+            models.Debt.status != models.DebtStatus.ARCHIVED,
         )
         .scalar()
     ) or 0
@@ -1144,7 +1303,9 @@ def get_debt_summary(
         .filter(
             models.Debt.owner_id == current_user.id,
             models.Debt.debt_type == models.DebtType.OWED,
-            models.Debt.status == models.DebtStatus.ACTIVE,
+            models.Debt.remaining_amount > 0,
+            models.Debt.archived_at.is_(None),
+            models.Debt.status != models.DebtStatus.ARCHIVED,
         )
         .scalar()
     ) or 0
@@ -1258,13 +1419,16 @@ def create_debt(
 
     db.commit()
     db.refresh(debt)
-    return _build_debt_out(debt, today=today_in_tz(user_tz))
+    return _build_debt_out_with_ledger_totals(db, debt, today=today_in_tz(user_tz))
 
 
 @router.get("", response_model=schemas.DebtListOut)
 def list_debts(
     debt_type: Optional[models.DebtType] = None,
-    status: Optional[models.DebtStatus] = None,
+    lifecycle_status: Optional[schemas.DebtLifecycleStatus] = None,
+    time_status: Optional[schemas.DebtTimeStatus] = None,
+    include_archived: bool = False,
+    archived: Optional[bool] = None,
     search: Optional[str] = None,
     limit: int = 50,
     skip: int = 0,
@@ -1276,12 +1440,21 @@ def list_debts(
 
     if debt_type:
         query = query.filter(models.Debt.debt_type == debt_type)
-    if status:
-        query = query.filter(models.Debt.status == status)
+    if archived is True:
+        query = query.filter(or_(models.Debt.archived_at.is_not(None), models.Debt.status == models.DebtStatus.ARCHIVED))
+    elif archived is False or not include_archived:
+        query = query.filter(models.Debt.archived_at.is_(None), models.Debt.status != models.DebtStatus.ARCHIVED)
     if search:
         query = query.filter(models.Debt.counterparty_name.ilike(f"%{search}%"))
 
+    today = today_in_tz(user_tz)
     formal_items = query.order_by(models.Debt.id.desc()).all()
+    formal_items = [
+        debt
+        for debt in formal_items
+        if _matches_debt_lifecycle_filter(debt, lifecycle_status)
+        and _matches_debt_time_filter(debt, time_status, today=today)
+    ]
 
     user_wallets = {
         wallet.id: wallet
@@ -1289,19 +1462,8 @@ def list_debts(
     }
     debt_ids = [debt.id for debt in formal_items]
 
-    charges = []
-    if debt_ids:
-        charges = (
-            db.query(models.DebtLedgerEntry.debt_id, func.coalesce(func.sum(models.DebtLedgerEntry.charge_delta), 0))
-            .filter(
-                models.DebtLedgerEntry.debt_id.in_(debt_ids),
-                models.DebtLedgerEntry.status == "POSTED",
-                models.DebtLedgerEntry.charge_delta > 0,
-            )
-            .group_by(models.DebtLedgerEntry.debt_id)
-            .all()
-        )
-    charges_by_debt = {debt_id: int(total_amount) for debt_id, total_amount in charges}
+    charges_by_debt = get_debt_total_charges_by_debt_ids(db, debt_ids)
+    paid_by_debt = get_debt_total_paid_by_debt_ids(db, debt_ids)
 
     debt_transactions = []
     if debt_ids:
@@ -1315,7 +1477,6 @@ def list_debts(
         txns_by_debt[transaction.debt_id].append(transaction)
 
     result_items = []
-    today = today_in_tz(user_tz)
     for debt in formal_items:
         has_archived = False
         if debt.initial_wallet_id:
@@ -1330,10 +1491,14 @@ def list_debts(
                     has_archived = True
                     break
 
+        principal_balance, charge_balance = _debt_component_balances(db, debt)
         result_items.append(
             _build_debt_out(
                 debt,
                 total_charges=charges_by_debt.get(debt.id, 0),
+                total_paid=paid_by_debt.get(debt.id, 0),
+                remaining_principal_amount=principal_balance,
+                remaining_charge_amount=charge_balance,
                 has_archived_transactions=has_archived,
                 today=today,
             )
@@ -1341,7 +1506,10 @@ def list_debts(
 
     include_wallet_obligations = (
         (debt_type is None or debt_type == models.DebtType.OWING)
-        and (status is None or status == models.DebtStatus.ACTIVE)
+        and archived is not True
+        and not include_archived
+        and (lifecycle_status is None or lifecycle_status == schemas.DebtLifecycleStatus.OPEN)
+        and time_status is None
     )
     if include_wallet_obligations:
         for wallet in user_wallets.values():
@@ -1441,10 +1609,8 @@ def get_debt(
         .order_by(models.DebtLedgerEntry.entry_date.desc(), models.DebtLedgerEntry.id.desc())
         .all()
     )
-    total_charges = get_debt_total_charges(db, debt.id)
-
     debt_out = schemas.DebtWithTransactionsOut(
-        **_build_debt_out(debt, total_charges=total_charges, today=today_in_tz(user_tz)).model_dump(),
+        **_build_debt_out_with_ledger_totals(db, debt, today=today_in_tz(user_tz)).model_dump(),
         transactions=[_build_debt_transaction_out(transaction) for transaction in transactions],
         charges=[schemas.DebtChargeOut.model_validate(charge) for charge in charges],
         ledger_entries=[schemas.DebtLedgerEntryOut.model_validate(entry) for entry in ledger_entries],
@@ -1462,6 +1628,66 @@ def get_debt_actions(
     return _build_action_decisions_out(db, debt)
 
 
+@router.post("/{debt_id}/archive", response_model=schemas.DebtOut)
+def archive_debt(
+    debt_id: int,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
+):
+    _apply_rate_limit_headers(response, enforce_debts_write_rate_limit(current_user.id))
+    debt = _get_owned_debt_or_404(db, current_user.id, debt_id)
+    _raise_policy_denied(evaluate_debt_action(db, debt, models.DebtActionKind.ARCHIVE))
+
+    if not _is_debt_archived(debt):
+        debt.archived_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(debt)
+    return _build_debt_out_with_ledger_totals(db, debt, today=today_in_tz(user_tz))
+
+
+def _restore_debt_from_archive(
+    debt_id: int,
+    response: Response,
+    db: Session,
+    current_user: models.User,
+    user_tz: tzinfo,
+) -> schemas.DebtOut:
+    _apply_rate_limit_headers(response, enforce_debts_write_rate_limit(current_user.id))
+    debt = _get_owned_debt_or_404(db, current_user.id, debt_id)
+    _raise_policy_denied(evaluate_debt_action(db, debt, models.DebtActionKind.RESTORE))
+
+    debt.archived_at = None
+    if debt.status == models.DebtStatus.ARCHIVED:
+        debt.status = models.DebtStatus.PAID if int(debt.remaining_amount or 0) <= 0 else models.DebtStatus.ACTIVE
+    db.commit()
+    db.refresh(debt)
+    return _build_debt_out_with_ledger_totals(db, debt, today=today_in_tz(user_tz))
+
+
+@router.post("/{debt_id}/restore", response_model=schemas.DebtOut)
+def restore_debt(
+    debt_id: int,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
+):
+    return _restore_debt_from_archive(debt_id, response, db, current_user, user_tz)
+
+
+@router.post("/{debt_id}/unarchive", response_model=schemas.DebtOut)
+def unarchive_debt(
+    debt_id: int,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
+):
+    return _restore_debt_from_archive(debt_id, response, db, current_user, user_tz)
+
+
 @router.get("/{debt_id}/details", response_model=schemas.DebtDetailsOut)
 def get_debt_details(
     debt_id: int,
@@ -1473,7 +1699,6 @@ def get_debt_details(
         db.query(models.Debt)
         .options(
             joinedload(models.Debt.formal_details),
-            joinedload(models.Debt.installment_plan).joinedload(models.InstallmentPlan.payments),
         )
         .filter(models.Debt.id == debt_id, models.Debt.owner_id == current_user.id)
         .first()
@@ -1514,19 +1739,10 @@ def get_debt_details(
     )
 
     return schemas.DebtDetailsOut(
-        debt=_build_debt_out(
-            debt,
-            total_charges=get_debt_total_charges(db, debt.id),
-            today=today_in_tz(user_tz),
-        ),
+        debt=_build_debt_out_with_ledger_totals(db, debt, today=today_in_tz(user_tz)),
         formal_details=(
             schemas.DebtFormalDetailsOut.model_validate(debt.formal_details)
             if debt.formal_details
-            else None
-        ),
-        installment_plan=(
-            schemas.InstallmentPlanWithPaymentsOut.model_validate(debt.installment_plan)
-            if debt.installment_plan
             else None
         ),
         actions=_build_action_decisions_out(db, debt),
@@ -1544,19 +1760,23 @@ def update_debt(
     response: Response,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
 ):
     _apply_rate_limit_headers(response, enforce_debts_write_rate_limit(current_user.id))
     debt = _get_owned_debt_or_404(db, current_user.id, debt_id)
 
-    if debt.status == models.DebtStatus.ARCHIVED:
+    if _is_debt_archived(debt):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.update.archived_immutable")
-    if payment_plan_managed_id(debt) is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.policy.managed_by_payment_plan")
 
     update_data = payload.model_dump(exclude_unset=True)
     next_date = update_data.get("date", debt.date)
     next_expected_return_date = update_data.get("expected_return_date", debt.expected_return_date)
-    if next_expected_return_date is not None and next_date is not None and next_expected_return_date < next_date:
+    if next_expected_return_date is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="debts.validation.expected_date_required",
+        )
+    if next_date is not None and next_expected_return_date < next_date:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="debts.validation.expected_date_before_date",
@@ -1567,7 +1787,7 @@ def update_debt(
 
     if "initial_amount" in update_data:
         new_amount = update_data.pop("initial_amount")
-        if debt.status != models.DebtStatus.ACTIVE:
+        if _debt_lifecycle_status(debt) != schemas.DebtLifecycleStatus.OPEN:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.edit_amount.not_active")
         if not is_pristine_debt(db, debt):
             raise HTTPException(
@@ -1681,7 +1901,7 @@ def update_debt(
     sync_debt_goal_targets(db, current_user.id, debt.id)
     db.commit()
     db.refresh(debt)
-    return _build_debt_out(debt, total_charges=get_debt_total_charges(db, debt.id))
+    return _build_debt_out_with_ledger_totals(db, debt, today=today_in_tz(user_tz))
 
 
 @router.delete("/{debt_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1694,10 +1914,8 @@ def delete_debt(
     _apply_rate_limit_headers(response, enforce_debts_write_rate_limit(current_user.id))
     debt = _get_owned_debt_or_404(db, current_user.id, debt_id)
 
-    if debt.status == models.DebtStatus.ARCHIVED:
+    if _is_debt_archived(debt):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.delete.archived_immutable")
-    if payment_plan_managed_id(debt) is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.policy.managed_by_payment_plan")
     if not is_pristine_debt(db, debt):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.delete.pristine_required")
 
@@ -1729,7 +1947,7 @@ def create_transaction(
     _apply_rate_limit_headers(response, enforce_debts_write_rate_limit(current_user.id))
     debt = _get_owned_debt_or_404(db, current_user.id, payload.debt_id)
 
-    if debt.status != models.DebtStatus.ACTIVE:
+    if _is_debt_archived(debt) or _debt_lifecycle_status(debt) != schemas.DebtLifecycleStatus.OPEN:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.transaction.not_active")
     _raise_policy_denied(evaluate_debt_action(db, debt, models.DebtActionKind.RECORD_PAYMENT))
     if debt.remaining_amount < payload.amount:
@@ -1781,9 +1999,7 @@ def delete_transaction(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="debts.transaction.not_found")
 
     debt = _get_owned_debt_or_404(db, current_user.id, transaction.debt_id)
-    if payment_plan_managed_id(debt) is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.policy.managed_by_payment_plan")
-    if debt.status in (models.DebtStatus.ARCHIVED, models.DebtStatus.FORGIVEN):
+    if _is_debt_archived(debt) or debt.status == models.DebtStatus.FORGIVEN:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.transaction.debt_archived")
     if transaction.wallet and not transaction.wallet.is_active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.transaction.wallet_archived")
@@ -1907,10 +2123,11 @@ def forgive_debt(
     _raise_policy_denied(evaluate_debt_action(db, debt, models.DebtActionKind.FORGIVE_FULL))
 
     if int(debt.remaining_amount or 0) > 0:
-        principal_amount, charge_amount = _split_amount_between_charges_and_principal(
+        principal_amount, charge_amount, event_subtype = _forgiveness_component_amounts(
             db,
             debt,
             int(debt.remaining_amount),
+            schemas.DebtForgivenessComponent.TOTAL,
         )
         create_debt_ledger_entry(
             db,
@@ -1920,7 +2137,7 @@ def forgive_debt(
             amount_delta=-int(debt.remaining_amount),
             principal_delta=-int(principal_amount),
             charge_delta=-int(charge_amount),
-            event_subtype="PERSONAL_FORGIVE",
+            event_subtype=event_subtype,
             entry_date=today_in_tz(user_tz),
             note="Debt forgiven",
         )
@@ -1929,7 +2146,7 @@ def forgive_debt(
     debt.status = models.DebtStatus.FORGIVEN
     db.commit()
     db.refresh(debt)
-    return _build_debt_out(debt, total_charges=get_debt_total_charges(db, debt.id))
+    return _build_debt_out_with_ledger_totals(db, debt, today=today_in_tz(user_tz))
 
 
 @router.post("/{debt_id}/forgiveness", response_model=schemas.DebtOut)
@@ -1957,7 +2174,12 @@ def forgive_debt_amount(
     )
     _raise_policy_denied(evaluate_debt_action(db, debt, action_kind))
 
-    principal_amount, charge_amount = _split_amount_between_charges_and_principal(db, debt, forgiveness_amount)
+    principal_amount, charge_amount, event_subtype = _forgiveness_component_amounts(
+        db,
+        debt,
+        forgiveness_amount,
+        payload.component,
+    )
     create_debt_ledger_entry(
         db,
         owner_id=current_user.id,
@@ -1966,9 +2188,14 @@ def forgive_debt_amount(
         amount_delta=-forgiveness_amount,
         principal_delta=-int(principal_amount),
         charge_delta=-int(charge_amount),
-        event_subtype="PERSONAL_FORGIVE",
+        event_subtype=event_subtype,
         entry_date=payload.date or today_in_tz(user_tz),
         note=payload.note or "Debt forgiveness",
+        extra_data={
+            "component": (payload.component or schemas.DebtForgivenessComponent.TOTAL).value,
+            "principal_amount": int(principal_amount),
+            "charge_amount": int(charge_amount),
+        },
     )
     _reconcile_debt_preserving_lifecycle(db, debt)
     sync_debt_goal_targets(db, current_user.id, debt.id)
@@ -1976,66 +2203,7 @@ def forgive_debt_amount(
         debt.status = models.DebtStatus.FORGIVEN
     db.commit()
     db.refresh(debt)
-    return _build_debt_out(debt, total_charges=get_debt_total_charges(db, debt.id))
-
-
-@router.post("/{debt_id}/settlements", response_model=schemas.DebtOut)
-def settle_debt(
-    debt_id: int,
-    payload: schemas.DebtSettlementCreate,
-    response: Response,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(oauth2.get_current_user),
-    user_tz: tzinfo = Depends(get_effective_user_timezone),
-):
-    _apply_rate_limit_headers(response, enforce_debts_write_rate_limit(current_user.id))
-    debt = _get_owned_debt_or_404(db, current_user.id, debt_id)
-    _raise_policy_denied(evaluate_debt_action(db, debt, models.DebtActionKind.SETTLE))
-
-    remaining = int(debt.remaining_amount or 0)
-    payment_amount = int(payload.payment_amount)
-    settlement_discount = (
-        int(payload.settlement_discount)
-        if payload.settlement_discount is not None
-        else remaining - payment_amount
-    )
-    if payment_amount < 0 or settlement_discount < 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.settlement.invalid_amount")
-    if payment_amount + settlement_discount != remaining:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.settlement.total_mismatch")
-
-    settlement_date = payload.date or today_in_tz(user_tz)
-    if payment_amount > 0:
-        create_debt_payment_service(
-            db,
-            debt,
-            amount=payment_amount,
-            transaction_date=settlement_date,
-            wallet_allocations=payload.wallet_allocations,
-            note=payload.note or "Debt settlement payment",
-        )
-
-    if settlement_discount > 0:
-        principal_amount, charge_amount = _split_amount_between_charges_and_principal(db, debt, settlement_discount)
-        create_debt_ledger_entry(
-            db,
-            owner_id=current_user.id,
-            debt_id=debt.id,
-            entry_type=models.DebtLedgerEntryType.FORGIVENESS,
-            amount_delta=-settlement_discount,
-            principal_delta=-int(principal_amount),
-            charge_delta=-int(charge_amount),
-            event_subtype="SETTLEMENT_DISCOUNT",
-            entry_date=settlement_date,
-            note=payload.note or "Debt settled for less than remaining balance",
-        )
-
-    reconcile_debt(db, debt.id)
-    sync_debt_goal_targets(db, current_user.id, debt.id)
-    debt.status = models.DebtStatus.SETTLED
-    db.commit()
-    db.refresh(debt)
-    return _build_debt_out(debt, total_charges=get_debt_total_charges(db, debt.id))
+    return _build_debt_out_with_ledger_totals(db, debt, today=today_in_tz(user_tz))
 
 
 @router.post("/{debt_id}/balance-adjustments", response_model=schemas.DebtOut)
@@ -2051,8 +2219,7 @@ def adjust_debt_balance(
     debt = _get_owned_debt_or_404(db, current_user.id, debt_id)
     _raise_policy_denied(evaluate_debt_action(db, debt, models.DebtActionKind.ADJUST_BALANCE))
 
-    confirmed_balance = int(payload.confirmed_balance)
-    delta = confirmed_balance - int(debt.remaining_amount or 0)
+    delta, principal_delta, charge_delta, event_subtype, extra_data = _balance_correction_deltas(db, debt, payload)
     if delta != 0:
         create_debt_ledger_entry(
             db,
@@ -2060,16 +2227,18 @@ def adjust_debt_balance(
             debt_id=debt.id,
             entry_type=models.DebtLedgerEntryType.ADJUSTMENT,
             amount_delta=delta,
-            principal_delta=delta,
-            event_subtype="BALANCE_CORRECTION",
+            principal_delta=principal_delta,
+            charge_delta=charge_delta,
+            event_subtype=event_subtype,
             entry_date=payload.date or today_in_tz(user_tz),
             note=payload.note or "Debt balance corrected",
+            extra_data=extra_data,
         )
     _reconcile_debt_preserving_lifecycle(db, debt)
     sync_debt_goal_targets(db, current_user.id, debt.id)
     db.commit()
     db.refresh(debt)
-    return _build_debt_out(debt, total_charges=get_debt_total_charges(db, debt.id))
+    return _build_debt_out_with_ledger_totals(db, debt, today=today_in_tz(user_tz))
 
 
 @router.post("/{debt_id}/ledger/{entry_id}/reverse", response_model=schemas.DebtOut)
@@ -2135,7 +2304,7 @@ def reverse_debt_ledger_entry(
     sync_debt_goal_targets(db, current_user.id, debt.id)
     db.commit()
     db.refresh(debt)
-    return _build_debt_out(debt, total_charges=get_debt_total_charges(db, debt.id))
+    return _build_debt_out_with_ledger_totals(db, debt, today=today_in_tz(user_tz))
 
 
 @router.patch("/{debt_id}/formal-details", response_model=schemas.DebtFormalDetailsOut)
@@ -2148,7 +2317,7 @@ def update_debt_formal_details(
 ):
     _apply_rate_limit_headers(response, enforce_debts_write_rate_limit(current_user.id))
     debt = _get_owned_debt_or_404(db, current_user.id, debt_id)
-    if debt.status == models.DebtStatus.ARCHIVED:
+    if _is_debt_archived(debt):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.formal_details.archived_immutable")
 
     update_data = payload.model_dump(exclude_unset=True)

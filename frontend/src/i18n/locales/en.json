@@ -1,5 +1,8 @@
 {
   "appName": "Sarflog",
+  "validation": {
+    "date_too_early": "Date cannot be before 2020-01-01"
+  },
   "common": {
     "back": "Back",
     "cancel": "Cancel",
@@ -1017,7 +1020,7 @@
     "Clothing": "Apparel, footwear, and accessories",
     "Family & Events": "Gifts, ceremonies, charity, and supporting relatives",
     "Entertainment": "Cinema, hobbies, travel, and leisure activities",
-    "Installments & Debt": "Loan repayments, installments, and credit card debt",
+    "Installments & Debt": "Loan repayments, payment plans, and credit card debt",
     "Business / Work": "Client meetings, office supplies, software tools, and work travel",
     "Debt Charges": "Interest, penalties, markup, and other extra debt costs"
   },
@@ -1154,7 +1157,7 @@
     "amountUzs": "Amount (UZS)",
     "tabs": {
       "debts": "Debts",
-      "installments": "Payment Plans"
+      "payment_plans": "Payment Plans"
     },
     "totalIOwe": "I Owe",
     "iOwe": "I Owe",
@@ -1226,8 +1229,8 @@
     "interest": "Interest %",
     "totalAmount": "Total Amount",
     "totalAmountPlaceholder": "Total to pay",
-    "installmentPlan": "Installment Plan",
-    "installmentCount": "Number of Payments",
+    "paymentPlan": "Payment Plan",
+    "payment_planCount": "Number of Payments",
     "frequency": "Frequency",
     "descriptionField": "Description",
     "descriptionPlaceholder": "Add notes (optional)",
@@ -1246,7 +1249,9 @@
       },
       "date": {
         "required": "Date is required"
-      }
+      },
+      "expected_date_required": "Due date is required",
+      "expected_date_before_date": "Due date cannot be before the debt date"
     },
     "delete": {
       "title": "Delete Debt",
@@ -1271,9 +1276,9 @@
       "failedToRecordPayment": "Failed to record payment",
       "paymentUpdated": "Payment updated",
       "failedToUpdatePayment": "Failed to update payment",
-      "installmentsGenerated": "Installments generated",
-      "installmentsGenerated_detail": "{{count}} installments created",
-      "failedToGenerateInstallments": "Failed to generate installments",
+      "paymentPlansGenerated": "Payment plans generated",
+      "paymentPlansGenerated_detail": "{{count}} payment plans created",
+      "failedToGeneratePaymentPlans": "Failed to generate payment plans",
       "transactionDeleted": "Payment deleted",
       "failedToDeleteTransaction": "Failed to delete payment"
     }

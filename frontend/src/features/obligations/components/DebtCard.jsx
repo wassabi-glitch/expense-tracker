@@ -10,7 +10,7 @@ import { ActionMenu, ActionMenuItem, ActionMenuDivider } from "@/components/Acti
 import { cn } from "@/lib/utils";
 import { formatDisplayDate, formatAmountInput, formatUzs } from "@/lib/format";
 import { toISODateInTimeZone } from "@/lib/date";
-import { useRecordDebtPaymentMutation, useAddChargeMutation, useForgiveDebtMutation, useUpdateDebtMutation } from "../hooks/useDebtsMutations";
+import { useArchiveDebtMutation, useRecordDebtPaymentMutation, useAddChargeMutation, useForgiveDebtMutation, useRestoreDebtMutation } from "../hooks/useDebtsMutations";
 import { EditDebtModal } from "./EditDebtModal";
 import { DebtHistoryModal } from "./DebtHistoryModal";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -61,7 +61,8 @@ export function DebtCard({ debt, onDelete }) {
   const recordPaymentMutation = useRecordDebtPaymentMutation();
   const addChargeMutation = useAddChargeMutation();
   const forgiveMutation = useForgiveDebtMutation();
-  const updateMutation = useUpdateDebtMutation();
+  const archiveMutation = useArchiveDebtMutation();
+  const restoreMutation = useRestoreDebtMutation();
 
   const isDeleteDisabled = debt.has_archived_transactions === true;
 
@@ -70,24 +71,23 @@ export function DebtCard({ debt, onDelete }) {
     : undefined;
 
   // ── Status flags ──
-  const isActive = debt.status === "ACTIVE";
-  const isPaid = debt.status === "PAID";
-  const isForgiven = debt.status === "FORGIVEN";
-  const isArchived = debt.status === "ARCHIVED";
+  const isArchived = debt.is_archived === true;
+  const isClosed = debt.lifecycle_status === "CLOSED" || Number(debt.remaining_amount || 0) <= 0;
+  const isActive = !isArchived && !isClosed;
+  const isPaid = isClosed;
   const isIOwe = debt.debt_type === "OWING";
-  const isReadOnly = isArchived;
-  const isMuted = isForgiven || isArchived;
+  const isMuted = isClosed || isArchived;
 
   const accentColor = isIOwe ? "text-destructive" : "text-emerald-500";
   const bgAccentColor = isIOwe ? "bg-destructive" : "bg-emerald-500";
   const IconComponent = isIOwe ? MoveUpRight : MoveDownRight;
 
   const totalObligation = (debt.initial_amount || 0) + (debt.total_charges || 0);
-  const paidAmount = totalObligation - (debt.remaining_amount || 0);
+  const paidAmount = debt.total_paid || 0;
   const progress = Math.min(100, Math.max(0, (paidAmount / (totalObligation || 1)) * 100));
 
   const dueDate = debt.expected_return_date || null;
-  const isOverdue = dueDate && new Date(dueDate) < new Date() && debt.status !== "PAID";
+  const isOverdue = debt.time_status === "OVERDUE";
 
   // ── Handlers ──
   const handleSavePayment = async () => {
@@ -136,14 +136,14 @@ export function DebtCard({ debt, onDelete }) {
 
   const handleArchive = async () => {
     try {
-      await updateMutation.mutateAsync({ debtId: debt.id, payload: { status: "ARCHIVED" } });
+      await archiveMutation.mutateAsync(debt.id);
       setArchiveOpen(false);
     } catch (e) { /* handled */ }
   };
 
-  const handleReactivate = async () => {
+  const handleRestore = async () => {
     try {
-      await updateMutation.mutateAsync({ debtId: debt.id, payload: { status: "ACTIVE" } });
+      await restoreMutation.mutateAsync(debt.id);
     } catch (e) { /* handled */ }
   };
 
@@ -203,8 +203,8 @@ export function DebtCard({ debt, onDelete }) {
               {debt.expected_return_date && (
                 <div className="flex items-center gap-3 text-[10px] sm:text-xs font-medium text-muted-foreground/70 tracking-widest uppercase">
                   <span className="w-16 sm:w-20 shrink-0">{t("debts.card.due")}</span>
-                  <span className={cn("flex items-center gap-1 font-semibold whitespace-nowrap", isOverdue && debt.status !== "PAID" ? "text-destructive" : "text-muted-foreground/90")}>
-                    <CalendarClock className={cn("size-3 hidden sm:block", isOverdue && debt.status !== "PAID" && "text-destructive")} />
+                  <span className={cn("flex items-center gap-1 font-semibold whitespace-nowrap", isOverdue ? "text-destructive" : "text-muted-foreground/90")}>
+                    <CalendarClock className={cn("size-3 hidden sm:block", isOverdue && "text-destructive")} />
                     {formatDisplayDate(debt.expected_return_date, appLang)}
                   </span>
                 </div>
@@ -214,7 +214,7 @@ export function DebtCard({ debt, onDelete }) {
         </div>
 
         <div className="order-1 sm:order-2 flex items-center gap-2">
-          <DebtStatusBadge status={debt.status} isOverdue={isOverdue} t={t} />
+          <DebtStatusBadge debt={debt} t={t} />
         </div>
       </div>
 
@@ -228,7 +228,7 @@ export function DebtCard({ debt, onDelete }) {
             currencyClassName="text-sm font-medium opacity-60"
           />
           <span className="text-ui-micro font-medium text-muted-foreground/50 uppercase tracking-tighter">
-            {isForgiven ? t("debts.card.forgiven", { defaultValue: "forgiven" }) : t("debts.card.remaining")}
+            {t("debts.card.remaining")}
           </span>
         </div>
       </div>
@@ -240,14 +240,14 @@ export function DebtCard({ debt, onDelete }) {
         </div>
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted/40 shadow-inner">
           <div
-            className={cn("h-full transition-[width] duration-500 ease-out", isForgiven ? "bg-violet-500" : "bg-emerald-500")}
+            className="h-full bg-emerald-500 transition-[width] duration-500 ease-out"
             style={{ width: `${progress}%` }}
           />
         </div>
       </div>
 
       {/* ── Inline Action Buttons (Record Payment + Charge only) ── */}
-      {!isReadOnly && (
+      {(
         <div className="mt-6 flex flex-wrap items-center justify-between gap-2 sm:gap-3 z-10 relative border-t border-border/50 pt-4">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             {isActive && (
@@ -260,7 +260,7 @@ export function DebtCard({ debt, onDelete }) {
               </Button>
             )}
 
-            {(isActive || isPaid) && (
+            {isActive && (
               <Button
                 variant={isChargeExpanded ? "default" : "outline"}
                 className="h-9 rounded-md font-semibold px-3 text-xs tracking-tight shadow-sm transition-colors"
@@ -271,15 +271,15 @@ export function DebtCard({ debt, onDelete }) {
               </Button>
             )}
 
-            {isForgiven && (
+            {isArchived && (
               <Button
                 variant="outline"
                 className="h-9 rounded-md font-semibold px-4 text-xs tracking-tight shadow-sm"
-                onClick={(e) => { e.stopPropagation(); handleReactivate(); }}
-                disabled={updateMutation.isPending}
+                onClick={(e) => { e.stopPropagation(); handleRestore(); }}
+                disabled={restoreMutation.isPending}
               >
                 <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
-                {t("debts.card.reactivate", { defaultValue: "Reactivate" })}
+                {t("debts.card.restore", { defaultValue: "Restore" })}
               </Button>
             )}
           </div>
@@ -424,7 +424,7 @@ export function DebtCard({ debt, onDelete }) {
       )}
 
       {/* ── Add Charge Panel ── */}
-      {isChargeExpanded && (isActive || isPaid) && (
+      {isChargeExpanded && isActive && (
         <div className="mt-5 space-y-4 rounded-2xl border border-border bg-muted/25 p-4 z-10 relative shadow-sm animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-ui-micro text-muted-foreground/80">
@@ -461,7 +461,7 @@ export function DebtCard({ debt, onDelete }) {
       <ActionMenu isOpen={menuOpen} position={menuPosition} onClose={closeMenu}>
         <ActionMenuItem icon={History} label={t("debts.history.title", { defaultValue: "Payment History" })} onClick={() => { closeMenu(); setIsHistoryOpen(true); }} />
 
-        {(isActive || isPaid) && (
+        {isActive && (
           <>
             <ActionMenuItem icon={Pencil} label={t("common.edit")} onClick={() => { closeMenu(); setIsEditOpen(true); }} />
             <ActionMenuItem icon={HeartHandshake} label={t("debts.card.forgive", { defaultValue: "Forgive Debt" })} onClick={() => { closeMenu(); setForgiveOpen(true); }} />
@@ -470,12 +470,16 @@ export function DebtCard({ debt, onDelete }) {
 
         <ActionMenuDivider />
 
-        <ActionMenuItem icon={Archive} label={t("debts.card.archive", { defaultValue: "Archive" })} onClick={() => { closeMenu(); setArchiveOpen(true); }} />
+        {isArchived ? (
+          <ActionMenuItem icon={RotateCcw} label={t("debts.card.restore", { defaultValue: "Restore" })} onClick={() => { closeMenu(); handleRestore(); }} />
+        ) : (
+          <ActionMenuItem icon={Archive} label={t("debts.card.archive", { defaultValue: "Archive" })} onClick={() => { closeMenu(); setArchiveOpen(true); }} />
+        )}
         <ActionMenuItem
           icon={Trash2}
           label={t("common.delete")}
           variant="destructive"
-          disabled={isDeleteDisabled}
+          disabled={isDeleteDisabled || isArchived}
           disabledReason={deleteDisabledReason}
           onClick={() => { closeMenu(); onDelete && onDelete(debt); }}
         />
@@ -506,32 +510,30 @@ export function DebtCard({ debt, onDelete }) {
         title={t("debts.archive.title", { defaultValue: "Archive Debt" })}
         description={t("debts.archive.description", {
           name: debt.counterparty_name,
-          defaultValue: `Archive this debt? It will be hidden from your main view and cannot be restored.`
+          defaultValue: `Archive this debt? It will be hidden from your main view until restored.`
         })}
         onConfirm={handleArchive}
         confirmText={t("debts.archive.confirm", { defaultValue: "Archive" })}
         cancelText={t("common.cancel")}
-        isConfirming={updateMutation.isPending}
+        isConfirming={archiveMutation.isPending}
       />
     </div>
   );
 }
 
-function DebtStatusBadge({ status, isOverdue, t }) {
+function DebtStatusBadge({ debt, t }) {
   const baseClasses = "inline-flex shrink-0 items-center justify-center rounded-full text-center font-medium leading-[1.3] transition-all duration-200 min-h-6 sm:min-h-7 md:min-h-8 px-2 sm:px-3 py-[3px] md:py-1 text-mobile-caption sm:text-xs md:text-xs whitespace-nowrap min-w-[70px]";
 
-  if (status === "PAID") {
-    return <span className={cn(baseClasses, "border border-emerald-500/35 bg-emerald-500/15 text-emerald-500")}>{t("debts.status.paid", { defaultValue: "Paid" })}</span>;
-  }
-  if (status === "FORGIVEN") {
-    return <span className={cn(baseClasses, "border border-violet-500/35 bg-violet-500/15 text-violet-500")}>{t("debts.status.forgiven", { defaultValue: "Forgiven" })}</span>;
-  }
-  if (status === "ARCHIVED") {
+  if (debt.is_archived === true) {
     return <span className={cn(baseClasses, "border border-muted-foreground/25 bg-muted/30 text-muted-foreground")}>{t("debts.status.archived", { defaultValue: "Archived" })}</span>;
   }
+  if (debt.lifecycle_status === "CLOSED" || Number(debt.remaining_amount || 0) <= 0) {
+    return <span className={cn(baseClasses, "border border-emerald-500/35 bg-emerald-500/15 text-emerald-500")}>{t("debts.status.closed", { defaultValue: "Closed" })}</span>;
+  }
+  const isOverdue = debt.time_status === "OVERDUE";
   return (
     <span className={cn(baseClasses, isOverdue ? "border border-destructive/35 bg-destructive/15 text-destructive dark:text-red-400" : "border border-primary/35 bg-primary/15 text-primary dark:text-primary")}>
-      {isOverdue ? t("debts.card.overdue") : t("debts.status.active")}
+      {isOverdue ? t("debts.card.overdue") : t("debts.status.open", { defaultValue: "Open" })}
     </span>
   );
 }

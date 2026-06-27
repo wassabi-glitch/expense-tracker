@@ -158,7 +158,7 @@ def _get_expected_payment_debt_or_404(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="debts.not_found")
     if debt.debt_type != models.DebtType.OWED:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expected_income.debt_must_be_receivable")
-    if debt.status != models.DebtStatus.ACTIVE or int(debt.remaining_amount or 0) <= 0:
+    if debt.archived_at is not None or int(debt.remaining_amount or 0) <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expected_income.debt_not_active_receivable")
     return debt
 

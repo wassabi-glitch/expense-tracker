@@ -48,6 +48,13 @@ These must never silently break:
 8. Asset tracking is optional unless user chooses it.
 9. Loan received is borrowed inflow, not earned income.
 10. Original currency must never be overwritten by reporting currency.
+11. User-entered financial and planning dates must not be earlier than 2020-01-01 in the user's local calendar.
+
+## Global Date Boundary Decision
+
+Sarflog should use 2020-01-01 as the minimum supported user-entered date across routes and features. The comparison is based on the user's local calendar date, not UTC midnight conversion.
+
+This keeps validation consistent across debts, payment plans, goals, expenses, income, recurring flows, and future planning screens. Explicit import or historical backfill modes may be designed later, but ordinary create/edit flows should reject dates before 2020-01-01 instead of accepting legacy-looking data that can create confusing projections and reports.
 
 ---
 

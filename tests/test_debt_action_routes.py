@@ -38,6 +38,7 @@ def _create_transferred_debt(client, headers, wallet_id, **overrides):
         "initial_amount": 1_000_000,
         "currency": "UZS",
         "date": user_timezone_today().isoformat(),
+        "expected_return_date": user_timezone_today().isoformat(),
         "is_money_transferred": True,
         "initial_wallet_id": wallet_id,
     }
@@ -55,6 +56,7 @@ def _create_receivable_debt(client, headers, **overrides):
         "currency": "UZS",
         "description": "Dinner split",
         "date": user_timezone_today().isoformat(),
+        "expected_return_date": user_timezone_today().isoformat(),
         "is_money_transferred": False,
     }
     payload.update(overrides)
@@ -71,6 +73,7 @@ def _create_deferred_expense_debt(client, headers, **overrides):
         "currency": "UZS",
         "description": "Dinner",
         "date": user_timezone_today().isoformat(),
+        "expected_return_date": user_timezone_today().isoformat(),
         "is_money_transferred": False,
         "expense_category": "Dining Out",
     }
@@ -80,7 +83,7 @@ def _create_deferred_expense_debt(client, headers, **overrides):
     return response.json()
 
 
-def _create_installment_plan(client, headers, **overrides):
+def _create_payment_plan(client, headers, **overrides):
     payload = {
         "item_name": "Phone",
         "store_or_bank_name": "Phone Store",
@@ -92,7 +95,7 @@ def _create_installment_plan(client, headers, **overrides):
         "expense_category": "Electronics",
     }
     payload.update(overrides)
-    response = client.post("/installments", json=payload, headers=headers)
+    response = client.post("/payment-plans", json=payload, headers=headers)
     assert response.status_code == 201, response.text
     return response.json()
 
@@ -196,12 +199,12 @@ def test_generic_debt_update_cannot_change_lifecycle_status(client):
         json={"status": "ARCHIVED"},
         headers=headers,
     )
-    assert updated.status_code == 400
-    assert updated.json()["detail"] == "debts.update.status_requires_action"
+    assert updated.status_code == 422
 
     details = client.get(f"/debts/{debt['id']}/details", headers=headers)
     assert details.status_code == 200, details.text
-    assert details.json()["debt"]["status"] == "ACTIVE"
+    assert "status" not in details.json()["debt"]
+    assert details.json()["debt"]["lifecycle_status"] == "OPEN"
 
 
 def test_pristine_debt_can_patch_opening_amount_and_safe_metadata(client):
@@ -226,21 +229,15 @@ def test_pristine_debt_can_patch_opening_amount_and_safe_metadata(client):
     assert payload["remaining_amount"] == 1_200_000
 
 
-def test_payment_plan_managed_debt_update_and_delete_stay_blocked(client):
+def test_payment_plan_creation_does_not_create_managed_debt_contract(client, session):
     headers = create_user_and_token(client, "debtroutes_plan", "debtroutes_plan@example.com", "Password123!")
-    plan = _create_installment_plan(client, headers)
+    user = session.query(models.User).filter_by(email="debtroutes_plan@example.com").one()
+    debt_count_before = session.query(models.Debt).filter_by(owner_id=user.id).count()
 
-    edited = client.patch(
-        f"/debts/{plan['debt_id']}",
-        json={"counterparty_name": "Direct edit"},
-        headers=headers,
-    )
-    assert edited.status_code == 400
-    assert edited.json()["detail"] == "debts.policy.managed_by_payment_plan"
+    plan = _create_payment_plan(client, headers)
 
-    deleted = client.delete(f"/debts/{plan['debt_id']}", headers=headers)
-    assert deleted.status_code == 400
-    assert deleted.json()["detail"] == "debts.policy.managed_by_payment_plan"
+    assert plan.get("debt_id") is None
+    assert session.query(models.Debt).filter_by(owner_id=user.id).count() == debt_count_before
 
 
 def test_non_pristine_debt_delete_is_blocked_but_pristine_delete_still_works(client):
@@ -282,6 +279,7 @@ def test_debt_creation_derives_initial_amount_from_wallet_rows(client, session):
             "initial_amount": 1,
             "currency": "UZS",
             "date": user_timezone_today().isoformat(),
+            "expected_return_date": user_timezone_today().isoformat(),
             "is_money_transferred": True,
             "initial_wallet_allocations": [
                 {"wallet_id": default_wallet["id"], "amount": 1_000_000},
@@ -331,6 +329,7 @@ def test_formal_bank_debt_disbursement_uses_loan_reference_type(client, session)
             "initial_amount": 5_000_000,
             "currency": "UZS",
             "date": user_timezone_today().isoformat(),
+            "expected_return_date": user_timezone_today().isoformat(),
             "is_money_transferred": True,
             "origin_kind": "CASH_BORROWED",
             "counterparty_kind": "BANK",
@@ -366,6 +365,7 @@ def test_debt_creation_wallet_rows_imply_money_moved(client):
             "initial_amount": 1,
             "currency": "UZS",
             "date": user_timezone_today().isoformat(),
+            "expected_return_date": user_timezone_today().isoformat(),
             "is_money_transferred": False,
             "initial_wallet_allocations": [
                 {"wallet_id": wallet["id"], "amount": 750_000},
@@ -402,6 +402,46 @@ def test_debt_creation_rejects_expected_date_before_debt_date(client):
     assert "debts.validation.expected_date_before_date" in response.text
 
 
+def test_debt_creation_rejects_dates_before_supported_boundary(client):
+    headers = create_user_and_token(client, "debtroutesmindate", "debtroutesmindate@example.com", "Password123!")
+
+    response = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWED",
+            "counterparty_name": "Ali",
+            "initial_amount": 500_000,
+            "currency": "UZS",
+            "date": "2019-12-31",
+            "expected_return_date": "2020-01-01",
+            "is_money_transferred": False,
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+    assert "validation.date_too_early" in response.text
+
+
+def test_debt_update_rejects_due_date_before_current_debt_date(client):
+    headers = create_user_and_token(client, "debtroutespatchduedate", "debtroutespatchduedate@example.com", "Password123!")
+    debt = _create_receivable_debt(
+        client,
+        headers,
+        date="2026-06-03",
+        expected_return_date="2026-06-04",
+    )
+
+    response = client.patch(
+        f"/debts/{debt['id']}",
+        json={"expected_return_date": "2026-06-02"},
+        headers=headers,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "debts.validation.expected_date_before_date"
+
+
 def test_deferred_debt_rejects_financing_context_as_expense_category(client):
     headers = create_user_and_token(client, "debtroutescat1", "debtroutescat1@example.com", "Password123!")
 
@@ -413,6 +453,7 @@ def test_deferred_debt_rejects_financing_context_as_expense_category(client):
             "initial_amount": 100_000,
             "currency": "UZS",
             "date": user_timezone_today().isoformat(),
+            "expected_return_date": user_timezone_today().isoformat(),
             "is_money_transferred": False,
             "expense_category": "Installments & Debt",
         },
@@ -435,6 +476,7 @@ def test_receivable_income_debt_requires_income_source(client):
             "initial_amount": 500_000,
             "currency": "UZS",
             "date": user_timezone_today().isoformat(),
+            "expected_return_date": user_timezone_today().isoformat(),
             "is_money_transferred": False,
         },
         headers=headers,
@@ -473,22 +515,25 @@ def test_payable_debts_expose_hard_due_and_overdue_warnings(client):
     assert "debts.warning.payable_due_hard" not in by_id[overdue["id"]]["workflow_warnings"]
 
 
-def test_open_ended_payable_debt_exposes_soft_paydown_suggestion(client):
+def test_debt_creation_requires_expected_return_date(client):
     headers = create_user_and_token(client, "debtroutespaydown", "debtroutespaydown@example.com", "Password123!")
 
-    open_ended = _create_deferred_expense_debt(
-        client,
-        headers,
-        counterparty_name="Open friend debt",
-        expected_return_date=None,
+    response = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWING",
+            "counterparty_name": "Open friend debt",
+            "initial_amount": 150_000,
+            "currency": "UZS",
+            "date": user_timezone_today().isoformat(),
+            "is_money_transferred": False,
+            "expense_category": "Dining Out",
+        },
+        headers=headers,
     )
 
-    detail = client.get(f"/debts/{open_ended['id']}", headers=headers)
-    assert detail.status_code == 200, detail.text
-    warnings = detail.json()["workflow_warnings"]
-    assert "debts.suggestion.open_ended_paydown" in warnings
-    assert "debts.warning.payable_due_hard" not in warnings
-    assert "debts.warning.payable_overdue_hard" not in warnings
+    assert response.status_code == 422
+    assert "debts.validation.expected_date_required" in response.text
 
 
 def test_damage_compensation_i_owe_payment_posts_as_expense(client, session):
@@ -508,6 +553,7 @@ def test_damage_compensation_i_owe_payment_posts_as_expense(client, session):
             "initial_amount": 800_000,
             "currency": "UZS",
             "date": today.isoformat(),
+            "expected_return_date": today.isoformat(),
             "is_money_transferred": False,
             "expense_category": "Electronics",
         },
@@ -557,6 +603,7 @@ def test_damage_compensation_owed_to_me_payment_is_not_income(client, session):
             "initial_amount": 600_000,
             "currency": "UZS",
             "date": user_timezone_today().isoformat(),
+            "expected_return_date": user_timezone_today().isoformat(),
             "is_money_transferred": False,
         },
         headers=headers,
@@ -814,19 +861,20 @@ def test_deferred_debt_payment_expenses_link_budgets_and_debt_details(client, se
     assert feed_expense_ids == sorted(feed_expense_ids, reverse=True)
 
 
-def test_partial_forgiveness_and_formal_settlement_policies(client, session):
+def test_partial_and_formal_debts_use_component_aware_forgiveness(client, session):
     headers = create_user_and_token(client, "debtroutes2", "debtroutes2@example.com", "Password123!")
     wallet = _default_wallet(client, headers)
 
     personal_debt = _create_receivable_debt(client, headers)
     partial = client.post(
         f"/debts/{personal_debt['id']}/forgiveness",
-        json={"amount": 100_000, "note": "No need to pay this part"},
+        json={"amount": 100_000, "component": "PRINCIPAL", "note": "No need to pay this part"},
         headers=headers,
     )
     assert partial.status_code == 200, partial.text
     assert partial.json()["remaining_amount"] == 400_000
-    assert partial.json()["status"] == "ACTIVE"
+    assert partial.json()["lifecycle_status"] == "OPEN"
+    assert "status" not in partial.json()
 
     formal_debt = _create_transferred_debt(
         client,
@@ -835,27 +883,14 @@ def test_partial_forgiveness_and_formal_settlement_policies(client, session):
         counterparty_kind="BANK",
         product_kind="BANK_LOAN",
     )
-    blocked = client.post(
+    forgiven = client.post(
         f"/debts/{formal_debt['id']}/forgiveness",
-        json={"amount": 100_000},
+        json={"amount": 100_000, "component": "PRINCIPAL"},
         headers=headers,
     )
-    assert blocked.status_code == 400
-    assert blocked.json()["detail"] == "debts.policy.forgiveness_only_informal"
-
-    settled = client.post(
-        f"/debts/{formal_debt['id']}/settlements",
-        json={
-            "payment_amount": 250_000,
-            "settlement_discount": 750_000,
-            "note": "Bank settlement",
-            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 250_000}],
-        },
-        headers=headers,
-    )
-    assert settled.status_code == 200, settled.text
-    assert settled.json()["status"] == "SETTLED"
-    assert settled.json()["remaining_amount"] == 0
+    assert forgiven.status_code == 200, forgiven.text
+    assert forgiven.json()["remaining_amount"] == 900_000
+    assert forgiven.json()["lifecycle_status"] == "OPEN"
 
 
 def test_balance_adjustment_reversal_and_formal_details(client, session):

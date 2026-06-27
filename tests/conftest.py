@@ -108,7 +108,7 @@ def fake_rate_limits_without_redis(monkeypatch):
         "app.routers.goals",
         "app.routers.income",
         "app.routers.notifications",
-        "app.routers.installments",
+        "app.routers.payment_plans",
         "app.routers.projects",
         "app.routers.recurring",
     ):

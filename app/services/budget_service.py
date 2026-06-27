@@ -14,6 +14,10 @@ from .. import models, schemas
 from .goal_funding_service import get_wallet_goal_allocated_amount
 from .borrowing_survival_service import get_or_build_summary as get_borrowing_survival_summary
 from .category_floor_service import CategoryFloorWarning, build_category_floor_warnings
+from .obligation_source_service import (
+    exclude_legacy_payment_plan_debt_duplicate_filter,
+    regular_debt_obligation_filters,
+)
 from .wallet_value_service import owned_balance
 
 BUDGET_MATERIALIZE_MIN_YEAR = 2020
@@ -99,6 +103,7 @@ def normal_monthly_budget_impact_filters():
     return (
         _isolated_project_spend_filter(),
         _normal_monthly_budget_impact_filter(),
+        exclude_legacy_payment_plan_debt_duplicate_filter(),
     )
 
 
@@ -295,15 +300,6 @@ def get_budget_plan_backing(
     )
 
 
-def _active_payable_debt_statuses():
-    return [
-        models.DebtStatus.ACTIVE,
-        models.DebtStatus.OVERDUE,
-        models.DebtStatus.DEFAULTED,
-        models.DebtStatus.IN_COLLECTION,
-    ]
-
-
 def get_cash_obligation_reserve_total(
     db: Session,
     owner_id: int,
@@ -321,8 +317,7 @@ def get_cash_obligation_reserve_total(
         .filter(
             models.Debt.owner_id == owner_id,
             models.Debt.debt_type == models.DebtType.OWING,
-            models.Debt.status.in_(_active_payable_debt_statuses()),
-            models.Debt.remaining_amount > 0,
+            *regular_debt_obligation_filters(owner_id),
             models.Debt.expense_category.is_(None),
             or_(
                 and_(models.Debt.expected_return_date >= start, models.Debt.expected_return_date < end),
@@ -927,7 +922,7 @@ def _active_budget_categories() -> list[models.ExpenseCategory]:
     return [
         category
         for category in models.ExpenseCategory
-        if category != models.ExpenseCategory.INSTALLMENTS_DEBT
+        if category != models.ExpenseCategory.PAYMENT_PLANS_DEBT
     ]
 
 

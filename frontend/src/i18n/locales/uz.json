@@ -1,5 +1,8 @@
 {
   "appName": "Sarflog",
+  "validation": {
+    "date_too_early": "Sana 2020-01-01 dan oldin bo'lishi mumkin emas"
+  },
   "common": {
     "back": "Orqaga",
     "cancel": "Bekor qilish",
@@ -1085,7 +1088,7 @@
     "amountUzs": "Summa (UZS)",
     "tabs": {
       "debts": "Qarzlar",
-      "installments": "Muddatli to'lovlar"
+      "payment_plans": "Muddatli to'lovlar"
     },
     "totalIOwe": "Men qarzdorman",
     "iOwe": "Men qarzdorman",
@@ -1158,8 +1161,8 @@
     "interest": "Foiz %",
     "totalAmount": "Jami summa",
     "totalAmountPlaceholder": "To'lanishi kerak",
-    "installmentPlan": "Muddatli to'lov rejasi",
-    "installmentCount": "To'lovlar soni",
+    "paymentPlan": "Muddatli to'lov rejasi",
+    "payment_planCount": "To'lovlar soni",
     "frequency": "Muddati",
     "weekly": "Haftalik",
     "monthly": "Oylik",
@@ -1184,7 +1187,9 @@
       },
       "date": {
         "required": "Sana kiritilishi shart"
-      }
+      },
+      "expected_date_required": "To'lov muddati majburiy",
+      "expected_date_before_date": "To'lov muddati qarz sanasidan oldin bo'lishi mumkin emas"
     },
     "delete": {
       "title": "Qarzni o'chirish",
@@ -1209,9 +1214,9 @@
       "failedToRecordPayment": "To'lovni qayd etib bo'lmadi",
       "paymentUpdated": "To'lov yangilandi",
       "failedToUpdatePayment": "To'lovni yangilab bo'lmadi",
-      "installmentsGenerated": "Muddatli to'lovlar yaratildi",
-      "installmentsGenerated_detail": "{{count}} ta to'lov yaratildi",
-      "failedToGenerateInstallments": "Muddatli to'lovlarni yaratib bo'lmadi",
+      "paymentPlansGenerated": "Muddatli to'lovlar yaratildi",
+      "paymentPlansGenerated_detail": "{{count}} ta to'lov yaratildi",
+      "failedToGeneratePaymentPlans": "Muddatli to'lovlarni yaratib bo'lmadi",
       "transactionDeleted": "To'lov o'chirildi",
       "failedToDeleteTransaction": "To'lovni o'chirib bo'lmadi"
     }

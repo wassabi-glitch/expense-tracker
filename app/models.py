@@ -23,7 +23,7 @@ class ExpenseCategory(str, enum.Enum):
     CLOTHING = "Clothing"
     FAMILY_EVENTS = "Family & Events"
     ENTERTAINMENT = "Entertainment"
-    INSTALLMENTS_DEBT = "Installments & Debt"
+    PAYMENT_PLANS_DEBT = "Installments & Debt"
     BUSINESS_WORK = "Business / Work"
     BANK_FEES_INTEREST = "Bank Fees & Interest"
     DEBT_CHARGES = "Debt Charges"
@@ -92,11 +92,11 @@ class ReferenceType:
     # ── EXPENSE sub-types (bank-driven, bypass wallet limits) ─────────
     BANK_FEE = "bank_fee"
     BANK_INTEREST = "bank_interest"
-    INSTALLMENT_DOWN_PAYMENT = "installment_down_payment"
-    INSTALLMENT_PAYMENT = "installment_payment"
+    PAYMENT_PLAN_DOWN_PAYMENT = "payment_plan_down_payment"
+    PAYMENT_PLAN_PAYMENT = "payment_plan_payment"
     VOID_REVERSAL = "void_reversal"
-    INSTALLMENT_FEE = "installment_fee"
-    INSTALLMENT_PENALTY = "installment_penalty"
+    PAYMENT_PLAN_FEE = "payment_plan_fee"
+    PAYMENT_PLAN_PENALTY = "payment_plan_penalty"
 
 
 
@@ -295,7 +295,6 @@ class DebtActionKind(str, enum.Enum):
     FORGIVE_FULL = "FORGIVE_FULL"
     ADJUST_BALANCE = "ADJUST_BALANCE"
     REVERSE_ENTRY = "REVERSE_ENTRY"
-    SETTLE = "SETTLE"
     ARCHIVE = "ARCHIVE"
     RESTORE = "RESTORE"
     LINK_ASSET = "LINK_ASSET"
@@ -315,7 +314,7 @@ class DebtActionRestrictionSource(str, enum.Enum):
     POLICY = "POLICY"
 
 
-class InstallmentFrequency(str, enum.Enum):
+class PaymentPlanFrequency(str, enum.Enum):
     WEEKLY = "WEEKLY"
     BIWEEKLY = "BIWEEKLY"
     MONTHLY = "MONTHLY"
@@ -335,22 +334,33 @@ class PaymentPlanType(str, enum.Enum):
     OTHER = "OTHER"
 
 
-class InstallmentStatus(str, enum.Enum):
+class PaymentPlanStatus(str, enum.Enum):
     ACTIVE = "ACTIVE"
     PAID = "PAID"
     ARCHIVED = "ARCHIVED"
 
 
-class InstallmentPaymentStatus(str, enum.Enum):
+class PaymentPlanPaymentStatus(str, enum.Enum):
     PENDING = "PENDING"
     PARTIAL = "PARTIAL"
     PAID = "PAID"
     SKIPPED = "SKIPPED"
-
-
-class InstallmentPaymentComponentType(str, enum.Enum):
+class PaymentPlanPaymentComponentType(str, enum.Enum):
     PRINCIPAL = "PRINCIPAL"
     CHARGE = "CHARGE"
+
+
+class PaymentPlanLedgerEntryType(str, enum.Enum):
+    INITIAL = "INITIAL"
+    PAYMENT = "PAYMENT"
+    CHARGE = "CHARGE"
+    ADJUSTMENT = "ADJUSTMENT"
+    REVERSAL = "REVERSAL"
+
+
+class PaymentPlanLedgerEntrySource(str, enum.Enum):
+    USER = "USER"
+    SYSTEM = "SYSTEM"
 
 
 class ExpectedIncomeStatus(str, enum.Enum):
@@ -497,14 +507,20 @@ class User(Base):
         "DebtTransactionWalletAllocation", back_populates="owner", cascade="all, delete-orphan")
     debt_asset_settlements = relationship(
         "DebtAssetSettlement", back_populates="owner", cascade="all, delete-orphan")
-    debt_action_restrictions = relationship(
-        "DebtActionRestriction", back_populates="owner", cascade="all, delete-orphan")
-    installments = relationship(
-        "InstallmentPlan", back_populates="owner", cascade="all, delete")
-    installment_payments = relationship(
-        "InstallmentPayment", back_populates="owner", cascade="all, delete")
-    installment_payment_allocations = relationship(
-        "InstallmentPaymentAllocation", back_populates="owner", cascade="all, delete-orphan")
+    payment_plans = relationship(
+        "PaymentPlan", back_populates="owner", cascade="all, delete")
+    payment_plan_transactions = relationship(
+        "PaymentPlanTransaction", back_populates="owner", cascade="all, delete")
+    payment_plan_charges = relationship(
+        "PaymentPlanCharge", back_populates="owner", cascade="all, delete")
+    payment_plan_ledger_entries = relationship(
+        "PaymentPlanLedgerEntry", back_populates="owner", cascade="all, delete")
+    payment_plan_payments = relationship(
+        "PaymentPlanPayment", back_populates="owner", cascade="all, delete")
+    payment_plan_payment_allocations = relationship(
+        "PaymentPlanPaymentAllocation", back_populates="owner", cascade="all, delete-orphan")
+    payment_plan_transaction_wallet_allocations = relationship(
+        "PaymentPlanTransactionWalletAllocation", back_populates="owner", cascade="all, delete-orphan")
     wallets = relationship(
         "Wallet", back_populates="owner", cascade="all, delete-orphan")
     wallet_transfers = relationship(
@@ -1255,7 +1271,7 @@ class Goals(Base):
     linked_asset_id = Column(Integer, ForeignKey("assets.id", ondelete="SET NULL"), nullable=True, index=True)
     linked_debt_id = Column(Integer, ForeignKey("debts.id", ondelete="SET NULL"), nullable=True, index=True)
     linked_debt_transaction_id = Column(Integer, ForeignKey("debt_transactions.id", ondelete="SET NULL"), nullable=True, index=True)
-    linked_installment_plan_id = Column(Integer, ForeignKey("installment_plans.id", ondelete="SET NULL"), nullable=True, index=True)
+    linked_payment_plan_id = Column(Integer, ForeignKey("payment_plans.id", ondelete="SET NULL"), nullable=True, index=True)
     linked_expense_event_id = Column(Integer, ForeignKey("financial_events.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True),
                         server_default=func.now(), nullable=False)
@@ -1270,7 +1286,7 @@ class Goals(Base):
     linked_asset = relationship("Asset", foreign_keys=[linked_asset_id])
     linked_debt = relationship("Debt", foreign_keys=[linked_debt_id])
     linked_debt_transaction = relationship("DebtTransaction", foreign_keys=[linked_debt_transaction_id])
-    linked_installment_plan = relationship("InstallmentPlan", foreign_keys=[linked_installment_plan_id])
+    linked_payment_plan = relationship("PaymentPlan", foreign_keys=[linked_payment_plan_id])
     linked_expense_event = relationship("FinancialEvent", foreign_keys=[linked_expense_event_id])
 
 
@@ -1350,10 +1366,14 @@ class Debt(Base):
     __table_args__ = (
         CheckConstraint("initial_amount > 0", name="ck_debts_initial_amount_positive"),
         CheckConstraint("remaining_amount >= 0", name="ck_debts_remaining_amount_non_negative"),
+        CheckConstraint("date >= '2020-01-01'", name="ck_debts_date_min_2020_01_01"),
+        CheckConstraint("expected_return_date >= '2020-01-01'", name="ck_debts_expected_return_date_min_2020_01_01"),
+        CheckConstraint("expected_return_date >= date", name="ck_debts_expected_return_date_not_before_date"),
         Index("ix_debts_owner_status", "owner_id", "status"),
         Index("ix_debts_owner_type", "owner_id", "debt_type"),
         Index("ix_debts_owner_origin", "owner_id", "origin_kind"),
         Index("ix_debts_owner_product", "owner_id", "product_kind"),
+        Index("ix_debts_owner_archived_at", "owner_id", "archived_at"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -1378,8 +1398,9 @@ class Debt(Base):
     currency = Column(String(3), default="UZS", nullable=False)
     description = Column(String, nullable=True)
     status = Column(Enum(DebtStatus), nullable=False, default=DebtStatus.ACTIVE)
+    archived_at = Column(DateTime(timezone=True), nullable=True)
     date = Column(Date, nullable=False)
-    expected_return_date = Column(Date, nullable=True)
+    expected_return_date = Column(Date, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -1391,8 +1412,7 @@ class Debt(Base):
     formal_details = relationship("DebtFormalDetails", back_populates="debt", uselist=False, cascade="all, delete-orphan")
     transaction_wallet_allocations = relationship("DebtTransactionWalletAllocation", back_populates="debt", cascade="all, delete-orphan")
     asset_settlements = relationship("DebtAssetSettlement", back_populates="debt", cascade="all, delete-orphan")
-    action_restrictions = relationship("DebtActionRestriction", back_populates="debt", cascade="all, delete-orphan")
-    installment_plan = relationship("InstallmentPlan", back_populates="debt", uselist=False)
+    payment_plan = relationship("PaymentPlan", back_populates="debt", uselist=False)
     expected_incomes = relationship("ExpectedIncome", back_populates="debt")
 
     # New fields for real-world money flow
@@ -1581,51 +1601,124 @@ class DebtAssetSettlement(Base):
     debt_ledger_entry = relationship("DebtLedgerEntry")
 
 
-class DebtActionRestriction(Base):
-    __tablename__ = "debt_action_restrictions"
+class PaymentPlanTransaction(Base):
+    __tablename__ = "payment_plan_transactions"
     __table_args__ = (
-        Index("ix_debt_action_restrictions_debt_active", "debt_id", "is_active"),
-        Index("ix_debt_action_restrictions_owner_action", "owner_id", "action_kind"),
+        CheckConstraint("amount > 0", name="ck_payment_plan_transactions_amount_positive"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    debt_id = Column(Integer, ForeignKey("debts.id", ondelete="CASCADE"), nullable=False, index=True)
-    action_kind = Column(Enum(DebtActionKind), nullable=False)
-    level = Column(Enum(DebtActionRestrictionLevel), nullable=False)
-    reason_code = Column(String(100), nullable=False)
-    source = Column(
-        Enum(DebtActionRestrictionSource),
-        nullable=False,
-        default=DebtActionRestrictionSource.SYSTEM,
-        server_default=DebtActionRestrictionSource.SYSTEM.value,
-    )
-    is_active = Column(Boolean, nullable=False, default=True, server_default="true")
-    details = Column(JSON, nullable=True)
+    plan_id = Column(Integer, ForeignKey("payment_plans.id", ondelete="CASCADE"), nullable=False, index=True)
+    amount = Column(BigInteger, nullable=False)
+    date = Column(Date, nullable=False)
+    note = Column(String(200), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    resolved_at = Column(DateTime(timezone=True), nullable=True)
 
-    owner = relationship("User", back_populates="debt_action_restrictions")
-    debt = relationship("Debt", back_populates="action_restrictions")
+    owner = relationship("User", back_populates="payment_plan_transactions")
+    plan = relationship("PaymentPlan", back_populates="transactions")
+    wallet_allocations = relationship("PaymentPlanTransactionWalletAllocation", back_populates="transaction", cascade="all, delete-orphan")
 
 
-class InstallmentPlan(Base):
-    __tablename__ = "installment_plans"
+class PaymentPlanTransactionWalletAllocation(Base):
+    __tablename__ = "payment_plan_transaction_wallet_allocations"
     __table_args__ = (
-        CheckConstraint("total_price > 0", name="ck_installments_total_price_positive"),
-        CheckConstraint("down_payment >= 0", name="ck_installments_down_payment_non_negative"),
-        CheckConstraint("remaining_amount >= 0", name="ck_installments_remaining_amount_non_negative"),
-        CheckConstraint("months > 0", name="ck_installments_months_positive"),
-        CheckConstraint("payment_count > 0", name="ck_installments_payment_count_positive"),
-        CheckConstraint("regular_payment_amount >= 0", name="ck_installments_regular_payment_amount_non_negative"),
-        Index("ix_installments_owner_status", "owner_id", "status"),
-        Index("ix_installments_owner_plan_type", "owner_id", "plan_type"),
-        Index("uq_installment_plans_debt_id", "debt_id", unique=True),
+        CheckConstraint("amount > 0", name="ck_payment_plan_txn_wallet_allocations_amount_positive"),
+        UniqueConstraint("payment_plan_transaction_id", "wallet_id", name="uq_payment_plan_txn_wallet_allocations_wallet"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    debt_id = Column(Integer, ForeignKey("debts.id", ondelete="SET NULL", use_alter=True, name="fk_installment_plans_debt_id"), nullable=True)
+    plan_id = Column(Integer, ForeignKey("payment_plans.id", ondelete="CASCADE"), nullable=False, index=True)
+    payment_plan_transaction_id = Column(Integer, ForeignKey("payment_plan_transactions.id", ondelete="CASCADE"), nullable=False, index=True)
+    wallet_id = Column(Integer, ForeignKey("wallets.id", ondelete="RESTRICT"), nullable=False, index=True)
+    amount = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    owner = relationship("User", back_populates="payment_plan_transaction_wallet_allocations")
+    plan = relationship("PaymentPlan", back_populates="transaction_wallet_allocations")
+    transaction = relationship("PaymentPlanTransaction", back_populates="wallet_allocations")
+    wallet = relationship("Wallet")
+
+
+class PaymentPlanCharge(Base):
+    __tablename__ = "payment_plan_charges"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_payment_plan_charges_amount_positive"),
+        Index("ix_payment_plan_charges_plan_id", "plan_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    plan_id = Column(Integer, ForeignKey("payment_plans.id", ondelete="CASCADE"), nullable=False)
+    amount = Column(BigInteger, nullable=False)
+    reason = Column(String(200), nullable=True)
+    date = Column(Date, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    owner = relationship("User", back_populates="payment_plan_charges")
+    plan = relationship("PaymentPlan", back_populates="charges")
+
+
+class PaymentPlanLedgerEntry(Base):
+    __tablename__ = "payment_plan_ledger_entries"
+    __table_args__ = (
+        CheckConstraint("amount_delta != 0", name="ck_payment_plan_ledger_amount_delta_non_zero"),
+        Index("ix_payment_plan_ledger_owner_date", "owner_id", "entry_date"),
+        Index("ix_payment_plan_ledger_plan_date", "plan_id", "entry_date"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    plan_id = Column(Integer, ForeignKey("payment_plans.id", ondelete="CASCADE"), nullable=False, index=True)
+    financial_event_id = Column(Integer, ForeignKey("financial_events.id", ondelete="SET NULL"), nullable=True, index=True)
+    source_transaction_id = Column(Integer, ForeignKey("payment_plan_transactions.id", ondelete="SET NULL"), nullable=True, index=True)
+    source_charge_id = Column(Integer, ForeignKey("payment_plan_charges.id", ondelete="SET NULL"), nullable=True, index=True)
+    reverses_entry_id = Column(Integer, ForeignKey("payment_plan_ledger_entries.id", ondelete="SET NULL"), nullable=True, index=True)
+    entry_type = Column(Enum(PaymentPlanLedgerEntryType), nullable=False)
+    amount_delta = Column(BigInteger, nullable=False)
+    principal_delta = Column(BigInteger, nullable=False, default=0, server_default="0")
+    charge_delta = Column(BigInteger, nullable=False, default=0, server_default="0")
+    balance_after = Column(BigInteger, nullable=True)
+    event_subtype = Column(String(50), nullable=True)
+    source = Column(
+        Enum(PaymentPlanLedgerEntrySource),
+        nullable=False,
+        default=PaymentPlanLedgerEntrySource.USER,
+        server_default=PaymentPlanLedgerEntrySource.USER.value,
+    )
+    is_reversible = Column(Boolean, nullable=False, default=True, server_default="true")
+    status = Column(String(20), nullable=False, default="POSTED", server_default="POSTED")
+    entry_date = Column(Date, nullable=False)
+    note = Column(String(500), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    owner = relationship("User", back_populates="payment_plan_ledger_entries")
+    plan = relationship("PaymentPlan", back_populates="ledger_entries")
+    financial_event = relationship("FinancialEvent")
+    source_transaction = relationship("PaymentPlanTransaction")
+    source_charge = relationship("PaymentPlanCharge")
+    reverses_entry = relationship("PaymentPlanLedgerEntry", remote_side=[id])
+
+
+class PaymentPlan(Base):
+    __tablename__ = "payment_plans"
+    __table_args__ = (
+        CheckConstraint("total_price > 0", name="ck_payment_plans_total_price_positive"),
+        CheckConstraint("down_payment >= 0", name="ck_payment_plans_down_payment_non_negative"),
+        CheckConstraint("remaining_amount >= 0", name="ck_payment_plans_remaining_amount_non_negative"),
+        CheckConstraint("months > 0", name="ck_payment_plans_months_positive"),
+        CheckConstraint("payment_count > 0", name="ck_payment_plans_payment_count_positive"),
+        CheckConstraint("regular_payment_amount >= 0", name="ck_payment_plans_regular_payment_amount_non_negative"),
+        CheckConstraint("start_date >= '2020-01-01'", name="ck_payment_plans_start_date_min_2020_01_01"),
+        Index("ix_payment_plans_owner_status", "owner_id", "status"),
+        Index("ix_payment_plans_owner_plan_type", "owner_id", "plan_type"),
+        Index("uq_payment_plans_debt_id", "debt_id", unique=True),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    debt_id = Column(Integer, ForeignKey("debts.id", ondelete="SET NULL", use_alter=True, name="fk_payment_plans_debt_id"), nullable=True)
     item_name = Column(String(100), nullable=False)
     store_or_bank_name = Column(String(100), nullable=True)
     plan_type = Column(
@@ -1640,99 +1733,101 @@ class InstallmentPlan(Base):
     currency = Column(String(3), default="UZS", nullable=False)
     months = Column(Integer, nullable=False)
     payment_count = Column(Integer, nullable=False)
-    frequency = Column(Enum(InstallmentFrequency), nullable=False, default=InstallmentFrequency.MONTHLY)
+    frequency = Column(Enum(PaymentPlanFrequency), nullable=False, default=PaymentPlanFrequency.MONTHLY)
     monthly_payment_amount = Column(BigInteger, nullable=False)
     regular_payment_amount = Column(BigInteger, nullable=False)
     schedule_rule = Column(JSON, nullable=True)
-    status = Column(Enum(InstallmentStatus), nullable=False, default=InstallmentStatus.ACTIVE)
+    status = Column(Enum(PaymentPlanStatus), nullable=False, default=PaymentPlanStatus.ACTIVE)
     start_date = Column(Date, nullable=False)
     expense_category = Column(Enum(ExpenseCategory), nullable=True)
     expense_subcategory_id = Column(Integer, ForeignKey("user_subcategories.id", ondelete="SET NULL"), nullable=True)
-    project_id = Column(Integer, ForeignKey("projects.id", ondelete="SET NULL", use_alter=True, name="fk_installment_plans_project_id"), nullable=True)
-    project_subcategory_id = Column(Integer, ForeignKey("project_subcategories.id", ondelete="SET NULL", use_alter=True, name="fk_installment_plans_project_subcategory_id"), nullable=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="SET NULL", use_alter=True, name="fk_payment_plans_project_id"), nullable=True)
+    project_subcategory_id = Column(Integer, ForeignKey("project_subcategories.id", ondelete="SET NULL", use_alter=True, name="fk_payment_plans_project_subcategory_id"), nullable=True)
     asset_id = Column(Integer, ForeignKey("assets.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    owner = relationship("User", back_populates="installments")
-    payments = relationship("InstallmentPayment", back_populates="plan", cascade="all, delete")
-    debt = relationship("Debt", back_populates="installment_plan")
+    owner = relationship("User", back_populates="payment_plans")
+    payments = relationship("PaymentPlanPayment", back_populates="plan", cascade="all, delete")
+    transactions = relationship("PaymentPlanTransaction", back_populates="plan", cascade="all, delete")
+    charges = relationship("PaymentPlanCharge", back_populates="plan", cascade="all, delete")
+    ledger_entries = relationship("PaymentPlanLedgerEntry", back_populates="plan", cascade="all, delete")
+    transaction_wallet_allocations = relationship("PaymentPlanTransactionWalletAllocation", back_populates="plan", cascade="all, delete-orphan")
+    debt = relationship("Debt", back_populates="payment_plan")
     expense_subcategory = relationship("UserSubcategory")
     project = relationship("Project")
     project_subcategory = relationship("ProjectSubcategory")
     asset = relationship("Asset")
 
 
-class InstallmentPayment(Base):
-    __tablename__ = "installment_payments"
+class PaymentPlanPayment(Base):
+    __tablename__ = "payment_plan_payments"
     __table_args__ = (
-        CheckConstraint("amount > 0", name="ck_installment_payments_amount_positive"),
-        CheckConstraint("paid_amount >= 0", name="ck_installment_payments_paid_amount_non_negative"),
-        CheckConstraint("written_off_amount >= 0", name="ck_installment_payments_written_off_amount_non_negative"),
-        CheckConstraint("paid_amount <= amount", name="ck_installment_payments_paid_amount_not_above_amount"),
+        CheckConstraint("amount > 0", name="ck_payment_plan_payments_amount_positive"),
+        CheckConstraint("paid_amount >= 0", name="ck_payment_plan_payments_paid_amount_non_negative"),
+        CheckConstraint("written_off_amount >= 0", name="ck_payment_plan_payments_written_off_amount_non_negative"),
+        CheckConstraint("paid_amount <= amount", name="ck_payment_plan_payments_paid_amount_not_above_amount"),
         CheckConstraint(
             "paid_amount + written_off_amount <= amount",
-            name="ck_installment_payments_settled_amount_not_above_amount",
+            name="ck_payment_plan_payments_settled_amount_not_above_amount",
         ),
-        Index("ix_installment_payments_plan_due_date", "plan_id", "due_date"),
-        Index("ix_installment_payments_owner_due_date", "owner_id", "due_date"),
+        CheckConstraint("due_date >= '2020-01-01'", name="ck_payment_plan_payments_due_date_min_2020_01_01"),
+        Index("ix_payment_plan_payments_plan_due_date", "plan_id", "due_date"),
+        Index("ix_payment_plan_payments_owner_due_date", "owner_id", "due_date"),
     )
-
     id = Column(Integer, primary_key=True, index=True)
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    plan_id = Column(Integer, ForeignKey("installment_plans.id", ondelete="CASCADE"), nullable=False, index=True)
-    debt_charge_id = Column(Integer, ForeignKey("debt_charges.id", ondelete="SET NULL"), nullable=True, index=True)
+    plan_id = Column(Integer, ForeignKey("payment_plans.id", ondelete="CASCADE"), nullable=False, index=True)
+    payment_plan_charge_id = Column(Integer, ForeignKey("payment_plan_charges.id", ondelete="SET NULL"), nullable=True, index=True)
     amount = Column(BigInteger, nullable=False)
     paid_amount = Column(BigInteger, nullable=False, default=0, server_default="0")
     written_off_amount = Column(BigInteger, nullable=False, default=0, server_default="0")
     component_type = Column(
-        Enum(InstallmentPaymentComponentType),
+        Enum(PaymentPlanPaymentComponentType),
         nullable=False,
-        default=InstallmentPaymentComponentType.PRINCIPAL,
-        server_default=InstallmentPaymentComponentType.PRINCIPAL.value,
+        default=PaymentPlanPaymentComponentType.PRINCIPAL,
+        server_default=PaymentPlanPaymentComponentType.PRINCIPAL.value,
     )
-    status = Column(Enum(InstallmentPaymentStatus), nullable=False, default=InstallmentPaymentStatus.PENDING)
+    status = Column(Enum(PaymentPlanPaymentStatus), nullable=False, default=PaymentPlanPaymentStatus.PENDING)
     due_date = Column(Date, nullable=False)
     paid_date = Column(Date, nullable=True)
     note = Column(String(200), nullable=True)
     event_id = Column(Integer, ForeignKey("financial_events.id", ondelete="SET NULL"), nullable=True, index=True)
-    debt_ledger_entry_id = Column(Integer, ForeignKey("debt_ledger_entries.id", ondelete="SET NULL"), nullable=True, index=True)
+    payment_plan_ledger_entry_id = Column(Integer, ForeignKey("payment_plan_ledger_entries.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    owner = relationship("User", back_populates="installment_payments")
-    plan = relationship("InstallmentPlan", back_populates="payments")
-    debt_charge = relationship("DebtCharge")
+    owner = relationship("User", back_populates="payment_plan_payments")
+    plan = relationship("PaymentPlan", back_populates="payments")
+    charge = relationship("PaymentPlanCharge")
     event = relationship("FinancialEvent")
-    debt_ledger_entry = relationship("DebtLedgerEntry")
-    allocations = relationship("InstallmentPaymentAllocation", back_populates="payment", cascade="all, delete-orphan")
+    ledger_entry = relationship("PaymentPlanLedgerEntry")
+    allocations = relationship("PaymentPlanPaymentAllocation", back_populates="payment", cascade="all, delete-orphan")
 
 
-class InstallmentPaymentAllocation(Base):
-    __tablename__ = "installment_payment_allocations"
+class PaymentPlanPaymentAllocation(Base):
+    __tablename__ = "payment_plan_payment_allocations"
     __table_args__ = (
-        CheckConstraint("amount > 0", name="ck_installment_payment_allocations_amount_positive"),
-        Index("ix_installment_payment_allocations_owner_date", "owner_id", "paid_date"),
+        CheckConstraint("amount > 0", name="ck_payment_plan_payment_allocations_amount_positive"),
+        Index("ix_payment_plan_payment_allocations_owner_date", "owner_id", "paid_date"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    installment_payment_id = Column(Integer, ForeignKey("installment_payments.id", ondelete="CASCADE"), nullable=False, index=True)
+    payment_plan_payment_id = Column(Integer, ForeignKey("payment_plan_payments.id", ondelete="CASCADE"), nullable=False, index=True)
     financial_event_id = Column(Integer, ForeignKey("financial_events.id", ondelete="SET NULL"), nullable=True, index=True)
-    debt_transaction_id = Column(Integer, ForeignKey("debt_transactions.id", ondelete="SET NULL"), nullable=True, index=True)
-    debt_ledger_entry_id = Column(Integer, ForeignKey("debt_ledger_entries.id", ondelete="SET NULL"), nullable=True, index=True)
-    wallet_id = Column(Integer, ForeignKey("wallets.id", ondelete="SET NULL"), nullable=True, index=True)
+    payment_plan_transaction_id = Column(Integer, ForeignKey("payment_plan_transactions.id", ondelete="SET NULL"), nullable=True, index=True)
+    payment_plan_ledger_entry_id = Column(Integer, ForeignKey("payment_plan_ledger_entries.id", ondelete="SET NULL"), nullable=True, index=True)
     amount = Column(BigInteger, nullable=False)
     paid_date = Column(Date, nullable=False)
     note = Column(String(200), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    owner = relationship("User", back_populates="installment_payment_allocations")
-    payment = relationship("InstallmentPayment", back_populates="allocations")
+    owner = relationship("User", back_populates="payment_plan_payment_allocations")
+    payment = relationship("PaymentPlanPayment", back_populates="allocations")
     financial_event = relationship("FinancialEvent")
-    debt_transaction = relationship("DebtTransaction")
-    debt_ledger_entry = relationship("DebtLedgerEntry")
-    wallet = relationship("Wallet")
+    transaction = relationship("PaymentPlanTransaction")
+    ledger_entry = relationship("PaymentPlanLedgerEntry")
 
 
 class PaymentStatus(str, enum.Enum):
@@ -2122,15 +2217,15 @@ class EntityLedger(Base):
     budget_id = Column(Integer, ForeignKey("budgets.id", ondelete="SET NULL"), nullable=True)
     debt_id = Column(Integer, ForeignKey("debts.id", ondelete="SET NULL"), nullable=True)
     income_source_id = Column(Integer, ForeignKey("income_sources.id", ondelete="SET NULL"), nullable=True)
-    installment_plan_id = Column(Integer, ForeignKey("installment_plans.id", ondelete="SET NULL"), nullable=True, index=True)
-    installment_payment_id = Column(Integer, ForeignKey("installment_payments.id", ondelete="SET NULL"), nullable=True, index=True)
+    payment_plan_id = Column(Integer, ForeignKey("payment_plans.id", ondelete="SET NULL"), nullable=True, index=True)
+    payment_plan_payment_id = Column(Integer, ForeignKey("payment_plan_payments.id", ondelete="SET NULL"), nullable=True, index=True)
     
     event = relationship("FinancialEvent", back_populates="entity_legs")
     budget = relationship("Budget", back_populates="entity_ledger_entries")
     debt = relationship("Debt")
     income_source = relationship("IncomeSource")
-    installment_plan = relationship("InstallmentPlan")
-    installment_payment = relationship("InstallmentPayment")
+    payment_plan = relationship("PaymentPlan")
+    payment_plan_payment = relationship("PaymentPlanPayment")
     project = relationship("Project")
     subcategory = relationship("UserSubcategory")
     project_subcategory = relationship("ProjectSubcategory")

@@ -253,6 +253,7 @@ def test_receivable_realization_links_principal_and_charge_events(client, sessio
             "initial_amount": 500_000,
             "currency": "UZS",
             "date": today.isoformat(),
+            "expected_return_date": today.isoformat(),
             "is_money_transferred": False,
         },
         headers=headers,
