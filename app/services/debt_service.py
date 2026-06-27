@@ -1,8 +1,8 @@
 from fastapi import HTTPException, status
 from datetime import date
 
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, func, or_
+from sqlalchemy.orm import Session, aliased
 
 from .. import models
 
@@ -96,16 +96,90 @@ def create_debt_ledger_entry(
 
 
 def get_debt_total_charges(db: Session, debt_id: int) -> int:
-    return int(
+    return max(
+        0,
+        int(
+            db.query(func.coalesce(func.sum(models.DebtLedgerEntry.charge_delta), 0))
+            .filter(
+                models.DebtLedgerEntry.debt_id == debt_id,
+                models.DebtLedgerEntry.status == POSTED_DEBT_LEDGER_STATUS,
+            )
+            .scalar()
+            or 0
+        ),
+    )
+
+
+def get_debt_total_charges_by_debt_ids(db: Session, debt_ids: list[int]) -> dict[int, int]:
+    if not debt_ids:
+        return {}
+    rows = (
         db.query(func.coalesce(func.sum(models.DebtLedgerEntry.charge_delta), 0))
+        .filter(
+            models.DebtLedgerEntry.debt_id.in_(debt_ids),
+            models.DebtLedgerEntry.status == POSTED_DEBT_LEDGER_STATUS,
+        )
+        .with_entities(
+            models.DebtLedgerEntry.debt_id,
+            func.coalesce(func.sum(models.DebtLedgerEntry.charge_delta), 0),
+        )
+        .group_by(models.DebtLedgerEntry.debt_id)
+        .all()
+    )
+    return {int(debt_id): max(0, int(total_amount or 0)) for debt_id, total_amount in rows}
+
+
+def get_debt_total_paid(db: Session, debt_id: int) -> int:
+    original_entry = aliased(models.DebtLedgerEntry)
+    total = (
+        db.query(func.coalesce(func.sum(-models.DebtLedgerEntry.amount_delta), 0))
+        .outerjoin(original_entry, models.DebtLedgerEntry.reverses_entry_id == original_entry.id)
         .filter(
             models.DebtLedgerEntry.debt_id == debt_id,
             models.DebtLedgerEntry.status == POSTED_DEBT_LEDGER_STATUS,
-            models.DebtLedgerEntry.charge_delta > 0,
+            or_(
+                models.DebtLedgerEntry.entry_type == models.DebtLedgerEntryType.PAYMENT,
+                and_(
+                    models.DebtLedgerEntry.entry_type == models.DebtLedgerEntryType.REVERSAL,
+                    original_entry.entry_type == models.DebtLedgerEntryType.PAYMENT,
+                    original_entry.debt_id == models.DebtLedgerEntry.debt_id,
+                    original_entry.status == POSTED_DEBT_LEDGER_STATUS,
+                ),
+            ),
         )
         .scalar()
         or 0
     )
+    return max(0, int(total))
+
+
+def get_debt_total_paid_by_debt_ids(db: Session, debt_ids: list[int]) -> dict[int, int]:
+    if not debt_ids:
+        return {}
+    original_entry = aliased(models.DebtLedgerEntry)
+    rows = (
+        db.query(
+            models.DebtLedgerEntry.debt_id,
+            func.coalesce(func.sum(-models.DebtLedgerEntry.amount_delta), 0),
+        )
+        .outerjoin(original_entry, models.DebtLedgerEntry.reverses_entry_id == original_entry.id)
+        .filter(
+            models.DebtLedgerEntry.debt_id.in_(debt_ids),
+            models.DebtLedgerEntry.status == POSTED_DEBT_LEDGER_STATUS,
+            or_(
+                models.DebtLedgerEntry.entry_type == models.DebtLedgerEntryType.PAYMENT,
+                and_(
+                    models.DebtLedgerEntry.entry_type == models.DebtLedgerEntryType.REVERSAL,
+                    original_entry.entry_type == models.DebtLedgerEntryType.PAYMENT,
+                    original_entry.debt_id == models.DebtLedgerEntry.debt_id,
+                    original_entry.status == POSTED_DEBT_LEDGER_STATUS,
+                ),
+            ),
+        )
+        .group_by(models.DebtLedgerEntry.debt_id)
+        .all()
+    )
+    return {int(debt_id): max(0, int(total_amount or 0)) for debt_id, total_amount in rows}
 
 
 def reverse_debt_transaction_ledger(

@@ -359,7 +359,7 @@ def _money_in_wallets_out(event: models.FinancialEvent) -> list[schemas.MoneyInW
 
 def _money_in_primary_entity(event: models.FinancialEvent) -> models.EntityLedger | None:
     for leg in event.entity_legs:
-        if leg.income_source_id is not None or leg.debt_id is not None or leg.installment_plan_id is not None:
+        if leg.income_source_id is not None or leg.debt_id is not None or leg.payment_plan_id is not None:
             return leg
     return event.entity_legs[0] if event.entity_legs else None
 

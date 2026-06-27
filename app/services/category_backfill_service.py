@@ -29,13 +29,13 @@ class LegacyCategoryBackfillResult:
 
 CHARGE_REFERENCE_TYPES = {
     models.ReferenceType.DEBT_CHARGE,
-    models.ReferenceType.INSTALLMENT_FEE,
-    models.ReferenceType.INSTALLMENT_PENALTY,
+    models.ReferenceType.PAYMENT_PLAN_FEE,
+    models.ReferenceType.PAYMENT_PLAN_PENALTY,
 }
 
 
 def _is_real_expense_category(category: models.ExpenseCategory | None) -> bool:
-    return category is not None and category != models.ExpenseCategory.INSTALLMENTS_DEBT
+    return category is not None and category != models.ExpenseCategory.PAYMENT_PLANS_DEBT
 
 
 def _matching_budget_id(
@@ -58,12 +58,12 @@ def _matching_budget_id(
     return int(budget.id) if budget is not None else None
 
 
-def _installment_payment_target_category(
-    payment: models.InstallmentPayment | None,
+def _payment_plan_payment_target_category(
+    payment: models.PaymentPlanPayment | None,
 ) -> models.ExpenseCategory | None:
     if payment is None:
         return None
-    if payment.component_type == models.InstallmentPaymentComponentType.CHARGE:
+    if payment.component_type == models.PaymentPlanPaymentComponentType.CHARGE:
         return models.ExpenseCategory.DEBT_CHARGES
     if payment.plan is not None and _is_real_expense_category(payment.plan.expense_category):
         return payment.plan.expense_category
@@ -77,13 +77,13 @@ def _target_category_for_legacy_row(
     if event.reference_type in CHARGE_REFERENCE_TYPES:
         return models.ExpenseCategory.DEBT_CHARGES, None
 
-    payment_category = _installment_payment_target_category(leg.installment_payment)
+    payment_category = _payment_plan_payment_target_category(leg.payment_plan_payment)
     if payment_category is not None:
         return payment_category, None
 
-    if leg.installment_plan is not None:
-        if _is_real_expense_category(leg.installment_plan.expense_category):
-            return leg.installment_plan.expense_category, None
+    if leg.payment_plan is not None:
+        if _is_real_expense_category(leg.payment_plan.expense_category):
+            return leg.payment_plan.expense_category, None
         return None, "linked_payment_plan_has_no_real_category"
 
     if leg.debt is not None:
@@ -104,11 +104,11 @@ def backfill_deprecated_financing_category_rows(
         .options(
             selectinload(models.EntityLedger.event),
             selectinload(models.EntityLedger.debt),
-            selectinload(models.EntityLedger.installment_plan),
-            selectinload(models.EntityLedger.installment_payment).selectinload(models.InstallmentPayment.plan),
+            selectinload(models.EntityLedger.payment_plan),
+            selectinload(models.EntityLedger.payment_plan_payment).selectinload(models.PaymentPlanPayment.plan),
         )
         .join(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
-        .filter(models.EntityLedger.category == models.ExpenseCategory.INSTALLMENTS_DEBT)
+        .filter(models.EntityLedger.category == models.ExpenseCategory.PAYMENT_PLANS_DEBT)
         .order_by(models.EntityLedger.id.asc())
     )
     if owner_id is not None:
@@ -155,7 +155,7 @@ def backfill_deprecated_financing_category_rows(
         leg.category = target_category
         leg.budget_id = new_budget_id
         migrated_count += 1
-        touched_categories_by_owner.add((int(event.owner_id), models.ExpenseCategory.INSTALLMENTS_DEBT))
+        touched_categories_by_owner.add((int(event.owner_id), models.ExpenseCategory.PAYMENT_PLANS_DEBT))
         touched_categories_by_owner.add((int(event.owner_id), target_category))
 
     db.flush()

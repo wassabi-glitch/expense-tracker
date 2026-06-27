@@ -1386,7 +1386,7 @@ def test_legacy_financing_context_expense_remains_readable(client, session):
 
     legacy_event = models.FinancialEvent(
         owner_id=user.id,
-        title="Legacy installment category row",
+        title="Legacy payment_plan category row",
         event_type=models.TransactionType.EXPENSE,
         status=models.FinancialEventStatus.POSTED,
         description="seeded legacy data",
@@ -1398,9 +1398,9 @@ def test_legacy_financing_context_expense_remains_readable(client, session):
         amount=-100_000,
     ))
     legacy_event.entity_legs.append(models.EntityLedger(
-        label="Legacy installment category row",
+        label="Legacy payment_plan category row",
         amount=100_000,
-        category=models.ExpenseCategory.INSTALLMENTS_DEBT,
+        category=models.ExpenseCategory.PAYMENT_PLANS_DEBT,
     ))
     session.add(legacy_event)
     session.commit()

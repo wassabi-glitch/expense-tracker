@@ -80,6 +80,7 @@ def _create_i_owe_debt(client, headers, wallet_id, *, amount=500_000, counterpar
             "initial_amount": amount,
             "currency": "UZS",
             "date": user_timezone_today().isoformat(),
+            "expected_return_date": user_timezone_today().isoformat(),
             "is_money_transferred": True,
             "initial_wallet_id": wallet_id,
         },
@@ -98,6 +99,7 @@ def _create_i_am_owed_debt(client, headers, *, amount=500_000, counterparty="Fri
             "initial_amount": amount,
             "currency": "UZS",
             "date": user_timezone_today().isoformat(),
+            "expected_return_date": user_timezone_today().isoformat(),
             "is_money_transferred": False,
         },
         headers=headers,
@@ -108,7 +110,7 @@ def _create_i_am_owed_debt(client, headers, *, amount=500_000, counterparty="Fri
 
 def _create_payment_plan_debt(client, headers, *, amount=500_000):
     response = client.post(
-        "/installments",
+        "/payment-plans",
         json={
             "item_name": "Phone",
             "store_or_bank_name": "Phone Store",
@@ -218,7 +220,7 @@ def test_pay_obligation_goal_rejects_owed_to_me_debt(client):
     assert blocked.json()["detail"] == "goals.debt_goal_requires_i_owe_debt"
 
 
-def test_pay_obligation_goal_for_payment_plan_targets_next_installment(client):
+def test_pay_obligation_goal_for_payment_plan_targets_next_payment_plan(client):
     headers = create_user_and_token(
         client, "goaldebtplan", "goaldebtplan@example.com", "Password123!"
     )
@@ -231,25 +233,25 @@ def test_pay_obligation_goal_for_payment_plan_targets_next_installment(client):
             "title": "Pay phone plan",
             "target_amount": 500_000,
             "intent": "PAY_OBLIGATION",
-            "linked_debt_id": plan["debt_id"],
+            "linked_payment_plan_id": plan["id"],
         },
         headers=headers,
     )
     assert created.status_code == 201, created.text
     payload = created.json()
     assert payload["intent"] == "PAY_OBLIGATION"
-    assert payload["linked_debt_id"] == plan["debt_id"]
-    assert payload["linked_installment_plan_id"] == plan["id"]
+    assert payload["linked_debt_id"] is None
+    assert payload["linked_payment_plan_id"] == plan["id"]
     assert payload["debt_goal_tracking_mode"] == "FIXED_DEBT_AMOUNT"
     assert payload["target_amount"] == 100_000
     assert payload["remaining_amount"] == 100_000
-    assert payload["installment_target"]["plan_id"] == plan["id"]
-    assert payload["installment_target"]["payment_number"] == 1
-    assert payload["installment_target"]["total_payments"] == 5
-    assert payload["installment_target"]["remaining_amount"] == 100_000
+    assert payload["payment_plan_target"]["plan_id"] == plan["id"]
+    assert payload["payment_plan_target"]["payment_number"] == 1
+    assert payload["payment_plan_target"]["total_payments"] == 5
+    assert payload["payment_plan_target"]["remaining_amount"] == 100_000
 
 
-def test_pay_obligation_goal_payment_applies_to_next_installment(client):
+def test_pay_obligation_goal_payment_applies_to_next_payment_plan(client):
     headers = create_user_and_token(
         client, "goaldebtplanpay", "goaldebtplanpay@example.com", "Password123!"
     )
@@ -263,7 +265,7 @@ def test_pay_obligation_goal_payment_applies_to_next_installment(client):
             "title": "Pay phone plan",
             "target_amount": 500_000,
             "intent": "PAY_OBLIGATION",
-            "linked_debt_id": plan["debt_id"],
+            "linked_payment_plan_id": plan["id"],
         },
         headers=headers,
     )
@@ -290,15 +292,18 @@ def test_pay_obligation_goal_payment_applies_to_next_installment(client):
     assert paid.status_code == 200, paid.text
     result = paid.json()
     assert result["consumed_amount"] == 100_000
-    assert result["debt"]["remaining_amount"] == 400_000
+    assert result["debt"] is None
+    assert result["debt_transaction"] is None
+    assert result["payment_plan"]["remaining_amount"] == 400_000
+    assert result["payment_plan_transaction_id"] is not None
     assert result["goal"]["status"] == "ACTIVE"
     assert result["goal"]["funded_amount"] == 0
     assert result["goal"]["target_amount"] == 100_000
     assert result["goal"]["remaining_amount"] == 100_000
-    assert result["goal"]["installment_target"]["payment_number"] == 2
-    assert result["goal"]["installment_target"]["remaining_amount"] == 100_000
+    assert result["goal"]["payment_plan_target"]["payment_number"] == 2
+    assert result["goal"]["payment_plan_target"]["remaining_amount"] == 100_000
 
-    details = client.get(f"/installments/{plan['id']}/details", headers=headers)
+    details = client.get(f"/payment-plans/{plan['id']}/details", headers=headers)
     assert details.status_code == 200, details.text
     payments = sorted(details.json()["plan"]["payments"], key=lambda item: (item["due_date"], item["id"]))
     assert payments[0]["status"] == "PAID"
@@ -384,7 +389,7 @@ def test_full_pay_obligation_goal_target_tracks_debt_charges_and_forgiveness(cli
 
     forgiveness = client.post(
         f"/debts/{debt['id']}/forgiveness",
-        json={"amount": 50_000, "date": user_timezone_today().isoformat()},
+        json={"amount": 50_000, "component": "PRINCIPAL", "date": user_timezone_today().isoformat()},
         headers=headers,
     )
     assert forgiveness.status_code == 200, forgiveness.text
@@ -1203,7 +1208,7 @@ def test_planned_purchase_direct_settlement_creates_expense_asset_and_consumes_g
     assert _wallet_by_id(client, headers, wallet_id)["current_balance"] == 1_000_000
 
 
-def test_planned_purchase_down_payment_creates_installment_plan_and_next_goal(client, session):
+def test_planned_purchase_down_payment_creates_payment_plan_and_next_goal(client, session):
     headers = create_user_and_token(
         client, "goaldownplan", "goaldownplan@example.com", "Password123!"
     )
@@ -1238,7 +1243,7 @@ def test_planned_purchase_down_payment_creates_installment_plan_and_next_goal(cl
             "settlement_mode": "DIRECT",
             "result_type": "ASSET_PURCHASE",
             "asset_title": "Laptop Asset",
-            "installment_plan": {
+            "payment_plan": {
                 "total_price": 1_000_000,
                 "item_name": "Laptop",
                 "store_or_bank_name": "Tech Store",
@@ -1251,42 +1256,42 @@ def test_planned_purchase_down_payment_creates_installment_plan_and_next_goal(cl
     )
     assert used.status_code == 200, used.text
     payload = used.json()
-    plan = payload["installment_plan"]
+    plan = payload["payment_plan"]
     next_goal = payload["next_payment_goal"]
     assert payload["consumed_amount"] == 400_000
     assert payload["goal"]["status"] == "COMPLETED"
-    assert payload["goal"]["linked_installment_plan_id"] == plan["id"]
+    assert payload["goal"]["linked_payment_plan_id"] == plan["id"]
     assert payload["asset_id"] is not None
     assert plan["total_price"] == 1_000_000
     assert plan["down_payment"] == 400_000
     assert plan["remaining_amount"] == 600_000
-    assert plan["debt_id"] is not None
+    assert plan["debt_id"] is None
     assert len(plan["payments"]) == 3
     assert {payment["amount"] for payment in plan["payments"]} == {200_000}
     assert next_goal["intent"] == "PAY_OBLIGATION"
-    assert next_goal["linked_debt_id"] == plan["debt_id"]
-    assert next_goal["linked_installment_plan_id"] == plan["id"]
+    assert next_goal["linked_debt_id"] is None
+    assert next_goal["linked_payment_plan_id"] == plan["id"]
     assert next_goal["target_amount"] == 200_000
-    assert next_goal["installment_target"]["payment_number"] == 1
+    assert next_goal["payment_plan_target"]["payment_number"] == 1
 
     event = session.get(models.FinancialEvent, payload["expense_event_id"])
     assert event.reference_type == models.ReferenceType.GOAL_PLANNED_PURCHASE
-    assert event.entity_legs[0].installment_plan_id == plan["id"]
+    assert event.entity_legs[0].payment_plan_id == plan["id"]
     assert event.entity_legs[0].amount == 400_000
     duplicate_down_payment_events = session.query(models.FinancialEvent).filter(
-        models.FinancialEvent.reference_type == models.ReferenceType.INSTALLMENT_DOWN_PAYMENT,
+        models.FinancialEvent.reference_type == models.ReferenceType.PAYMENT_PLAN_DOWN_PAYMENT,
         models.FinancialEvent.owner_id == event.owner_id,
     ).count()
     assert duplicate_down_payment_events == 0
 
-    debt = session.get(models.Debt, plan["debt_id"])
-    assert debt.remaining_amount == 600_000
+    plan_record = session.get(models.PaymentPlan, plan["id"])
+    assert plan_record.remaining_amount == 600_000
     asset = session.get(models.Asset, payload["asset_id"])
     assert asset.purchase_value == 1_000_000
     assert _wallet_by_id(client, headers, wallet_id)["current_balance"] == 1_600_000
 
 
-def test_planned_purchase_installment_bridge_rejects_total_not_above_down_payment(client):
+def test_planned_purchase_payment_plan_bridge_rejects_total_not_above_down_payment(client):
     headers = create_user_and_token(
         client, "goaldownbad", "goaldownbad@example.com", "Password123!"
     )
@@ -1314,7 +1319,7 @@ def test_planned_purchase_installment_bridge_rejects_total_not_above_down_paymen
             "category": "Electronics",
             "date": user_timezone_today().isoformat(),
             "settlement_mode": "DIRECT",
-            "installment_plan": {
+            "payment_plan": {
                 "total_price": 400_000,
                 "item_name": "Phone",
                 "months": 3,
@@ -1323,7 +1328,7 @@ def test_planned_purchase_installment_bridge_rejects_total_not_above_down_paymen
         headers=headers,
     )
     assert blocked.status_code == 422
-    assert "goals.installment_total_must_exceed_down_payment" in blocked.text
+    assert "goals.payment_plan_total_must_exceed_down_payment" in blocked.text
 
 
 def test_planned_purchase_rejects_second_purchase(client):

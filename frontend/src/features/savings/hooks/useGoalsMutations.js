@@ -24,7 +24,7 @@ async function invalidateGoalQueries(queryClient) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ["goals"] }),
     queryClient.invalidateQueries({ queryKey: ["debts"] }),
-    queryClient.invalidateQueries({ queryKey: ["installments"] }),
+    queryClient.invalidateQueries({ queryKey: ["payment_plans"] }),
     queryClient.invalidateQueries({ queryKey: ["wallets"] }),
     queryClient.invalidateQueries({ queryKey: ["projects"] }),
     queryClient.invalidateQueries({ queryKey: ["budgets"] }),

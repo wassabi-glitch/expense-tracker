@@ -138,7 +138,7 @@ def test_budget_subcategory_rejects_financing_context_category(client, session):
     today = user_timezone_today()
     legacy_budget = models.Budget(
         owner_id=user.id,
-        category=models.ExpenseCategory.INSTALLMENTS_DEBT,
+        category=models.ExpenseCategory.PAYMENT_PLANS_DEBT,
         monthly_limit=500,
         budget_year=today.year,
         budget_month=today.month,
@@ -1176,7 +1176,7 @@ def test_budget_month_summary_reports_category_obligation_floors_without_global_
             original_due_day=today.day,
         )
     )
-    plan = models.InstallmentPlan(
+    plan = models.PaymentPlan(
         owner_id=user.id,
         item_name="Phone",
         plan_type=models.PaymentPlanType.STORE_INSTALLMENT,
@@ -1185,24 +1185,24 @@ def test_budget_month_summary_reports_category_obligation_floors_without_global_
         remaining_amount=1_000_000,
         months=5,
         payment_count=5,
-        frequency=models.InstallmentFrequency.MONTHLY,
+        frequency=models.PaymentPlanFrequency.MONTHLY,
         monthly_payment_amount=200_000,
         regular_payment_amount=200_000,
-        status=models.InstallmentStatus.ACTIVE,
+        status=models.PaymentPlanStatus.ACTIVE,
         start_date=today,
         expense_category=models.ExpenseCategory.ELECTRONICS,
     )
     session.add(plan)
     session.flush()
     session.add(
-        models.InstallmentPayment(
+        models.PaymentPlanPayment(
             owner_id=user.id,
             plan_id=plan.id,
             amount=200_000,
             paid_amount=0,
             written_off_amount=0,
-            component_type=models.InstallmentPaymentComponentType.PRINCIPAL,
-            status=models.InstallmentPaymentStatus.PENDING,
+            component_type=models.PaymentPlanPaymentComponentType.PRINCIPAL,
+            status=models.PaymentPlanPaymentStatus.PENDING,
             due_date=today,
         )
     )
@@ -1239,7 +1239,7 @@ def test_budget_month_summary_reports_category_obligation_floors_without_global_
     assert floors["Groceries"]["shortfall"] == 200_000
     assert floors["Groceries"]["sources"] == ["recurring"]
     assert floors["Electronics"]["floor_amount"] == 200_000
-    assert floors["Electronics"]["sources"] == ["installment"]
+    assert floors["Electronics"]["sources"] == ["payment_plan"]
     assert floors["Health"]["floor_amount"] == 400_000
     assert floors["Health"]["sources"] == ["debt"]
 
@@ -1309,6 +1309,73 @@ def test_budget_month_summary_classifies_payable_debt_floor_by_expense_route(cli
     housing = next(item for item in smart.json()["category_proposals"] if item["category"] == "Housing")
     assert housing["proposed_monthly_limit"] == 700_000
     assert housing["floor_sources"] == ["debt"]
+
+
+def test_budget_summary_does_not_double_count_linked_payment_plan_debt(client, session):
+    email = "budgetlinkedplandebt@example.com"
+    headers = create_user_and_token(client, "budgetlinkedplandebt", email, "Password123!")
+    today = user_timezone_today()
+    user = _get_user(session, email)
+
+    linked_debt = models.Debt(
+        owner_id=user.id,
+        debt_type=models.DebtType.OWING,
+        origin_kind=models.DebtOriginKind.FINANCED_ASSET_PURCHASE,
+        counterparty_kind=models.DebtCounterpartyKind.STORE,
+        counterparty_name="Legacy store",
+        initial_amount=500_000,
+        remaining_amount=500_000,
+        status=models.DebtStatus.ACTIVE,
+        date=today,
+        expected_return_date=today,
+        expense_category=None,
+    )
+    session.add(linked_debt)
+    session.flush()
+    plan = models.PaymentPlan(
+        owner_id=user.id,
+        debt_id=linked_debt.id,
+        item_name="Phone",
+        plan_type=models.PaymentPlanType.STORE_INSTALLMENT,
+        total_price=500_000,
+        down_payment=0,
+        remaining_amount=500_000,
+        months=1,
+        payment_count=1,
+        frequency=models.PaymentPlanFrequency.MONTHLY,
+        monthly_payment_amount=500_000,
+        regular_payment_amount=500_000,
+        status=models.PaymentPlanStatus.ACTIVE,
+        start_date=today,
+        expense_category=models.ExpenseCategory.ELECTRONICS,
+    )
+    session.add(plan)
+    session.flush()
+    session.add(
+        models.PaymentPlanPayment(
+            owner_id=user.id,
+            plan_id=plan.id,
+            amount=500_000,
+            paid_amount=0,
+            written_off_amount=0,
+            component_type=models.PaymentPlanPaymentComponentType.PRINCIPAL,
+            status=models.PaymentPlanPaymentStatus.PENDING,
+            due_date=today,
+        )
+    )
+    session.commit()
+
+    summary = client.get(
+        f"/budgets/month-summary?budget_year={today.year}&budget_month={today.month}",
+        headers=headers,
+    )
+
+    assert summary.status_code == 200, summary.text
+    payload = summary.json()
+    assert payload["cash_obligation_reserve_total"] == 0
+    floors = {item["category"]: item for item in payload["category_floors"]}
+    assert floors["Electronics"]["floor_amount"] == 500_000
+    assert floors["Electronics"]["sources"] == ["payment_plan"]
 
 
 def test_budget_month_summary_reserves_cash_only_debt_from_plan_backing(client, session):
@@ -1504,6 +1571,7 @@ def test_receivable_debt_requires_explicit_expected_payment_before_budget_backin
             "initial_amount": 3_000_000,
             "currency": "UZS",
             "date": today.isoformat(),
+            "expected_return_date": today.isoformat(),
             "is_money_transferred": False,
         },
         headers=headers,
@@ -1644,6 +1712,7 @@ def test_debt_linked_expected_payment_mark_received_reduces_receivable_balance(c
             "initial_amount": 500_000,
             "currency": "UZS",
             "date": today.isoformat(),
+            "expected_return_date": today.isoformat(),
             "is_money_transferred": False,
         },
         headers=headers,
@@ -1740,6 +1809,7 @@ def test_budget_month_summary_exposes_expected_income_lifecycle_totals_and_items
             "initial_amount": 400_000,
             "currency": "UZS",
             "date": today.isoformat(),
+            "expected_return_date": today.isoformat(),
             "is_money_transferred": False,
         },
         headers=headers,

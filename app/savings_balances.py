@@ -1,6 +1,7 @@
 from fastapi import HTTPException, status
 
 from app import models
+from app.services.obligation_source_service import regular_debt_obligation_filters
 from app.services.goal_funding_service import (
     build_goal_funding_summary,
     get_total_balance,
@@ -27,7 +28,7 @@ def get_net_position(db, user_id: int) -> int:
         .filter(
             models.Debt.owner_id == user_id,
             models.Debt.debt_type == models.DebtType.OWED,
-            models.Debt.status == models.DebtStatus.ACTIVE,
+            *regular_debt_obligation_filters(user_id),
         )
         .all()
     )
@@ -36,7 +37,16 @@ def get_net_position(db, user_id: int) -> int:
         .filter(
             models.Debt.owner_id == user_id,
             models.Debt.debt_type == models.DebtType.OWING,
-            models.Debt.status == models.DebtStatus.ACTIVE,
+            *regular_debt_obligation_filters(user_id),
+        )
+        .all()
+    )
+    payment_plan_remaining = (
+        db.query(models.PaymentPlan.remaining_amount)
+        .filter(
+            models.PaymentPlan.owner_id == user_id,
+            models.PaymentPlan.status != models.PaymentPlanStatus.ARCHIVED,
+            models.PaymentPlan.remaining_amount > 0,
         )
         .all()
     )
@@ -45,4 +55,5 @@ def get_net_position(db, user_id: int) -> int:
         int(total_physical_balance)
         + sum(int(row[0] or 0) for row in total_owed_to_me)
         - sum(int(row[0] or 0) for row in total_i_owe)
+        - sum(int(row[0] or 0) for row in payment_plan_remaining)
     )

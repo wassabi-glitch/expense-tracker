@@ -4,7 +4,7 @@ from app import models
 
 
 DEPRECATED_FINANCING_CONTEXT_CATEGORIES = {
-    models.ExpenseCategory.INSTALLMENTS_DEBT,
+    models.ExpenseCategory.PAYMENT_PLANS_DEBT,
 }
 
 

@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useTranslation } from "react-i18next";
 import { useUpdateDebtMutation } from "../hooks/useDebtsMutations";
 import { useIncomeSourcesQuery } from "@/features/income/hooks/useIncomeQueries";
-import { debtUpdateFormSchema } from "../obligationSchemas";
+import { debtUpdateFormSchema, MIN_SUPPORTED_USER_DATE } from "../obligationSchemas";
 import { formatAmountInput } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { categoryIconMap, SPENDING_CATEGORIES, getCategoryColorClass, getCategoryBgClass } from "@/lib/category";
@@ -47,11 +47,32 @@ export function EditDebtModal({ isOpen, onClose, debt }) {
     const payload = {
       counterparty_name: formCreditor,
       description: formTitle || null,
-      date: formDate || null,
-      expected_return_date: formDueDate || null,
+      date: formDate,
+      expected_return_date: formDueDate,
       expense_category: (!debt.is_money_transferred && debt.debt_type === "OWING" && formExpenseCategory) ? formExpenseCategory : null,
       income_source_id: (!debt.is_money_transferred && debt.debt_type === "OWED" && formIncomeSourceId) ? Number(formIncomeSourceId) : null,
     };
+
+    if (!formDate) {
+      setErrors({ date: t("debts.validation.date.required", { defaultValue: "Debt date is required" }) });
+      return;
+    }
+    if (formDate < MIN_SUPPORTED_USER_DATE) {
+      setErrors({ date: t("validation.date_too_early", { defaultValue: "Date cannot be before 2020-01-01" }) });
+      return;
+    }
+    if (!formDueDate) {
+      setErrors({ expected_return_date: t("debts.validation.expected_date_required", { defaultValue: "Due date is required" }) });
+      return;
+    }
+    if (formDueDate < MIN_SUPPORTED_USER_DATE) {
+      setErrors({ expected_return_date: t("validation.date_too_early", { defaultValue: "Date cannot be before 2020-01-01" }) });
+      return;
+    }
+    if (formDueDate < formDate) {
+      setErrors({ expected_return_date: t("debts.validation.expected_date_before_date", { defaultValue: "Due date cannot be before the debt date" }) });
+      return;
+    }
 
     if (!debt.is_money_transferred && debt.debt_type === "OWING" && !formExpenseCategory) {
       setErrors({ expense_category: t("debts.validation.expense_category.required", { defaultValue: "Expense category is required" }) });
@@ -162,6 +183,7 @@ export function EditDebtModal({ isOpen, onClose, debt }) {
               </label>
               <Input
                 type="date"
+                min={MIN_SUPPORTED_USER_DATE}
                 value={formDate}
                 onChange={e => setFormDate(e.target.value)}
                 className={cn("h-10 sm:h-12 !text-xs md:!text-sm input-refined", errors.date && "border-red-500")}
@@ -174,6 +196,7 @@ export function EditDebtModal({ isOpen, onClose, debt }) {
               </label>
               <Input
                 type="date"
+                min={formDate || MIN_SUPPORTED_USER_DATE}
                 value={formDueDate}
                 onChange={e => setFormDueDate(e.target.value)}
                 className={cn("h-10 sm:h-12 !text-xs md:!text-sm input-refined", errors.expected_return_date && "border-red-500")}

@@ -11,13 +11,13 @@ from ..services.budget_service import (
     get_project_budget_summaries,
 )
 from ..services.debt_payment_service import build_debt_transaction_out, create_debt_payment
-from ..services.debt_policy import evaluate_debt_action, payment_plan_managed_id
-from ..services.debt_service import get_debt_total_charges, reconcile_debt
+from ..services.debt_policy import evaluate_debt_action
+from ..services.debt_service import get_debt_total_charges, get_debt_total_paid, reconcile_debt
 from ..services.expense_posting_service import post_expense_event
 from ..services.goal_funding_service import (
     build_goal_funding_summary,
     build_goal_with_progress,
-    get_next_installment_goal_payment,
+    get_next_payment_plan_goal_payment,
     get_goal_consumed_amount,
     get_goal_funded_amount,
     get_goal_funding_sources,
@@ -550,39 +550,31 @@ def _validate_goal_links(db: Session, user_id: int, payload) -> None:
     _ensure_linked_goal_record(db, models.Debt, user_id, payload.linked_debt_id, "debts.not_found")
     _ensure_linked_goal_record(
         db,
-        models.InstallmentPlan,
+        models.PaymentPlan,
         user_id,
-        payload.linked_installment_plan_id,
-        "installments.not_found",
+        payload.linked_payment_plan_id,
+        "payment_plans.not_found",
     )
     _ensure_linked_expense_event(db, user_id, payload.linked_expense_event_id)
     linked_debt_id = getattr(payload, "linked_debt_id", None)
-    linked_plan_id = getattr(payload, "linked_installment_plan_id", None)
+    linked_plan_id = getattr(payload, "linked_payment_plan_id", None)
     if linked_debt_id is not None and linked_plan_id is not None:
         plan_debt_id = (
-            db.query(models.InstallmentPlan.debt_id)
+            db.query(models.PaymentPlan.debt_id)
             .filter(
-                models.InstallmentPlan.id == linked_plan_id,
-                models.InstallmentPlan.owner_id == user_id,
+                models.PaymentPlan.id == linked_plan_id,
+                models.PaymentPlan.owner_id == user_id,
             )
             .scalar()
         )
         if plan_debt_id is not None and int(plan_debt_id) != int(linked_debt_id):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.installment_plan_link_mismatch")
-
-
-OPEN_PAYABLE_DEBT_STATUSES = {
-    models.DebtStatus.ACTIVE,
-    models.DebtStatus.OVERDUE,
-    models.DebtStatus.DEFAULTED,
-    models.DebtStatus.IN_COLLECTION,
-}
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.payment_plan_link_mismatch")
 
 
 def _build_goal_debt_out(db: Session, debt: models.Debt) -> schemas.DebtOut:
     debt_out = schemas.DebtOut.model_validate(debt)
     debt_out.total_charges = get_debt_total_charges(db, debt.id)
-    debt_out.managed_by_installment_plan_id = payment_plan_managed_id(debt)
+    debt_out.total_paid = get_debt_total_paid(db, debt.id)
     return debt_out
 
 
@@ -617,6 +609,28 @@ def _ensure_no_other_active_debt_goal(
         )
 
 
+def _ensure_no_other_active_payment_plan_goal(
+    db: Session,
+    user_id: int,
+    plan_id: int,
+    *,
+    current_goal_id: int | None = None,
+) -> None:
+    query = db.query(models.Goals.id).filter(
+        models.Goals.owner_id == user_id,
+        models.Goals.intent == models.GoalIntent.PAY_OBLIGATION,
+        models.Goals.linked_payment_plan_id == plan_id,
+        models.Goals.status == models.GoalStatus.ACTIVE,
+    )
+    if current_goal_id is not None:
+        query = query.filter(models.Goals.id != current_goal_id)
+    if query.first() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="goals.payment_plan_goal_already_open",
+        )
+
+
 def _safe_generated_goal_title(title: str) -> str:
     value = title.strip()
     if len(value) > 32:
@@ -626,20 +640,20 @@ def _safe_generated_goal_title(title: str) -> str:
     return value
 
 
-def _create_next_payment_goal_for_installment_plan(
+def _create_next_payment_goal_for_payment_plan(
     db: Session,
     user_id: int,
-    plan: models.InstallmentPlan,
-    bridge: schemas.GoalPurchaseInstallmentCreate,
+    plan: models.PaymentPlan,
+    bridge: schemas.GoalPurchasePaymentPlanCreate,
 ) -> models.Goals | None:
-    if not bridge.create_next_payment_goal or plan.debt_id is None:
+    if not bridge.create_next_payment_goal:
         return None
-    next_payment = get_next_installment_goal_payment(db, user_id, plan.id)
+    next_payment = get_next_payment_plan_goal_payment(db, user_id, plan.id)
     if next_payment is None:
         return None
 
     _ensure_active_goal_capacity(db, user_id)
-    _ensure_no_other_active_debt_goal(db, user_id, int(plan.debt_id))
+    _ensure_no_other_active_payment_plan_goal(db, user_id, int(plan.id))
 
     target_amount = max(
         0,
@@ -658,8 +672,8 @@ def _create_next_payment_goal_for_installment_plan(
         intent=models.GoalIntent.PAY_OBLIGATION,
         debt_goal_tracking_mode=models.DebtGoalTrackingMode.FIXED_DEBT_AMOUNT,
         target_date=bridge.next_goal_target_date or next_payment.due_date,
-        linked_debt_id=plan.debt_id,
-        linked_installment_plan_id=plan.id,
+        linked_debt_id=None,
+        linked_payment_plan_id=plan.id,
         status=models.GoalStatus.ACTIVE,
     )
     db.add(goal)
@@ -667,7 +681,7 @@ def _create_next_payment_goal_for_installment_plan(
     return goal
 
 
-def _create_installment_bridge_from_goal_purchase(
+def _create_payment_plan_bridge_from_goal_purchase(
     db: Session,
     user_id: int,
     *,
@@ -678,18 +692,18 @@ def _create_installment_bridge_from_goal_purchase(
     title: str,
     effective_date: date,
     user_tz: tzinfo,
-) -> tuple[models.InstallmentPlan | None, models.Goals | None]:
-    bridge = payload.installment_plan
+) -> tuple[models.PaymentPlan | None, models.Goals | None]:
+    bridge = payload.payment_plan
     if bridge is None:
         return None, None
     if int(bridge.total_price) <= int(payload.amount):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.installment_total_must_exceed_down_payment")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.payment_plan_total_must_exceed_down_payment")
     if bridge.plan_type == models.PaymentPlanType.BANK_LOAN:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.installment_bridge_bank_loan_not_supported")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.payment_plan_bridge_bank_loan_not_supported")
 
-    from .installments import _create_installment_plan_in_transaction
+    from .payment_plans import _create_payment_plan_in_transaction
 
-    plan_payload = schemas.InstallmentPlanCreate(
+    plan_payload = schemas.PaymentPlanCreate(
         item_name=(bridge.item_name or title).strip(),
         store_or_bank_name=bridge.store_or_bank_name,
         plan_type=bridge.plan_type,
@@ -705,7 +719,7 @@ def _create_installment_bridge_from_goal_purchase(
         wallet_allocations=[],
         track_as_asset=False,
     )
-    plan = _create_installment_plan_in_transaction(
+    plan = _create_payment_plan_in_transaction(
         db,
         user_id,
         plan_payload,
@@ -713,8 +727,8 @@ def _create_installment_bridge_from_goal_purchase(
         existing_down_payment_event=event,
         linked_asset_id=asset.id if asset is not None else None,
     )
-    goal.linked_installment_plan_id = plan.id
-    next_goal = _create_next_payment_goal_for_installment_plan(db, user_id, plan, bridge)
+    goal.linked_payment_plan_id = plan.id
+    next_goal = _create_next_payment_goal_for_payment_plan(db, user_id, plan, bridge)
     return plan, next_goal
 
 
@@ -723,11 +737,43 @@ def _normalize_pay_obligation_goal(
     user_id: int,
     *,
     debt_id: int | None,
+    payment_plan_id: int | None = None,
     target_amount: int,
     currency: str,
     tracking_mode: models.DebtGoalTrackingMode | None,
     current_goal_id: int | None = None,
-) -> tuple[models.Debt, models.DebtGoalTrackingMode, int, int | None]:
+) -> tuple[models.Debt | None, models.DebtGoalTrackingMode, int, int | None]:
+    if debt_id is None and payment_plan_id is not None:
+        plan = (
+            db.query(models.PaymentPlan)
+            .filter(models.PaymentPlan.id == payment_plan_id, models.PaymentPlan.owner_id == user_id)
+            .first()
+        )
+        if plan is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="payment_plans.not_found")
+        if plan.currency != currency:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.currency_mismatch")
+
+        earliest_pending = get_next_payment_plan_goal_payment(db, user_id, plan.id)
+        if earliest_pending is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.payment_plan_fully_paid")
+
+        normalized_target = (
+            int(earliest_pending.amount)
+            - int(earliest_pending.paid_amount)
+            - int(earliest_pending.written_off_amount or 0)
+        )
+        if normalized_target <= 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.payment_plan_fully_paid")
+
+        _ensure_no_other_active_payment_plan_goal(
+            db,
+            user_id,
+            int(plan.id),
+            current_goal_id=current_goal_id,
+        )
+        return None, models.DebtGoalTrackingMode.FIXED_DEBT_AMOUNT, normalized_target, plan.id
+
     if debt_id is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.debt_goal_requires_debt")
 
@@ -740,36 +786,8 @@ def _normalize_pay_obligation_goal(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="debts.not_found")
     if debt.debt_type != models.DebtType.OWING:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.debt_goal_requires_i_owe_debt")
-    if debt.status not in OPEN_PAYABLE_DEBT_STATUSES:
+    if debt.archived_at is not None or int(debt.remaining_amount or 0) <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.debt_goal_requires_open_debt")
-    if int(debt.remaining_amount or 0) <= 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.debt_goal_requires_remaining_debt")
-    plan_id = payment_plan_managed_id(debt)
-    if plan_id is not None:
-        plan = (
-            db.query(models.InstallmentPlan)
-            .filter(models.InstallmentPlan.id == plan_id, models.InstallmentPlan.owner_id == user_id)
-            .first()
-        )
-        if plan is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="installments.not_found")
-
-        earliest_pending = get_next_installment_goal_payment(db, user_id, plan.id)
-        if earliest_pending is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.installment_plan_fully_paid")
-
-        normalized_target = (
-            int(earliest_pending.amount)
-            - int(earliest_pending.paid_amount)
-            - int(earliest_pending.written_off_amount or 0)
-        )
-        if normalized_target <= 0:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.installment_plan_fully_paid")
-
-        mode = models.DebtGoalTrackingMode.FIXED_DEBT_AMOUNT
-        _ensure_no_other_active_debt_goal(db, user_id, debt.id, current_goal_id=current_goal_id)
-
-        return debt, mode, normalized_target, plan.id
     if debt.currency != currency:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.currency_mismatch")
 
@@ -1057,6 +1075,222 @@ def _consume_goal_funding_plan(
     return total
 
 
+def _pay_linked_payment_plan_from_goal(
+    *,
+    db: Session,
+    user_id: int,
+    goal: models.Goals,
+    payload: schemas.GoalDebtPaymentCreate,
+    user_tz: tzinfo,
+) -> schemas.GoalDebtPaymentResultOut:
+    if goal.linked_payment_plan_id is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.debt_goal_requires_debt")
+
+    from .payment_plans import (
+        _apply_amount_to_payment_plan_payment,
+        _build_schedule_allocation_plan,
+        _create_payment_plan_expense_event,
+        _payment_component_type,
+        _remaining_payment_amount,
+        _resolve_existing_plan_category,
+        _take_wallet_allocations,
+        _unpaid_schedule_total,
+    )
+
+    plan = (
+        db.query(models.PaymentPlan)
+        .options(
+            selectinload(models.PaymentPlan.payments).selectinload(models.PaymentPlanPayment.allocations),
+        )
+        .filter(
+            models.PaymentPlan.id == goal.linked_payment_plan_id,
+            models.PaymentPlan.owner_id == user_id,
+        )
+        .with_for_update()
+        .first()
+    )
+    if plan is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="payment_plans.not_found")
+    if plan.status == models.PaymentPlanStatus.ARCHIVED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.archived_locked")
+
+    amount = int(payload.amount)
+    if amount <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.payment.amount_required")
+    if amount > _unpaid_schedule_total(plan):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.payment.amount_exceeds_schedule")
+
+    next_payment = get_next_payment_plan_goal_payment(db, user_id, plan.id)
+    if next_payment is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.payment_plan_fully_paid")
+    if amount > _remaining_payment_amount(next_payment):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.payment_plan_payment_exceeds_next_payment")
+
+    payment_allocations = _resolve_goal_payment_allocations(
+        db,
+        user_id,
+        goal,
+        payload.payment_allocations,
+        amount,
+    )
+    _validate_goal_funded_payment_wallets_are_owned_money(payment_allocations)
+    payment_plan = [(int(wallet.id), int(payment_amount)) for wallet, payment_amount in payment_allocations]
+    funding_plan = _build_direct_payment_funding_plan(
+        db=db,
+        user_id=user_id,
+        goal=goal,
+        payment_plan=payment_plan,
+        require_full_coverage=True,
+    )
+
+    schedule_allocations = _build_schedule_allocation_plan(plan, amount)
+    paid_date = payload.date or today_in_tz(user_tz)
+    payment_category = _resolve_existing_plan_category(plan, None)
+    if plan.expense_category is None:
+        plan.expense_category = payment_category
+
+    component_totals: dict[models.PaymentPlanPaymentComponentType, int] = {}
+    component_order: list[models.PaymentPlanPaymentComponentType] = []
+    for payment, allocation_amount in schedule_allocations:
+        component_type = _payment_component_type(payment)
+        if component_type not in component_totals:
+            component_order.append(component_type)
+            component_totals[component_type] = 0
+        component_totals[component_type] += int(allocation_amount)
+
+    remaining_wallet_allocations = [
+        {"wallet_id": int(wallet.id), "amount": int(payment_amount)}
+        for wallet, payment_amount in payment_allocations
+    ]
+    financial_events_by_component: dict[models.PaymentPlanPaymentComponentType, models.FinancialEvent] = {}
+    for component_type in component_order:
+        component_amount = int(component_totals[component_type])
+        component_allocations = _take_wallet_allocations(remaining_wallet_allocations, component_amount)
+        is_charge = component_type == models.PaymentPlanPaymentComponentType.CHARGE
+        financial_events_by_component[component_type] = _create_payment_plan_expense_event(
+            db,
+            user_id,
+            title=f"{plan.item_name} {'charge ' if is_charge else ''}payment",
+            amount=component_amount,
+            category=models.ExpenseCategory.DEBT_CHARGES if is_charge else plan.expense_category,
+            expense_date=paid_date,
+            wallet_allocations=component_allocations,
+            reference_type=(
+                models.ReferenceType.PAYMENT_PLAN_FEE
+                if is_charge
+                else models.ReferenceType.PAYMENT_PLAN_PAYMENT
+            ),
+            payment_plan_id=plan.id,
+            subcategory_id=None if is_charge else plan.expense_subcategory_id,
+            project_id=None if is_charge else plan.project_id,
+            project_subcategory_id=None if is_charge else plan.project_subcategory_id,
+            note=payload.note or f"{plan.item_name} payment_plan payment",
+            user_tz=user_tz,
+        )
+
+    payment_plan_transaction = models.PaymentPlanTransaction(
+        owner_id=user_id,
+        plan_id=plan.id,
+        amount=amount,
+        date=paid_date,
+        note=payload.note or f"Goal payment for {plan.item_name}",
+    )
+    db.add(payment_plan_transaction)
+    db.flush()
+
+    for wallet, payment_amount in payment_allocations:
+        db.add(models.PaymentPlanTransactionWalletAllocation(
+            owner_id=user_id,
+            plan_id=plan.id,
+            payment_plan_transaction_id=payment_plan_transaction.id,
+            wallet_id=wallet.id,
+            amount=int(payment_amount),
+        ))
+
+    plan.remaining_amount = int(plan.remaining_amount or 0) - amount
+    ledger_entries_by_component: dict[models.PaymentPlanPaymentComponentType, models.PaymentPlanLedgerEntry] = {}
+    linked_event_id: int | None = None
+    for component_type in component_order:
+        component_amount = int(component_totals[component_type])
+        is_charge = component_type == models.PaymentPlanPaymentComponentType.CHARGE
+        financial_event = financial_events_by_component.get(component_type)
+        if linked_event_id is None and financial_event is not None:
+            linked_event_id = financial_event.id
+        ledger_entry = models.PaymentPlanLedgerEntry(
+            owner_id=user_id,
+            plan_id=plan.id,
+            financial_event_id=financial_event.id if financial_event is not None else None,
+            source_transaction_id=payment_plan_transaction.id,
+            entry_type=models.PaymentPlanLedgerEntryType.PAYMENT,
+            amount_delta=-component_amount,
+            principal_delta=0 if is_charge else -component_amount,
+            charge_delta=-component_amount if is_charge else 0,
+            balance_after=int(plan.remaining_amount or 0),
+            entry_date=paid_date,
+            source=models.PaymentPlanLedgerEntrySource.USER,
+            note=payment_plan_transaction.note,
+        )
+        db.add(ledger_entry)
+        db.flush()
+        ledger_entries_by_component[component_type] = ledger_entry
+
+    for payment, allocation_amount in schedule_allocations:
+        component_type = _payment_component_type(payment)
+        _apply_amount_to_payment_plan_payment(
+            db,
+            owner_id=user_id,
+            payment=payment,
+            amount=allocation_amount,
+            paid_date=paid_date,
+            debt_transaction=payment_plan_transaction,
+            debt_ledger_entry=ledger_entries_by_component[component_type],
+            note=payload.note,
+        )
+
+    if linked_event_id is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.payment_plan_payment_missing_event")
+    consumed_amount = _consume_goal_funding_plan(
+        db,
+        user_id,
+        goal,
+        funding_plan,
+        linked_event_id=linked_event_id,
+    )
+
+    if plan.status != models.PaymentPlanStatus.ARCHIVED:
+        plan.status = (
+            models.PaymentPlanStatus.PAID
+            if int(plan.remaining_amount or 0) <= 0 and _unpaid_schedule_total(plan) <= 0
+            else models.PaymentPlanStatus.ACTIVE
+        )
+
+    reserved_after = get_goal_funded_amount(db, user_id, goal.id)
+    if plan.status == models.PaymentPlanStatus.PAID:
+        goal.status = models.GoalStatus.COMPLETED
+        goal.completion_mode = models.GoalCompletionMode.GOAL_FUNDED
+    else:
+        sync_goal_status(goal, reserved_after)
+
+    db.commit()
+    db.refresh(goal)
+    db.refresh(plan)
+    db.refresh(payment_plan_transaction)
+    return schemas.GoalDebtPaymentResultOut(
+        goal=build_goal_with_progress(
+            db,
+            user_id,
+            goal,
+            get_goal_funded_amount(db, user_id, goal.id),
+            released_amount=get_goal_released_amount(db, user_id, goal.id),
+            linked_project_id=get_goal_linked_project_id(db, user_id, goal.id),
+            today=today_in_tz(user_tz),
+        ),
+        payment_plan=schemas.PaymentPlanWithPaymentsOut.model_validate(plan),
+        payment_plan_transaction_id=payment_plan_transaction.id,
+        consumed_amount=consumed_amount,
+    )
+
+
 def _return_goal_funding_plan_entries(
     db: Session,
     user_id: int,
@@ -1255,11 +1489,12 @@ def create_goal(
             db,
             current_user.id,
             debt_id=payload.linked_debt_id,
+            payment_plan_id=payload.linked_payment_plan_id,
             target_amount=target_amount,
             currency=payload.currency,
             tracking_mode=debt_goal_tracking_mode,
         )
-        payload.linked_installment_plan_id = linked_plan_id
+        payload.linked_payment_plan_id = linked_plan_id
 
     goal = models.Goals(
         owner_id=current_user.id,
@@ -1272,7 +1507,7 @@ def create_goal(
         target_date=payload.target_date,
         linked_asset_id=payload.linked_asset_id,
         linked_debt_id=payload.linked_debt_id,
-        linked_installment_plan_id=payload.linked_installment_plan_id,
+        linked_payment_plan_id=payload.linked_payment_plan_id,
         linked_expense_event_id=payload.linked_expense_event_id,
         status=models.GoalStatus.ACTIVE,
     )
@@ -1332,17 +1567,23 @@ def update_goal(
         if "linked_debt_id" in payload.model_fields_set
         else goal.linked_debt_id
     )
+    next_plan_id = (
+        payload.linked_payment_plan_id
+        if "linked_payment_plan_id" in payload.model_fields_set
+        else goal.linked_payment_plan_id
+    )
     if next_intent == models.GoalIntent.PAY_OBLIGATION:
         _debt, normalized_debt_goal_mode, normalized_target_amount, linked_plan_id = _normalize_pay_obligation_goal(
             db,
             current_user.id,
             debt_id=next_debt_id,
+            payment_plan_id=next_plan_id,
             target_amount=normalized_target_amount,
             currency=next_currency,
             tracking_mode=normalized_debt_goal_mode,
             current_goal_id=goal.id,
         )
-        goal.linked_installment_plan_id = linked_plan_id
+        goal.linked_payment_plan_id = linked_plan_id
         debt_progress_amount = (
             int(funded_amount)
             if linked_plan_id is not None
@@ -1381,7 +1622,7 @@ def update_goal(
     link_fields = {
         "linked_asset_id",
         "linked_debt_id",
-        "linked_installment_plan_id",
+        "linked_payment_plan_id",
         "linked_expense_event_id",
     }
     if any(field in payload.model_fields_set for field in link_fields):
@@ -1390,8 +1631,8 @@ def update_goal(
             goal.linked_asset_id = payload.linked_asset_id
         if "linked_debt_id" in payload.model_fields_set:
             goal.linked_debt_id = payload.linked_debt_id
-        if "linked_installment_plan_id" in payload.model_fields_set:
-            goal.linked_installment_plan_id = payload.linked_installment_plan_id
+        if "linked_payment_plan_id" in payload.model_fields_set:
+            goal.linked_payment_plan_id = payload.linked_payment_plan_id
         if "linked_expense_event_id" in payload.model_fields_set:
             goal.linked_expense_event_id = payload.linked_expense_event_id
     if "target_date" in payload.model_fields_set:
@@ -2010,7 +2251,7 @@ def record_planned_purchase_goal(
             entry.linked_event_id = event.id
 
         asset = None
-        asset_purchase_value = int(payload.installment_plan.total_price) if payload.installment_plan else int(payload.amount)
+        asset_purchase_value = int(payload.payment_plan.total_price) if payload.payment_plan else int(payload.amount)
         if payload.result_type == schemas.PlannedPurchaseResultType.ASSET_PURCHASE:
             asset = models.Asset(
                 owner_id=current_user.id,
@@ -2031,7 +2272,7 @@ def record_planned_purchase_goal(
         goal.status = models.GoalStatus.COMPLETED
         db.flush()
 
-        installment_plan, next_payment_goal = _create_installment_bridge_from_goal_purchase(
+        payment_plan, next_payment_goal = _create_payment_plan_bridge_from_goal_purchase(
             db,
             current_user.id,
             goal=goal,
@@ -2045,8 +2286,8 @@ def record_planned_purchase_goal(
 
         db.commit()
         db.refresh(goal)
-        if installment_plan is not None:
-            db.refresh(installment_plan)
+        if payment_plan is not None:
+            db.refresh(payment_plan)
         if next_payment_goal is not None:
             db.refresh(next_payment_goal)
         return schemas.GoalUseResultOut(
@@ -2065,9 +2306,9 @@ def record_planned_purchase_goal(
             consumed_amount=0,
             released_amount=released_amount,
             outside_goal_amount=int(payload.amount),
-            installment_plan=(
-                schemas.InstallmentPlanWithPaymentsOut.model_validate(installment_plan)
-                if installment_plan is not None
+            payment_plan=(
+                schemas.PaymentPlanWithPaymentsOut.model_validate(payment_plan)
+                if payment_plan is not None
                 else None
             ),
             next_payment_goal=(
@@ -2146,7 +2387,7 @@ def record_planned_purchase_goal(
     )
 
     asset = None
-    asset_purchase_value = int(payload.installment_plan.total_price) if payload.installment_plan else int(payload.amount)
+    asset_purchase_value = int(payload.payment_plan.total_price) if payload.payment_plan else int(payload.amount)
     if payload.result_type == schemas.PlannedPurchaseResultType.ASSET_PURCHASE:
         asset = models.Asset(
             owner_id=current_user.id,
@@ -2167,7 +2408,7 @@ def record_planned_purchase_goal(
     goal.status = models.GoalStatus.COMPLETED
     db.flush()
 
-    installment_plan, next_payment_goal = _create_installment_bridge_from_goal_purchase(
+    payment_plan, next_payment_goal = _create_payment_plan_bridge_from_goal_purchase(
         db,
         current_user.id,
         goal=goal,
@@ -2181,8 +2422,8 @@ def record_planned_purchase_goal(
 
     db.commit()
     db.refresh(goal)
-    if installment_plan is not None:
-        db.refresh(installment_plan)
+    if payment_plan is not None:
+        db.refresh(payment_plan)
     if next_payment_goal is not None:
         db.refresh(next_payment_goal)
     return schemas.GoalUseResultOut(
@@ -2201,9 +2442,9 @@ def record_planned_purchase_goal(
         consumed_amount=consumed_amount,
         released_amount=released_amount,
         outside_goal_amount=max(int(payload.amount) - int(consumed_amount), 0),
-        installment_plan=(
-            schemas.InstallmentPlanWithPaymentsOut.model_validate(installment_plan)
-            if installment_plan is not None
+        payment_plan=(
+            schemas.PaymentPlanWithPaymentsOut.model_validate(payment_plan)
+            if payment_plan is not None
             else None
         ),
         next_payment_goal=(
@@ -2250,6 +2491,14 @@ def pay_linked_debt_from_goal(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.archived_read_only")
     if goal.status == models.GoalStatus.COMPLETED:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.completed_read_only")
+    if goal.linked_debt_id is None and goal.linked_payment_plan_id is not None:
+        return _pay_linked_payment_plan_from_goal(
+            db=db,
+            user_id=current_user.id,
+            goal=goal,
+            payload=payload,
+            user_tz=user_tz,
+        )
     if goal.linked_debt_id is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.debt_goal_requires_debt")
 
@@ -2263,154 +2512,8 @@ def pay_linked_debt_from_goal(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="debts.not_found")
     if debt.debt_type != models.DebtType.OWING:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.debt_goal_requires_i_owe_debt")
-    if debt.status not in OPEN_PAYABLE_DEBT_STATUSES:
+    if debt.archived_at is not None or int(debt.remaining_amount or 0) <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.debt_goal_requires_open_debt")
-    managed_plan_id = payment_plan_managed_id(debt)
-    if managed_plan_id is not None:
-        from .installments import (
-            _apply_schedule_allocation_plan,
-            _build_schedule_allocation_plan,
-            _ledger_entries_by_component,
-            _remaining_payment_amount,
-            _retag_installment_payment_event,
-            _schedule_component_amounts,
-            _sync_plan_from_debt,
-            _unpaid_schedule_total,
-        )
-
-        _raise_debt_policy_denied(
-            evaluate_debt_action(
-                db,
-                debt,
-                models.DebtActionKind.RECORD_PAYMENT,
-                allow_payment_plan_managed=True,
-            )
-        )
-        sync_debt_goal_targets(db, current_user.id, debt.id)
-        db.flush()
-
-        plan = (
-            db.query(models.InstallmentPlan)
-            .options(
-                selectinload(models.InstallmentPlan.payments).selectinload(models.InstallmentPayment.allocations),
-                selectinload(models.InstallmentPlan.debt),
-            )
-            .filter(
-                models.InstallmentPlan.id == managed_plan_id,
-                models.InstallmentPlan.owner_id == current_user.id,
-            )
-            .with_for_update()
-            .first()
-        )
-        if plan is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="installments.not_found")
-        if goal.linked_installment_plan_id is not None and int(goal.linked_installment_plan_id) != int(plan.id):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.installment_plan_link_mismatch")
-        goal.linked_installment_plan_id = plan.id
-
-        amount = int(payload.amount)
-        if amount <= 0:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.payment.amount_required")
-        if amount > _unpaid_schedule_total(plan):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="installments.payment.amount_exceeds_schedule")
-
-        next_payment = get_next_installment_goal_payment(db, current_user.id, plan.id)
-        if next_payment is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.installment_plan_fully_paid")
-        next_payment_remaining = _remaining_payment_amount(next_payment)
-        if amount > next_payment_remaining:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.installment_payment_exceeds_next_payment")
-        schedule_allocations = _build_schedule_allocation_plan(plan, amount)
-        principal_amount, charge_amount = _schedule_component_amounts(schedule_allocations)
-
-        payment_allocations = _resolve_goal_payment_allocations(
-            db,
-            current_user.id,
-            goal,
-            payload.payment_allocations,
-            amount,
-        )
-        _validate_goal_funded_payment_wallets_are_owned_money(payment_allocations)
-        payment_plan = [(int(wallet.id), int(payment_amount)) for wallet, payment_amount in payment_allocations]
-        funding_plan = _build_direct_payment_funding_plan(
-            db=db,
-            user_id=current_user.id,
-            goal=goal,
-            payment_plan=payment_plan,
-            require_full_coverage=True,
-        )
-
-        debt_transaction, ledger_entry = create_debt_payment(
-            db,
-            debt,
-            amount=amount,
-            transaction_date=payload.date or today_in_tz(user_tz),
-            wallet_allocations=[
-                schemas.DebtTransactionWalletAllocationIn(
-                    wallet_id=wallet.id,
-                    amount=int(payment_amount),
-                )
-                for wallet, payment_amount in payment_allocations
-            ],
-            note=payload.note or f"Goal payment for {plan.item_name}",
-            income_source_id=payload.income_source_id,
-            enforce_goal_protection=False,
-            principal_amount_override=principal_amount,
-            charge_amount_override=charge_amount,
-        )
-        ledger_entries_by_component = _ledger_entries_by_component(db, debt_transaction.id)
-        for component_ledger_entry in ledger_entries_by_component.values():
-            _retag_installment_payment_event(db, component_ledger_entry)
-        ledger_entry = next(iter(ledger_entries_by_component.values()), ledger_entry)
-        if ledger_entry.financial_event_id is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.debt_payment_missing_event")
-
-        _apply_schedule_allocation_plan(
-            db,
-            allocations=schedule_allocations,
-            paid_date=payload.date or today_in_tz(user_tz),
-            debt_transaction=debt_transaction,
-            ledger_entries_by_component=ledger_entries_by_component,
-            wallet_id=payment_allocations[0][0].id if len(payment_allocations) == 1 else None,
-            note=payload.note,
-        )
-        consumed_amount = _consume_goal_funding_plan(
-            db,
-            current_user.id,
-            goal,
-            funding_plan,
-            linked_event_id=ledger_entry.financial_event_id,
-        )
-
-        _sync_plan_from_debt(db, plan, debt)
-        debt = reconcile_debt(db, debt.id)
-        sync_debt_goal_targets(db, current_user.id, debt.id)
-        reserved_after = get_goal_funded_amount(db, current_user.id, goal.id)
-        if plan.status == models.InstallmentStatus.PAID or int(debt.remaining_amount or 0) == 0:
-            goal.status = models.GoalStatus.COMPLETED
-            goal.completion_mode = models.GoalCompletionMode.GOAL_FUNDED
-            goal.linked_debt_transaction_id = debt_transaction.id
-        else:
-            sync_goal_status(goal, reserved_after)
-
-        db.commit()
-        db.refresh(goal)
-        db.refresh(debt)
-        db.refresh(debt_transaction)
-        return schemas.GoalDebtPaymentResultOut(
-            goal=build_goal_with_progress(
-                db,
-                current_user.id,
-                goal,
-                get_goal_funded_amount(db, current_user.id, goal.id),
-                released_amount=get_goal_released_amount(db, current_user.id, goal.id),
-                linked_project_id=get_goal_linked_project_id(db, current_user.id, goal.id),
-                today=today_in_tz(user_tz),
-            ),
-            debt=_build_goal_debt_out(db, debt),
-            debt_transaction=build_debt_transaction_out(debt_transaction),
-            consumed_amount=consumed_amount,
-        )
 
     _raise_debt_policy_denied(evaluate_debt_action(db, debt, models.DebtActionKind.RECORD_PAYMENT))
 

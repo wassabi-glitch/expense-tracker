@@ -8,13 +8,13 @@ from .wallet_value_service import can_hold_goal_funds
 
 from app import models, schemas
 
-INSTALLMENT_GOAL_TARGET_STATUSES = (
-    models.InstallmentPaymentStatus.PENDING,
-    models.InstallmentPaymentStatus.PARTIAL,
+PAYMENT_PLAN_GOAL_TARGET_STATUSES = (
+    models.PaymentPlanPaymentStatus.PENDING,
+    models.PaymentPlanPaymentStatus.PARTIAL,
 )
 
 
-def _installment_payment_remaining(payment: models.InstallmentPayment) -> int:
+def _payment_plan_payment_remaining(payment: models.PaymentPlanPayment) -> int:
     return max(
         0,
         int(payment.amount or 0)
@@ -80,40 +80,40 @@ def get_goal_consumed_amount(db: Session, user_id: int, goal_id: int) -> int:
     return max(int(total), 0)
 
 
-def get_next_installment_goal_payment(
+def get_next_payment_plan_goal_payment(
     db: Session,
     user_id: int,
     plan_id: int,
-) -> models.InstallmentPayment | None:
+) -> models.PaymentPlanPayment | None:
     return (
-        db.query(models.InstallmentPayment)
+        db.query(models.PaymentPlanPayment)
         .filter(
-            models.InstallmentPayment.owner_id == user_id,
-            models.InstallmentPayment.plan_id == plan_id,
-            models.InstallmentPayment.status.in_(INSTALLMENT_GOAL_TARGET_STATUSES),
+            models.PaymentPlanPayment.owner_id == user_id,
+            models.PaymentPlanPayment.plan_id == plan_id,
+            models.PaymentPlanPayment.status.in_(PAYMENT_PLAN_GOAL_TARGET_STATUSES),
             (
-                models.InstallmentPayment.amount
-                > models.InstallmentPayment.paid_amount + models.InstallmentPayment.written_off_amount
+                models.PaymentPlanPayment.amount
+                > models.PaymentPlanPayment.paid_amount + models.PaymentPlanPayment.written_off_amount
             ),
         )
-        .order_by(models.InstallmentPayment.due_date.asc(), models.InstallmentPayment.id.asc())
+        .order_by(models.PaymentPlanPayment.due_date.asc(), models.PaymentPlanPayment.id.asc())
         .first()
     )
 
 
-def get_goal_installment_target(
+def get_goal_payment_plan_target(
     db: Session,
     user_id: int,
     goal: models.Goals,
-) -> schemas.GoalInstallmentTargetOut | None:
-    if goal.intent != models.GoalIntent.PAY_OBLIGATION or goal.linked_installment_plan_id is None:
+) -> schemas.GoalPaymentPlanTargetOut | None:
+    if goal.intent != models.GoalIntent.PAY_OBLIGATION or goal.linked_payment_plan_id is None:
         return None
 
     plan = (
-        db.query(models.InstallmentPlan)
+        db.query(models.PaymentPlan)
         .filter(
-            models.InstallmentPlan.id == goal.linked_installment_plan_id,
-            models.InstallmentPlan.owner_id == user_id,
+            models.PaymentPlan.id == goal.linked_payment_plan_id,
+            models.PaymentPlan.owner_id == user_id,
         )
         .first()
     )
@@ -121,27 +121,27 @@ def get_goal_installment_target(
         return None
 
     payments = (
-        db.query(models.InstallmentPayment)
+        db.query(models.PaymentPlanPayment)
         .filter(
-            models.InstallmentPayment.owner_id == user_id,
-            models.InstallmentPayment.plan_id == plan.id,
+            models.PaymentPlanPayment.owner_id == user_id,
+            models.PaymentPlanPayment.plan_id == plan.id,
         )
-        .order_by(models.InstallmentPayment.due_date.asc(), models.InstallmentPayment.id.asc())
+        .order_by(models.PaymentPlanPayment.due_date.asc(), models.PaymentPlanPayment.id.asc())
         .all()
     )
     target = next(
         (
             payment
             for payment in payments
-            if payment.status in INSTALLMENT_GOAL_TARGET_STATUSES
-            and _installment_payment_remaining(payment) > 0
+            if payment.status in PAYMENT_PLAN_GOAL_TARGET_STATUSES
+            and _payment_plan_payment_remaining(payment) > 0
         ),
         None,
     )
     if target is None:
         return None
 
-    return schemas.GoalInstallmentTargetOut(
+    return schemas.GoalPaymentPlanTargetOut(
         plan_id=int(plan.id),
         payment_id=int(target.id),
         payment_number=payments.index(target) + 1,
@@ -149,7 +149,7 @@ def get_goal_installment_target(
         due_date=target.due_date,
         amount=int(target.amount or 0),
         paid_amount=int(target.paid_amount or 0),
-        remaining_amount=_installment_payment_remaining(target),
+        remaining_amount=_payment_plan_payment_remaining(target),
         status=target.status,
         item_name=plan.item_name,
     )
@@ -577,13 +577,7 @@ def sync_debt_goal_targets(db: Session, user_id: int, debt_id: int) -> None:
     if debt is None:
         return
         
-    from .debt_policy import payment_plan_managed_id
-    plan_id = payment_plan_managed_id(debt)
-
     goal_statuses = [models.GoalStatus.ACTIVE]
-    if plan_id is not None:
-        goal_statuses.append(models.GoalStatus.COMPLETED)
-
     goals = (
         db.query(models.Goals)
         .filter(
@@ -597,41 +591,6 @@ def sync_debt_goal_targets(db: Session, user_id: int, debt_id: int) -> None:
     for goal in goals:
         consumed_amount = get_goal_consumed_amount(db, user_id, goal.id)
         unreleased_amount = get_goal_funded_amount(db, user_id, goal.id)
-
-        if plan_id is not None:
-            # Path 1: Installment Plan Auto-Heal Logic
-            goal.linked_installment_plan_id = plan_id
-            earliest_pending = get_next_installment_goal_payment(db, user_id, plan_id)
-            
-            if earliest_pending:
-                next_target = _installment_payment_remaining(earliest_pending)
-                if next_target > 0:
-                    goal.target_amount = next_target
-                    if goal.status == models.GoalStatus.COMPLETED:
-                        goal.status = models.GoalStatus.ACTIVE
-                        goal.completion_mode = None
-                        goal.linked_debt_transaction_id = None
-                    if unreleased_amount > next_target:
-                        _return_excess_goal_funding(db, user_id, goal.id, unreleased_amount - next_target)
-                else:
-                    return_all_unreleased_goal_funding(db, user_id, goal.id)
-                    goal.target_amount = max(int(goal.target_amount or 0), 1)
-                    goal.status = models.GoalStatus.COMPLETED
-                    goal.completion_mode = (
-                        models.GoalCompletionMode.GOAL_FUNDED
-                        if consumed_amount > 0
-                        else models.GoalCompletionMode.ACHIEVED_OUTSIDE_RESERVED_FUNDS
-                    )
-            else:
-                return_all_unreleased_goal_funding(db, user_id, goal.id)
-                goal.target_amount = max(int(goal.target_amount or 0), 1)
-                goal.status = models.GoalStatus.COMPLETED
-                goal.completion_mode = (
-                    models.GoalCompletionMode.GOAL_FUNDED
-                    if consumed_amount > 0
-                    else models.GoalCompletionMode.ACHIEVED_OUTSIDE_RESERVED_FUNDS
-                )
-            continue
 
         payable_through_goal = int(consumed_amount) + int(debt.remaining_amount or 0)
         if goal.debt_goal_tracking_mode == models.DebtGoalTrackingMode.FULL_REMAINING_DEBT:
@@ -661,17 +620,17 @@ def build_goal_with_progress(
 ) -> schemas.GoalWithProgressOut:
     target_amount = int(goal.target_amount or 0)
     consumed_amount = get_goal_consumed_amount(db, user_id, goal.id)
-    is_installment_goal = goal.intent == models.GoalIntent.PAY_OBLIGATION and goal.linked_installment_plan_id is not None
+    is_payment_plan_goal = goal.intent == models.GoalIntent.PAY_OBLIGATION and goal.linked_payment_plan_id is not None
     is_real_world_completed = (
         goal.status == models.GoalStatus.COMPLETED
         and (
             goal.linked_expense_event_id is not None
             or goal.linked_debt_transaction_id is not None
-            or is_installment_goal
+            or is_payment_plan_goal
         )
     )
     unreleased_amount = max(int(funded_amount) - int(released_amount), 0)
-    if is_installment_goal:
+    if is_payment_plan_goal:
         progress_amount = int(unreleased_amount)
     elif goal.intent == models.GoalIntent.PAY_OBLIGATION:
         progress_amount = int(consumed_amount) + int(unreleased_amount)
@@ -707,7 +666,7 @@ def build_goal_with_progress(
     goal_out.funding_sources = get_goal_funding_sources(db, user_id, goal.id)
     goal_out.time_state = time_state
     goal_out.days_until_target = days_until_target
-    goal_out.installment_target = get_goal_installment_target(db, user_id, goal)
+    goal_out.payment_plan_target = get_goal_payment_plan_target(db, user_id, goal)
     return goal_out
 
 

@@ -12,7 +12,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 import logging
 
 from app.session import get_db
-from app.routers import users, expenses, budget, analytics, auth, oauth_google, recurring, income, savings, goals, payments, notifications, debts, installments, wallets, assets, projects, expected_inflows, subcategories
+from app.routers import users, expenses, budget, analytics, auth, oauth_google, recurring, income, savings, goals, payments, notifications, debts, payment_plans, wallets, assets, projects, expected_inflows, subcategories
 from .models import ExpenseCategory
 from config import settings
 
@@ -122,7 +122,7 @@ def get_categories():
     return [
         category.value
         for category in ExpenseCategory
-        if category != ExpenseCategory.INSTALLMENTS_DEBT
+        if category != ExpenseCategory.PAYMENT_PLANS_DEBT
     ]
 
 
@@ -141,7 +141,7 @@ app.include_router(goals.router)
 app.include_router(payments.router)
 app.include_router(notifications.router)
 app.include_router(debts.router)
-app.include_router(installments.router)
+app.include_router(payment_plans.router)
 app.include_router(wallets.router)
 app.include_router(assets.router)
 app.include_router(projects.router)

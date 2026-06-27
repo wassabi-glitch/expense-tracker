@@ -83,7 +83,7 @@ def _origin_event_has_linked_dependency(
     if has_debt:
         return True
     return any(
-        leg.debt_id or leg.installment_plan_id or leg.installment_payment_id
+        leg.debt_id or leg.payment_plan_id or leg.payment_plan_payment_id
         for leg in event.entity_legs
     )
 

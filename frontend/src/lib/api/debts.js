@@ -6,9 +6,19 @@ export async function getDebtsSummary() {
 }
 
 export async function getDebts(params = {}) {
-  const { debt_type, status, search, limit = 50, skip = 0 } = params;
+  const {
+    debt_type,
+    status,
+    lifecycle_status,
+    time_status,
+    include_archived,
+    archived,
+    search,
+    limit = 50,
+    skip = 0,
+  } = params;
   const response = await apiClient.get("/debts", {
-    params: { debt_type, status, search, limit, skip },
+    params: { debt_type, status, lifecycle_status, time_status, include_archived, archived, search, limit, skip },
   });
   return response.data;
 }
@@ -35,6 +45,16 @@ export async function createDebt(payload) {
 
 export async function updateDebt(debtId, payload) {
   const response = await apiClient.patch(`/debts/${debtId}`, payload);
+  return response.data;
+}
+
+export async function archiveDebt(debtId) {
+  const response = await apiClient.post(`/debts/${debtId}/archive`);
+  return response.data;
+}
+
+export async function restoreDebt(debtId) {
+  const response = await apiClient.post(`/debts/${debtId}/restore`);
   return response.data;
 }
 
@@ -118,11 +138,6 @@ export async function forgiveDebtAmount(debtId, payload = {}) {
   return response.data;
 }
 
-export async function settleDebt(debtId, payload) {
-  const response = await apiClient.post(`/debts/${debtId}/settlements`, payload);
-  return response.data;
-}
-
 export async function adjustDebtBalance(debtId, payload) {
   const response = await apiClient.post(`/debts/${debtId}/balance-adjustments`, payload);
   return response.data;
@@ -138,9 +153,9 @@ export async function updateDebtFormalDetails(debtId, payload) {
   return response.data;
 }
 
-export async function generateInstallments(debtId, payload) {
+export async function generatePaymentPlans(debtId, payload) {
   const response = await apiClient.post(
-    `/debts/${debtId}/generate-installments`,
+    `/debts/${debtId}/generate-payment-plans`,
     payload
   );
   return response.data;

@@ -1,5 +1,8 @@
 {
   "appName": "Sarflog",
+  "validation": {
+    "date_too_early": "Дата не может быть раньше 2020-01-01"
+  },
   "common": {
     "back": "Назад",
     "cancel": "Отмена",
@@ -1068,7 +1071,7 @@
     "amountUzs": "Сумма (UZS)",
     "tabs": {
       "debts": "Долги",
-      "installments": "Рассрочка"
+      "payment_plans": "Рассрочка"
     },
     "totalIOwe": "Я должен",
     "iOwe": "Я должен",
@@ -1144,8 +1147,8 @@
     "interest": "Процент %",
     "totalAmount": "Общая сумма",
     "totalAmountPlaceholder": "Всего к оплате",
-    "installmentPlan": "План рассрочки",
-    "installmentCount": "Количество платежей",
+    "paymentPlan": "План рассрочки",
+    "payment_planCount": "Количество платежей",
     "frequency": "Периодичность",
     "weekly": "Еженедельно",
     "monthly": "Ежемесячно",
@@ -1169,7 +1172,9 @@
       },
       "date": {
         "required": "Дата обязательна"
-      }
+      },
+      "expected_date_required": "Дата погашения обязательна",
+      "expected_date_before_date": "Дата погашения не может быть раньше даты долга"
     },
     "delete": {
       "title": "Удалить долг",
@@ -1194,9 +1199,9 @@
       "failedToRecordPayment": "Не удалось записать платеж",
       "paymentUpdated": "Платеж обновлен",
       "failedToUpdatePayment": "Не удалось обновить платеж",
-      "installmentsGenerated": "Рассрочка создана",
-      "installmentsGenerated_detail": "Создано {{count}} платежей",
-      "failedToGenerateInstallments": "Не удалось создать рассрочку",
+      "paymentPlansGenerated": "Рассрочка создана",
+      "paymentPlansGenerated_detail": "Создано {{count}} платежей",
+      "failedToGeneratePaymentPlans": "Не удалось создать рассрочку",
       "transactionDeleted": "Платеж удален",
       "failedToDeleteTransaction": "Не удалось удалить платеж"
     }

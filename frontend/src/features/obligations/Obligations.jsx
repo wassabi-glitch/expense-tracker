@@ -4,20 +4,20 @@ import { useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { DebtsTab } from "./components/DebtsTab";
-import { InstallmentsTab } from "./components/InstallmentsTab";
+import { PaymentPlansTab } from "./components/PaymentPlansTab";
 
 export default function Obligations() {
   const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState(() => {
-    return searchParams.get("tab") === "installments" || searchParams.get("pay_plan") ? "installments" : "debts";
+    return searchParams.get("tab") === "payment_plans" || searchParams.get("pay_plan") ? "payment_plans" : "debts";
   });
 
   useEffect(() => {
     const tab = searchParams.get("tab");
     const payPlan = searchParams.get("pay_plan");
-    if (tab === "installments" || payPlan) {
-      setActiveTab("installments");
+    if (tab === "payment_plans" || payPlan) {
+      setActiveTab("payment_plans");
     }
   }, [searchParams]);
 
@@ -31,15 +31,15 @@ export default function Obligations() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full grid-cols-2 lg:w-[400px]">
           <TabsTrigger value="debts">{t("debts.tabs.debts", { defaultValue: "Debts" })}</TabsTrigger>
-          <TabsTrigger value="installments">{t("debts.tabs.installments", { defaultValue: "Payment Plans" })}</TabsTrigger>
+          <TabsTrigger value="payment_plans">{t("debts.tabs.payment_plans", { defaultValue: "Payment Plans" })}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="debts" className="mt-6">
           <DebtsTab />
         </TabsContent>
 
-        <TabsContent value="installments" className="mt-6 space-y-6">
-          <InstallmentsTab />
+        <TabsContent value="payment_plans" className="mt-6 space-y-6">
+          <PaymentPlansTab />
         </TabsContent>
       </Tabs>
     </div>

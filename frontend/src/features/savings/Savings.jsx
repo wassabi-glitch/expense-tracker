@@ -31,7 +31,7 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { getCurrentUser, getDebts } from "@/lib/api";
+import { getCurrentUser, getDebts, getPaymentPlans } from "@/lib/api";
 import { getBudgets, getBudgetSubcategories } from "@/lib/api/budgets";
 import { CATEGORIES } from "@/lib/category";
 import { localizeApiError } from "@/lib/errorMessages";
@@ -134,7 +134,7 @@ const PURCHASE_STEPS = {
   REVIEW: 6,
 };
 
-const INSTALLMENT_FREQUENCIES = [
+const PAYMENT_PLAN_FREQUENCIES = [
   { value: "WEEKLY", label: "Weekly" },
   { value: "BIWEEKLY", label: "Every two weeks" },
   { value: "MONTHLY", label: "Monthly" },
@@ -434,11 +434,11 @@ export default function Savings() {
     asset_title: "",
     adjust_target_to_purchase_amount: false,
     payment_after_purchase: "PAID_IN_FULL",
-    installment_total_price: "",
-    installment_item_name: "",
-    installment_store_or_bank_name: "",
-    installment_months: "",
-    installment_frequency: "MONTHLY",
+    payment_plan_total_price: "",
+    payment_plan_item_name: "",
+    payment_plan_store_or_bank_name: "",
+    payment_plan_months: "",
+    payment_plan_frequency: "MONTHLY",
     create_next_payment_goal: true,
     next_payment_goal_title: "",
     next_payment_goal_target_date: "",
@@ -459,7 +459,12 @@ export default function Savings() {
 
   const debtGoalOptionsQuery = useQuery({
     queryKey: ["debts", "goal-create-options"],
-    queryFn: () => getDebts({ debt_type: "OWING", status: "ACTIVE", limit: 100 }),
+    queryFn: () => getDebts({ debt_type: "OWING", lifecycle_status: "OPEN", limit: 100 }),
+    enabled: isPremium,
+  });
+  const paymentPlanGoalOptionsQuery = useQuery({
+    queryKey: ["payment-plans", "goal-create-options"],
+    queryFn: () => getPaymentPlans({ limit: 100 }),
     enabled: isPremium,
   });
 
@@ -491,15 +496,17 @@ export default function Savings() {
       Number(debt.remaining_amount || 0) > 0
     ));
   }, [debtGoalOptionsQuery.data]);
-  const paymentPlanGoalOptions = useMemo(
-    () => debtGoalOptions.filter((debt) => debt.managed_by_installment_plan_id),
-    [debtGoalOptions]
-  );
-  const standardDebtGoalOptions = useMemo(
-    () => debtGoalOptions.filter((debt) => !debt.managed_by_installment_plan_id),
-    [debtGoalOptions]
-  );
-  const selectedDebt = debtGoalOptions.find((debt) => String(debt.id) === String(goalForm.linked_debt_id));
+  const paymentPlanGoalOptions = useMemo(() => {
+    const items = Array.isArray(paymentPlanGoalOptionsQuery.data)
+      ? paymentPlanGoalOptionsQuery.data
+      : Array.isArray(paymentPlanGoalOptionsQuery.data?.items)
+        ? paymentPlanGoalOptionsQuery.data.items
+        : [];
+    return items.filter((plan) => Number(plan.remaining_amount || 0) > 0 && plan.status !== "ARCHIVED");
+  }, [paymentPlanGoalOptionsQuery.data]);
+  const standardDebtGoalOptions = debtGoalOptions;
+  const selectedDebtOptions = goalForm.obligation_type === "PAYMENT_PLAN" ? paymentPlanGoalOptions : standardDebtGoalOptions;
+  const selectedDebt = selectedDebtOptions.find((item) => String(item.id) === String(goalForm.linked_debt_id));
   const selectedDebtAlreadyHasGoal = selectedDebt ? openDebtGoalIds.has(Number(selectedDebt.id)) : false;
   const eligibleWallets = summary.wallets.filter((wallet) => wallet.eligible_for_goal_funding);
   const fundingSummaryWallets = summary.wallets.filter((wallet) =>
@@ -664,13 +671,13 @@ export default function Savings() {
   const purchaseAmountDiffersFromTarget = selectedUseGoal?.intent === "PLANNED_PURCHASE" &&
     useAmount > 0 &&
     useAmount !== Number(selectedUseGoal?.target_amount || 0);
-  const installmentBridgeSelected = selectedUseGoal?.intent === "PLANNED_PURCHASE" &&
-    useForm.payment_after_purchase === "INSTALLMENT";
-  const installmentTotalPrice = parseAmountInput(useForm.installment_total_price);
-  const installmentMonths = Number(useForm.installment_months || 0);
-  const installmentRemainingAmount = Math.max(installmentTotalPrice - paymentTotal, 0);
-  const installmentRegularPayment = installmentMonths > 0
-    ? Math.floor(installmentRemainingAmount / installmentMonths)
+  const payment_planBridgeSelected = selectedUseGoal?.intent === "PLANNED_PURCHASE" &&
+    useForm.payment_after_purchase === "PAYMENT_PLAN";
+  const payment_planTotalPrice = parseAmountInput(useForm.payment_plan_total_price);
+  const payment_planMonths = Number(useForm.payment_plan_months || 0);
+  const payment_planRemainingAmount = Math.max(payment_planTotalPrice - paymentTotal, 0);
+  const payment_planRegularPayment = payment_planMonths > 0
+    ? Math.floor(payment_planRemainingAmount / payment_planMonths)
     : 0;
   const selectedUseBudget = useMemo(() => {
     if (!useForm.category) return null;
@@ -743,11 +750,11 @@ export default function Savings() {
       asset_title: "",
       adjust_target_to_purchase_amount: false,
       payment_after_purchase: "PAID_IN_FULL",
-      installment_total_price: "",
-      installment_item_name: goal.intent === "PLANNED_PURCHASE" ? goal.title : "",
-      installment_store_or_bank_name: "",
-      installment_months: "",
-      installment_frequency: "MONTHLY",
+      payment_plan_total_price: "",
+      payment_plan_item_name: goal.intent === "PLANNED_PURCHASE" ? goal.title : "",
+      payment_plan_store_or_bank_name: "",
+      payment_plan_months: "",
+      payment_plan_frequency: "MONTHLY",
       create_next_payment_goal: true,
       next_payment_goal_title: goal.intent === "PLANNED_PURCHASE" ? `${goal.title} payment`.slice(0, 32) : "",
       next_payment_goal_target_date: "",
@@ -1062,7 +1069,7 @@ export default function Savings() {
 
   const createGoalTargetAmount = () => {
     if (goalForm.intent === "PAY_OBLIGATION") {
-      if (selectedDebt?.managed_by_installment_plan_id) {
+      if (goalForm.obligation_type === "PAYMENT_PLAN") {
         return Number(selectedDebt?.remaining_amount || 0);
       }
       if (goalForm.debt_saving_mode === "FULL") {
@@ -1123,7 +1130,7 @@ export default function Savings() {
       if (goalForm.intent === "PAY_OBLIGATION") {
         const remainingDebt = Number(selectedDebt?.remaining_amount || 0);
         if (!remainingDebt) return "Choose a debt with money still left to pay.";
-        if (!selectedDebt?.managed_by_installment_plan_id) {
+        if (goalForm.obligation_type !== "PAYMENT_PLAN") {
           if (targetAmount <= 0) return "Enter the amount you want to save.";
           if (targetAmount > remainingDebt) return "This is higher than what is left on that debt.";
         }
@@ -1356,7 +1363,7 @@ export default function Savings() {
           setUseError("Confirm the target update before completing this planned purchase.");
           return;
         }
-        if (installmentBridgeSelected && !canContinueInstallmentStep) {
+        if (payment_planBridgeSelected && !canContinuePaymentPlanStep) {
           setUseError("For a payment plan, the full price must be higher than today's payment and the number of payments must be valid.");
           return;
         }
@@ -1367,22 +1374,22 @@ export default function Savings() {
         if (payload.result_type === "ASSET_PURCHASE" && parsed.data.asset_title?.trim()) {
           payload.asset_title = parsed.data.asset_title.trim();
         }
-        if (installmentBridgeSelected) {
-          payload.installment_plan = {
-            total_price: installmentTotalPrice,
-            item_name: (useForm.installment_item_name || selectedUseGoal.title || "").trim(),
-            months: installmentMonths,
-            frequency: useForm.installment_frequency || "MONTHLY",
+        if (payment_planBridgeSelected) {
+          payload.payment_plan = {
+            total_price: payment_planTotalPrice,
+            item_name: (useForm.payment_plan_item_name || selectedUseGoal.title || "").trim(),
+            months: payment_planMonths,
+            frequency: useForm.payment_plan_frequency || "MONTHLY",
             create_next_payment_goal: Boolean(useForm.create_next_payment_goal),
           };
-          if (useForm.installment_store_or_bank_name?.trim()) {
-            payload.installment_plan.store_or_bank_name = useForm.installment_store_or_bank_name.trim();
+          if (useForm.payment_plan_store_or_bank_name?.trim()) {
+            payload.payment_plan.store_or_bank_name = useForm.payment_plan_store_or_bank_name.trim();
           }
           if (useForm.next_payment_goal_title?.trim()) {
-            payload.installment_plan.next_goal_title = useForm.next_payment_goal_title.trim();
+            payload.payment_plan.next_goal_title = useForm.next_payment_goal_title.trim();
           }
           if (useForm.next_payment_goal_target_date) {
-            payload.installment_plan.next_goal_target_date = useForm.next_payment_goal_target_date;
+            payload.payment_plan.next_goal_target_date = useForm.next_payment_goal_target_date;
           }
         }
         await recordPurchaseMutation.mutateAsync({ goalId: selectedUseGoal.id, payload });
@@ -1415,10 +1422,10 @@ export default function Savings() {
     (!isGoalFundedWalletPayment || (paymentWalletsAllFundingSources && paymentRowsWithinFundingAmounts)) &&
     (!isOutsideReservedFundsPurchase || paymentWalletsAllNonFundingSources);
   const canContinueClassificationStep = !purchaseAmountDiffersFromTarget || Boolean(useForm.adjust_target_to_purchase_amount);
-  const canContinueInstallmentStep = !installmentBridgeSelected || (
-    installmentTotalPrice > paymentTotal &&
-    installmentMonths > 0 &&
-    Boolean(useForm.installment_frequency)
+  const canContinuePaymentPlanStep = !payment_planBridgeSelected || (
+    payment_planTotalPrice > paymentTotal &&
+    payment_planMonths > 0 &&
+    Boolean(useForm.payment_plan_frequency)
   );
 
   const renderCreateGoalStep = () => {
@@ -1609,7 +1616,7 @@ export default function Savings() {
     if (createGoalStep === 4 && goalForm.intent === "PAY_OBLIGATION") {
       const remainingDebt = Number(selectedDebt?.remaining_amount || 0);
 
-      if (selectedDebt?.managed_by_installment_plan_id) {
+      if (goalForm.obligation_type === "PAYMENT_PLAN") {
         return (
           <div className="space-y-4">
             <div className="rounded-lg border border-primary/50 bg-primary/10 p-4">
@@ -1712,7 +1719,7 @@ export default function Savings() {
 
     const targetAmount = createGoalTargetAmount();
     const linkedDebtName = selectedDebt?.counterparty_name;
-    const isSelectedPaymentPlan = goalForm.intent === "PAY_OBLIGATION" && Boolean(selectedDebt?.managed_by_installment_plan_id);
+    const isSelectedPaymentPlan = goalForm.intent === "PAY_OBLIGATION" && goalForm.obligation_type === "PAYMENT_PLAN";
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-primary/20 bg-primary/10 p-4">
@@ -1860,10 +1867,10 @@ export default function Savings() {
         <p className="mt-1 text-muted-foreground">
           Choose the wallet money that actually paid the person or company. Sarflog will use the reserved goal money and reduce the debt.
         </p>
-        {selectedUseGoal?.installment_target ? (
+        {selectedUseGoal?.payment_plan_target ? (
           <p className="mt-2 text-xs text-muted-foreground">
-            This goal is currently saving for payment {selectedUseGoal.installment_target.payment_number} of {selectedUseGoal.installment_target.total_payments}
-            {selectedUseGoal.installment_target.due_date ? `, due ${formatDisplayDate(selectedUseGoal.installment_target.due_date, appLang)}` : ""}.
+            This goal is currently saving for payment {selectedUseGoal.payment_plan_target.payment_number} of {selectedUseGoal.payment_plan_target.total_payments}
+            {selectedUseGoal.payment_plan_target.due_date ? `, due ${formatDisplayDate(selectedUseGoal.payment_plan_target.due_date, appLang)}` : ""}.
           </p>
         ) : null}
       </div>
@@ -2598,7 +2605,7 @@ export default function Savings() {
                 description: "Today's checkout paid the full price.",
               },
               {
-                value: "INSTALLMENT",
+                value: "PAYMENT_PLAN",
                 title: "Yes, I will pay the rest over time",
                 description: "Sarflog will create the payment plan for what is left.",
               },
@@ -2615,10 +2622,10 @@ export default function Savings() {
                 onClick={() => setUseForm((prev) => ({
                   ...prev,
                   payment_after_purchase: option.value,
-                  installment_total_price: option.value === "INSTALLMENT" && !prev.installment_total_price
+                  payment_plan_total_price: option.value === "PAYMENT_PLAN" && !prev.payment_plan_total_price
                     ? formatAmountInput(String(Math.max(paymentTotal, Number(selectedUseGoal?.target_amount || 0))))
-                    : prev.installment_total_price,
-                  installment_item_name: prev.installment_item_name || selectedUseGoal?.title || "",
+                    : prev.payment_plan_total_price,
+                  payment_plan_item_name: prev.payment_plan_item_name || selectedUseGoal?.title || "",
                 }))}
               >
                 <span className="block text-sm font-medium">{option.title}</span>
@@ -2627,15 +2634,15 @@ export default function Savings() {
             ))}
           </div>
 
-          {installmentBridgeSelected ? (
+          {payment_planBridgeSelected ? (
             <div className="space-y-4 rounded-md border border-border bg-muted/20 p-3">
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Full price</label>
                   <Input
                     inputMode="numeric"
-                    value={useForm.installment_total_price}
-                    onChange={(event) => setUseForm((prev) => ({ ...prev, installment_total_price: formatAmountInput(event.target.value) }))}
+                    value={useForm.payment_plan_total_price}
+                    onChange={(event) => setUseForm((prev) => ({ ...prev, payment_plan_total_price: formatAmountInput(event.target.value) }))}
                     placeholder="0"
                   />
                   <p className="text-xs text-muted-foreground">Today's payment was {money(paymentTotal)}.</p>
@@ -2644,8 +2651,8 @@ export default function Savings() {
                   <label className="text-sm font-medium">Number of future payments</label>
                   <Input
                     inputMode="numeric"
-                    value={useForm.installment_months}
-                    onChange={(event) => setUseForm((prev) => ({ ...prev, installment_months: event.target.value.replace(/\D/g, "").slice(0, 3) }))}
+                    value={useForm.payment_plan_months}
+                    onChange={(event) => setUseForm((prev) => ({ ...prev, payment_plan_months: event.target.value.replace(/\D/g, "").slice(0, 3) }))}
                     placeholder="12"
                   />
                 </div>
@@ -2654,16 +2661,16 @@ export default function Savings() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium">What did you buy?</label>
                   <Input
-                    value={useForm.installment_item_name}
-                    onChange={(event) => setUseForm((prev) => ({ ...prev, installment_item_name: event.target.value }))}
+                    value={useForm.payment_plan_item_name}
+                    onChange={(event) => setUseForm((prev) => ({ ...prev, payment_plan_item_name: event.target.value }))}
                     placeholder={selectedUseGoal?.title || "Laptop"}
                   />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Store or lender</label>
                   <Input
-                    value={useForm.installment_store_or_bank_name}
-                    onChange={(event) => setUseForm((prev) => ({ ...prev, installment_store_or_bank_name: event.target.value }))}
+                    value={useForm.payment_plan_store_or_bank_name}
+                    onChange={(event) => setUseForm((prev) => ({ ...prev, payment_plan_store_or_bank_name: event.target.value }))}
                     placeholder="Optional"
                   />
                 </div>
@@ -2672,12 +2679,12 @@ export default function Savings() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium">How often?</label>
                   <Select
-                    value={useForm.installment_frequency || "MONTHLY"}
-                    onValueChange={(value) => setUseForm((prev) => ({ ...prev, installment_frequency: value }))}
+                    value={useForm.payment_plan_frequency || "MONTHLY"}
+                    onValueChange={(value) => setUseForm((prev) => ({ ...prev, payment_plan_frequency: value }))}
                   >
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {INSTALLMENT_FREQUENCIES.map((frequency) => (
+                      {PAYMENT_PLAN_FREQUENCIES.map((frequency) => (
                         <SelectItem key={frequency.value} value={frequency.value}>
                           {frequency.label}
                         </SelectItem>
@@ -2687,9 +2694,9 @@ export default function Savings() {
                 </div>
                 <div className="rounded-md bg-background/60 px-3 py-2 text-sm">
                   <p className="text-xs text-muted-foreground">Left after today</p>
-                  <p className="mt-1 font-semibold">{money(installmentRemainingAmount)}</p>
+                  <p className="mt-1 font-semibold">{money(payment_planRemainingAmount)}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    About {money(installmentRegularPayment)} each time before final rounding.
+                    About {money(payment_planRegularPayment)} each time before final rounding.
                   </p>
                 </div>
               </div>
@@ -2723,7 +2730,7 @@ export default function Savings() {
                   </div>
                 </div>
               ) : null}
-              {installmentTotalPrice > 0 && installmentTotalPrice <= paymentTotal ? (
+              {payment_planTotalPrice > 0 && payment_planTotalPrice <= paymentTotal ? (
                 <p className="text-xs text-destructive">The full price must be higher than today's payment.</p>
               ) : null}
             </div>
@@ -2760,8 +2767,8 @@ export default function Savings() {
           <div className="flex justify-between gap-3">
             <span className="text-muted-foreground">After checkout</span>
             <span className="font-medium text-right">
-              {installmentBridgeSelected
-                ? `${money(installmentRemainingAmount)} left over ${installmentMonths || 0} payments`
+              {payment_planBridgeSelected
+                ? `${money(payment_planRemainingAmount)} left over ${payment_planMonths || 0} payments`
                 : "Purchase finished"}
             </span>
           </div>
@@ -2796,7 +2803,7 @@ export default function Savings() {
       return (
         <DialogFooter>
           <Button variant="outline" onClick={() => setPurchaseStep(PURCHASE_STEPS.PAYMENT_PLAN)}>Back</Button>
-          <Button onClick={submitUseGoal} disabled={recordPurchaseMutation.isPending || !canContinuePaymentStep || !canContinueClassificationStep || !canContinueInstallmentStep}>
+          <Button onClick={submitUseGoal} disabled={recordPurchaseMutation.isPending || !canContinuePaymentStep || !canContinueClassificationStep || !canContinuePaymentPlanStep}>
             Record purchase
           </Button>
         </DialogFooter>
@@ -2807,7 +2814,7 @@ export default function Savings() {
     const disabled = (
       (purchaseStep === PURCHASE_STEPS.PAYMENT && !canContinuePaymentStep) ||
       (purchaseStep === PURCHASE_STEPS.CLASSIFICATION && !canContinueClassificationStep) ||
-      (purchaseStep === PURCHASE_STEPS.PAYMENT_PLAN && !canContinueInstallmentStep)
+      (purchaseStep === PURCHASE_STEPS.PAYMENT_PLAN && !canContinuePaymentPlanStep)
     );
     return (
       <DialogFooter>
@@ -2914,10 +2921,10 @@ export default function Savings() {
                             Target {money(goal.target_amount)}
                             {goal.target_date ? ` / ${formatDisplayDate(goal.target_date, appLang)}` : ""}
                           </CardDescription>
-                          {goal.installment_target ? (
+                          {goal.payment_plan_target ? (
                             <p className="mt-1 text-xs text-muted-foreground">
-                              Saving for payment {goal.installment_target.payment_number} of {goal.installment_target.total_payments}
-                              {goal.installment_target.due_date ? ` / due ${formatDisplayDate(goal.installment_target.due_date, appLang)}` : ""}
+                              Saving for payment {goal.payment_plan_target.payment_number} of {goal.payment_plan_target.total_payments}
+                              {goal.payment_plan_target.due_date ? ` / due ${formatDisplayDate(goal.payment_plan_target.due_date, appLang)}` : ""}
                             </p>
                           ) : null}
                         </div>
@@ -3053,7 +3060,7 @@ export default function Savings() {
       </div>
 
       <Dialog open={createGoalOpen} onOpenChange={handleCreateGoalOpenChange}>
-        <DialogContent className="max-w-4xl p-0">
+        <DialogContent className="sm:max-w-4xl p-0">
           <DialogHeader>
             <div className="border-b border-border px-6 py-5">
               <DialogTitle>Create goal</DialogTitle>
@@ -3087,7 +3094,7 @@ export default function Savings() {
       </Dialog>
 
       <Dialog open={Boolean(fundingDialog)} onOpenChange={(open) => !open && setFundingDialog(null)}>
-        <DialogContent className="max-w-2xl p-0">
+        <DialogContent className="sm:max-w-2xl p-0">
           <DialogHeader className="border-b border-border px-5 py-4 pr-12 sm:px-6">
             <DialogTitle>
               {fundingMode === "allocate" ? "Reserve money" : "Unreserve money"}
@@ -3234,7 +3241,7 @@ export default function Savings() {
           }
         }}
       >
-        <DialogContent className="max-w-2xl p-0">
+        <DialogContent className="sm:max-w-2xl p-0">
           <DialogHeader className="border-b border-border px-5 py-4 pr-12 sm:px-6">
             <DialogTitle>Prepare payment</DialogTitle>
             <DialogDescription>
@@ -3257,7 +3264,7 @@ export default function Savings() {
       </Dialog>
 
       <Dialog open={moveFundingConfirmOpen} onOpenChange={setMoveFundingConfirmOpen}>
-        <DialogContent className="max-w-xl">
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Confirm payment prep</DialogTitle>
             <DialogDescription>
@@ -3275,7 +3282,7 @@ export default function Savings() {
       </Dialog>
 
       <Dialog open={Boolean(useDialog)} onOpenChange={(open) => !open && setUseDialog(null)}>
-        <DialogContent className={selectedUseGoal?.intent === "PLANNED_PURCHASE" || selectedUseGoal?.intent === "PAY_OBLIGATION" ? "max-w-2xl" : "max-w-xl"}>
+        <DialogContent className={selectedUseGoal?.intent === "PLANNED_PURCHASE" || selectedUseGoal?.intent === "PAY_OBLIGATION" ? "sm:max-w-2xl" : "sm:max-w-xl"}>
           <DialogHeader>
             <DialogTitle>
               {selectedUseGoal?.intent === "RESERVE"
@@ -3360,7 +3367,7 @@ export default function Savings() {
       </Dialog>
 
       <Dialog open={Boolean(activityGoal)} onOpenChange={(open) => !open && setActivityGoal(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{activityGoal?.title ? `${activityGoal.title} activity` : "Goal activity"}</DialogTitle>
             <DialogDescription>

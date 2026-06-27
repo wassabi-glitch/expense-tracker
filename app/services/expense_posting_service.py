@@ -151,8 +151,8 @@ def post_expense_event(
     enforce_goal_protection: bool = True,
     enforce_monthly_budget_limits: bool = True,
     debt_id: int | None = None,
-    installment_plan_id: int | None = None,
-    installment_payment_id: int | None = None,
+    payment_plan_id: int | None = None,
+    payment_plan_payment_id: int | None = None,
 ) -> ExpensePostingResult:
     if local_today is not None and expense_date > local_today:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expenses.date_in_future")
@@ -245,8 +245,8 @@ def post_expense_event(
             project_id=project.id if project is not None else None,
             project_subcategory_id=project_subcategory.id if project_subcategory is not None else None,
             debt_id=debt_id,
-            installment_plan_id=installment_plan_id,
-            installment_payment_id=installment_payment_id,
+            payment_plan_id=payment_plan_id,
+            payment_plan_payment_id=payment_plan_payment_id,
         )
     )
     db.flush()

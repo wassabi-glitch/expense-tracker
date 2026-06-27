@@ -1,4 +1,5 @@
 from datetime import timedelta
+from app import models
 from tests.helpers import create_user_and_token, create_budget, create_expense, user_timezone_today
 
 
@@ -229,3 +230,168 @@ def test_dashboard_summary_negative_remaining(client):
     assert data["remaining"] == -360_000
     assert data["overall_balance"] == 140_000
     assert data["daily_average"] == round(360_000 / max(1, user_timezone_today().day))
+
+
+def test_dashboard_summary_net_position_counts_payment_plan_once(client, session):
+    email = "summaryplanonce@example.com"
+    headers = create_user_and_token(client, "summaryplanonce", email, "Password123!")
+    onboard = client.post(
+        "/users/me/onboarding",
+        json={
+            "life_statuses": ["employed"],
+            "wallets": [{"name": "Cash", "initial_balance": 1_000_000}],
+        },
+        headers=headers,
+    )
+    assert onboard.status_code == 200
+    user = session.query(models.User).filter(models.User.email == email).one()
+    today = user_timezone_today()
+
+    linked_debt = models.Debt(
+        owner_id=user.id,
+        debt_type=models.DebtType.OWING,
+        origin_kind=models.DebtOriginKind.FINANCED_ASSET_PURCHASE,
+        counterparty_kind=models.DebtCounterpartyKind.STORE,
+        counterparty_name="Legacy store",
+        initial_amount=400_000,
+        remaining_amount=400_000,
+        status=models.DebtStatus.ACTIVE,
+        date=today,
+        expected_return_date=today,
+    )
+    regular_debt = models.Debt(
+        owner_id=user.id,
+        debt_type=models.DebtType.OWING,
+        origin_kind=models.DebtOriginKind.CASH_BORROWED,
+        counterparty_kind=models.DebtCounterpartyKind.PERSON,
+        counterparty_name="Friend",
+        initial_amount=100_000,
+        remaining_amount=100_000,
+        status=models.DebtStatus.ACTIVE,
+        date=today,
+        expected_return_date=today,
+    )
+    receivable = models.Debt(
+        owner_id=user.id,
+        debt_type=models.DebtType.OWED,
+        origin_kind=models.DebtOriginKind.CASH_LENT,
+        counterparty_kind=models.DebtCounterpartyKind.PERSON,
+        counterparty_name="Coworker",
+        initial_amount=50_000,
+        remaining_amount=50_000,
+        status=models.DebtStatus.ACTIVE,
+        date=today,
+        expected_return_date=today,
+    )
+    session.add_all([linked_debt, regular_debt, receivable])
+    session.flush()
+    session.add(
+        models.PaymentPlan(
+            owner_id=user.id,
+            debt_id=linked_debt.id,
+            item_name="Phone",
+            plan_type=models.PaymentPlanType.STORE_INSTALLMENT,
+            total_price=400_000,
+            down_payment=0,
+            remaining_amount=400_000,
+            months=1,
+            payment_count=1,
+            frequency=models.PaymentPlanFrequency.MONTHLY,
+            monthly_payment_amount=400_000,
+            regular_payment_amount=400_000,
+            status=models.PaymentPlanStatus.ACTIVE,
+            start_date=today,
+            expense_category=models.ExpenseCategory.ELECTRONICS,
+        )
+    )
+    session.commit()
+
+    res = client.get("/analytics/dashboard-summary", headers=headers)
+
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["overall_balance"] == 1_000_000
+    assert data["net_position"] == 550_000
+
+
+def test_analytics_spending_excludes_legacy_payment_plan_debt_duplicate(client, session):
+    email = "analyticsplanduplicate@example.com"
+    headers = create_user_and_token(client, "analyticsplanduplicate", email, "Password123!")
+    today = user_timezone_today()
+    user = session.query(models.User).filter(models.User.email == email).one()
+
+    debt = models.Debt(
+        owner_id=user.id,
+        debt_type=models.DebtType.OWING,
+        origin_kind=models.DebtOriginKind.FINANCED_ASSET_PURCHASE,
+        counterparty_kind=models.DebtCounterpartyKind.STORE,
+        counterparty_name="Legacy store",
+        initial_amount=200_000,
+        remaining_amount=200_000,
+        status=models.DebtStatus.ACTIVE,
+        date=today,
+        expected_return_date=today,
+    )
+    session.add(debt)
+    session.flush()
+    plan = models.PaymentPlan(
+        owner_id=user.id,
+        debt_id=debt.id,
+        item_name="Phone",
+        plan_type=models.PaymentPlanType.STORE_INSTALLMENT,
+        total_price=200_000,
+        down_payment=0,
+        remaining_amount=200_000,
+        months=1,
+        payment_count=1,
+        frequency=models.PaymentPlanFrequency.MONTHLY,
+        monthly_payment_amount=200_000,
+        regular_payment_amount=200_000,
+        status=models.PaymentPlanStatus.ACTIVE,
+        start_date=today,
+        expense_category=models.ExpenseCategory.ELECTRONICS,
+    )
+    session.add(plan)
+    session.flush()
+    event = models.FinancialEvent(
+        owner_id=user.id,
+        title="Legacy duplicated plan payment",
+        event_type=models.TransactionType.EXPENSE,
+        status=models.FinancialEventStatus.POSTED,
+        date=today,
+    )
+    session.add(event)
+    session.flush()
+    session.add_all(
+        [
+            models.EntityLedger(
+                event_id=event.id,
+                label="Debt leg",
+                amount=200_000,
+                category=models.ExpenseCategory.ELECTRONICS,
+                debt_id=debt.id,
+            ),
+            models.EntityLedger(
+                event_id=event.id,
+                label="Payment plan leg",
+                amount=200_000,
+                category=models.ExpenseCategory.ELECTRONICS,
+                payment_plan_id=plan.id,
+            ),
+        ]
+    )
+    session.commit()
+
+    summary = client.get("/analytics/dashboard-summary", headers=headers)
+    history = client.get("/analytics/history", headers=headers)
+    trend = client.get(f"/analytics/daily-trend?start_date={today.isoformat()}&end_date={today.isoformat()}", headers=headers)
+    breakdown = client.get(f"/analytics/category-breakdown?start_date={today.isoformat()}&end_date={today.isoformat()}", headers=headers)
+
+    assert summary.status_code == 200, summary.text
+    assert history.status_code == 200, history.text
+    assert trend.status_code == 200, trend.text
+    assert breakdown.status_code == 200, breakdown.text
+    assert summary.json()["spent"] == 200_000
+    assert history.json()["total_spent_lifetime"] == 200_000
+    assert trend.json()[0]["amount"] == 200_000
+    assert breakdown.json()[0]["total"] == 200_000

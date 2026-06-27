@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from tests.helpers import create_user_and_token, user_timezone_today
 from app import models
 
@@ -18,6 +20,7 @@ def _create_transferred_debt(client, headers, wallet_id, amount=1_000_000):
             "initial_amount": amount,
             "currency": "UZS",
             "date": today,
+            "expected_return_date": today,
             "is_money_transferred": True,
             "initial_wallet_id": wallet_id,
         },
@@ -44,6 +47,102 @@ def test_debt_creation_writes_initial_ledger_entry(client, session):
     entries = session.query(models.DebtLedgerEntry).filter_by(debt_id=debt["id"]).all()
     assert len(entries) == 1
     assert entries[0].entry_type == models.DebtLedgerEntryType.INITIAL
+
+
+def test_debt_response_derives_lifecycle_and_time_status_from_balance_and_due_date(client):
+    headers = create_user_and_token(client, "debtstate1", "debtstate1@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    yesterday = (user_timezone_today() - timedelta(days=1)).isoformat()
+
+    debt = _create_transferred_debt(client, headers, wallet_id, amount=100_000)
+    updated_due = client.patch(
+        f"/debts/{debt['id']}",
+        json={"date": yesterday, "expected_return_date": yesterday},
+        headers=headers,
+    )
+    assert updated_due.status_code == 200, updated_due.text
+    assert updated_due.json()["lifecycle_status"] == "OPEN"
+    assert updated_due.json()["time_status"] == "OVERDUE"
+
+    payment = client.post(
+        f"/debts/{debt['id']}/payments",
+        json={
+            "amount": 100_000,
+            "date": user_timezone_today().isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet_id, "amount": 100_000}],
+        },
+        headers=headers,
+    )
+    assert payment.status_code == 201, payment.text
+
+    closed = client.get(f"/debts/{debt['id']}", headers=headers)
+    assert closed.status_code == 200, closed.text
+    payload = closed.json()
+    assert payload["remaining_amount"] == 0
+    assert payload["lifecycle_status"] == "CLOSED"
+    assert payload["time_status"] is None
+
+
+def test_debt_archive_is_separate_from_lifecycle_and_hidden_by_default(client):
+    headers = create_user_and_token(client, "debtarchive1", "debtarchive1@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _create_transferred_debt(client, headers, wallet_id, amount=100_000)
+
+    archived = client.post(f"/debts/{debt['id']}/archive", headers=headers)
+    assert archived.status_code == 200, archived.text
+    archived_payload = archived.json()
+    assert archived_payload["is_archived"] is True
+    assert archived_payload["archived_at"] is not None
+    assert archived_payload["lifecycle_status"] == "OPEN"
+    assert archived_payload["remaining_amount"] == 100_000
+
+    ordinary_list = client.get("/debts", headers=headers)
+    assert ordinary_list.status_code == 200, ordinary_list.text
+    assert all(item["id"] != debt["id"] for item in ordinary_list.json()["items"])
+
+    archived_list = client.get("/debts?archived=true", headers=headers)
+    assert archived_list.status_code == 200, archived_list.text
+    archived_items = archived_list.json()["items"]
+    assert [item["id"] for item in archived_items] == [debt["id"]]
+
+    restored = client.post(f"/debts/{debt['id']}/restore", headers=headers)
+    assert restored.status_code == 200, restored.text
+    restored_payload = restored.json()
+    assert restored_payload["is_archived"] is False
+    assert restored_payload["archived_at"] is None
+    assert restored_payload["lifecycle_status"] == "OPEN"
+
+    restored_list = client.get("/debts", headers=headers)
+    assert any(item["id"] == debt["id"] for item in restored_list.json()["items"])
+
+
+def test_closed_debt_can_be_archived_and_restored_as_closed(client):
+    headers = create_user_and_token(client, "debtarchiveclosed", "debtarchiveclosed@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _create_transferred_debt(client, headers, wallet_id, amount=100_000)
+
+    payment = client.post(
+        f"/debts/{debt['id']}/payments",
+        json={
+            "amount": 100_000,
+            "date": user_timezone_today().isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet_id, "amount": 100_000}],
+        },
+        headers=headers,
+    )
+    assert payment.status_code == 201, payment.text
+
+    archived = client.post(f"/debts/{debt['id']}/archive", headers=headers)
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["is_archived"] is True
+    assert archived.json()["lifecycle_status"] == "CLOSED"
+    assert archived.json()["time_status"] is None
+
+    restored = client.post(f"/debts/{debt['id']}/restore", headers=headers)
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["is_archived"] is False
+    assert restored.json()["lifecycle_status"] == "CLOSED"
+    assert restored.json()["time_status"] is None
 
 
 def test_debt_list_projects_negative_wallet_obligations_without_debt_rows(client, session):
@@ -276,8 +375,216 @@ def test_debt_charge_and_payment_reconcile_from_debt_ledger(client):
     payload = detail.json()
     assert payload["remaining_amount"] == 900_000
     assert payload["total_charges"] == 200_000
+    assert payload["total_paid"] == 300_000
     deltas = sorted(entry["amount_delta"] for entry in payload["ledger_entries"])
     assert deltas == [-300_000, 200_000, 1_000_000]
+
+
+def test_debt_charge_reversal_nets_total_charges(client):
+    headers = create_user_and_token(client, "debtledgerchargeback", "debtledgerchargeback@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _create_transferred_debt(client, headers, wallet_id)
+
+    charge = client.post(
+        f"/debts/{debt['id']}/add-charge",
+        json={"amount": 200_000, "reason": "Interest posted by mistake"},
+        headers=headers,
+    )
+    assert charge.status_code == 201, charge.text
+
+    detail = client.get(f"/debts/{debt['id']}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    charge_entry = next(entry for entry in detail.json()["ledger_entries"] if entry["entry_type"] == "CHARGE")
+
+    reversed_response = client.post(
+        f"/debts/{debt['id']}/ledger/{charge_entry['id']}/reverse",
+        json={"note": "Charge reversed"},
+        headers=headers,
+    )
+    assert reversed_response.status_code == 200, reversed_response.text
+    payload = reversed_response.json()
+    assert payload["remaining_amount"] == 1_000_000
+    assert payload["total_charges"] == 0
+    assert payload["total_paid"] == 0
+
+    listed = client.get("/debts", headers=headers)
+    assert listed.status_code == 200, listed.text
+    listed_debt = next(item for item in listed.json()["items"] if item["id"] == debt["id"])
+    assert listed_debt["total_charges"] == 0
+    assert listed_debt["total_paid"] == 0
+
+
+def test_component_aware_forgiveness_can_target_charges_without_touching_principal(client):
+    headers = create_user_and_token(client, "debtforgivecharges", "debtforgivecharges@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _create_transferred_debt(client, headers, wallet_id)
+
+    charge = client.post(
+        f"/debts/{debt['id']}/add-charge",
+        json={"amount": 200_000, "reason": "Late fee"},
+        headers=headers,
+    )
+    assert charge.status_code == 201, charge.text
+
+    forgiven = client.post(
+        f"/debts/{debt['id']}/forgiveness",
+        json={"amount": 150_000, "component": "CHARGES", "note": "Fee waived"},
+        headers=headers,
+    )
+    assert forgiven.status_code == 200, forgiven.text
+    payload = forgiven.json()
+    assert payload["remaining_principal_amount"] == 1_000_000
+    assert payload["remaining_charge_amount"] == 50_000
+    assert payload["remaining_amount"] == 1_050_000
+    assert payload["total_paid"] == 0
+
+    detail = client.get(f"/debts/{debt['id']}", headers=headers).json()
+    forgiveness = next(entry for entry in detail["ledger_entries"] if entry["entry_type"] == "FORGIVENESS")
+    assert forgiveness["principal_delta"] == 0
+    assert forgiveness["charge_delta"] == -150_000
+
+
+def test_component_aware_principal_forgiveness_leaves_charges_open(client):
+    headers = create_user_and_token(client, "debtforgiveprincipal", "debtforgiveprincipal@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _create_transferred_debt(client, headers, wallet_id)
+
+    charge = client.post(
+        f"/debts/{debt['id']}/add-charge",
+        json={"amount": 200_000, "reason": "Interest"},
+        headers=headers,
+    )
+    assert charge.status_code == 201, charge.text
+
+    forgiven = client.post(
+        f"/debts/{debt['id']}/forgiveness",
+        json={"amount": 300_000, "component": "PRINCIPAL", "note": "Original debt reduced"},
+        headers=headers,
+    )
+    assert forgiven.status_code == 200, forgiven.text
+    payload = forgiven.json()
+    assert payload["remaining_principal_amount"] == 700_000
+    assert payload["remaining_charge_amount"] == 200_000
+    assert payload["remaining_amount"] == 900_000
+    assert payload["total_paid"] == 0
+
+
+def test_partial_forgiveness_requires_component_intent(client):
+    headers = create_user_and_token(client, "debtforgiveneedsintent", "debtforgiveneedsintent@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _create_transferred_debt(client, headers, wallet_id)
+
+    response = client.post(
+        f"/debts/{debt['id']}/forgiveness",
+        json={"amount": 100_000, "note": "No component chosen"},
+        headers=headers,
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "debts.forgiveness.component_required"
+
+
+def test_component_aware_balance_correction_can_target_charges(client):
+    headers = create_user_and_token(client, "debtadjustcharges", "debtadjustcharges@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _create_transferred_debt(client, headers, wallet_id)
+
+    charge = client.post(
+        f"/debts/{debt['id']}/add-charge",
+        json={"amount": 200_000, "reason": "Fee"},
+        headers=headers,
+    )
+    assert charge.status_code == 201, charge.text
+
+    adjusted = client.post(
+        f"/debts/{debt['id']}/balance-adjustments",
+        json={"component": "CHARGES", "confirmed_charge_balance": 80_000, "note": "Fee corrected"},
+        headers=headers,
+    )
+    assert adjusted.status_code == 200, adjusted.text
+    payload = adjusted.json()
+    assert payload["remaining_principal_amount"] == 1_000_000
+    assert payload["remaining_charge_amount"] == 80_000
+    assert payload["remaining_amount"] == 1_080_000
+    assert payload["total_paid"] == 0
+
+    detail = client.get(f"/debts/{debt['id']}", headers=headers).json()
+    adjustment = next(entry for entry in detail["ledger_entries"] if entry["entry_type"] == "ADJUSTMENT")
+    assert adjustment["principal_delta"] == 0
+    assert adjustment["charge_delta"] == -120_000
+
+
+def test_downward_balance_correction_does_not_count_as_paid(client):
+    headers = create_user_and_token(client, "debtledgeradjust", "debtledgeradjust@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _create_transferred_debt(client, headers, wallet_id)
+
+    adjusted = client.post(
+        f"/debts/{debt['id']}/balance-adjustments",
+        json={"confirmed_balance": 800_000, "note": "Statement correction"},
+        headers=headers,
+    )
+    assert adjusted.status_code == 200, adjusted.text
+    payload = adjusted.json()
+    assert payload["remaining_amount"] == 800_000
+    assert payload["total_paid"] == 0
+
+    detail = client.get(f"/debts/{debt['id']}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["total_paid"] == 0
+
+
+def test_reversal_blocks_older_entry_when_newer_same_debt_action_exists(client):
+    headers = create_user_and_token(client, "debtreverselifo", "debtreverselifo@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _create_transferred_debt(client, headers, wallet_id)
+
+    charge = client.post(
+        f"/debts/{debt['id']}/add-charge",
+        json={"amount": 200_000, "reason": "Fee"},
+        headers=headers,
+    )
+    assert charge.status_code == 201, charge.text
+    payment = client.post(
+        f"/debts/{debt['id']}/payments",
+        json={
+            "amount": 100_000,
+            "date": user_timezone_today().isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet_id, "amount": 100_000}],
+        },
+        headers=headers,
+    )
+    assert payment.status_code == 201, payment.text
+
+    detail = client.get(f"/debts/{debt['id']}", headers=headers).json()
+    charge_entry = next(entry for entry in detail["ledger_entries"] if entry["entry_type"] == "CHARGE")
+    blocked = client.post(
+        f"/debts/{debt['id']}/ledger/{charge_entry['id']}/reverse",
+        json={"note": "Trying old reversal"},
+        headers=headers,
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"] == "debts.policy.reverse_latest_first"
+
+
+def test_reversal_lifo_is_scoped_to_each_debt(client):
+    headers = create_user_and_token(client, "debtreversescope", "debtreversescope@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    first = _create_transferred_debt(client, headers, wallet_id, amount=500_000)
+    second = _create_transferred_debt(client, headers, wallet_id, amount=500_000)
+
+    first_charge = client.post(f"/debts/{first['id']}/add-charge", json={"amount": 50_000}, headers=headers)
+    assert first_charge.status_code == 201, first_charge.text
+    second_charge = client.post(f"/debts/{second['id']}/add-charge", json={"amount": 75_000}, headers=headers)
+    assert second_charge.status_code == 201, second_charge.text
+
+    first_detail = client.get(f"/debts/{first['id']}", headers=headers).json()
+    first_charge_entry = next(entry for entry in first_detail["ledger_entries"] if entry["entry_type"] == "CHARGE")
+    reversed_response = client.post(
+        f"/debts/{first['id']}/ledger/{first_charge_entry['id']}/reverse",
+        json={"note": "Reverse first debt charge"},
+        headers=headers,
+    )
+    assert reversed_response.status_code == 200, reversed_response.text
 
 
 def test_deleting_debt_payment_adds_reversal_ledger_entry(client):
@@ -308,6 +615,7 @@ def test_deleting_debt_payment_adds_reversal_ledger_entry(client):
     assert detail.status_code == 200
     payload = detail.json()
     assert payload["remaining_amount"] == 1_200_000
+    assert payload["total_paid"] == 0
     reversal = [entry for entry in payload["ledger_entries"] if entry["entry_type"] == "REVERSAL"]
     assert len(reversal) == 1
     assert reversal[0]["amount_delta"] == 300_000
@@ -322,10 +630,13 @@ def test_forgive_debt_closes_balance_through_ledger(client):
     forgiven = client.post(f"/debts/{debt['id']}/forgive", headers=headers)
     assert forgiven.status_code == 200, forgiven.text
     payload = forgiven.json()
-    assert payload["status"] == "FORGIVEN"
+    assert "status" not in payload
+    assert payload["lifecycle_status"] == "CLOSED"
     assert payload["remaining_amount"] == 0
+    assert payload["total_paid"] == 0
 
     detail = client.get(f"/debts/{debt['id']}", headers=headers)
+    assert detail.json()["total_paid"] == 0
     forgiveness = [entry for entry in detail.json()["ledger_entries"] if entry["entry_type"] == "FORGIVENESS"]
     assert len(forgiveness) == 1
     assert forgiveness[0]["amount_delta"] == -1_000_000

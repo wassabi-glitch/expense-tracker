@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   addCharge,
   adjustDebtBalance,
+  archiveDebt,
   createDebt,
   deleteDebt,
   deleteTransaction,
@@ -10,8 +11,8 @@ import {
   forgiveDebtAmount,
   payWalletBackedObligation,
   recordPayment,
+  restoreDebt,
   reverseDebtLedgerEntry,
-  settleDebt,
   updateDebt,
   updateDebtFormalDetails,
 } from "@/lib/api";
@@ -140,6 +141,46 @@ export function useUpdateDebtMutation() {
   });
 }
 
+export function useArchiveDebtMutation() {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (debtId) => archiveDebt(debtId),
+    onSuccess: async (data) => {
+      await invalidateDebtsQueries(queryClient);
+      if (data?.id) {
+        await queryClient.invalidateQueries({ queryKey: ["debts", "details", data.id] });
+      }
+      toast.success(t("debts.toasts.archived", { defaultValue: "Debt archived" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("debts.toasts.failedToArchive", { defaultValue: "Failed to archive debt" }), msg);
+    },
+  });
+}
+
+export function useRestoreDebtMutation() {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (debtId) => restoreDebt(debtId),
+    onSuccess: async (data) => {
+      await invalidateDebtsQueries(queryClient);
+      if (data?.id) {
+        await queryClient.invalidateQueries({ queryKey: ["debts", "details", data.id] });
+      }
+      toast.success(t("debts.toasts.restored", { defaultValue: "Debt restored" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("debts.toasts.failedToRestore", { defaultValue: "Failed to restore debt" }), msg);
+    },
+  });
+}
+
 export function useDeleteDebtMutation() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -227,26 +268,6 @@ export function useForgiveDebtAmountMutation() {
     onError: (error) => {
       const msg = localizeApiError(error.message, t) || error.message;
       toast.error(t("debts.toasts.failedToForgive"), msg);
-    },
-  });
-}
-
-export function useSettleDebtMutation() {
-  const { t } = useTranslation();
-  const queryClient = useQueryClient();
-  const toast = useToast();
-  return useMutation({
-    mutationFn: ({ debtId, payload }) => settleDebt(debtId, payload),
-    onSuccess: async (_data, variables) => {
-      await invalidateDebtsQueries(queryClient);
-      if (variables?.debtId) {
-        await queryClient.invalidateQueries({ queryKey: ["debts", "details", variables.debtId] });
-      }
-      toast.success(t("debts.toasts.settled", { defaultValue: "Debt settled" }));
-    },
-    onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
-      toast.error(t("debts.toasts.failedToSettle", { defaultValue: "Failed to settle debt" }), msg);
     },
   });
 }

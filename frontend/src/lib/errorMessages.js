@@ -27,6 +27,31 @@ export function localizeApiError(message, t) {
   if (msg === "recurring_expenses.start_date_before_current_month") {
     return t("recurring.startDateBeforeCurrentMonth");
   }
+  if (msg === "payment_plans.update.setup_requires_pristine") {
+    return t("payment_plans.errors.setupRequiresPristine", {
+      defaultValue: "Recorded activity prevents changing financial history. You can still edit the plan name, provider, and category.",
+    });
+  }
+  if (msg === "payment_plans.delete.pristine_required") {
+    return t("payment_plans.errors.deletePristineRequired", {
+      defaultValue: "This payment plan already has recorded activity, so it cannot be deleted.",
+    });
+  }
+  if (msg === "payment_plans.archived_locked") {
+    return t("payment_plans.errors.archivedLocked", {
+      defaultValue: "Archived payment plans cannot be changed here.",
+    });
+  }
+  if (msg === "payment_plans.validation.real_expense_category_required") {
+    return t("payment_plans.errors.realCategoryRequired", {
+      defaultValue: "Choose the real spending category for this payment plan.",
+    });
+  }
+  if (msg === "payment_plans.write_rate_limited") {
+    return t("payment_plans.errors.tooManySoon", {
+      defaultValue: "Too many payment plan changes. Please wait a moment and try again.",
+    });
+  }
   if (msg === "budgets.write_rate_limited") {
     return t("budgets.tooManySoon");
   }
@@ -93,7 +118,7 @@ export function localizeApiError(message, t) {
     return t("expenses.assetLinkLock", { defaultValue: "This expense is linked to an asset. Handle the asset first." });
   }
   if (msg === "expenses.linked_dependency_lock") {
-    return t("expenses.linkedDependencyLock", { defaultValue: "This expense is linked to debt or installment records and cannot be cancelled here." });
+    return t("expenses.linkedDependencyLock", { defaultValue: "This expense is linked to debt or payment_plan records and cannot be cancelled here." });
   }
   if (msg === "expenses.complex_event_not_supported") {
     return t("expenses.complexEventNotSupported", { defaultValue: "This action is not supported for grouped or session-style expenses yet." });

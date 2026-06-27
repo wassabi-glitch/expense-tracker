@@ -6,7 +6,7 @@ from sqlalchemy import and_, case, func
 from sqlalchemy.orm import Session
 
 from app import models, oauth2, schemas
-from app.savings_balances import get_total_balance
+from app.savings_balances import get_net_position, get_total_balance
 from app.services.budget_service import get_budget_spent_amount, normal_monthly_budget_impact_filters
 from app.session import get_db
 from app.timezone import get_effective_user_timezone, today_in_tz
@@ -189,6 +189,7 @@ def get_dashboard_summary(
         db.query(func.coalesce(func.sum(signed_amount), 0))
         .select_from(models.EntityLedger)
         .join(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
+        .outerjoin(models.Project, models.Project.id == models.EntityLedger.project_id)
         .filter(
             models.FinancialEvent.owner_id == current_user.id,
             models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
@@ -199,6 +200,7 @@ def get_dashboard_summary(
             models.FinancialEvent.date >= current_month_start,
             models.FinancialEvent.date <= today,
             models.EntityLedger.category.isnot(None),
+            *normal_monthly_budget_impact_filters(),
         )
         .scalar()
         or 0
@@ -208,6 +210,7 @@ def get_dashboard_summary(
     spent_int = int(spent)
     remaining = income - spent_int
     overall_balance = get_total_balance(db, current_user.id)
+    net_position = get_net_position(db, current_user.id)
     elapsed_days = max(today.day, 1)
     daily_average = round(spent_int / elapsed_days) if elapsed_days else 0
 
@@ -217,6 +220,7 @@ def get_dashboard_summary(
         "remaining": int(remaining),
         "daily_average": int(daily_average),
         "overall_balance": int(overall_balance),
+        "net_position": int(net_position),
     }
 
 
@@ -235,6 +239,7 @@ def get_historical_stats(
         )
         .select_from(models.EntityLedger)
         .join(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
+        .outerjoin(models.Project, models.Project.id == models.EntityLedger.project_id)
         .filter(
             models.FinancialEvent.owner_id == current_user.id,
             models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
@@ -243,6 +248,7 @@ def get_historical_stats(
                 models.TransactionType.REFUND,
             ]),
             models.EntityLedger.category.isnot(None),
+            *normal_monthly_budget_impact_filters(),
         )
         .first()
     )
@@ -300,6 +306,7 @@ def _daily_amounts(
         )
         .select_from(models.EntityLedger)
         .join(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
+        .outerjoin(models.Project, models.Project.id == models.EntityLedger.project_id)
         .filter(
             models.FinancialEvent.owner_id == user_id,
             models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
@@ -310,6 +317,7 @@ def _daily_amounts(
             models.FinancialEvent.date >= start_date,
             models.FinancialEvent.date <= end_date,
             models.EntityLedger.category.isnot(None),
+            *normal_monthly_budget_impact_filters(),
         )
         .group_by(models.FinancialEvent.date)
         .order_by(models.FinancialEvent.date.asc())
@@ -397,6 +405,7 @@ def get_category_breakdown(
         )
         .select_from(models.EntityLedger)
         .join(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
+        .outerjoin(models.Project, models.Project.id == models.EntityLedger.project_id)
         .filter(
             models.FinancialEvent.owner_id == current_user.id,
             models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
@@ -407,6 +416,7 @@ def get_category_breakdown(
             models.FinancialEvent.date >= start_date,
             models.FinancialEvent.date <= end_date,
             models.EntityLedger.category.isnot(None),
+            *normal_monthly_budget_impact_filters(),
         )
         .group_by(models.EntityLedger.category)
         .order_by(func.coalesce(func.sum(signed_amount), 0).desc())

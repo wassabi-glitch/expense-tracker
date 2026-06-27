@@ -32,15 +32,14 @@ from .models import (
     DebtOriginKind,
     DebtProductKind,
     DebtType,
-    DebtStatus,
     ExpectedIncomeStatus,
     ExpectedInflowKind,
     ExpectedInflowPromiseStatus,
-    InstallmentFrequency,
+    PaymentPlanFrequency,
     PaymentPlanType,
-    InstallmentStatus,
-    InstallmentPaymentStatus,
-    InstallmentPaymentComponentType,
+    PaymentPlanStatus,
+    PaymentPlanPaymentStatus,
+    PaymentPlanPaymentComponentType,
     WalletType,
     AccountingType,
     TransactionType,
@@ -50,12 +49,41 @@ MIN_BUDGET_YEAR = 2020
 MAX_BUDGET_YEARS_AHEAD = 5
 MAX_INCOME_AMOUNT = 999_999_999_999
 MAX_EXPENSE_AMOUNT = 999_999_999_999
+MIN_SUPPORTED_USER_DATE = date(2020, 1, 1)
+
+
+def _validate_supported_user_date(value: Optional[date], message: str = "validation.date_too_early") -> Optional[date]:
+    if value is not None and value < MIN_SUPPORTED_USER_DATE:
+        raise ValueError(message)
+    return value
 
 
 class GoalTimeState(str, Enum):
     ON_TRACK = "on_track"
     DUE_SOON = "due_soon"
     OVERDUE = "overdue"
+
+
+class DebtLifecycleStatus(str, Enum):
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+
+
+class DebtTimeStatus(str, Enum):
+    ON_TRACK = "ON_TRACK"
+    OVERDUE = "OVERDUE"
+
+
+class DebtForgivenessComponent(str, Enum):
+    PRINCIPAL = "PRINCIPAL"
+    CHARGES = "CHARGES"
+    TOTAL = "TOTAL"
+
+
+class DebtBalanceCorrectionComponent(str, Enum):
+    PRINCIPAL = "PRINCIPAL"
+    CHARGES = "CHARGES"
+    TOTAL = "TOTAL"
 
 
 class GoalSettlementMode(str, Enum):
@@ -895,7 +923,7 @@ class GoalBase(BaseModel):
     target_date: Optional[date] = None
     linked_asset_id: Optional[int] = None
     linked_debt_id: Optional[int] = None
-    linked_installment_plan_id: Optional[int] = None
+    linked_payment_plan_id: Optional[int] = None
     linked_expense_event_id: Optional[int] = None
 
     @field_validator("title")
@@ -958,7 +986,7 @@ class GoalUpdate(BaseModel):
     status: Optional[GoalStatus] = None
     linked_asset_id: Optional[int] = None
     linked_debt_id: Optional[int] = None
-    linked_installment_plan_id: Optional[int] = None
+    linked_payment_plan_id: Optional[int] = None
     linked_expense_event_id: Optional[int] = None
 
     model_config = ConfigDict(extra="forbid")
@@ -1217,13 +1245,13 @@ class GoalUseReserveCreate(GoalUseBase):
     pass
 
 
-class GoalPurchaseInstallmentCreate(BaseModel):
+class GoalPurchasePaymentPlanCreate(BaseModel):
     total_price: int = Field(gt=0)
     item_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     store_or_bank_name: Optional[str] = Field(default=None, max_length=100)
     plan_type: PaymentPlanType = PaymentPlanType.STORE_INSTALLMENT
     months: int = Field(gt=0)
-    frequency: InstallmentFrequency = InstallmentFrequency.MONTHLY
+    frequency: PaymentPlanFrequency = PaymentPlanFrequency.MONTHLY
     start_date: Optional[dt.date] = None
     create_next_payment_goal: bool = True
     next_goal_title: Optional[str] = Field(default=None, min_length=3, max_length=32)
@@ -1247,7 +1275,7 @@ class GoalPurchaseInstallmentCreate(BaseModel):
 
     @field_validator("start_date", "next_goal_target_date")
     @classmethod
-    def validate_installment_dates(cls, v: Optional[dt.date]):
+    def validate_payment_plan_dates(cls, v: Optional[dt.date]):
         if v is None:
             return v
         if v.year < 2020:
@@ -1263,7 +1291,7 @@ class GoalUsePlannedPurchaseCreate(GoalUseBase):
     asset_current_value: Optional[int] = Field(default=None, ge=0)
     release_unused_goal_funding: bool = False
     adjust_target_to_purchase_amount: bool = False
-    installment_plan: Optional[GoalPurchaseInstallmentCreate] = None
+    payment_plan: Optional[GoalPurchasePaymentPlanCreate] = None
 
     @field_validator("asset_title")
     @classmethod
@@ -1280,13 +1308,13 @@ class GoalUsePlannedPurchaseCreate(GoalUseBase):
         return v.strip()
 
     @model_validator(mode="after")
-    def validate_installment_bridge(self):
-        if self.installment_plan is None:
+    def validate_payment_plan_bridge(self):
+        if self.payment_plan is None:
             return self
-        if self.installment_plan.total_price <= int(self.amount):
-            raise ValueError("goals.installment_total_must_exceed_down_payment")
-        if self.installment_plan.plan_type == PaymentPlanType.BANK_LOAN:
-            raise ValueError("goals.installment_bridge_bank_loan_not_supported")
+        if self.payment_plan.total_price <= int(self.amount):
+            raise ValueError("goals.payment_plan_total_must_exceed_down_payment")
+        if self.payment_plan.plan_type == PaymentPlanType.BANK_LOAN:
+            raise ValueError("goals.payment_plan_bridge_bank_loan_not_supported")
         return self
 
 
@@ -1332,7 +1360,7 @@ class GoalUseResultOut(BaseModel):
     consumed_amount: int = 0
     released_amount: int = 0
     outside_goal_amount: int = 0
-    installment_plan: Optional["InstallmentPlanWithPaymentsOut"] = None
+    payment_plan: Optional["PaymentPlanWithPaymentsOut"] = None
     next_payment_goal: Optional["GoalWithProgressOut"] = None
 
 
@@ -1396,7 +1424,7 @@ class GoalOut(GoalBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-class GoalInstallmentTargetOut(BaseModel):
+class GoalPaymentPlanTargetOut(BaseModel):
     plan_id: int
     payment_id: int
     payment_number: int
@@ -1405,7 +1433,7 @@ class GoalInstallmentTargetOut(BaseModel):
     amount: int
     paid_amount: int
     remaining_amount: int
-    status: InstallmentPaymentStatus
+    status: PaymentPlanPaymentStatus
     item_name: Optional[str] = None
 
 
@@ -1420,7 +1448,7 @@ class GoalWithProgressOut(GoalOut):
     funding_sources: List["GoalFundingSourceOut"] = Field(default_factory=list)
     time_state: Optional[GoalTimeState] = None
     days_until_target: Optional[int] = None
-    installment_target: Optional[GoalInstallmentTargetOut] = None
+    payment_plan_target: Optional[GoalPaymentPlanTargetOut] = None
 
 
 class GoalFundingSourceOut(BaseModel):
@@ -1677,7 +1705,6 @@ class ExpenseRelatedDebtOut(BaseModel):
     debt_type: DebtType
     counterparty_name: str
     remaining_amount: int
-    status: DebtStatus
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -2924,6 +2951,7 @@ class DashboardSummary(BaseModel):
     remaining: int
     daily_average: int
     overall_balance: int
+    net_position: int = 0
 
 
 class CreateInvoiceIn(BaseModel):
@@ -3028,6 +3056,11 @@ class DebtBase(BaseModel):
             raise ValueError("debts.description_too_long")
         return value
 
+    @field_validator("date", "expected_return_date")
+    @classmethod
+    def validate_debt_dates_not_too_early(cls, v: Optional[date]):
+        return _validate_supported_user_date(v, "validation.date_too_early")
+
 
 class DebtInitialWalletAllocationIn(BaseModel):
     wallet_id: int
@@ -3046,6 +3079,8 @@ class DebtCreate(DebtBase):
 
     @model_validator(mode="after")
     def validate_semantics(self):
+        if self.expected_return_date is None:
+            raise ValueError("debts.validation.expected_date_required")
         if self.expected_return_date is not None and self.date is not None and self.expected_return_date < self.date:
             raise ValueError("debts.validation.expected_date_before_date")
         if (
@@ -3063,7 +3098,6 @@ class DebtUpdate(BaseModel):
     description: Optional[str] = None
     date: Optional[dt.date] = None
     expected_return_date: Optional[dt.date] = None
-    status: Optional[DebtStatus] = None
     origin_kind: Optional[DebtOriginKind] = None
     counterparty_kind: Optional[DebtCounterpartyKind] = None
     product_kind: Optional[DebtProductKind] = None
@@ -3073,6 +3107,8 @@ class DebtUpdate(BaseModel):
     project_id: Optional[int] = None
     project_subcategory_id: Optional[int] = None
     income_source_id: Optional[int] = None
+
+    model_config = ConfigDict(extra="forbid")
 
     @field_validator("counterparty_name")
     @classmethod
@@ -3090,8 +3126,15 @@ class DebtUpdate(BaseModel):
             raise ValueError("debts.amount_too_large")
         return v
 
+    @field_validator("date", "expected_return_date")
+    @classmethod
+    def validate_update_dates_not_too_early(cls, v: Optional[dt.date]):
+        return _validate_supported_user_date(v, "validation.date_too_early")
+
     @model_validator(mode="after")
     def validate_expected_return_date(self):
+        if "expected_return_date" in self.model_fields_set and self.expected_return_date is None:
+            raise ValueError("debts.validation.expected_date_required")
         if self.expected_return_date is not None and self.date is not None and self.expected_return_date < self.date:
             raise ValueError("debts.validation.expected_date_before_date")
         return self
@@ -3148,8 +3191,10 @@ class DebtTransactionOut(DebtTransactionBase):
 
 class GoalDebtPaymentResultOut(BaseModel):
     goal: GoalWithProgressOut
-    debt: "DebtOut"
-    debt_transaction: DebtTransactionOut
+    debt: Optional["DebtOut"] = None
+    debt_transaction: Optional[DebtTransactionOut] = None
+    payment_plan: Optional["PaymentPlanWithPaymentsOut"] = None
+    payment_plan_transaction_id: Optional[int] = None
     consumed_amount: int = 0
 
 
@@ -3181,7 +3226,7 @@ class DebtLedgerEntryOut(BaseModel):
     debt_id: int
     financial_event_id: Optional[int] = None
     source_debt_transaction_id: Optional[int] = None
-    source_debt_charge_id: Optional[int] = None
+    source_payment_plan_charge_id: Optional[int] = None
     reverses_entry_id: Optional[int] = None
     wallet_id: Optional[int] = None
     asset_id: Optional[int] = None
@@ -3205,19 +3250,24 @@ class DebtOut(DebtBase):
     id: int
     owner_id: int
     remaining_amount: int
-    status: DebtStatus
+    lifecycle_status: DebtLifecycleStatus = DebtLifecycleStatus.OPEN
+    time_status: Optional[DebtTimeStatus] = None
+    archived_at: Optional[datetime] = None
+    is_archived: bool = False
     created_at: datetime
     updated_at: datetime
     is_money_transferred: bool = False
     initial_wallet_id: Optional[int] = None
     has_archived_transactions: bool = False
     total_charges: int = 0
+    total_paid: int = 0
+    remaining_principal_amount: int = 0
+    remaining_charge_amount: int = 0
     expense_category: Optional[ExpenseCategory] = None
     expense_subcategory_id: Optional[int] = None
     project_id: Optional[int] = None
     project_subcategory_id: Optional[int] = None
     income_source_id: Optional[int] = None
-    managed_by_installment_plan_id: Optional[int] = None
     workflow_warnings: List[str] = Field(default_factory=list)
     source_type: str = "DEBT"
     wallet_id: Optional[int] = None
@@ -3255,7 +3305,7 @@ class DebtActivityItemOut(BaseModel):
     reversal: Optional[DebtActionDecisionOut] = None
     financial_event_id: Optional[int] = None
     source_debt_transaction_id: Optional[int] = None
-    source_debt_charge_id: Optional[int] = None
+    source_payment_plan_charge_id: Optional[int] = None
     reverses_entry_id: Optional[int] = None
     wallet_id: Optional[int] = None
     asset_id: Optional[int] = None
@@ -3285,20 +3335,16 @@ class DebtFormalDetailsOut(DebtFormalDetailsUpdate):
 
 class DebtForgivenessCreate(BaseModel):
     amount: Optional[int] = Field(default=None, gt=0)
+    component: Optional[DebtForgivenessComponent] = None
     date: Optional[dt.date] = None
     note: Optional[str] = Field(default=None, max_length=500)
-
-
-class DebtSettlementCreate(BaseModel):
-    payment_amount: int = Field(ge=0)
-    settlement_discount: Optional[int] = Field(default=None, ge=0)
-    date: Optional[dt.date] = None
-    note: Optional[str] = Field(default=None, max_length=500)
-    wallet_allocations: List[DebtTransactionWalletAllocationIn] = Field(default_factory=list)
 
 
 class DebtBalanceAdjustmentCreate(BaseModel):
-    confirmed_balance: int = Field(ge=0)
+    confirmed_balance: Optional[int] = Field(default=None, ge=0)
+    confirmed_principal_balance: Optional[int] = Field(default=None, ge=0)
+    confirmed_charge_balance: Optional[int] = Field(default=None, ge=0)
+    component: DebtBalanceCorrectionComponent = DebtBalanceCorrectionComponent.TOTAL
     date: Optional[dt.date] = None
     note: Optional[str] = Field(default=None, max_length=500)
 
@@ -3311,7 +3357,6 @@ class DebtLedgerEntryReverseCreate(BaseModel):
 class DebtDetailsOut(BaseModel):
     debt: DebtOut
     formal_details: Optional[DebtFormalDetailsOut] = None
-    installment_plan: Optional["InstallmentPlanWithPaymentsOut"] = None
     actions: List[DebtActionDecisionOut] = []
     transactions: List[DebtTransactionOut] = []
     charges: List[DebtChargeOut] = []
@@ -3336,22 +3381,22 @@ class DebtSummaryOut(BaseModel):
     total_owed_to_me: int = 0
 
 
-# --- INSTALLMENT SCHEMAS (Nasiya) ---
+# --- PAYMENT_PLAN SCHEMAS (Nasiya) ---
 
 
-class InstallmentWalletAllocationIn(BaseModel):
+class PaymentPlanWalletAllocationIn(BaseModel):
     wallet_id: int
     amount: int = Field(gt=0)
 
 
-class InstallmentPlanBase(BaseModel):
+class PaymentPlanBase(BaseModel):
     item_name: str
     store_or_bank_name: Optional[str] = None
     plan_type: PaymentPlanType = PaymentPlanType.STORE_INSTALLMENT
     total_price: int = Field(gt=0)
     down_payment: int = Field(ge=0)
     months: int = Field(gt=0)
-    frequency: InstallmentFrequency = InstallmentFrequency.MONTHLY
+    frequency: PaymentPlanFrequency = PaymentPlanFrequency.MONTHLY
     start_date: date
     expense_category: Optional[ExpenseCategory] = None
     expense_subcategory_id: Optional[int] = None
@@ -3363,26 +3408,36 @@ class InstallmentPlanBase(BaseModel):
     def validate_item_name(cls, v: str):
         value = v.strip()
         if not (1 <= len(value) <= 100):
-            raise ValueError("installments.item_name_length")
+            raise ValueError("payment_plans.item_name_length")
         return value
 
+    @field_validator("start_date")
+    @classmethod
+    def validate_start_date(cls, v: date):
+        return _validate_supported_user_date(v, "validation.date_too_early")
 
-class InstallmentPlanCreate(InstallmentPlanBase):
-    wallet_allocations: List[InstallmentWalletAllocationIn] = Field(default_factory=list)
-    category: ExpenseCategory = ExpenseCategory.INSTALLMENTS_DEBT
+
+class PaymentPlanCreate(PaymentPlanBase):
+    wallet_allocations: List[PaymentPlanWalletAllocationIn] = Field(default_factory=list)
+    category: ExpenseCategory = ExpenseCategory.PAYMENT_PLANS_DEBT
     track_as_asset: bool = False
     asset_current_value: Optional[int] = Field(default=None, ge=0)
     loan_disbursement_wallet_id: Optional[int] = None
 
 
-class InstallmentPlanUpdate(BaseModel):
+class PaymentPlanUpdate(BaseModel):
     item_name: Optional[str] = None
     store_or_bank_name: Optional[str] = None
     total_price: Optional[int] = Field(default=None, gt=0)
+    down_payment: Optional[int] = Field(default=None, ge=0)
     months: Optional[int] = Field(default=None, gt=0)
-    frequency: Optional[InstallmentFrequency] = None
+    frequency: Optional[PaymentPlanFrequency] = None
     start_date: Optional[date] = None
-    status: Optional[InstallmentStatus] = None
+    expense_category: Optional[ExpenseCategory] = None
+    expense_subcategory_id: Optional[int] = None
+    project_id: Optional[int] = None
+    project_subcategory_id: Optional[int] = None
+    status: Optional[PaymentPlanStatus] = None
 
     @field_validator("item_name")
     @classmethod
@@ -3391,60 +3446,70 @@ class InstallmentPlanUpdate(BaseModel):
             return v
         value = v.strip()
         if not (1 <= len(value) <= 100):
-            raise ValueError("installments.item_name_length")
+            raise ValueError("payment_plans.item_name_length")
         return value
 
+    @field_validator("start_date")
+    @classmethod
+    def validate_update_start_date(cls, v: Optional[date]):
+        return _validate_supported_user_date(v, "validation.date_too_early")
 
-class InstallmentPaymentBase(BaseModel):
+
+class PaymentPlanPaymentBase(BaseModel):
     amount: int = Field(gt=0)
     due_date: date
     note: Optional[str] = None
 
+    @field_validator("due_date")
+    @classmethod
+    def validate_due_date(cls, v: date):
+        return _validate_supported_user_date(v, "validation.date_too_early")
 
-class InstallmentPaymentUpdate(BaseModel):
-    status: Optional[InstallmentPaymentStatus] = None
+
+class PaymentPlanPaymentUpdate(BaseModel):
+    status: Optional[PaymentPlanPaymentStatus] = None
     paid_date: Optional[date] = None
     note: Optional[str] = None
     event_id: Optional[int] = None
     expense_id: Optional[int] = None
 
 
-class InstallmentPaymentAllocationOut(BaseModel):
+class PaymentPlanPaymentAllocationOut(BaseModel):
     id: int
     owner_id: int
-    installment_payment_id: int
+    payment_plan_payment_id: int
     financial_event_id: Optional[int] = None
     debt_transaction_id: Optional[int] = None
-    debt_ledger_entry_id: Optional[int] = None
+    payment_plan_ledger_entry_id: Optional[int] = None
     wallet_id: Optional[int] = None
     amount: int
-    paid_date: date
+    paid_date: Optional[date] = None
     note: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
 
-class InstallmentPaymentOut(InstallmentPaymentBase):
+class PaymentPlanPaymentOut(PaymentPlanPaymentBase):
     id: int
     owner_id: int
     plan_id: int
-    debt_charge_id: Optional[int] = None
+    payment_plan_charge_id: Optional[int] = None
     paid_amount: int = 0
     written_off_amount: int = 0
-    component_type: InstallmentPaymentComponentType = InstallmentPaymentComponentType.PRINCIPAL
-    status: InstallmentPaymentStatus
+    component_type: PaymentPlanPaymentComponentType = PaymentPlanPaymentComponentType.PRINCIPAL
+    status: PaymentPlanPaymentStatus
     paid_date: Optional[date] = None
     event_id: Optional[int] = None
     expense_id: Optional[int] = None
-    debt_ledger_entry_id: Optional[int] = None
-    allocations: List[InstallmentPaymentAllocationOut] = []
+    payment_plan_ledger_entry_id: Optional[int] = None
+    allocations: List[PaymentPlanPaymentAllocationOut] = []
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
 
-class InstallmentPlanOut(InstallmentPlanBase):
+class PaymentPlanOut(PaymentPlanBase):
     id: int
     owner_id: int
     debt_id: Optional[int] = None
@@ -3455,28 +3520,28 @@ class InstallmentPlanOut(InstallmentPlanBase):
     payment_count: int
     regular_payment_amount: int
     schedule_rule: Optional[Dict[str, Any]] = None
-    status: InstallmentStatus
+    status: PaymentPlanStatus
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
 
-class InstallmentPlanWithPaymentsOut(InstallmentPlanOut):
-    payments: List[InstallmentPaymentOut] = []
+class PaymentPlanWithPaymentsOut(PaymentPlanOut):
+    payments: List[PaymentPlanPaymentOut] = []
     model_config = ConfigDict(from_attributes=True)
 
 
-class InstallmentPlanListOut(BaseModel):
+class PaymentPlanListOut(BaseModel):
     total: int
-    items: List[InstallmentPlanWithPaymentsOut]
+    items: List[PaymentPlanWithPaymentsOut]
 
 
-class InstallmentPaymentListOut(BaseModel):
+class PaymentPlanPaymentListOut(BaseModel):
     total: int
-    items: List[InstallmentPaymentOut]
+    items: List[PaymentPlanPaymentOut]
 
 
-class InstallmentSummaryOut(BaseModel):
+class PaymentPlanSummaryOut(BaseModel):
     pending_count: int = 0
     pending_amount: int = 0
     paid_count: int = 0
@@ -3485,32 +3550,55 @@ class InstallmentSummaryOut(BaseModel):
     overdue_amount: int = 0
 
 
-class InstallmentPaymentRecordCreate(BaseModel):
+class PaymentPlanPaymentRecordCreate(BaseModel):
     amount: int = Field(gt=0)
     paid_date: Optional[dt.date] = None
-    wallet_allocations: List[InstallmentWalletAllocationIn] = Field(default_factory=list)
+    wallet_allocations: List[PaymentPlanWalletAllocationIn] = Field(default_factory=list)
     note: Optional[str] = Field(default=None, max_length=200)
 
 
-class InstallmentPlanDetailsOut(BaseModel):
-    plan: InstallmentPlanWithPaymentsOut
-    debt: Optional[DebtOut] = None
-    debt_actions: List[DebtActionDecisionOut] = []
-    debt_activity: List[DebtActivityItemOut] = []
+
+class PaymentPlanActivityItemOut(BaseModel):
+    id: int
+    entry_date: date
+    entry_type: str
+    event_subtype: Optional[str] = None
+    amount_delta: int
+    principal_delta: int = 0
+    charge_delta: int = 0
+    balance_after: Optional[int] = None
+    note: Optional[str] = None
+    source: str
+    is_reversible: bool
+    is_reversed: bool = False
+    reverses_entry_id: Optional[int] = None
+    
+    class Config:
+        from_attributes = True
+
+class PaymentPlanActionDecisionOut(BaseModel):
+    action: str
+    allowed: bool
+    reason_code: Optional[str] = None
+
+class PaymentPlanDetailsOut(BaseModel):
+    plan: PaymentPlanWithPaymentsOut
+    plan_activity: List[PaymentPlanActivityItemOut] = []
+    plan_actions: List[PaymentPlanActionDecisionOut] = []
 
 
 class MarkPaidIn(BaseModel):
     paid_date: Optional[date] = None
-    wallet_allocations: List[InstallmentWalletAllocationIn] = Field(default_factory=list)
+    wallet_allocations: List[PaymentPlanWalletAllocationIn] = Field(default_factory=list)
     category: Optional[ExpenseCategory] = None
     note: Optional[str] = None
 
 
-class InstallmentChargeCreate(BaseModel):
+class PaymentPlanChargeCreate(BaseModel):
     charge_type: str
     amount: int = Field(gt=0)
     date: Optional[dt.date] = None
-    wallet_allocations: List[InstallmentWalletAllocationIn] = Field(default_factory=list)
+    wallet_allocations: List[PaymentPlanWalletAllocationIn] = Field(default_factory=list)
     category: ExpenseCategory = ExpenseCategory.DEBT_CHARGES
     note: Optional[str] = None
 
@@ -3519,7 +3607,7 @@ class InstallmentChargeCreate(BaseModel):
     def validate_charge_type(cls, value: str):
         normalized = value.strip().upper()
         if normalized not in {"FEE", "PENALTY"}:
-            raise ValueError("installments.invalid_charge_type")
+            raise ValueError("payment_plans.invalid_charge_type")
         return normalized
 
 
@@ -3529,7 +3617,14 @@ class TimelineEventType(str, Enum):
     EXPECTED_INFLOW = "EXPECTED_INFLOW"
     RECURRING_EXPENSE = "RECURRING_EXPENSE"
     DEBT_PAYMENT = "DEBT_PAYMENT"
-    INSTALLMENT = "INSTALLMENT"
+    PAYMENT_PLAN = "PAYMENT_PLAN"
+
+
+class TimelineEventSourceType(str, Enum):
+    EXPECTED_INCOME = "EXPECTED_INCOME"
+    RECURRING_OCCURRENCE = "RECURRING_OCCURRENCE"
+    DEBT = "DEBT"
+    PAYMENT_PLAN_PAYMENT = "PAYMENT_PLAN_PAYMENT"
 
 
 class TimelineEventDirection(str, Enum):
@@ -3547,6 +3642,10 @@ class TimelineEvent(BaseModel):
     status: str
     category_id: Optional[int] = None
     source_id: int
+    source_type: TimelineEventSourceType
+    debt_id: Optional[int] = None
+    payment_plan_id: Optional[int] = None
+    payment_plan_payment_id: Optional[int] = None
 
 
 class TimelineEventList(BaseModel):
@@ -3584,3 +3683,5 @@ class SubcategoryCreateIn(BaseModel):
 class SubcategoryMergeIn(BaseModel):
     target_id: int
     source_ids: List[int] = Field(..., min_length=1)
+
+

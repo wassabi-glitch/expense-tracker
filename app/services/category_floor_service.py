@@ -9,6 +9,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app import models
+from app.services.obligation_source_service import regular_debt_obligation_filters
 
 
 @dataclass(frozen=True)
@@ -49,15 +50,6 @@ class CategoryFloorWarning:
         return sorted(
             {legacy_names.get(reason.kind, reason.kind.lower()) for reason in self.reasons}
         )
-
-
-def _active_payable_debt_statuses() -> list[models.DebtStatus]:
-    return [
-        models.DebtStatus.ACTIVE,
-        models.DebtStatus.OVERDUE,
-        models.DebtStatus.DEFAULTED,
-        models.DebtStatus.IN_COLLECTION,
-    ]
 
 
 def build_category_floor_warnings(
@@ -130,30 +122,30 @@ def build_category_floor_warnings(
                     amount=occ.amount,
                 )
 
-    installment_rows = (
-        db.query(models.InstallmentPayment)
-        .join(models.InstallmentPlan, models.InstallmentPlan.id == models.InstallmentPayment.plan_id)
+    payment_plan_rows = (
+        db.query(models.PaymentPlanPayment)
+        .join(models.PaymentPlan, models.PaymentPlan.id == models.PaymentPlanPayment.plan_id)
         .filter(
-            models.InstallmentPayment.owner_id == owner_id,
-            models.InstallmentPlan.owner_id == owner_id,
-            models.InstallmentPlan.status == models.InstallmentStatus.ACTIVE,
-            models.InstallmentPayment.status.in_(
+            models.PaymentPlanPayment.owner_id == owner_id,
+            models.PaymentPlan.owner_id == owner_id,
+            models.PaymentPlan.status == models.PaymentPlanStatus.ACTIVE,
+            models.PaymentPlanPayment.status.in_(
                 [
-                    models.InstallmentPaymentStatus.PENDING,
-                    models.InstallmentPaymentStatus.PARTIAL,
+                    models.PaymentPlanPaymentStatus.PENDING,
+                    models.PaymentPlanPaymentStatus.PARTIAL,
                 ]
             ),
-            models.InstallmentPayment.due_date >= start,
-            models.InstallmentPayment.due_date < end,
+            models.PaymentPlanPayment.due_date >= start,
+            models.PaymentPlanPayment.due_date < end,
         )
         .all()
     )
-    installment_debt_ids = {
+    payment_plan_debt_ids = {
         int(payment.plan.debt_id)
-        for payment in installment_rows
+        for payment in payment_plan_rows
         if payment.plan.debt_id is not None
     }
-    for payment in installment_rows:
+    for payment in payment_plan_rows:
         remaining = (
             int(payment.amount or 0)
             - int(payment.paid_amount or 0)
@@ -161,12 +153,12 @@ def build_category_floor_warnings(
         )
         category = (
             models.ExpenseCategory.DEBT_CHARGES
-            if payment.component_type == models.InstallmentPaymentComponentType.CHARGE
+            if payment.component_type == models.PaymentPlanPaymentComponentType.CHARGE
             else payment.plan.expense_category
         )
         add_reason(
             category,
-            kind="INSTALLMENT",
+            kind="PAYMENT_PLAN",
             source_id=payment.id,
             title=payment.plan.item_name,
             due_date=payment.due_date,
@@ -183,8 +175,7 @@ def build_category_floor_warnings(
         .filter(
             models.Debt.owner_id == owner_id,
             models.Debt.debt_type == models.DebtType.OWING,
-            models.Debt.status.in_(_active_payable_debt_statuses()),
-            models.Debt.remaining_amount > 0,
+            *regular_debt_obligation_filters(owner_id),
             models.Debt.expense_category.isnot(None),
             or_(
                 and_(models.Debt.expected_return_date >= start, models.Debt.expected_return_date < end),
@@ -194,7 +185,7 @@ def build_category_floor_warnings(
         .all()
     )
     for debt in debt_rows:
-        if int(debt.id) in installment_debt_ids:
+        if int(debt.id) in payment_plan_debt_ids:
             continue
         due_date = debt.expected_return_date
         if debt.formal_details is not None and debt.formal_details.next_due_date is not None:

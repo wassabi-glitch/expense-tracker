@@ -2,6 +2,12 @@ import { z } from "zod";
 
 export const MAX_DEBT_AMOUNT = 999_999_999_999;
 const MAX_DEBT_AMOUNT_STR = String(MAX_DEBT_AMOUNT);
+export const MIN_SUPPORTED_USER_DATE = "2020-01-01";
+
+const requiredDateSchema = z
+  .string()
+  .refine((v) => v.length > 0, "debts.validation.date.required")
+  .refine((v) => v >= MIN_SUPPORTED_USER_DATE, "validation.date_too_early");
 
 const amountSchema = z.preprocess(
   (value) => String(value ?? "").trim().replace(/\s+/g, ""),
@@ -67,8 +73,8 @@ export const debtCreateFormSchema = z.object({
     "CLIENT_RECEIVABLE",
     "OTHER",
   ]).optional().nullable(),
-  date: z.string().refine((v) => v.length > 0, "debts.validation.date.required"),
-  expected_return_date: z.string().optional().nullable(),
+  date: requiredDateSchema,
+  expected_return_date: requiredDateSchema,
   wallet_id: z.number().int().optional().nullable(),
   initial_wallet_id: z.number().int().optional().nullable(),
   initial_wallet_allocations: z.array(walletAllocationSchema).optional(),
@@ -92,6 +98,13 @@ export const debtCreateFormSchema = z.object({
       message: "debts.validation.expense_category.required",
     });
   }
+  if (data.expected_return_date && data.date && data.expected_return_date < data.date) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["expected_return_date"],
+      message: "debts.validation.expected_date_before_date",
+    });
+  }
 });
 
 export const debtUpdateFormSchema = z.object({
@@ -102,20 +115,9 @@ export const debtUpdateFormSchema = z.object({
     .refine((v) => v.length <= 100, "debts.validation.counterparty_name.length")
     .optional(),
   description: z.string().optional().nullable(),
-  date: z.string().optional().nullable(),
-  expected_return_date: z.string().optional().nullable(),
+  date: requiredDateSchema.optional(),
+  expected_return_date: requiredDateSchema.optional(),
   initial_amount: z.number().int().positive().max(MAX_DEBT_AMOUNT).optional(),
-  status: z.enum([
-    "ACTIVE",
-    "OVERDUE",
-    "DEFAULTED",
-    "IN_COLLECTION",
-    "PAID",
-    "SETTLED",
-    "FORGIVEN",
-    "WRITTEN_OFF",
-    "ARCHIVED",
-  ]).optional(),
   origin_kind: z.enum([
     "CASH_BORROWED",
     "CASH_LENT",
@@ -144,6 +146,14 @@ export const debtUpdateFormSchema = z.object({
   project_id: z.number().int().optional().nullable(),
   project_subcategory_id: z.number().int().optional().nullable(),
   income_source_id: z.number().int().optional().nullable(),
+}).superRefine((data, ctx) => {
+  if (data.expected_return_date && data.date && data.expected_return_date < data.date) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["expected_return_date"],
+      message: "debts.validation.expected_date_before_date",
+    });
+  }
 });
 
 export const debtPaymentFormSchema = z.object({
@@ -159,14 +169,6 @@ export const debtForgivenessFormSchema = z.object({
   amount: amountSchema.optional().nullable(),
   date: z.string().optional().nullable(),
   note: z.string().optional().nullable(),
-});
-
-export const debtSettlementFormSchema = z.object({
-  payment_amount: optionalNonNegativeAmountSchema,
-  settlement_discount: optionalNonNegativeAmountSchema,
-  date: z.string().optional().nullable(),
-  note: z.string().optional().nullable(),
-  wallet_allocations: z.array(walletAllocationSchema).optional(),
 });
 
 export const debtBalanceAdjustmentFormSchema = z.object({
@@ -187,7 +189,7 @@ export const debtFormalDetailsFormSchema = z.object({
   terms_summary: z.string().max(500).optional().nullable(),
 });
 
-export const installmentPaymentFormSchema = z.object({
+export const payment_planPaymentFormSchema = z.object({
   amount: amountSchema,
   paid_date: z.string().optional().nullable(),
   wallet_allocations: z.array(walletAllocationSchema),

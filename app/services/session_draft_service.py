@@ -485,6 +485,7 @@ def finalize_session_draft(
                 description=draft.title,
                 status=models.DebtStatus.ACTIVE,
                 date=draft.date,
+                expected_return_date=draft.date,
                 linked_event_id=event.id,
             )
         )
