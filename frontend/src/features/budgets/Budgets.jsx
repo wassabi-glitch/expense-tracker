@@ -43,8 +43,11 @@ import {
   useUpdateBudgetMutation,
   useReallocateBudgetMutation,
 } from "./hooks/useBudgetMutations";
-import { budgetCreateFormSchema, budgetDeleteFormSchema, budgetUpdateFormSchema, MAX_BUDGET_AMOUNT } from "./budgetSchemas";
+import { budgetCreateFormSchema, budgetDeleteFormSchema,  budgetUpdateFormSchema,
+  MAX_BUDGET_AMOUNT,
+} from "./budgetSchemas";
 import { localizeApiError } from "@/lib/errorMessages";
+import { EditProjectDialog } from "./components/EditProjectDialog";
 import { categoryIconMap, CATEGORIES } from "@/lib/category";
 import { formatUzs, formatCompactUzs, formatAmountInput, formatMonthYear, formatDisplayDate, getFallbackMonthsLong, getDateLocale } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
@@ -435,6 +438,9 @@ export default function Budgets() {
   const [projectCategoryLimitValue, setProjectCategoryLimitValue] = React.useState("");
   const [editingProjectCategory, setEditingProjectCategory] = React.useState("");
   const [editingProjectCategoryLimit, setEditingProjectCategoryLimit] = React.useState("");
+
+  const [editProjectModalProject, setEditProjectModalProject] = React.useState(null);
+
   const [projectSubcategoryCategory, setProjectSubcategoryCategory] = React.useState("");
   const [projectSubcategoryUserSubcategoryId, setProjectSubcategoryUserSubcategoryId] = React.useState("");
   const [projectSubcategoryName, setProjectSubcategoryName] = React.useState("");
@@ -2241,7 +2247,12 @@ export default function Budgets() {
                           <CardHeader className="space-y-3 pb-3">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
-                                <CardTitle className="truncate text-lg">{project.title}</CardTitle>
+                                <CardTitle className="truncate text-lg flex items-center">
+                                  {project.title}
+                                  <Button variant="ghost" size="icon" className="h-6 w-6 ml-2" onClick={() => setEditProjectModalProject(project)} title={t("common.edit", { defaultValue: "Edit properties" })}>
+                                    <Pencil className="h-3 w-3 text-muted-foreground hover:text-foreground transition-colors" />
+                                  </Button>
+                                </CardTitle>
                                 <CardDescription className="mt-1">
                                   {project.is_isolated
                                     ? t("projects.isolatedHelp", { defaultValue: "Isolated projects keep this spending out of monthly budget pressure." })
@@ -4232,6 +4243,14 @@ export default function Budgets() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <EditProjectDialog
+        open={!!editProjectModalProject}
+        onOpenChange={(open) => {
+          if (!open) setEditProjectModalProject(null);
+        }}
+        project={editProjectModalProject}
+      />
     </div>
   );
 }

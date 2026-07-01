@@ -2,6 +2,7 @@ from datetime import tzinfo
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
 
 from app.redis_rate_limiter import consume_token_bucket
@@ -19,6 +20,7 @@ from ..services.project_service import (
     get_owned_project_subcategory_or_404,
     get_owned_project_subcategory_monthly_limit_or_404,
     latest_project_event_date,
+    migrate_overlay_project_slices,
     validate_project_completion_date,
     validate_project_editable,
     validate_overlay_project_category_reservation,
@@ -191,6 +193,10 @@ def update_project(
 
     for field, value in update_data.items():
         setattr(project, field, value)
+        
+    if not project.is_isolated:
+        migrate_overlay_project_slices(db, project, next_start_date, next_target_end_date)
+        
     db.commit()
     return _project_detail_out(db, current_user.id, project.id)
 
