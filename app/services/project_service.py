@@ -76,6 +76,123 @@ def get_owned_project_subcategory_or_404(
     return subcategory
 
 
+def get_owned_project_subcategory_monthly_limit_or_404(
+    db: Session,
+    owner_id: int,
+    project_id: int,
+    reservation_id: int,
+) -> models.ProjectSubcategoryMonthlyLimit:
+    reservation = (
+        db.query(models.ProjectSubcategoryMonthlyLimit)
+        .join(models.Project, models.Project.id == models.ProjectSubcategoryMonthlyLimit.project_id)
+        .filter(
+            models.ProjectSubcategoryMonthlyLimit.id == reservation_id,
+            models.ProjectSubcategoryMonthlyLimit.project_id == project_id,
+            models.Project.owner_id == owner_id,
+            models.Project.is_isolated == False,  # noqa: E712
+        )
+        .first()
+    )
+    if not reservation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="projects.subcategory_not_found")
+    return reservation
+
+
+def validate_overlay_project_subcategory_reservation(
+    db: Session,
+    owner_id: int,
+    project: models.Project,
+    *,
+    category: models.ExpenseCategory,
+    user_subcategory_id: int,
+    budget_year: int,
+    budget_month: int,
+    limit_amount: int,
+    exclude_reservation_id: int | None = None,
+) -> models.UserSubcategory:
+    if project.is_isolated:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="projects.overlay_subcategories_only",
+        )
+
+    project_category_limit = (
+        db.query(models.ProjectCategoryMonthlyLimit)
+        .filter(
+            models.ProjectCategoryMonthlyLimit.project_id == project.id,
+            models.ProjectCategoryMonthlyLimit.category == category,
+            models.ProjectCategoryMonthlyLimit.budget_year == budget_year,
+            models.ProjectCategoryMonthlyLimit.budget_month == budget_month,
+        )
+        .first()
+    )
+    if project_category_limit is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="projects.category_limit_required_for_subcategories",
+        )
+
+    subcategory = (
+        db.query(models.UserSubcategory)
+        .filter(
+            models.UserSubcategory.id == user_subcategory_id,
+            models.UserSubcategory.owner_id == owner_id,
+        )
+        .first()
+    )
+    if subcategory is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="budgets.subcategory_not_found")
+    if subcategory.category != category:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_category_mismatch")
+    if not subcategory.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_inactive")
+
+    budget = (
+        db.query(models.Budget)
+        .filter(
+            models.Budget.owner_id == owner_id,
+            models.Budget.category == category,
+            models.Budget.budget_year == budget_year,
+            models.Budget.budget_month == budget_month,
+        )
+        .first()
+    )
+    if budget is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_monthly_lane_required")
+    monthly_lane = (
+        db.query(models.BudgetSubcategoryLimit)
+        .filter(
+            models.BudgetSubcategoryLimit.owner_id == owner_id,
+            models.BudgetSubcategoryLimit.budget_id == budget.id,
+            models.BudgetSubcategoryLimit.subcategory_id == subcategory.id,
+        )
+        .first()
+    )
+    if monthly_lane is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_monthly_lane_required")
+    if int(limit_amount) > int(monthly_lane.monthly_limit):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="projects.subcategory_limit_exceeds_monthly_lane",
+        )
+
+    duplicate = (
+        db.query(models.ProjectSubcategoryMonthlyLimit)
+        .filter(
+            models.ProjectSubcategoryMonthlyLimit.project_id == project.id,
+            models.ProjectSubcategoryMonthlyLimit.user_subcategory_id == subcategory.id,
+            models.ProjectSubcategoryMonthlyLimit.budget_year == budget_year,
+            models.ProjectSubcategoryMonthlyLimit.budget_month == budget_month,
+        )
+    )
+    if exclude_reservation_id is not None:
+        duplicate = duplicate.filter(models.ProjectSubcategoryMonthlyLimit.id != exclude_reservation_id)
+    if duplicate.first() is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="projects.subcategory_exists")
+
+    return subcategory
+
+
 def validate_project_subcategory_rules(
     project: models.Project,
     category: models.ExpenseCategory,
@@ -141,7 +258,7 @@ def validate_project_update_rules(
     linked_count = count_project_linked_events(db, project.id)
     if linked_count > 0 and next_is_isolated != bool(project.is_isolated):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.isolation_locked")
-    if not next_is_isolated and len(project.subcategories) > 0:
+    if not next_is_isolated and project.is_isolated and len(project.subcategories) > 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategories_isolated_only")
 
     earliest_linked_date = earliest_project_event_date(db, project.id)

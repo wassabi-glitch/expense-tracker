@@ -1922,6 +1922,8 @@ class UserSubcategory(Base):
     owner = relationship("User", back_populates="subcategories")
     monthly_limits = relationship(
         "BudgetSubcategoryLimit", back_populates="subcategory", cascade="all, delete-orphan")
+    project_monthly_limits = relationship(
+        "ProjectSubcategoryMonthlyLimit", back_populates="user_subcategory", cascade="all, delete-orphan")
 
 
 class BudgetSubcategoryLimit(Base):
@@ -2001,6 +2003,9 @@ class Project(Base):
         "ProjectCategoryMonthlyLimit", back_populates="project", cascade="all, delete-orphan"
     )
     subcategories = relationship("ProjectSubcategory", back_populates="project", cascade="all, delete-orphan")
+    monthly_subcategory_limits = relationship(
+        "ProjectSubcategoryMonthlyLimit", back_populates="project", cascade="all, delete-orphan"
+    )
     goal_releases = relationship("GoalProjectRelease", back_populates="project", cascade="all, delete-orphan")
     session_draft_items = relationship("ExpenseSessionDraftItem", back_populates="project")
 
@@ -2065,6 +2070,38 @@ class ProjectSubcategory(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     project = relationship("Project", back_populates="subcategories")
+
+
+class ProjectSubcategoryMonthlyLimit(Base):
+    __tablename__ = "project_subcategory_monthly_limits"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "user_subcategory_id",
+            "budget_year",
+            "budget_month",
+            name="uq_project_subcategory_monthly_limits_project_subcategory_month",
+        ),
+        CheckConstraint("budget_month >= 1 AND budget_month <= 12", name="ck_project_subcategory_monthly_limits_month"),
+        CheckConstraint("budget_year >= 2020", name="ck_project_subcategory_monthly_limits_year"),
+        CheckConstraint("limit_amount > 0", name="ck_project_subcategory_monthly_limits_amount_positive"),
+        CheckConstraint("limit_amount <= 999999999999", name="ck_project_subcategory_monthly_limits_amount_max"),
+        Index("ix_project_subcategory_monthly_limits_month", "budget_year", "budget_month", "category"),
+        Index("ix_project_subcategory_monthly_limits_subcategory", "user_subcategory_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_subcategory_id = Column(Integer, ForeignKey("user_subcategories.id", ondelete="CASCADE"), nullable=False)
+    category = Column(Enum(ExpenseCategory), nullable=False)
+    budget_year = Column(Integer, nullable=False)
+    budget_month = Column(Integer, nullable=False)
+    limit_amount = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    project = relationship("Project", back_populates="monthly_subcategory_limits")
+    user_subcategory = relationship("UserSubcategory", back_populates="project_monthly_limits")
 
 
 class ExpenseSessionDraft(Base):
