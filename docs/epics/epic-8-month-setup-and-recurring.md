@@ -10,7 +10,7 @@ Now that the entire backend engine accurately understands Expected Inflows, Cate
 
 1. [ ] **[G6 - New Month Planner and Recurring Floors](../prd/g6-new-month-planner-and-recurring-floors.md)**
    - *Month Setup Wizard:* Build the UI and backend seams for "Plan from Scratch", "Copy Last Month", and "Smart Auto-Fill".
-   - *Permissive UX:* Ensure the wizard NEVER hard-blocks over-planned states, relying instead on Look-Ahead Warnings.
+   - *Strict Limit Balancing (No Permissive UX):* The wizard must intercept over-planned states. If the copied plan exceeds available Plan Backing, the user must manually reduce limits to balance the budget before proceeding.
    - *Floor Enforcement:* Ensure Smart Auto-Fill aggregates both standard recurring expenses and active Overlay Project slices as mandatory Category Floors to prevent mathematical paradoxes.
 
 ## Execution Rules

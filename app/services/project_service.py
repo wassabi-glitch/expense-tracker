@@ -159,7 +159,8 @@ def validate_project_update_rules(
     ):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.end_before_linked_expense")
 
-    validate_project_limit_sum(next_total_limit, list(project.category_limits))
+    if next_is_isolated:
+        validate_project_limit_sum(next_total_limit, list(project.category_limits))
 
 
 def validate_project_completion_date(project: models.Project, completion_date: date) -> None:
@@ -172,6 +173,10 @@ def build_project_detail(
     spent: int,
     category_breakdown: list[schemas.ProjectBudgetCategoryDetailOut],
     released_funding: int | None = None,
+    selected_budget_year: int | None = None,
+    selected_budget_month: int | None = None,
+    selected_month_reserved_amount: int = 0,
+    total_reserved_scope: int = 0,
 ) -> schemas.ProjectBudgetOut:
     remaining = int(project.total_limit) - spent if project.total_limit is not None else None
     remaining_funding = int(released_funding) - spent if released_funding is not None else None
@@ -196,6 +201,10 @@ def build_project_detail(
         progress_direction=progress_direction,
         remaining=remaining,
         is_over_limit=remaining is not None and remaining < 0,
+        selected_budget_year=selected_budget_year,
+        selected_budget_month=selected_budget_month,
+        selected_month_reserved_amount=selected_month_reserved_amount,
+        total_reserved_scope=total_reserved_scope,
         category_breakdown=category_breakdown,
         created_at=project.created_at,
         updated_at=project.updated_at,

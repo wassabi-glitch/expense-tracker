@@ -14,8 +14,13 @@ function compactParams(params = {}) {
     );
 }
 
-export async function getProjects() {
-    const response = await apiClient.get("/projects");
+export async function getProjects(params = {}) {
+    const response = await apiClient.get("/projects", {
+        params: compactParams({
+            budget_year: params.budgetYear,
+            budget_month: params.budgetMonth,
+        }),
+    });
     return normalizeArrayPayload(response.data);
 }
 
@@ -39,8 +44,13 @@ export async function updateProjectCategoryLimit(projectId, category, payload) {
     return response.data;
 }
 
-export async function deleteProjectCategoryLimit(projectId, category) {
-    const response = await apiClient.delete(`/projects/${projectId}/category-limits/${encodeURIComponent(category)}`);
+export async function deleteProjectCategoryLimit(projectId, category, params = {}) {
+    const response = await apiClient.delete(`/projects/${projectId}/category-limits/${encodeURIComponent(category)}`, {
+        params: compactParams({
+            budget_year: params.budgetYear,
+            budget_month: params.budgetMonth,
+        }),
+    });
     return response.data;
 }
 
