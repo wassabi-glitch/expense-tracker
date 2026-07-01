@@ -1,4 +1,3 @@
-from datetime import date
 from app import models
 from tests.helpers import create_user_and_token, create_budget
 
