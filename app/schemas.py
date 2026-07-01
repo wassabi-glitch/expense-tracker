@@ -2809,6 +2809,9 @@ class ProjectSubcategoryOut(BaseModel):
     category: ExpenseCategory
     name: str
     is_active: bool
+    user_subcategory_id: Optional[int] = None
+    budget_year: Optional[int] = None
+    budget_month: Optional[int] = None
     limit_amount: Optional[int] = None
     spent: int = 0
     remaining: Optional[int] = None
@@ -2957,18 +2960,41 @@ class ProjectCategoryLimitUpdate(BaseModel):
 
 class ProjectSubcategoryCreate(BaseModel):
     category: ExpenseCategory
-    name: str = Field(min_length=1, max_length=50)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    user_subcategory_id: Optional[int] = None
+    budget_year: Optional[int] = None
+    budget_month: Optional[int] = None
     limit_amount: Optional[int] = Field(default=None, gt=0)
     is_active: bool = True
 
     @field_validator("name")
     @classmethod
-    def validate_project_subcategory_name(cls, v: str):
+    def validate_project_subcategory_name(cls, v: Optional[str]):
+        if v is None:
+            return v
         return v.strip()
+
+    @field_validator("budget_year")
+    @classmethod
+    def validate_project_subcategory_budget_year(cls, value: Optional[int]):
+        if value is not None and value < MIN_BUDGET_YEAR:
+            raise ValueError("budgets.year_too_early")
+        return value
+
+    @field_validator("budget_month")
+    @classmethod
+    def validate_project_subcategory_budget_month(cls, value: Optional[int]):
+        if value is not None and (value < 1 or value > 12):
+            raise ValueError("budgets.month_invalid")
+        return value
 
 
 class ProjectSubcategoryUpdate(BaseModel):
+    category: Optional[ExpenseCategory] = None
     name: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    user_subcategory_id: Optional[int] = None
+    budget_year: Optional[int] = None
+    budget_month: Optional[int] = None
     limit_amount: Optional[int] = Field(default=None, gt=0)
     is_active: Optional[bool] = None
 
@@ -2980,6 +3006,20 @@ class ProjectSubcategoryUpdate(BaseModel):
         if v is None:
             return v
         return v.strip()
+
+    @field_validator("budget_year")
+    @classmethod
+    def validate_project_subcategory_update_budget_year(cls, value: Optional[int]):
+        if value is not None and value < MIN_BUDGET_YEAR:
+            raise ValueError("budgets.year_too_early")
+        return value
+
+    @field_validator("budget_month")
+    @classmethod
+    def validate_project_subcategory_update_budget_month(cls, value: Optional[int]):
+        if value is not None and (value < 1 or value > 12):
+            raise ValueError("budgets.month_invalid")
+        return value
 
 
 class AnalyticsHistory(BaseModel):

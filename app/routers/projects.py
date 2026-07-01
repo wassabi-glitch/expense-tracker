@@ -8,15 +8,21 @@ from app.redis_rate_limiter import consume_token_bucket
 from app.timezone import get_effective_user_timezone, today_in_tz
 
 from .. import models, oauth2, schemas
-from ..services.budget_service import get_owned_project_or_404, get_project_budget_summaries
+from ..services.budget_service import (
+    get_owned_project_or_404,
+    get_overlay_project_spent_by_project_subcategory,
+    get_project_budget_summaries,
+)
 from ..services.category_policy import validate_active_expense_category
 from ..services.project_service import (
     build_project_detail,
     get_owned_project_subcategory_or_404,
+    get_owned_project_subcategory_monthly_limit_or_404,
     latest_project_event_date,
     validate_project_completion_date,
     validate_project_editable,
     validate_project_limit_sum,
+    validate_overlay_project_subcategory_reservation,
     validate_project_subcategory_limit_sum,
     validate_project_subcategory_rules,
     validate_project_update_rules,
@@ -408,6 +414,17 @@ def delete_project_category_limit(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="projects.category_limit_not_found")
     if project.is_isolated and any(item.category == category for item in project.subcategories):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.category_limit_has_subcategories")
+    if not project.is_isolated:
+        (
+            db.query(models.ProjectSubcategoryMonthlyLimit)
+            .filter(
+                models.ProjectSubcategoryMonthlyLimit.project_id == project.id,
+                models.ProjectSubcategoryMonthlyLimit.category == category,
+                models.ProjectSubcategoryMonthlyLimit.budget_year == budget_year,
+                models.ProjectSubcategoryMonthlyLimit.budget_month == budget_month,
+            )
+            .delete(synchronize_session=False)
+        )
     db.delete(limit_row)
     db.commit()
     return _project_detail_out(db, current_user.id, project.id, budget_year, budget_month)
@@ -455,29 +472,75 @@ def list_project_category_limits(
 def list_project_subcategories(
     project_id: int,
     category: models.ExpenseCategory | None = None,
+    budget_year: int | None = None,
+    budget_month: int | None = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
 ):
     project = get_owned_project_or_404(db, current_user.id, project_id)
-    rows = list(project.subcategories)
-    if category is not None:
-        rows = [item for item in rows if item.category == category]
-    return [
-        schemas.ProjectSubcategoryOut(
-            id=item.id,
-            project_id=item.project_id,
-            category=item.category,
-            name=item.name,
-            is_active=bool(item.is_active),
-            limit_amount=int(item.limit_amount) if item.limit_amount is not None else None,
-            spent=0,
-            remaining=int(item.limit_amount) if item.limit_amount is not None else None,
-            is_over_limit=False,
-            created_at=item.created_at,
-            updated_at=item.updated_at,
+    if project.is_isolated:
+        rows = list(project.subcategories)
+        if category is not None:
+            rows = [item for item in rows if item.category == category]
+        return [
+            schemas.ProjectSubcategoryOut(
+                id=item.id,
+                project_id=item.project_id,
+                category=item.category,
+                name=item.name,
+                is_active=bool(item.is_active),
+                limit_amount=int(item.limit_amount) if item.limit_amount is not None else None,
+                spent=0,
+                remaining=int(item.limit_amount) if item.limit_amount is not None else None,
+                is_over_limit=False,
+                created_at=item.created_at,
+                updated_at=item.updated_at,
+            )
+            for item in sorted(rows, key=lambda value: (str(value.category), value.name.lower()))
+        ]
+
+    budget_year, budget_month = _overlay_reservation_month(project, budget_year, budget_month)
+    query = (
+        db.query(models.ProjectSubcategoryMonthlyLimit)
+        .join(models.UserSubcategory, models.UserSubcategory.id == models.ProjectSubcategoryMonthlyLimit.user_subcategory_id)
+        .filter(
+            models.ProjectSubcategoryMonthlyLimit.project_id == project.id,
+            models.ProjectSubcategoryMonthlyLimit.budget_year == budget_year,
+            models.ProjectSubcategoryMonthlyLimit.budget_month == budget_month,
         )
-        for item in sorted(rows, key=lambda value: (str(value.category), value.name.lower()))
-    ]
+    )
+    if category is not None:
+        query = query.filter(models.ProjectSubcategoryMonthlyLimit.category == category)
+    spent_by_subcategory = get_overlay_project_spent_by_project_subcategory(
+        db,
+        current_user.id,
+        budget_year,
+        budget_month,
+    )
+    rows = query.order_by(models.ProjectSubcategoryMonthlyLimit.category.asc(), models.UserSubcategory.name.asc()).all()
+    output = []
+    for item in rows:
+        spent = int(spent_by_subcategory.get((int(item.project_id), int(item.user_subcategory_id)), 0))
+        remaining = int(item.limit_amount) - spent
+        output.append(
+            schemas.ProjectSubcategoryOut(
+                id=item.id,
+                project_id=item.project_id,
+                category=item.category,
+                name=item.user_subcategory.name,
+                is_active=bool(item.user_subcategory.is_active),
+                user_subcategory_id=int(item.user_subcategory_id),
+                budget_year=int(item.budget_year),
+                budget_month=int(item.budget_month),
+                limit_amount=int(item.limit_amount),
+                spent=spent,
+                remaining=remaining,
+                is_over_limit=remaining < 0,
+                created_at=item.created_at,
+                updated_at=item.updated_at,
+            )
+        )
+    return output
 
 
 @router.post("/{project_id}/subcategories", response_model=schemas.ProjectBudgetOut, status_code=status.HTTP_201_CREATED)
@@ -495,25 +558,56 @@ def create_project_subcategory(
     )
     project = get_owned_project_or_404(db, current_user.id, project_id)
     validate_project_editable(project)
-    validate_project_subcategory_rules(project, payload.category)
-    existing = next(
-        (item for item in project.subcategories if item.category == payload.category and item.name.lower() == payload.name.lower()),
-        None,
-    )
-    if existing:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="projects.subcategory_exists")
-    validate_project_subcategory_limit_sum(project, payload.category, payload.limit_amount)
-    db.add(
-        models.ProjectSubcategory(
-            project_id=project.id,
-            category=payload.category,
-            name=payload.name,
-            is_active=payload.is_active,
-            limit_amount=payload.limit_amount,
+    if project.is_isolated:
+        if payload.name is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_name_required")
+        validate_project_subcategory_rules(project, payload.category)
+        existing = next(
+            (item for item in project.subcategories if item.category == payload.category and item.name.lower() == payload.name.lower()),
+            None,
         )
-    )
+        if existing:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="projects.subcategory_exists")
+        validate_project_subcategory_limit_sum(project, payload.category, payload.limit_amount)
+        db.add(
+            models.ProjectSubcategory(
+                project_id=project.id,
+                category=payload.category,
+                name=payload.name,
+                is_active=payload.is_active,
+                limit_amount=payload.limit_amount,
+            )
+        )
+        selected_budget_year = None
+        selected_budget_month = None
+    else:
+        if payload.user_subcategory_id is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.global_subcategory_required")
+        if payload.limit_amount is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_limit_required")
+        selected_budget_year, selected_budget_month = _overlay_reservation_month(project, payload.budget_year, payload.budget_month)
+        validate_overlay_project_subcategory_reservation(
+            db,
+            current_user.id,
+            project,
+            category=payload.category,
+            user_subcategory_id=int(payload.user_subcategory_id),
+            budget_year=selected_budget_year,
+            budget_month=selected_budget_month,
+            limit_amount=int(payload.limit_amount),
+        )
+        db.add(
+            models.ProjectSubcategoryMonthlyLimit(
+                project_id=project.id,
+                user_subcategory_id=int(payload.user_subcategory_id),
+                category=payload.category,
+                budget_year=selected_budget_year,
+                budget_month=selected_budget_month,
+                limit_amount=int(payload.limit_amount),
+            )
+        )
     db.commit()
-    return _project_detail_out(db, current_user.id, project.id)
+    return _project_detail_out(db, current_user.id, project.id, selected_budget_year, selected_budget_month)
 
 
 @router.put("/{project_id}/subcategories/{subcategory_id}", response_model=schemas.ProjectBudgetOut)
@@ -528,27 +622,68 @@ def update_project_subcategory(
     _apply_headers(response, enforce_project_write_rate_limit(current_user.id))
     project = get_owned_project_or_404(db, current_user.id, project_id)
     validate_project_editable(project)
-    subcategory = get_owned_project_subcategory_or_404(db, current_user.id, project_id, subcategory_id)
-    validate_project_subcategory_rules(project, subcategory.category)
-    next_name = payload.name if payload.name is not None else subcategory.name
-    duplicate = next(
-        (
-            item for item in project.subcategories
-            if item.id != subcategory.id
-            and item.category == subcategory.category
-            and item.name.lower() == next_name.lower()
-        ),
-        None,
-    )
-    if duplicate:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="projects.subcategory_exists")
-    next_limit_amount = payload.limit_amount if "limit_amount" in payload.model_fields_set else subcategory.limit_amount
-    validate_project_subcategory_limit_sum(project, subcategory.category, next_limit_amount, exclude_subcategory_id=subcategory.id)
-    update_data = payload.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(subcategory, field, value)
+    if project.is_isolated:
+        subcategory = get_owned_project_subcategory_or_404(db, current_user.id, project_id, subcategory_id)
+        validate_project_subcategory_rules(project, subcategory.category)
+        next_name = payload.name if payload.name is not None else subcategory.name
+        duplicate = next(
+            (
+                item for item in project.subcategories
+                if item.id != subcategory.id
+                and item.category == subcategory.category
+                and item.name.lower() == next_name.lower()
+            ),
+            None,
+        )
+        if duplicate:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="projects.subcategory_exists")
+        next_limit_amount = payload.limit_amount if "limit_amount" in payload.model_fields_set else subcategory.limit_amount
+        validate_project_subcategory_limit_sum(project, subcategory.category, next_limit_amount, exclude_subcategory_id=subcategory.id)
+        update_data = payload.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            if field in {"user_subcategory_id", "budget_year", "budget_month", "category"}:
+                continue
+            setattr(subcategory, field, value)
+        selected_budget_year = None
+        selected_budget_month = None
+    else:
+        reservation = get_owned_project_subcategory_monthly_limit_or_404(
+            db,
+            current_user.id,
+            project_id,
+            subcategory_id,
+        )
+        next_category = payload.category if payload.category is not None else reservation.category
+        next_user_subcategory_id = (
+            payload.user_subcategory_id
+            if "user_subcategory_id" in payload.model_fields_set and payload.user_subcategory_id is not None
+            else reservation.user_subcategory_id
+        )
+        next_budget_year = payload.budget_year if payload.budget_year is not None else int(reservation.budget_year)
+        next_budget_month = payload.budget_month if payload.budget_month is not None else int(reservation.budget_month)
+        next_limit_amount = payload.limit_amount if "limit_amount" in payload.model_fields_set else int(reservation.limit_amount)
+        if next_limit_amount is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_limit_required")
+        validate_overlay_project_subcategory_reservation(
+            db,
+            current_user.id,
+            project,
+            category=next_category,
+            user_subcategory_id=int(next_user_subcategory_id),
+            budget_year=int(next_budget_year),
+            budget_month=int(next_budget_month),
+            limit_amount=int(next_limit_amount),
+            exclude_reservation_id=int(reservation.id),
+        )
+        reservation.category = next_category
+        reservation.user_subcategory_id = int(next_user_subcategory_id)
+        reservation.budget_year = int(next_budget_year)
+        reservation.budget_month = int(next_budget_month)
+        reservation.limit_amount = int(next_limit_amount)
+        selected_budget_year = int(next_budget_year)
+        selected_budget_month = int(next_budget_month)
     db.commit()
-    return _project_detail_out(db, current_user.id, project.id)
+    return _project_detail_out(db, current_user.id, project.id, selected_budget_year, selected_budget_month)
 
 
 @router.delete("/{project_id}/subcategories/{subcategory_id}", response_model=schemas.ProjectBudgetOut)
@@ -562,7 +697,19 @@ def delete_project_subcategory(
     _apply_headers(response, enforce_project_write_rate_limit(current_user.id))
     project = get_owned_project_or_404(db, current_user.id, project_id)
     validate_project_editable(project)
-    subcategory = get_owned_project_subcategory_or_404(db, current_user.id, project_id, subcategory_id)
+    if project.is_isolated:
+        subcategory = get_owned_project_subcategory_or_404(db, current_user.id, project_id, subcategory_id)
+        selected_budget_year = None
+        selected_budget_month = None
+    else:
+        subcategory = get_owned_project_subcategory_monthly_limit_or_404(
+            db,
+            current_user.id,
+            project_id,
+            subcategory_id,
+        )
+        selected_budget_year = int(subcategory.budget_year)
+        selected_budget_month = int(subcategory.budget_month)
     db.delete(subcategory)
     db.commit()
-    return _project_detail_out(db, current_user.id, project.id)
+    return _project_detail_out(db, current_user.id, project.id, selected_budget_year, selected_budget_month)

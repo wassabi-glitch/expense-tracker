@@ -20,18 +20,18 @@ The parent category remains the macro truth: `parent monthly limit = project res
 
 ### Acceptance criteria
 
-- [ ] Overlay projects store category reservations by project, parent category, budget year, and budget month.
-- [ ] Existing flat overlay category limits are migrated into deterministic month-scoped slices without losing ownership, category, amount, or project links.
-- [ ] Active overlay category-limit API paths create, update, list, and delete selected-month reservation slices instead of one global category limit.
-- [ ] Isolated project behavior remains separate and is not forced into overlay month-slice math.
-- [ ] A category/month cannot have duplicate reservation slices for the same overlay project.
-- [ ] Budget month reads aggregate all active overlay reservations for each parent category in that month.
-- [ ] Budget responses expose enough data for the UI to show parent limit, total project reserved, and free general limit.
-- [ ] Project list/detail responses expose selected-month category slices and aggregate total reserved scope.
-- [ ] Expense posting linked to an overlay project is never blocked only because the project slice is locally overspent.
-- [ ] Overlay overspending reduces the derived free general bucket for the same parent category/month.
-- [ ] Backend tests cover reservation aggregation, overspent project math, ownership isolation, migration safety, and no-rollover month boundaries.
-- [ ] Frontend API clients and query invalidation paths consume the month-scoped contracts without relying on the old flat limit shape.
+- [x] Overlay projects store category reservations by project, parent category, budget year, and budget month.
+- [x] Existing flat overlay category limits are migrated into deterministic month-scoped slices without losing ownership, category, amount, or project links.
+- [x] Active overlay category-limit API paths create, update, list, and delete selected-month reservation slices instead of one global category limit.
+- [x] Isolated project behavior remains separate and is not forced into overlay month-slice math.
+- [x] A category/month cannot have duplicate reservation slices for the same overlay project.
+- [x] Budget month reads aggregate all active overlay reservations for each parent category in that month.
+- [x] Budget responses expose enough data for the UI to show parent limit, total project reserved, and free general limit.
+- [x] Project list/detail responses expose selected-month category slices and aggregate total reserved scope.
+- [x] Expense posting linked to an overlay project is never blocked only because the project slice is locally overspent.
+- [x] Overlay overspending reduces the derived free general bucket for the same parent category/month.
+- [x] Backend tests cover reservation aggregation, overspent project math, ownership isolation, migration safety, and no-rollover month boundaries.
+- [x] Frontend API clients and query invalidation paths consume the month-scoped contracts without relying on the old flat limit shape.
 
 ### Blocked by
 
@@ -55,17 +55,17 @@ This keeps overlay projects as a lens over the main monthly budget rather than a
 
 ### Acceptance criteria
 
-- [ ] Overlay project subcategory reservations store project, global subcategory, parent category, budget year, budget month, and limit amount.
-- [ ] Overlay project subcategory APIs accept global subcategory identifiers instead of custom subcategory names.
-- [ ] Creating or updating an overlay subcategory reservation requires the selected global tag to belong to the authenticated user.
-- [ ] Creating or updating an overlay subcategory reservation requires the selected global tag to belong to the same parent category as the project slice.
-- [ ] Creating or updating an overlay subcategory reservation requires a matching month-specific budget subcategory lane for the same parent budget month.
-- [ ] The backend hard-blocks project subcategory reservations that exceed the global monthly subcategory lane.
-- [ ] Overlay expense logging uses `project_id` plus the existing global `subcategory_id`; active overlay paths no longer require a project-only subcategory identifier.
-- [ ] Historical ledger rows keep readable subcategory context after the overlay taxonomy migration.
-- [ ] Isolated project subcategory behavior remains available for isolated-project scope and is not silently changed by overlay inheritance work.
-- [ ] Frontend project structure controls let users search/select eligible global subcategories for overlay projects and explain when a tag must first be added to the monthly budget.
-- [ ] Backend tests cover global-tag linkage, missing monthly lane rejection, cross-user rejection, cross-category rejection, hard-block limit validation, and ledger compatibility.
+- [x] Overlay project subcategory reservations store project, global subcategory, parent category, budget year, budget month, and limit amount.
+- [x] Overlay project subcategory APIs accept global subcategory identifiers instead of custom subcategory names.
+- [x] Creating or updating an overlay subcategory reservation requires the selected global tag to belong to the authenticated user.
+- [x] Creating or updating an overlay subcategory reservation requires the selected global tag to belong to the same parent category as the project slice.
+- [x] Creating or updating an overlay subcategory reservation requires a matching month-specific budget subcategory lane for the same parent budget month.
+- [x] The backend hard-blocks project subcategory reservations that exceed the global monthly subcategory lane.
+- [x] Overlay expense logging uses `project_id` plus the existing global `subcategory_id`; active overlay paths no longer require a project-only subcategory identifier.
+- [x] Historical ledger rows keep readable subcategory context after the overlay taxonomy migration.
+- [x] Isolated project subcategory behavior remains available for isolated-project scope and is not silently changed by overlay inheritance work.
+- [x] Frontend project structure controls let users search/select eligible global subcategories for overlay projects and explain when a tag must first be added to the monthly budget.
+- [x] Backend tests cover global-tag linkage, missing monthly lane rejection, cross-user rejection, cross-category rejection, hard-block limit validation, and ledger compatibility.
 - [ ] Frontend tests cover eligible tag selection, unavailable/missing tag copy, payload mapping, refreshed project details, and localized errors.
 
 ### Blocked by

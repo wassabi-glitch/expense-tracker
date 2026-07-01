@@ -430,10 +430,12 @@ export default function Budgets() {
   const [editingProjectCategory, setEditingProjectCategory] = React.useState("");
   const [editingProjectCategoryLimit, setEditingProjectCategoryLimit] = React.useState("");
   const [projectSubcategoryCategory, setProjectSubcategoryCategory] = React.useState("");
+  const [projectSubcategoryUserSubcategoryId, setProjectSubcategoryUserSubcategoryId] = React.useState("");
   const [projectSubcategoryName, setProjectSubcategoryName] = React.useState("");
   const [projectSubcategoryLimit, setProjectSubcategoryLimit] = React.useState("");
   const [projectSubcategoryIsActive, setProjectSubcategoryIsActive] = React.useState("true");
   const [editingProjectSubcategoryId, setEditingProjectSubcategoryId] = React.useState(null);
+  const [editingProjectSubcategoryUserSubcategoryId, setEditingProjectSubcategoryUserSubcategoryId] = React.useState("");
   const [editingProjectSubcategoryName, setEditingProjectSubcategoryName] = React.useState("");
   const [editingProjectSubcategoryLimit, setEditingProjectSubcategoryLimit] = React.useState("");
   const [editingProjectSubcategoryIsActive, setEditingProjectSubcategoryIsActive] = React.useState("true");
@@ -642,6 +644,33 @@ export default function Budgets() {
     () => Array.isArray(structureProject?.category_breakdown) ? structureProject.category_breakdown : [],
     [structureProject],
   );
+  const overlayProjectSubcategoryBudget = React.useMemo(
+    () => budgets.find((budget) =>
+      budget.category === projectSubcategoryCategory &&
+      Number(budget.budgetYear) === Number(summaryTarget.year) &&
+      Number(budget.budgetMonth) === Number(summaryTarget.month)
+    ) || null,
+    [budgets, projectSubcategoryCategory, summaryTarget.month, summaryTarget.year],
+  );
+  const overlayProjectSubcategoriesQuery = useQuery({
+    queryKey: ["budgets", overlayProjectSubcategoryBudget?.id, "subcategories", "overlay-project"],
+    queryFn: () => getBudgetSubcategories(overlayProjectSubcategoryBudget?.id),
+    enabled: Boolean(
+      projectStructureOpen &&
+      structureProject &&
+      !structureProject.is_isolated &&
+      overlayProjectSubcategoryBudget?.id
+    ),
+  });
+  const overlayEligibleSubcategories = React.useMemo(() => {
+    const assigned = new Set(
+      structureProjectCategories
+        .flatMap((categoryRow) => categoryRow.subcategories || [])
+        .filter((subcategory) => subcategory.budget_year === summaryTarget.year && subcategory.budget_month === summaryTarget.month)
+        .map((subcategory) => String(subcategory.user_subcategory_id || "")),
+    );
+    return (overlayProjectSubcategoriesQuery.data || []).filter((subcategory) => !assigned.has(String(subcategory.id)));
+  }, [overlayProjectSubcategoriesQuery.data, structureProjectCategories, summaryTarget.month, summaryTarget.year]);
 
   const sortedBudgets = React.useMemo(
     () =>
@@ -851,6 +880,8 @@ export default function Budgets() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["projects"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary", summaryTarget.year, summaryTarget.month] }),
       ]);
       toast.success(t("projects.created", { defaultValue: "Project created" }));
     },
@@ -920,6 +951,8 @@ export default function Budgets() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["projects"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary", summaryTarget.year, summaryTarget.month] }),
       ]);
       toast.success(t("projects.projectSubcategoryCreated", { defaultValue: "Project subcategory created" }));
     },
@@ -934,6 +967,8 @@ export default function Budgets() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["projects"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary", summaryTarget.year, summaryTarget.month] }),
       ]);
       toast.success(t("projects.projectSubcategoryUpdated", { defaultValue: "Project subcategory updated" }));
     },
@@ -1086,10 +1121,12 @@ export default function Budgets() {
     setEditingProjectCategory("");
     setEditingProjectCategoryLimit("");
     setProjectSubcategoryCategory("");
+    setProjectSubcategoryUserSubcategoryId("");
     setProjectSubcategoryName("");
     setProjectSubcategoryLimit("");
     setProjectSubcategoryIsActive("true");
     setEditingProjectSubcategoryId(null);
+    setEditingProjectSubcategoryUserSubcategoryId("");
     setEditingProjectSubcategoryName("");
     setEditingProjectSubcategoryLimit("");
     setEditingProjectSubcategoryIsActive("true");
@@ -1183,26 +1220,44 @@ export default function Budgets() {
       setActionError(t("projects.categoryRequired", { defaultValue: "Choose a category first" }));
       return;
     }
-    if (!projectSubcategoryName.trim()) {
+    if (structureProject.is_isolated && !projectSubcategoryName.trim()) {
       setActionError(t("projects.projectSubcategoryNameRequired", { defaultValue: "Project subcategory name is required" }));
       return;
     }
+    if (!structureProject.is_isolated && !projectSubcategoryUserSubcategoryId) {
+      setActionError(t("projects.globalSubcategoryRequired", { defaultValue: "Choose a monthly budget subcategory first" }));
+      return;
+    }
     const limitAmount = projectSubcategoryLimit ? Number(String(projectSubcategoryLimit).replace(/\s+/g, "")) : null;
+    if (!structureProject.is_isolated && !projectSubcategoryLimit) {
+      setActionError(t("projects.projectSubcategoryLimitInvalid", { defaultValue: "Project subcategory limit must be greater than zero" }));
+      return;
+    }
     if (projectSubcategoryLimit && (!Number.isFinite(limitAmount) || limitAmount <= 0)) {
       setActionError(t("projects.projectSubcategoryLimitInvalid", { defaultValue: "Project subcategory limit must be greater than zero" }));
       return;
     }
     try {
+      const payload = structureProject.is_isolated
+        ? {
+            category: projectSubcategoryCategory,
+            name: projectSubcategoryName.trim(),
+            limit_amount: limitAmount,
+            is_active: projectSubcategoryIsActive === "true",
+          }
+        : {
+            category: projectSubcategoryCategory,
+            user_subcategory_id: Number(projectSubcategoryUserSubcategoryId),
+            limit_amount: limitAmount,
+            budget_year: summaryTarget.year,
+            budget_month: summaryTarget.month,
+          };
       await createProjectSubcategoryMutation.mutateAsync({
         projectId: structureProject.id,
-        payload: {
-          category: projectSubcategoryCategory,
-          name: projectSubcategoryName.trim(),
-          limit_amount: limitAmount,
-          is_active: projectSubcategoryIsActive === "true",
-        },
+        payload,
       });
       setProjectSubcategoryCategory("");
+      setProjectSubcategoryUserSubcategoryId("");
       setProjectSubcategoryName("");
       setProjectSubcategoryLimit("");
       setProjectSubcategoryIsActive("true");
@@ -1214,26 +1269,39 @@ export default function Budgets() {
   async function handleUpdateProjectSubcategory() {
     if (!structureProject || !editingProjectSubcategoryId || updateProjectSubcategoryMutation.isPending) return;
     setActionError("");
-    if (!editingProjectSubcategoryName.trim()) {
+    if (structureProject.is_isolated && !editingProjectSubcategoryName.trim()) {
       setActionError(t("projects.projectSubcategoryNameRequired", { defaultValue: "Project subcategory name is required" }));
       return;
     }
     const limitAmount = editingProjectSubcategoryLimit ? Number(String(editingProjectSubcategoryLimit).replace(/\s+/g, "")) : null;
+    if (!structureProject.is_isolated && !editingProjectSubcategoryLimit) {
+      setActionError(t("projects.projectSubcategoryLimitInvalid", { defaultValue: "Project subcategory limit must be greater than zero" }));
+      return;
+    }
     if (editingProjectSubcategoryLimit && (!Number.isFinite(limitAmount) || limitAmount <= 0)) {
       setActionError(t("projects.projectSubcategoryLimitInvalid", { defaultValue: "Project subcategory limit must be greater than zero" }));
       return;
     }
     try {
+      const payload = structureProject.is_isolated
+        ? {
+            name: editingProjectSubcategoryName.trim(),
+            limit_amount: limitAmount,
+            is_active: editingProjectSubcategoryIsActive === "true",
+          }
+        : {
+            user_subcategory_id: Number(editingProjectSubcategoryUserSubcategoryId),
+            limit_amount: limitAmount,
+            budget_year: summaryTarget.year,
+            budget_month: summaryTarget.month,
+          };
       await updateProjectSubcategoryMutation.mutateAsync({
         projectId: structureProject.id,
         subcategoryId: editingProjectSubcategoryId,
-        payload: {
-          name: editingProjectSubcategoryName.trim(),
-          limit_amount: limitAmount,
-          is_active: editingProjectSubcategoryIsActive === "true",
-        },
+        payload,
       });
       setEditingProjectSubcategoryId(null);
+      setEditingProjectSubcategoryUserSubcategoryId("");
       setEditingProjectSubcategoryName("");
       setEditingProjectSubcategoryLimit("");
       setEditingProjectSubcategoryIsActive("true");
@@ -3026,11 +3094,141 @@ export default function Budgets() {
           </div>
 
           {structureProject && !structureProject.is_isolated ? (
-            <div className="rounded-2xl border border-border/60 bg-muted/15 p-4 text-sm text-muted-foreground">
-              {t("projects.overlaySubcategoryRule", {
-                defaultValue: "Overlay projects reuse the monthly budget subcategory tree. Project-local subcategories are only available for isolated projects.",
-              })}
-            </div>
+            <>
+              <div className="rounded-2xl border border-border/60 bg-muted/15 p-4">
+                <p className="text-sm font-semibold">{t("projects.addOverlaySubcategory", { defaultValue: "Reserve a global monthly subcategory" })}</p>
+                <div className="mt-3 grid gap-3 lg:grid-cols-[180px_minmax(0,1fr)_180px_auto]">
+                  <Select
+                    value={projectSubcategoryCategory || undefined}
+                    onValueChange={(value) => {
+                      setProjectSubcategoryCategory(value);
+                      setProjectSubcategoryUserSubcategoryId("");
+                    }}
+                  >
+                    <SelectTrigger className={selectTriggerClass}>
+                      <SelectValue placeholder={t("expenses.category")} />
+                    </SelectTrigger>
+                    <SelectContent className={selectContentClass}>
+                      {structureProjectCategories.map((categoryRow) => (
+                        <SelectItem key={categoryRow.category} value={categoryRow.category}>{tCategory(categoryRow.category)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={projectSubcategoryUserSubcategoryId || undefined}
+                    onValueChange={setProjectSubcategoryUserSubcategoryId}
+                    disabled={!projectSubcategoryCategory || !overlayProjectSubcategoryBudget || overlayEligibleSubcategories.length === 0}
+                  >
+                    <SelectTrigger className={selectTriggerClass}>
+                      <SelectValue placeholder={t("projects.chooseGlobalSubcategory", { defaultValue: "Choose monthly subcategory" })} />
+                    </SelectTrigger>
+                    <SelectContent className={selectContentClass}>
+                      {overlayEligibleSubcategories.map((subcategory) => (
+                        <SelectItem key={subcategory.id} value={String(subcategory.id)}>
+                          {subcategory.name} · {formatUzs(subcategory.monthly_limit || 0)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={projectSubcategoryLimit}
+                    onChange={(e) => setProjectSubcategoryLimit(formatBudgetAmountInput(e.target.value))}
+                    inputMode="numeric"
+                    placeholder={t("projects.reservationAmount", { defaultValue: "Reservation" })}
+                  />
+                  <Button onClick={handleCreateProjectSubcategory} disabled={!structureProject || createProjectSubcategoryMutation.isPending}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    {t("common.add", { defaultValue: "Add" })}
+                  </Button>
+                </div>
+                {projectSubcategoryCategory && !overlayProjectSubcategoryBudget ? (
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    {t("projects.overlaySubcategoryNeedsBudget", { defaultValue: "Add this category to the selected monthly budget before reserving its subcategories." })}
+                  </p>
+                ) : null}
+                {projectSubcategoryCategory && overlayProjectSubcategoryBudget && overlayEligibleSubcategories.length === 0 ? (
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    {t("projects.overlaySubcategoryNeedsLane", { defaultValue: "Add an eligible subcategory lane to this monthly budget first, or all current lanes are already attached." })}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-sm font-semibold">{t("projects.overlaySubcategoriesSection", { defaultValue: "Global subcategory reservations" })}</p>
+                {structureProjectCategories.every((categoryRow) => (categoryRow.subcategories?.length || 0) === 0) ? (
+                  <div className="rounded-2xl border border-dashed border-border bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
+                    {t("projects.noOverlaySubcategoriesYet", { defaultValue: "No global subcategory reservations for this month yet." })}
+                  </div>
+                ) : (
+                  structureProjectCategories.map((categoryRow) => (
+                    <div key={`${categoryRow.category}-overlay-subcategories`} className="rounded-2xl border border-border/60 bg-background/80 p-4">
+                      <p className="text-sm font-semibold">{tCategory(categoryRow.category)}</p>
+                      <div className="mt-3 space-y-3">
+                        {(categoryRow.subcategories || []).map((subcategory) => (
+                          <div key={subcategory.id} className="rounded-xl border border-border/50 bg-muted/15 p-3">
+                            {editingProjectSubcategoryId === subcategory.id ? (
+                              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_auto_auto]">
+                                <div className="flex min-h-9 items-center rounded-md border border-border/60 px-3 text-sm">
+                                  {subcategory.name}
+                                </div>
+                                <Input value={editingProjectSubcategoryLimit} onChange={(e) => setEditingProjectSubcategoryLimit(formatBudgetAmountInput(e.target.value))} inputMode="numeric" />
+                                <Button onClick={handleUpdateProjectSubcategory} disabled={updateProjectSubcategoryMutation.isPending}>
+                                  {t("common.save")}
+                                </Button>
+                                <Button variant="outline" onClick={() => {
+                                  setEditingProjectSubcategoryId(null);
+                                  setEditingProjectSubcategoryUserSubcategoryId("");
+                                  setEditingProjectSubcategoryName("");
+                                  setEditingProjectSubcategoryLimit("");
+                                  setEditingProjectSubcategoryIsActive("true");
+                                }}>
+                                  {t("common.cancel")}
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                <div className="min-w-0">
+                                  <p className="font-medium">{subcategory.name}</p>
+                                  <p className="text-sm text-muted-foreground">
+                                    {formatUzs(subcategory.limit_amount || 0)}
+                                    {` · ${t("budgets.spentLabel", { defaultValue: "Spent" })}: ${formatUzs(subcategory.spent || 0)}`}
+                                  </p>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setEditingProjectSubcategoryId(subcategory.id);
+                                      setEditingProjectSubcategoryUserSubcategoryId(String(subcategory.user_subcategory_id || ""));
+                                      setEditingProjectSubcategoryName(subcategory.name || "");
+                                      setEditingProjectSubcategoryLimit(subcategory.limit_amount ? formatBudgetAmountInput(String(subcategory.limit_amount)) : "");
+                                      setEditingProjectSubcategoryIsActive(subcategory.is_active ? "true" : "false");
+                                    }}
+                                  >
+                                    {t("common.edit", { defaultValue: "Edit" })}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                    onClick={() => deleteProjectSubcategoryMutation.mutate({ projectId: structureProject.id, subcategoryId: subcategory.id })}
+                                    disabled={deleteProjectSubcategoryMutation.isPending}
+                                  >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    {t("common.delete", { defaultValue: "Delete" })}
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
           ) : null}
 
           {structureProject?.is_isolated ? (

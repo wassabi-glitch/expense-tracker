@@ -644,6 +644,45 @@ def get_overlay_project_spent_by_project_category(
     }
 
 
+def get_overlay_project_spent_by_project_subcategory(
+    db: Session,
+    owner_id: int,
+    budget_year: int,
+    budget_month: int,
+) -> dict[tuple[int, int], int]:
+    start, end = month_bounds(budget_year, budget_month)
+    signed_amount = _signed_expense_amount()
+    rows = (
+        db.query(
+            models.EntityLedger.project_id,
+            models.EntityLedger.subcategory_id,
+            func.coalesce(func.sum(signed_amount), 0).label("spent"),
+        )
+        .select_from(models.EntityLedger)
+        .join(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
+        .join(models.Project, models.Project.id == models.EntityLedger.project_id)
+        .filter(
+            models.FinancialEvent.owner_id == owner_id,
+            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+            models.FinancialEvent.event_type.in_(
+                [models.TransactionType.EXPENSE, models.TransactionType.REFUND]
+            ),
+            models.FinancialEvent.date >= start,
+            models.FinancialEvent.date < end,
+            models.Project.is_isolated == False,  # noqa: E712
+            models.EntityLedger.project_id.isnot(None),
+            models.EntityLedger.subcategory_id.isnot(None),
+        )
+        .group_by(models.EntityLedger.project_id, models.EntityLedger.subcategory_id)
+        .all()
+    )
+    return {
+        (int(project_id), int(subcategory_id)): int(spent or 0)
+        for project_id, subcategory_id, spent in rows
+        if project_id is not None and subcategory_id is not None
+    }
+
+
 def compute_budget_chain(
     db: Session,
     owner_id: int,
@@ -1752,6 +1791,12 @@ def get_project_budget_summaries(
         int(selected_budget_year),
         int(selected_budget_month),
     )
+    selected_overlay_subcategory_spent = get_overlay_project_spent_by_project_subcategory(
+        db,
+        owner_id,
+        int(selected_budget_year),
+        int(selected_budget_month),
+    )
     total_reserved_scope_by_project: dict[int, int] = {}
     for project in projects:
         if project.is_isolated:
@@ -1760,6 +1805,22 @@ def get_project_budget_summaries(
             int(limit.limit_amount or 0)
             for limit in project.monthly_category_limits
         )
+    overlay_subcategory_rows = (
+        db.query(models.ProjectSubcategoryMonthlyLimit)
+        .join(models.Project, models.Project.id == models.ProjectSubcategoryMonthlyLimit.project_id)
+        .join(models.UserSubcategory, models.UserSubcategory.id == models.ProjectSubcategoryMonthlyLimit.user_subcategory_id)
+        .filter(
+            models.Project.owner_id == owner_id,
+            models.Project.is_isolated == False,  # noqa: E712
+            models.ProjectSubcategoryMonthlyLimit.budget_year == int(selected_budget_year),
+            models.ProjectSubcategoryMonthlyLimit.budget_month == int(selected_budget_month),
+        )
+        .order_by(models.ProjectSubcategoryMonthlyLimit.project_id.asc(), models.UserSubcategory.name.asc())
+        .all()
+    )
+    overlay_subcategories_by_project: dict[int, list[models.ProjectSubcategoryMonthlyLimit]] = defaultdict(list)
+    for row in overlay_subcategory_rows:
+        overlay_subcategories_by_project[int(row.project_id)].append(row)
     project_subcategory_rows = (
         db.query(
             models.EntityLedger.project_subcategory_id,
@@ -1787,28 +1848,57 @@ def get_project_budget_summaries(
     for project in projects:
         spent = int(spent_by_project.get(project.id, 0))
         subcategories_by_category: dict[models.ExpenseCategory, list[schemas.ProjectSubcategoryOut]] = {}
-        for subcategory in project.subcategories:
-            spent_subcategory = int(spent_by_project_subcategory.get(int(subcategory.id), 0))
-            remaining_subcategory = (
-                int(subcategory.limit_amount) - spent_subcategory
-                if subcategory.limit_amount is not None
-                else None
-            )
-            subcategories_by_category.setdefault(subcategory.category, []).append(
-                schemas.ProjectSubcategoryOut(
-                    id=subcategory.id,
-                    project_id=subcategory.project_id,
-                    category=subcategory.category,
-                    name=subcategory.name,
-                    is_active=bool(subcategory.is_active),
-                    limit_amount=int(subcategory.limit_amount) if subcategory.limit_amount is not None else None,
-                    spent=spent_subcategory,
-                    remaining=remaining_subcategory,
-                    is_over_limit=remaining_subcategory is not None and remaining_subcategory < 0,
-                    created_at=subcategory.created_at,
-                    updated_at=subcategory.updated_at,
+        if project.is_isolated:
+            for subcategory in project.subcategories:
+                spent_subcategory = int(spent_by_project_subcategory.get(int(subcategory.id), 0))
+                remaining_subcategory = (
+                    int(subcategory.limit_amount) - spent_subcategory
+                    if subcategory.limit_amount is not None
+                    else None
                 )
-            )
+                subcategories_by_category.setdefault(subcategory.category, []).append(
+                    schemas.ProjectSubcategoryOut(
+                        id=subcategory.id,
+                        project_id=subcategory.project_id,
+                        category=subcategory.category,
+                        name=subcategory.name,
+                        is_active=bool(subcategory.is_active),
+                        limit_amount=int(subcategory.limit_amount) if subcategory.limit_amount is not None else None,
+                        spent=spent_subcategory,
+                        remaining=remaining_subcategory,
+                        is_over_limit=remaining_subcategory is not None and remaining_subcategory < 0,
+                        created_at=subcategory.created_at,
+                        updated_at=subcategory.updated_at,
+                    )
+                )
+        else:
+            for reservation in overlay_subcategories_by_project.get(int(project.id), []):
+                global_subcategory = reservation.user_subcategory
+                spent_subcategory = int(
+                    selected_overlay_subcategory_spent.get(
+                        (int(reservation.project_id), int(reservation.user_subcategory_id)),
+                        0,
+                    )
+                )
+                remaining_subcategory = int(reservation.limit_amount) - spent_subcategory
+                subcategories_by_category.setdefault(reservation.category, []).append(
+                    schemas.ProjectSubcategoryOut(
+                        id=reservation.id,
+                        project_id=reservation.project_id,
+                        category=reservation.category,
+                        name=global_subcategory.name,
+                        is_active=bool(global_subcategory.is_active),
+                        user_subcategory_id=int(reservation.user_subcategory_id),
+                        budget_year=int(reservation.budget_year),
+                        budget_month=int(reservation.budget_month),
+                        limit_amount=int(reservation.limit_amount),
+                        spent=spent_subcategory,
+                        remaining=remaining_subcategory,
+                        is_over_limit=remaining_subcategory < 0,
+                        created_at=reservation.created_at,
+                        updated_at=reservation.updated_at,
+                    )
+                )
 
         category_breakdown = []
         category_limits = (

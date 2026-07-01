@@ -2343,6 +2343,325 @@ def test_overlay_project_can_overspend_local_reservation_without_blocking_parent
     assert project_row["category_breakdown"][0]["remaining"] == -100_000
 
 
+def _create_overlay_subcategory_context(client, headers):
+    budget = create_budget(
+        client,
+        headers,
+        category="Travel",
+        monthly_limit=1_000_000,
+        budget_year=2026,
+        budget_month=6,
+    )
+    assert budget.status_code == 201, budget.text
+    subcategory = client.post(
+        f"/budgets/{budget.json()['id']}/subcategories",
+        json={"category": "Travel", "name": "Lodging", "monthly_limit": 300_000},
+        headers=headers,
+    )
+    assert subcategory.status_code == 201, subcategory.text
+    project = client.post(
+        "/projects",
+        json={
+            "title": "June trip",
+            "is_isolated": False,
+            "start_date": "2026-06-01",
+            "target_end_date": "2026-06-30",
+        },
+        headers=headers,
+    )
+    assert project.status_code == 201, project.text
+    category_limit = client.post(
+        f"/projects/{project.json()['id']}/category-limits",
+        json={
+            "category": "Travel",
+            "limit_amount": 500_000,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert category_limit.status_code == 201, category_limit.text
+    return budget.json(), subcategory.json(), project.json()
+
+
+def test_overlay_project_subcategory_reservation_uses_global_monthly_tag(client):
+    headers = create_user_and_token(
+        client, "overlaysubtag", "overlaysubtag@example.com", "Password123!"
+    )
+    _, subcategory, project = _create_overlay_subcategory_context(client, headers)
+
+    reservation = client.post(
+        f"/projects/{project['id']}/subcategories",
+        json={
+            "category": "Travel",
+            "user_subcategory_id": subcategory["id"],
+            "limit_amount": 200_000,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert reservation.status_code == 201, reservation.text
+    project_subcategory = reservation.json()["category_breakdown"][0]["subcategories"][0]
+    assert project_subcategory["name"] == "Lodging"
+    assert project_subcategory["user_subcategory_id"] == subcategory["id"]
+    assert project_subcategory["budget_year"] == 2026
+    assert project_subcategory["budget_month"] == 6
+    assert project_subcategory["limit_amount"] == 200_000
+
+
+def test_overlay_project_subcategory_requires_matching_monthly_lane(client):
+    headers = create_user_and_token(
+        client, "overlaysubnolane", "overlaysubnolane@example.com", "Password123!"
+    )
+    _, subcategory, project = _create_overlay_subcategory_context(client, headers)
+    july_budget = create_budget(
+        client,
+        headers,
+        category="Travel",
+        monthly_limit=1_000_000,
+        budget_year=2026,
+        budget_month=7,
+    )
+    assert july_budget.status_code == 201, july_budget.text
+    july_category_limit = client.post(
+        f"/projects/{project['id']}/category-limits",
+        json={
+            "category": "Travel",
+            "limit_amount": 500_000,
+            "budget_year": 2026,
+            "budget_month": 7,
+        },
+        headers=headers,
+    )
+    assert july_category_limit.status_code == 201, july_category_limit.text
+
+    rejected = client.post(
+        f"/projects/{project['id']}/subcategories",
+        json={
+            "category": "Travel",
+            "user_subcategory_id": subcategory["id"],
+            "limit_amount": 100_000,
+            "budget_year": 2026,
+            "budget_month": 7,
+        },
+        headers=headers,
+    )
+    assert rejected.status_code == 400
+    assert rejected.json()["detail"] == "projects.subcategory_monthly_lane_required"
+
+
+def test_overlay_project_subcategory_rejects_cross_user_and_cross_category_tags(client):
+    headers = create_user_and_token(
+        client, "overlaysubowner", "overlaysubowner@example.com", "Password123!"
+    )
+    other_headers = create_user_and_token(
+        client, "overlaysubother", "overlaysubother@example.com", "Password123!"
+    )
+    _, _, project = _create_overlay_subcategory_context(client, headers)
+    _, other_subcategory, _ = _create_overlay_subcategory_context(client, other_headers)
+
+    cross_user = client.post(
+        f"/projects/{project['id']}/subcategories",
+        json={
+            "category": "Travel",
+            "user_subcategory_id": other_subcategory["id"],
+            "limit_amount": 100_000,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert cross_user.status_code == 404
+    assert cross_user.json()["detail"] == "budgets.subcategory_not_found"
+
+    groceries = create_budget(
+        client,
+        headers,
+        category="Groceries",
+        monthly_limit=1_000_000,
+        budget_year=2026,
+        budget_month=6,
+    )
+    assert groceries.status_code == 201, groceries.text
+    food_tag = client.post(
+        f"/budgets/{groceries.json()['id']}/subcategories",
+        json={"category": "Groceries", "name": "Snacks", "monthly_limit": 100_000},
+        headers=headers,
+    )
+    assert food_tag.status_code == 201, food_tag.text
+
+    cross_category = client.post(
+        f"/projects/{project['id']}/subcategories",
+        json={
+            "category": "Travel",
+            "user_subcategory_id": food_tag.json()["id"],
+            "limit_amount": 100_000,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert cross_category.status_code == 400
+    assert cross_category.json()["detail"] == "projects.subcategory_category_mismatch"
+
+
+def test_overlay_project_subcategory_reservation_cannot_exceed_global_monthly_lane(client):
+    headers = create_user_and_token(
+        client, "overlaysubcap", "overlaysubcap@example.com", "Password123!"
+    )
+    _, subcategory, project = _create_overlay_subcategory_context(client, headers)
+
+    rejected = client.post(
+        f"/projects/{project['id']}/subcategories",
+        json={
+            "category": "Travel",
+            "user_subcategory_id": subcategory["id"],
+            "limit_amount": 300_001,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert rejected.status_code == 400
+    assert rejected.json()["detail"] == "projects.subcategory_limit_exceeds_monthly_lane"
+
+
+def test_overlay_expense_uses_project_id_with_global_subcategory_id(client, session):
+    headers = create_user_and_token(
+        client, "overlaysubexpense", "overlaysubexpense@example.com", "Password123!"
+    )
+    _, subcategory, project = _create_overlay_subcategory_context(client, headers)
+    reservation = client.post(
+        f"/projects/{project['id']}/subcategories",
+        json={
+            "category": "Travel",
+            "user_subcategory_id": subcategory["id"],
+            "limit_amount": 200_000,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert reservation.status_code == 201, reservation.text
+
+    expense = client.post(
+        "/expenses/",
+        json={
+            "title": "Hotel",
+            "amount": 80_000,
+            "category": "Travel",
+            "date": "2026-06-10",
+            "project_id": project["id"],
+            "subcategory_id": subcategory["id"],
+        },
+        headers=headers,
+    )
+    assert expense.status_code == 201, expense.text
+    assert expense.json()["project_id"] == project["id"]
+    assert expense.json()["subcategory_id"] == subcategory["id"]
+
+    session.expire_all()
+    leg = (
+        session.query(models.EntityLedger)
+        .filter(models.EntityLedger.project_id == project["id"])
+        .first()
+    )
+    assert leg.subcategory_id == subcategory["id"]
+    assert leg.project_subcategory_id is None
+
+    projects = client.get(
+        "/projects",
+        params={"budget_year": 2026, "budget_month": 6},
+        headers=headers,
+    )
+    assert projects.status_code == 200, projects.text
+    project_row = next(item for item in projects.json() if item["id"] == project["id"])
+    project_subcategory = project_row["category_breakdown"][0]["subcategories"][0]
+    assert project_subcategory["spent"] == 80_000
+    assert project_subcategory["remaining"] == 120_000
+
+
+def test_isolated_project_subcategory_behavior_stays_project_local(client):
+    headers = create_user_and_token(
+        client, "isolatedsubstill", "isolatedsubstill@example.com", "Password123!"
+    )
+    project = client.post(
+        "/projects",
+        json={
+            "title": "Wedding",
+            "is_isolated": True,
+            "total_limit": 1_000_000,
+            "start_date": "2026-06-01",
+            "target_end_date": "2026-06-30",
+        },
+        headers=headers,
+    )
+    assert project.status_code == 201, project.text
+    category_limit = client.post(
+        f"/projects/{project.json()['id']}/category-limits",
+        json={"category": "Family & Events", "limit_amount": 800_000},
+        headers=headers,
+    )
+    assert category_limit.status_code == 201, category_limit.text
+
+    subcategory = client.post(
+        f"/projects/{project.json()['id']}/subcategories",
+        json={"category": "Family & Events", "name": "Venue", "limit_amount": 500_000},
+        headers=headers,
+    )
+    assert subcategory.status_code == 201, subcategory.text
+    assert subcategory.json()["category_breakdown"][0]["subcategories"][0]["name"] == "Venue"
+    assert subcategory.json()["category_breakdown"][0]["subcategories"][0]["user_subcategory_id"] is None
+
+
+def test_historical_overlay_project_subcategory_rows_remain_readable(client, session):
+    email = "overlayhistory@example.com"
+    headers = create_user_and_token(client, "overlayhistory", email, "Password123!")
+    budget, subcategory, project = _create_overlay_subcategory_context(client, headers)
+    user = _get_user(session, email)
+    legacy_project_subcategory = models.ProjectSubcategory(
+        project_id=project["id"],
+        category=models.ExpenseCategory.TRAVEL,
+        name="Legacy lodging",
+        is_active=True,
+        limit_amount=100_000,
+    )
+    session.add(legacy_project_subcategory)
+    session.flush()
+    event = models.FinancialEvent(
+        owner_id=user.id,
+        title="Old hotel",
+        event_type=models.TransactionType.EXPENSE,
+        status=models.FinancialEventStatus.POSTED,
+        date=date(2026, 6, 12),
+    )
+    session.add(event)
+    session.flush()
+    session.add(
+        models.EntityLedger(
+            event_id=event.id,
+            label="Old hotel",
+            amount=50_000,
+            category=models.ExpenseCategory.TRAVEL,
+            budget_id=budget["id"],
+            project_id=project["id"],
+            subcategory_id=subcategory["id"],
+            project_subcategory_id=legacy_project_subcategory.id,
+        )
+    )
+    session.commit()
+
+    detail = client.get(
+        "/budgets/item/detail",
+        params={"budget_year": 2026, "budget_month": 6, "category": "Travel"},
+        headers=headers,
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["recent_activity"][0]["subcategory_id"] == subcategory["id"]
+    assert detail.json()["recent_activity"][0]["subcategory_name"] == "Lodging"
+
+
 def test_get_budgets_does_not_auto_rollover_unused_room(client):
     email = "norolloverbudget@example.com"
     headers = create_user_and_token(
