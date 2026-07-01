@@ -21,6 +21,7 @@ from ..services.project_service import (
     latest_project_event_date,
     validate_project_completion_date,
     validate_project_editable,
+    validate_overlay_project_category_reservation,
     validate_project_limit_sum,
     validate_overlay_project_subcategory_reservation,
     validate_project_subcategory_limit_sum,
@@ -328,6 +329,15 @@ def create_project_category_limit(
         )
         if existing:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="projects.category_limit_exists")
+        validate_overlay_project_category_reservation(
+            db,
+            current_user.id,
+            project,
+            category=payload.category,
+            budget_year=budget_year,
+            budget_month=budget_month,
+            limit_amount=payload.limit_amount,
+        )
         db.add(
             models.ProjectCategoryMonthlyLimit(
                 project_id=project.id,
@@ -377,6 +387,17 @@ def update_project_category_limit(
             list(project.category_limits),
             incoming_limit=payload.limit_amount,
             exclude_category=category,
+        )
+    else:
+        validate_overlay_project_category_reservation(
+            db,
+            current_user.id,
+            project,
+            category=category,
+            budget_year=int(budget_year),
+            budget_month=int(budget_month),
+            limit_amount=payload.limit_amount,
+            exclude_reservation_id=int(limit_row.id),
         )
     limit_row.limit_amount = payload.limit_amount
     db.commit()

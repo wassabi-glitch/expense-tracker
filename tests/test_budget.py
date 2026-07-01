@@ -2343,6 +2343,191 @@ def test_overlay_project_can_overspend_local_reservation_without_blocking_parent
     assert project_row["category_breakdown"][0]["remaining"] == -100_000
 
 
+def test_overlay_category_reservations_cannot_overbook_parent_budget_month(client):
+    headers = create_user_and_token(
+        client, "overlaycap", "overlaycap@example.com", "Password123!"
+    )
+    other_headers = create_user_and_token(
+        client, "overlaycapother", "overlaycapother@example.com", "Password123!"
+    )
+    budget = create_budget(
+        client,
+        headers,
+        category="Travel",
+        monthly_limit=1_000_000,
+        budget_year=2026,
+        budget_month=6,
+    )
+    assert budget.status_code == 201, budget.text
+
+    first_project = client.post(
+        "/projects",
+        json={
+            "title": "Conference",
+            "is_isolated": False,
+            "start_date": "2026-06-01",
+            "target_end_date": "2026-06-30",
+        },
+        headers=headers,
+    )
+    assert first_project.status_code == 201, first_project.text
+    first_reservation = client.post(
+        f"/projects/{first_project.json()['id']}/category-limits",
+        json={
+            "category": "Travel",
+            "limit_amount": 700_000,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert first_reservation.status_code == 201, first_reservation.text
+
+    second_project = client.post(
+        "/projects",
+        json={
+            "title": "Family trip",
+            "is_isolated": False,
+            "start_date": "2026-06-01",
+            "target_end_date": "2026-06-30",
+        },
+        headers=headers,
+    )
+    assert second_project.status_code == 201, second_project.text
+    overbooked = client.post(
+        f"/projects/{second_project.json()['id']}/category-limits",
+        json={
+            "category": "Travel",
+            "limit_amount": 300_001,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert overbooked.status_code == 400
+    assert overbooked.json()["detail"] == "projects.category_reservation_exceeds_parent_budget"
+
+    missing_budget = client.post(
+        f"/projects/{second_project.json()['id']}/category-limits",
+        json={
+            "category": "Travel",
+            "limit_amount": 100_000,
+            "budget_year": 2026,
+            "budget_month": 7,
+        },
+        headers=headers,
+    )
+    assert missing_budget.status_code == 400
+    assert missing_budget.json()["detail"] == "projects.category_budget_month_required"
+
+    other_budget = create_budget(
+        client,
+        other_headers,
+        category="Travel",
+        monthly_limit=300_001,
+        budget_year=2026,
+        budget_month=6,
+    )
+    assert other_budget.status_code == 201, other_budget.text
+    other_project = client.post(
+        "/projects",
+        json={
+            "title": "Other family trip",
+            "is_isolated": False,
+            "start_date": "2026-06-01",
+            "target_end_date": "2026-06-30",
+        },
+        headers=other_headers,
+    )
+    assert other_project.status_code == 201, other_project.text
+    other_reservation = client.post(
+        f"/projects/{other_project.json()['id']}/category-limits",
+        json={
+            "category": "Travel",
+            "limit_amount": 300_001,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=other_headers,
+    )
+    assert other_reservation.status_code == 201, other_reservation.text
+
+
+def test_overlay_category_reservation_update_excludes_current_slice_and_checks_headroom(client):
+    headers = create_user_and_token(
+        client, "overlayupdatecap", "overlayupdatecap@example.com", "Password123!"
+    )
+    budget = create_budget(
+        client,
+        headers,
+        category="Travel",
+        monthly_limit=1_000_000,
+        budget_year=2026,
+        budget_month=6,
+    )
+    assert budget.status_code == 201, budget.text
+
+    project_one = client.post(
+        "/projects",
+        json={"title": "Trip one", "is_isolated": False, "start_date": "2026-06-01"},
+        headers=headers,
+    )
+    assert project_one.status_code == 201, project_one.text
+    project_two = client.post(
+        "/projects",
+        json={"title": "Trip two", "is_isolated": False, "start_date": "2026-06-01"},
+        headers=headers,
+    )
+    assert project_two.status_code == 201, project_two.text
+
+    first_reservation = client.post(
+        f"/projects/{project_one.json()['id']}/category-limits",
+        json={
+            "category": "Travel",
+            "limit_amount": 400_000,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert first_reservation.status_code == 201, first_reservation.text
+    second_reservation = client.post(
+        f"/projects/{project_two.json()['id']}/category-limits",
+        json={
+            "category": "Travel",
+            "limit_amount": 500_000,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert second_reservation.status_code == 201, second_reservation.text
+
+    fits_after_excluding_current = client.put(
+        f"/projects/{project_one.json()['id']}/category-limits/Travel",
+        json={
+            "limit_amount": 500_000,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert fits_after_excluding_current.status_code == 200, fits_after_excluding_current.text
+    assert fits_after_excluding_current.json()["category_breakdown"][0]["limit_amount"] == 500_000
+
+    stale_headroom = client.put(
+        f"/projects/{project_one.json()['id']}/category-limits/Travel",
+        json={
+            "limit_amount": 500_001,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert stale_headroom.status_code == 400
+    assert stale_headroom.json()["detail"] == "projects.category_reservation_exceeds_parent_budget"
+
+
 def _create_overlay_subcategory_context(client, headers):
     budget = create_budget(
         client,
@@ -2525,6 +2710,75 @@ def test_overlay_project_subcategory_reservation_cannot_exceed_global_monthly_la
     )
     assert rejected.status_code == 400
     assert rejected.json()["detail"] == "projects.subcategory_limit_exceeds_monthly_lane"
+
+
+def test_overlay_project_subcategory_reservations_cannot_overbook_global_monthly_lane(client):
+    headers = create_user_and_token(
+        client, "overlaysubaggregate", "overlaysubaggregate@example.com", "Password123!"
+    )
+    budget, subcategory, first_project = _create_overlay_subcategory_context(client, headers)
+    second_project = client.post(
+        "/projects",
+        json={
+            "title": "Second June trip",
+            "is_isolated": False,
+            "start_date": "2026-06-01",
+            "target_end_date": "2026-06-30",
+        },
+        headers=headers,
+    )
+    assert second_project.status_code == 201, second_project.text
+    second_category_limit = client.post(
+        f"/projects/{second_project.json()['id']}/category-limits",
+        json={
+            "category": "Travel",
+            "limit_amount": 500_000,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert second_category_limit.status_code == 201, second_category_limit.text
+
+    first_reservation = client.post(
+        f"/projects/{first_project['id']}/subcategories",
+        json={
+            "category": "Travel",
+            "user_subcategory_id": subcategory["id"],
+            "limit_amount": 200_000,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert first_reservation.status_code == 201, first_reservation.text
+
+    second_reservation = client.post(
+        f"/projects/{second_project.json()['id']}/subcategories",
+        json={
+            "category": "Travel",
+            "user_subcategory_id": subcategory["id"],
+            "limit_amount": 100_000,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert second_reservation.status_code == 201, second_reservation.text
+
+    stale_lane_headroom = client.put(
+        f"/projects/{second_project.json()['id']}/subcategories/{second_reservation.json()['category_breakdown'][0]['subcategories'][0]['id']}",
+        json={
+            "limit_amount": 100_001,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert stale_lane_headroom.status_code == 400
+    assert stale_lane_headroom.json()["detail"] == "projects.subcategory_reservation_exceeds_monthly_lane"
+
+    assert budget["monthly_limit"] == 1_000_000
 
 
 def test_overlay_expense_uses_project_id_with_global_subcategory_id(client, session):

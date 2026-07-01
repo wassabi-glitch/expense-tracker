@@ -133,6 +133,12 @@ function getBudgetMonthRange(budgetYear, budgetMonth) {
   return { startDate, endDate };
 }
 
+function parseBudgetAmountInput(raw) {
+  if (!raw) return null;
+  const amount = Number(String(raw).replace(/\s+/g, ""));
+  return Number.isFinite(amount) ? amount : null;
+}
+
 function ResponsiveBudgetFormShell({
   compact,
   open,
@@ -568,6 +574,10 @@ export default function Budgets() {
       baseLimit: Number(b.monthly_limit || 0),
       effectiveLimit: Number(b.effective_monthly_limit || b.monthly_limit || 0),
       limit: Number(b.effective_monthly_limit || b.monthly_limit || 0),
+      projectReservedAmount: Number(b.project_reserved_amount || 0),
+      projectSpentAmount: Number(b.project_spent_amount || 0),
+      freeGeneralLimit: Number(b.free_general_limit || 0),
+      freeGeneralRemaining: Number(b.free_general_remaining || 0),
       spent: Number(b.spent || 0),
       remaining: Math.max(
         0,
@@ -644,13 +654,73 @@ export default function Budgets() {
     () => Array.isArray(structureProject?.category_breakdown) ? structureProject.category_breakdown : [],
     [structureProject],
   );
+  const selectedOverlayReservationTotalsByCategory = React.useMemo(() => {
+    const totals = new Map();
+    projects
+      .filter((project) => !project.is_isolated && String(project.status || "").toUpperCase() === "ACTIVE")
+      .forEach((project) => {
+        (project.category_breakdown || []).forEach((categoryRow) => {
+          if (
+            Number(categoryRow.budget_year) !== Number(summaryTarget.year) ||
+            Number(categoryRow.budget_month) !== Number(summaryTarget.month)
+          ) {
+            return;
+          }
+          totals.set(
+            categoryRow.category,
+            Number(totals.get(categoryRow.category) || 0) + Number(categoryRow.limit_amount || 0),
+          );
+        });
+      });
+    return totals;
+  }, [projects, summaryTarget.month, summaryTarget.year]);
+  const selectedOverlayReservationTotalsBySubcategory = React.useMemo(() => {
+    const totals = new Map();
+    projects
+      .filter((project) => !project.is_isolated && String(project.status || "").toUpperCase() === "ACTIVE")
+      .forEach((project) => {
+        (project.category_breakdown || []).forEach((categoryRow) => {
+          (categoryRow.subcategories || []).forEach((subcategory) => {
+            if (
+              Number(subcategory.budget_year) !== Number(summaryTarget.year) ||
+              Number(subcategory.budget_month) !== Number(summaryTarget.month)
+            ) {
+              return;
+            }
+            const key = String(subcategory.user_subcategory_id || "");
+            totals.set(key, Number(totals.get(key) || 0) + Number(subcategory.limit_amount || 0));
+          });
+        });
+      });
+    return totals;
+  }, [projects, summaryTarget.month, summaryTarget.year]);
+  const getOverlayCategoryHeadroom = React.useCallback((category, excludeAmount = 0) => {
+    const budget = budgets.find((item) =>
+      item.category === category &&
+      Number(item.budgetYear) === Number(summaryTarget.year) &&
+      Number(item.budgetMonth) === Number(summaryTarget.month)
+    ) || null;
+    if (!budget) {
+      return { budget: null, reserved: 0, headroom: 0 };
+    }
+    const reserved = Number(selectedOverlayReservationTotalsByCategory.get(category) ?? budget.projectReservedAmount ?? 0);
+    const headroom = Math.max(Number(budget.baseLimit || 0) - reserved + Number(excludeAmount || 0), 0);
+    return { budget, reserved, headroom };
+  }, [budgets, selectedOverlayReservationTotalsByCategory, summaryTarget.month, summaryTarget.year]);
+  const editingProjectSubcategoryRow = React.useMemo(
+    () => structureProjectCategories
+      .flatMap((categoryRow) => categoryRow.subcategories || [])
+      .find((subcategory) => String(subcategory.id) === String(editingProjectSubcategoryId)) || null,
+    [editingProjectSubcategoryId, structureProjectCategories],
+  );
+  const overlayProjectSubcategoryCategory = projectSubcategoryCategory || editingProjectSubcategoryRow?.category || "";
   const overlayProjectSubcategoryBudget = React.useMemo(
     () => budgets.find((budget) =>
-      budget.category === projectSubcategoryCategory &&
+      budget.category === overlayProjectSubcategoryCategory &&
       Number(budget.budgetYear) === Number(summaryTarget.year) &&
       Number(budget.budgetMonth) === Number(summaryTarget.month)
     ) || null,
-    [budgets, projectSubcategoryCategory, summaryTarget.month, summaryTarget.year],
+    [budgets, overlayProjectSubcategoryCategory, summaryTarget.month, summaryTarget.year],
   );
   const overlayProjectSubcategoriesQuery = useQuery({
     queryKey: ["budgets", overlayProjectSubcategoryBudget?.id, "subcategories", "overlay-project"],
@@ -671,6 +741,81 @@ export default function Budgets() {
     );
     return (overlayProjectSubcategoriesQuery.data || []).filter((subcategory) => !assigned.has(String(subcategory.id)));
   }, [overlayProjectSubcategoriesQuery.data, structureProjectCategories, summaryTarget.month, summaryTarget.year]);
+  const getOverlaySubcategoryHeadroom = React.useCallback((userSubcategoryId, excludeAmount = 0) => {
+    const subcategory = (overlayProjectSubcategoriesQuery.data || []).find(
+      (item) => String(item.id) === String(userSubcategoryId),
+    );
+    if (!subcategory) {
+      return { subcategory: null, reserved: 0, headroom: 0 };
+    }
+    const key = String(userSubcategoryId || "");
+    const reserved = Number(selectedOverlayReservationTotalsBySubcategory.get(key) || 0);
+    const headroom = Math.max(Number(subcategory.monthly_limit || 0) - reserved + Number(excludeAmount || 0), 0);
+    return { subcategory, reserved, headroom };
+  }, [overlayProjectSubcategoriesQuery.data, selectedOverlayReservationTotalsBySubcategory]);
+  const projectCategoryHeadroom = React.useMemo(
+    () => (
+      structureProject && !structureProject.is_isolated && projectCategoryValue
+        ? getOverlayCategoryHeadroom(projectCategoryValue)
+        : null
+    ),
+    [getOverlayCategoryHeadroom, projectCategoryValue, structureProject],
+  );
+  const projectCategoryLimitAmount = parseBudgetAmountInput(projectCategoryLimitValue);
+  const projectCategoryWouldOverbook = Boolean(
+    projectCategoryHeadroom &&
+    projectCategoryLimitAmount !== null &&
+    projectCategoryLimitAmount > Number(projectCategoryHeadroom.headroom || 0)
+  );
+  const editingProjectCategoryRow = React.useMemo(
+    () => structureProjectCategories.find((item) => item.category === editingProjectCategory) || null,
+    [editingProjectCategory, structureProjectCategories],
+  );
+  const editingProjectCategoryHeadroom = React.useMemo(
+    () => (
+      structureProject && !structureProject.is_isolated && editingProjectCategory
+        ? getOverlayCategoryHeadroom(editingProjectCategory, Number(editingProjectCategoryRow?.limit_amount || 0))
+        : null
+    ),
+    [editingProjectCategory, editingProjectCategoryRow, getOverlayCategoryHeadroom, structureProject],
+  );
+  const editingProjectCategoryLimitAmount = parseBudgetAmountInput(editingProjectCategoryLimit);
+  const editingProjectCategoryWouldOverbook = Boolean(
+    editingProjectCategoryHeadroom &&
+    editingProjectCategoryLimitAmount !== null &&
+    editingProjectCategoryLimitAmount > Number(editingProjectCategoryHeadroom.headroom || 0)
+  );
+  const projectSubcategoryHeadroom = React.useMemo(
+    () => (
+      structureProject && !structureProject.is_isolated && projectSubcategoryUserSubcategoryId
+        ? getOverlaySubcategoryHeadroom(projectSubcategoryUserSubcategoryId)
+        : null
+    ),
+    [getOverlaySubcategoryHeadroom, projectSubcategoryUserSubcategoryId, structureProject],
+  );
+  const projectSubcategoryLimitAmount = parseBudgetAmountInput(projectSubcategoryLimit);
+  const projectSubcategoryWouldOverbook = Boolean(
+    projectSubcategoryHeadroom &&
+    projectSubcategoryLimitAmount !== null &&
+    projectSubcategoryLimitAmount > Number(projectSubcategoryHeadroom.headroom || 0)
+  );
+  const editingProjectSubcategoryHeadroom = React.useMemo(
+    () => (
+      structureProject && !structureProject.is_isolated && editingProjectSubcategoryUserSubcategoryId
+        ? getOverlaySubcategoryHeadroom(
+            editingProjectSubcategoryUserSubcategoryId,
+            Number(editingProjectSubcategoryRow?.limit_amount || 0),
+          )
+        : null
+    ),
+    [editingProjectSubcategoryRow, editingProjectSubcategoryUserSubcategoryId, getOverlaySubcategoryHeadroom, structureProject],
+  );
+  const editingProjectSubcategoryLimitAmount = parseBudgetAmountInput(editingProjectSubcategoryLimit);
+  const editingProjectSubcategoryWouldOverbook = Boolean(
+    editingProjectSubcategoryHeadroom &&
+    editingProjectSubcategoryLimitAmount !== null &&
+    editingProjectSubcategoryLimitAmount > Number(editingProjectSubcategoryHeadroom.headroom || 0)
+  );
 
   const sortedBudgets = React.useMemo(
     () =>
@@ -1166,10 +1311,20 @@ export default function Budgets() {
       setActionError(t("projects.categoryRequired", { defaultValue: "Choose a category first" }));
       return;
     }
-    const limitAmount = projectCategoryLimitValue ? Number(String(projectCategoryLimitValue).replace(/\s+/g, "")) : null;
+    const limitAmount = parseBudgetAmountInput(projectCategoryLimitValue);
     if (projectCategoryLimitValue && (!Number.isFinite(limitAmount) || limitAmount <= 0)) {
       setActionError(t("projects.categoryLimitInvalid", { defaultValue: "Category limit must be greater than zero" }));
       return;
+    }
+    if (!structureProject.is_isolated) {
+      if (!projectCategoryHeadroom?.budget) {
+        setActionError(t("projects.overlayCategoryNeedsBudget", { defaultValue: "Add this category to the selected monthly budget before reserving it." }));
+        return;
+      }
+      if (projectCategoryWouldOverbook) {
+        setActionError(t("projects.overlayReservationOverbooked", { defaultValue: "Reservation exceeds available selected-month headroom." }));
+        return;
+      }
     }
     try {
       await createProjectCategoryMutation.mutateAsync({
@@ -1191,9 +1346,13 @@ export default function Budgets() {
   async function handleUpdateProjectCategoryLimit() {
     if (!structureProject || !editingProjectCategory || updateProjectCategoryMutation.isPending) return;
     setActionError("");
-    const limitAmount = editingProjectCategoryLimit ? Number(String(editingProjectCategoryLimit).replace(/\s+/g, "")) : null;
+    const limitAmount = parseBudgetAmountInput(editingProjectCategoryLimit);
     if (editingProjectCategoryLimit && (!Number.isFinite(limitAmount) || limitAmount <= 0)) {
       setActionError(t("projects.categoryLimitInvalid", { defaultValue: "Category limit must be greater than zero" }));
+      return;
+    }
+    if (!structureProject.is_isolated && editingProjectCategoryWouldOverbook) {
+      setActionError(t("projects.overlayReservationOverbooked", { defaultValue: "Reservation exceeds available selected-month headroom." }));
       return;
     }
     try {
@@ -1228,13 +1387,17 @@ export default function Budgets() {
       setActionError(t("projects.globalSubcategoryRequired", { defaultValue: "Choose a monthly budget subcategory first" }));
       return;
     }
-    const limitAmount = projectSubcategoryLimit ? Number(String(projectSubcategoryLimit).replace(/\s+/g, "")) : null;
+    const limitAmount = parseBudgetAmountInput(projectSubcategoryLimit);
     if (!structureProject.is_isolated && !projectSubcategoryLimit) {
       setActionError(t("projects.projectSubcategoryLimitInvalid", { defaultValue: "Project subcategory limit must be greater than zero" }));
       return;
     }
     if (projectSubcategoryLimit && (!Number.isFinite(limitAmount) || limitAmount <= 0)) {
       setActionError(t("projects.projectSubcategoryLimitInvalid", { defaultValue: "Project subcategory limit must be greater than zero" }));
+      return;
+    }
+    if (!structureProject.is_isolated && projectSubcategoryWouldOverbook) {
+      setActionError(t("projects.overlayReservationOverbooked", { defaultValue: "Reservation exceeds available selected-month headroom." }));
       return;
     }
     try {
@@ -1273,13 +1436,21 @@ export default function Budgets() {
       setActionError(t("projects.projectSubcategoryNameRequired", { defaultValue: "Project subcategory name is required" }));
       return;
     }
-    const limitAmount = editingProjectSubcategoryLimit ? Number(String(editingProjectSubcategoryLimit).replace(/\s+/g, "")) : null;
+    const limitAmount = parseBudgetAmountInput(editingProjectSubcategoryLimit);
     if (!structureProject.is_isolated && !editingProjectSubcategoryLimit) {
       setActionError(t("projects.projectSubcategoryLimitInvalid", { defaultValue: "Project subcategory limit must be greater than zero" }));
       return;
     }
     if (editingProjectSubcategoryLimit && (!Number.isFinite(limitAmount) || limitAmount <= 0)) {
       setActionError(t("projects.projectSubcategoryLimitInvalid", { defaultValue: "Project subcategory limit must be greater than zero" }));
+      return;
+    }
+    if (!structureProject.is_isolated && !editingProjectSubcategoryHeadroom?.subcategory) {
+      setActionError(t("projects.overlaySubcategoryHeadroomLoading", { defaultValue: "Monthly subcategory headroom is still loading." }));
+      return;
+    }
+    if (!structureProject.is_isolated && editingProjectSubcategoryWouldOverbook) {
+      setActionError(t("projects.overlayReservationOverbooked", { defaultValue: "Reservation exceeds available selected-month headroom." }));
       return;
     }
     try {
@@ -3011,11 +3182,31 @@ export default function Budgets() {
                 inputMode="numeric"
                 placeholder={t("projects.totalLimit", { defaultValue: "Limit amount" })}
               />
-              <Button onClick={handleCreateProjectCategoryLimit} disabled={!structureProject || createProjectCategoryMutation.isPending}>
+              <Button
+                onClick={handleCreateProjectCategoryLimit}
+                disabled={
+                  !structureProject ||
+                  createProjectCategoryMutation.isPending ||
+                  projectCategoryWouldOverbook ||
+                  Boolean(projectCategoryValue && !structureProject?.is_isolated && !projectCategoryHeadroom?.budget)
+                }
+              >
                 <Plus className="mr-2 h-4 w-4" />
                 {t("common.add", { defaultValue: "Add" })}
               </Button>
             </div>
+            {structureProject && !structureProject.is_isolated && projectCategoryValue ? (
+              <p className={cn("mt-3 text-sm", projectCategoryWouldOverbook ? "text-destructive" : "text-muted-foreground")}>
+                {projectCategoryHeadroom?.budget
+                  ? t("projects.overlayCategoryHeadroom", {
+                      defaultValue: "Available selected-month headroom: {{amount}}",
+                      amount: formatUzs(projectCategoryHeadroom.headroom || 0),
+                    })
+                  : t("projects.overlayCategoryNeedsBudget", {
+                      defaultValue: "Add this category to the selected monthly budget before reserving it.",
+                    })}
+              </p>
+            ) : null}
           </div>
 
           <div className="space-y-3">
@@ -3037,7 +3228,10 @@ export default function Budgets() {
                         onChange={(e) => setEditingProjectCategoryLimit(formatBudgetAmountInput(e.target.value))}
                         inputMode="numeric"
                       />
-                      <Button onClick={handleUpdateProjectCategoryLimit} disabled={updateProjectCategoryMutation.isPending}>
+                      <Button
+                        onClick={handleUpdateProjectCategoryLimit}
+                        disabled={updateProjectCategoryMutation.isPending || editingProjectCategoryWouldOverbook}
+                      >
                         {t("common.save")}
                       </Button>
                       <Button variant="outline" onClick={() => {
@@ -3046,6 +3240,14 @@ export default function Budgets() {
                       }}>
                         {t("common.cancel")}
                       </Button>
+                      {editingProjectCategoryHeadroom ? (
+                        <p className={cn("lg:col-span-4 text-sm", editingProjectCategoryWouldOverbook ? "text-destructive" : "text-muted-foreground")}>
+                          {t("projects.overlayCategoryHeadroom", {
+                            defaultValue: "Available selected-month headroom: {{amount}}",
+                            amount: formatUzs(editingProjectCategoryHeadroom.headroom || 0),
+                          })}
+                        </p>
+                      ) : null}
                     </div>
                   ) : (
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -3136,7 +3338,10 @@ export default function Budgets() {
                     inputMode="numeric"
                     placeholder={t("projects.reservationAmount", { defaultValue: "Reservation" })}
                   />
-                  <Button onClick={handleCreateProjectSubcategory} disabled={!structureProject || createProjectSubcategoryMutation.isPending}>
+                  <Button
+                    onClick={handleCreateProjectSubcategory}
+                    disabled={!structureProject || createProjectSubcategoryMutation.isPending || projectSubcategoryWouldOverbook}
+                  >
                     <Plus className="mr-2 h-4 w-4" />
                     {t("common.add", { defaultValue: "Add" })}
                   </Button>
@@ -3149,6 +3354,14 @@ export default function Budgets() {
                 {projectSubcategoryCategory && overlayProjectSubcategoryBudget && overlayEligibleSubcategories.length === 0 ? (
                   <p className="mt-3 text-sm text-muted-foreground">
                     {t("projects.overlaySubcategoryNeedsLane", { defaultValue: "Add an eligible subcategory lane to this monthly budget first, or all current lanes are already attached." })}
+                  </p>
+                ) : null}
+                {projectSubcategoryHeadroom ? (
+                  <p className={cn("mt-3 text-sm", projectSubcategoryWouldOverbook ? "text-destructive" : "text-muted-foreground")}>
+                    {t("projects.overlaySubcategoryHeadroom", {
+                      defaultValue: "Available lane headroom: {{amount}}",
+                      amount: formatUzs(projectSubcategoryHeadroom.headroom || 0),
+                    })}
                   </p>
                 ) : null}
               </div>
@@ -3172,7 +3385,14 @@ export default function Budgets() {
                                   {subcategory.name}
                                 </div>
                                 <Input value={editingProjectSubcategoryLimit} onChange={(e) => setEditingProjectSubcategoryLimit(formatBudgetAmountInput(e.target.value))} inputMode="numeric" />
-                                <Button onClick={handleUpdateProjectSubcategory} disabled={updateProjectSubcategoryMutation.isPending}>
+                                <Button
+                                  onClick={handleUpdateProjectSubcategory}
+                                  disabled={
+                                    updateProjectSubcategoryMutation.isPending ||
+                                    editingProjectSubcategoryWouldOverbook ||
+                                    Boolean(!structureProject?.is_isolated && !editingProjectSubcategoryHeadroom?.subcategory)
+                                  }
+                                >
                                   {t("common.save")}
                                 </Button>
                                 <Button variant="outline" onClick={() => {
@@ -3184,6 +3404,14 @@ export default function Budgets() {
                                 }}>
                                   {t("common.cancel")}
                                 </Button>
+                                {editingProjectSubcategoryHeadroom ? (
+                                  <p className={cn("lg:col-span-4 text-sm", editingProjectSubcategoryWouldOverbook ? "text-destructive" : "text-muted-foreground")}>
+                                    {t("projects.overlaySubcategoryHeadroom", {
+                                      defaultValue: "Available lane headroom: {{amount}}",
+                                      amount: formatUzs(editingProjectSubcategoryHeadroom.headroom || 0),
+                                    })}
+                                  </p>
+                                ) : null}
                               </div>
                             ) : (
                               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
