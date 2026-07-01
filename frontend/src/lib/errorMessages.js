@@ -365,6 +365,21 @@ export function localizeApiError(message, t) {
   if (msg === "projects.not_active") {
     return t("savings.goals.projectNotActive");
   }
+  if (msg === "projects.category_budget_month_required") {
+    return t("projects.overlayCategoryNeedsBudget", {
+      defaultValue: "Add this category to the selected monthly budget before reserving it.",
+    });
+  }
+  if (msg === "projects.category_reservation_exceeds_parent_budget") {
+    return t("projects.overlayReservationOverbooked", {
+      defaultValue: "Reservation exceeds available selected-month headroom.",
+    });
+  }
+  if (msg === "projects.subcategory_reservation_exceeds_monthly_lane") {
+    return t("projects.overlaySubcategoryReservationOverbooked", {
+      defaultValue: "Subcategory reservation exceeds the monthly lane's available headroom.",
+    });
+  }
   if (msg === "projects.release_before_start") {
     return t("savings.goals.releaseBeforeProjectStart");
   }
