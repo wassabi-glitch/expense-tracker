@@ -485,8 +485,8 @@ export default function Budgets() {
     enabled: Boolean(subcategoryTargetBudget?.id && subcategoriesOpen),
   });
   const projectsQuery = useQuery({
-    queryKey: ["projects"],
-    queryFn: getProjects,
+    queryKey: ["projects", summaryTarget.year, summaryTarget.month],
+    queryFn: () => getProjects({ budgetYear: summaryTarget.year, budgetMonth: summaryTarget.month }),
     staleTime: 60_000,
   });
   const expensesTargetRange = React.useMemo(
@@ -870,6 +870,8 @@ export default function Budgets() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["projects"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary", summaryTarget.year, summaryTarget.month] }),
       ]);
       toast.success(t("projects.categoryLimitCreated", { defaultValue: "Project category added" }));
     },
@@ -884,6 +886,8 @@ export default function Budgets() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["projects"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary", summaryTarget.year, summaryTarget.month] }),
       ]);
       toast.success(t("projects.categoryLimitUpdated", { defaultValue: "Project category updated" }));
     },
@@ -893,11 +897,15 @@ export default function Budgets() {
     },
   });
   const deleteProjectCategoryMutation = useMutation({
-    mutationFn: ({ projectId, category }) => deleteProjectCategoryLimit(projectId, category),
+    mutationFn: ({ projectId, category, budgetYear, budgetMonth }) => (
+      deleteProjectCategoryLimit(projectId, category, { budgetYear, budgetMonth })
+    ),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["projects"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary", summaryTarget.year, summaryTarget.month] }),
       ]);
       toast.success(t("projects.categoryLimitDeleted", { defaultValue: "Project category deleted" }));
     },
@@ -1132,6 +1140,8 @@ export default function Budgets() {
         payload: {
           category: projectCategoryValue,
           limit_amount: limitAmount,
+          budget_year: summaryTarget.year,
+          budget_month: summaryTarget.month,
         },
       });
       setProjectCategoryValue("");
@@ -1153,7 +1163,11 @@ export default function Budgets() {
       await updateProjectCategoryMutation.mutateAsync({
         projectId: structureProject.id,
         category: editingProjectCategory,
-        payload: { limit_amount: limitAmount },
+        payload: {
+          limit_amount: limitAmount,
+          budget_year: summaryTarget.year,
+          budget_month: summaryTarget.month,
+        },
       });
       setEditingProjectCategory("");
       setEditingProjectCategoryLimit("");
@@ -2992,7 +3006,12 @@ export default function Budgets() {
                           variant="ghost"
                           size="sm"
                           className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                          onClick={() => deleteProjectCategoryMutation.mutate({ projectId: structureProject.id, category: categoryRow.category })}
+                          onClick={() => deleteProjectCategoryMutation.mutate({
+                            projectId: structureProject.id,
+                            category: categoryRow.category,
+                            budgetYear: categoryRow.budget_year || summaryTarget.year,
+                            budgetMonth: categoryRow.budget_month || summaryTarget.month,
+                          })}
                           disabled={deleteProjectCategoryMutation.isPending}
                         >
                           <Trash2 className="mr-2 h-4 w-4" />

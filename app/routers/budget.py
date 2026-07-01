@@ -430,10 +430,12 @@ def delete_budget(
 
 @router.get("/projects", response_model=list[schemas.ProjectBudgetOut])
 def get_project_budgets(
+    budget_year: int | None = None,
+    budget_month: int | None = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
 ):
-    return get_project_budget_summaries(db, current_user.id)
+    return get_project_budget_summaries(db, current_user.id, budget_year, budget_month)
 
 
 @router.get("/month-summary", response_model=schemas.BudgetMonthSummaryOut)

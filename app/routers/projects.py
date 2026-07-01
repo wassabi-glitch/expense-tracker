@@ -8,7 +8,7 @@ from app.redis_rate_limiter import consume_token_bucket
 from app.timezone import get_effective_user_timezone, today_in_tz
 
 from .. import models, oauth2, schemas
-from ..services.budget_service import get_budget_remaining_for_month, get_owned_project_or_404, get_project_budget_summaries
+from ..services.budget_service import get_owned_project_or_404, get_project_budget_summaries
 from ..services.category_policy import validate_active_expense_category
 from ..services.project_service import (
     build_project_detail,
@@ -66,8 +66,17 @@ def _get_owned_goal_or_404(db: Session, user_id: int, goal_id: int) -> models.Go
     return goal
 
 
-def _project_detail_out(db: Session, current_user_id: int, project_id: int) -> schemas.ProjectBudgetOut:
-    summaries = {item.id: item for item in get_project_budget_summaries(db, current_user_id)}
+def _project_detail_out(
+    db: Session,
+    current_user_id: int,
+    project_id: int,
+    budget_year: int | None = None,
+    budget_month: int | None = None,
+) -> schemas.ProjectBudgetOut:
+    summaries = {
+        item.id: item
+        for item in get_project_budget_summaries(db, current_user_id, budget_year, budget_month)
+    }
     summary = summaries.get(project_id)
     if summary is None:
         project = get_owned_project_or_404(db, current_user_id, project_id)
@@ -75,27 +84,16 @@ def _project_detail_out(db: Session, current_user_id: int, project_id: int) -> s
     return summary
 
 
-def _validate_non_isolated_category_limit(
-    db: Session,
-    current_user_id: int,
+def _overlay_reservation_month(
     project: models.Project,
-    category: models.ExpenseCategory,
-    limit_amount: int,
-) -> None:
-    if project.is_isolated:
-        return
-    remaining = get_budget_remaining_for_month(
-        db,
-        current_user_id,
-        category,
-        int(project.start_date.year),
-        int(project.start_date.month),
-    )
-    if int(limit_amount) > int(remaining):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="projects.non_isolated_category_limit_exceeds_budget_remaining",
-        )
+    budget_year: int | None,
+    budget_month: int | None,
+) -> tuple[int, int]:
+    if budget_year is None and budget_month is None:
+        return int(project.start_date.year), int(project.start_date.month)
+    if budget_year is None or budget_month is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.reservation_month_required")
+    return int(budget_year), int(budget_month)
 
 
 @router.post("", response_model=schemas.ProjectBudgetOut, status_code=status.HTTP_201_CREATED)
@@ -138,20 +136,24 @@ def create_project(
 
 @router.get("", response_model=List[schemas.ProjectBudgetOut])
 def list_projects(
+    budget_year: int | None = None,
+    budget_month: int | None = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
 ):
-    return get_project_budget_summaries(db, current_user.id)
+    return get_project_budget_summaries(db, current_user.id, budget_year, budget_month)
 
 
 @router.get("/{project_id}", response_model=schemas.ProjectBudgetOut)
 def get_project(
     project_id: int,
+    budget_year: int | None = None,
+    budget_month: int | None = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
 ):
     get_owned_project_or_404(db, current_user.id, project_id)
-    return _project_detail_out(db, current_user.id, project_id)
+    return _project_detail_out(db, current_user.id, project_id, budget_year, budget_month)
 
 
 @router.put("/{project_id}", response_model=schemas.ProjectBudgetOut)
@@ -286,24 +288,51 @@ def create_project_category_limit(
     )
     project = get_owned_project_or_404(db, current_user.id, project_id)
     validate_project_editable(project)
-    existing = next((item for item in project.category_limits if item.category == payload.category), None)
-    if existing:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="projects.category_limit_exists")
-    _validate_non_isolated_category_limit(db, current_user.id, project, payload.category, payload.limit_amount)
-    validate_project_limit_sum(
-        int(project.total_limit) if project.total_limit is not None else None,
-        list(project.category_limits),
-        incoming_limit=payload.limit_amount,
-    )
-    db.add(
-        models.ProjectCategoryLimit(
-            project_id=project.id,
-            category=payload.category,
-            limit_amount=payload.limit_amount,
+    selected_budget_year = payload.budget_year
+    selected_budget_month = payload.budget_month
+    if project.is_isolated:
+        existing = next((item for item in project.category_limits if item.category == payload.category), None)
+        if existing:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="projects.category_limit_exists")
+        validate_project_limit_sum(
+            int(project.total_limit) if project.total_limit is not None else None,
+            list(project.category_limits),
+            incoming_limit=payload.limit_amount,
         )
-    )
+        db.add(
+            models.ProjectCategoryLimit(
+                project_id=project.id,
+                category=payload.category,
+                limit_amount=payload.limit_amount,
+            )
+        )
+    else:
+        budget_year, budget_month = _overlay_reservation_month(project, payload.budget_year, payload.budget_month)
+        selected_budget_year = budget_year
+        selected_budget_month = budget_month
+        existing = next(
+            (
+                item
+                for item in project.monthly_category_limits
+                if item.category == payload.category
+                and int(item.budget_year) == budget_year
+                and int(item.budget_month) == budget_month
+            ),
+            None,
+        )
+        if existing:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="projects.category_limit_exists")
+        db.add(
+            models.ProjectCategoryMonthlyLimit(
+                project_id=project.id,
+                category=payload.category,
+                budget_year=budget_year,
+                budget_month=budget_month,
+                limit_amount=payload.limit_amount,
+            )
+        )
     db.commit()
-    return _project_detail_out(db, current_user.id, project.id)
+    return _project_detail_out(db, current_user.id, project.id, selected_budget_year, selected_budget_month)
 
 
 @router.put("/{project_id}/category-limits/{category}", response_model=schemas.ProjectBudgetOut)
@@ -318,19 +347,34 @@ def update_project_category_limit(
     _apply_headers(response, enforce_project_write_rate_limit(current_user.id))
     project = get_owned_project_or_404(db, current_user.id, project_id)
     validate_project_editable(project)
-    limit_row = next((item for item in project.category_limits if item.category == category), None)
+    budget_year = payload.budget_year
+    budget_month = payload.budget_month
+    if project.is_isolated:
+        limit_row = next((item for item in project.category_limits if item.category == category), None)
+    else:
+        budget_year, budget_month = _overlay_reservation_month(project, payload.budget_year, payload.budget_month)
+        limit_row = next(
+            (
+                item
+                for item in project.monthly_category_limits
+                if item.category == category
+                and int(item.budget_year) == int(budget_year)
+                and int(item.budget_month) == int(budget_month)
+            ),
+            None,
+        )
     if limit_row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="projects.category_limit_not_found")
-    _validate_non_isolated_category_limit(db, current_user.id, project, category, payload.limit_amount)
-    validate_project_limit_sum(
-        int(project.total_limit) if project.total_limit is not None else None,
-        list(project.category_limits),
-        incoming_limit=payload.limit_amount,
-        exclude_category=category,
-    )
+    if project.is_isolated:
+        validate_project_limit_sum(
+            int(project.total_limit) if project.total_limit is not None else None,
+            list(project.category_limits),
+            incoming_limit=payload.limit_amount,
+            exclude_category=category,
+        )
     limit_row.limit_amount = payload.limit_amount
     db.commit()
-    return _project_detail_out(db, current_user.id, project.id)
+    return _project_detail_out(db, current_user.id, project.id, budget_year, budget_month)
 
 
 @router.delete("/{project_id}/category-limits/{category}", response_model=schemas.ProjectBudgetOut)
@@ -338,20 +382,73 @@ def delete_project_category_limit(
     project_id: int,
     category: models.ExpenseCategory,
     response: Response,
+    budget_year: int | None = None,
+    budget_month: int | None = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
 ):
     _apply_headers(response, enforce_project_write_rate_limit(current_user.id))
     project = get_owned_project_or_404(db, current_user.id, project_id)
     validate_project_editable(project)
-    limit_row = next((item for item in project.category_limits if item.category == category), None)
+    if project.is_isolated:
+        limit_row = next((item for item in project.category_limits if item.category == category), None)
+    else:
+        budget_year, budget_month = _overlay_reservation_month(project, budget_year, budget_month)
+        limit_row = next(
+            (
+                item
+                for item in project.monthly_category_limits
+                if item.category == category
+                and int(item.budget_year) == int(budget_year)
+                and int(item.budget_month) == int(budget_month)
+            ),
+            None,
+        )
     if limit_row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="projects.category_limit_not_found")
-    if any(item.category == category for item in project.subcategories):
+    if project.is_isolated and any(item.category == category for item in project.subcategories):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.category_limit_has_subcategories")
     db.delete(limit_row)
     db.commit()
-    return _project_detail_out(db, current_user.id, project.id)
+    return _project_detail_out(db, current_user.id, project.id, budget_year, budget_month)
+
+
+@router.get("/{project_id}/category-limits", response_model=List[schemas.ProjectBudgetCategoryOut])
+def list_project_category_limits(
+    project_id: int,
+    budget_year: int | None = None,
+    budget_month: int | None = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+):
+    project = get_owned_project_or_404(db, current_user.id, project_id)
+    if project.is_isolated:
+        return [
+            schemas.ProjectBudgetCategoryOut(
+                category=item.category,
+                limit_amount=int(item.limit_amount),
+            )
+            for item in sorted(project.category_limits, key=lambda value: str(value.category))
+        ]
+    if budget_year is not None or budget_month is not None:
+        budget_year, budget_month = _overlay_reservation_month(project, budget_year, budget_month)
+    rows = list(project.monthly_category_limits)
+    if budget_year is not None and budget_month is not None:
+        rows = [
+            item
+            for item in rows
+            if int(item.budget_year) == int(budget_year)
+            and int(item.budget_month) == int(budget_month)
+        ]
+    return [
+        schemas.ProjectBudgetCategoryOut(
+            category=item.category,
+            limit_amount=int(item.limit_amount),
+            budget_year=int(item.budget_year),
+            budget_month=int(item.budget_month),
+        )
+        for item in sorted(rows, key=lambda value: (value.budget_year, value.budget_month, str(value.category)))
+    ]
 
 
 @router.get("/{project_id}/subcategories", response_model=List[schemas.ProjectSubcategoryOut])

@@ -2525,8 +2525,24 @@ class BudgetOut(BudgetBase):
     remaining: int = 0
     effective_available: int = 0
     is_over_limit: bool = False
+    project_reserved_amount: int = 0
+    project_spent_amount: int = 0
+    free_general_limit: int = 0
+    free_general_remaining: int = 0
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class BudgetProjectReservationOut(BaseModel):
+    project_id: int
+    project_title: str
+    category: ExpenseCategory
+    budget_year: int
+    budget_month: int
+    reserved_amount: int
+    spent: int = 0
+    remaining: int = 0
+    is_over_limit: bool = False
 
 
 class BudgetUpdate(BaseModel):
@@ -2543,6 +2559,7 @@ class BudgetDetailOut(BudgetOut):
     subcategories: List["BudgetSubcategoryOut"] = []
     recent_activity: List["BudgetActivityOut"] = []
     project_spending: List["BudgetProjectSpendOut"] = []
+    project_reservations: List[BudgetProjectReservationOut] = []
     expense_count: int = 0
 
 
@@ -2779,6 +2796,8 @@ class BudgetRecalculateRequest(BaseModel):
 class ProjectBudgetCategoryOut(BaseModel):
     category: ExpenseCategory
     limit_amount: Optional[int] = None
+    budget_year: Optional[int] = None
+    budget_month: Optional[int] = None
     spent: int = 0
     remaining: Optional[int] = None
     is_over_limit: bool = False
@@ -2823,6 +2842,10 @@ class ProjectBudgetOut(BaseModel):
     progress_direction: str = "tick_up"
     remaining: Optional[int] = None
     is_over_limit: bool = False
+    selected_budget_year: Optional[int] = None
+    selected_budget_month: Optional[int] = None
+    selected_month_reserved_amount: int = 0
+    total_reserved_scope: int = 0
     category_breakdown: List[ProjectBudgetCategoryDetailOut] = []
     created_at: datetime
     updated_at: datetime
@@ -2894,10 +2917,42 @@ class ProjectLifecycleRequest(BaseModel):
 class ProjectCategoryLimitCreate(BaseModel):
     category: ExpenseCategory
     limit_amount: int = Field(gt=0)
+    budget_year: Optional[int] = None
+    budget_month: Optional[int] = None
+
+    @field_validator("budget_year")
+    @classmethod
+    def validate_project_limit_budget_year(cls, value: Optional[int]):
+        if value is not None and value < MIN_BUDGET_YEAR:
+            raise ValueError("budgets.year_too_early")
+        return value
+
+    @field_validator("budget_month")
+    @classmethod
+    def validate_project_limit_budget_month(cls, value: Optional[int]):
+        if value is not None and (value < 1 or value > 12):
+            raise ValueError("budgets.month_invalid")
+        return value
 
 
 class ProjectCategoryLimitUpdate(BaseModel):
     limit_amount: int = Field(gt=0)
+    budget_year: Optional[int] = None
+    budget_month: Optional[int] = None
+
+    @field_validator("budget_year")
+    @classmethod
+    def validate_project_limit_update_budget_year(cls, value: Optional[int]):
+        if value is not None and value < MIN_BUDGET_YEAR:
+            raise ValueError("budgets.year_too_early")
+        return value
+
+    @field_validator("budget_month")
+    @classmethod
+    def validate_project_limit_update_budget_month(cls, value: Optional[int]):
+        if value is not None and (value < 1 or value > 12):
+            raise ValueError("budgets.month_invalid")
+        return value
 
 
 class ProjectSubcategoryCreate(BaseModel):

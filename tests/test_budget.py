@@ -2145,6 +2145,204 @@ def test_overlay_project_expense_still_requires_and_hits_monthly_budget(client):
     assert budget_after.json()["spent"] == 100_000
 
 
+def test_overlay_project_reservations_are_month_scoped_and_reduce_general_bucket(client):
+    headers = create_user_and_token(
+        client, "overlaymonth", "overlaymonth@example.com", "Password123!"
+    )
+    other_headers = create_user_and_token(
+        client, "overlayother", "overlayother@example.com", "Password123!"
+    )
+
+    june_budget = create_budget(
+        client,
+        headers,
+        category="Travel",
+        monthly_limit=1_000_000,
+        budget_year=2026,
+        budget_month=6,
+    )
+    assert june_budget.status_code == 201, june_budget.text
+    july_budget = create_budget(
+        client,
+        headers,
+        category="Travel",
+        monthly_limit=1_000_000,
+        budget_year=2026,
+        budget_month=7,
+    )
+    assert july_budget.status_code == 201, july_budget.text
+
+    project = client.post(
+        "/projects",
+        json={
+            "title": "Conference",
+            "is_isolated": False,
+            "start_date": "2026-06-01",
+            "target_end_date": "2026-07-31",
+        },
+        headers=headers,
+    )
+    assert project.status_code == 201, project.text
+    project_id = project.json()["id"]
+
+    reservation = client.post(
+        f"/projects/{project_id}/category-limits",
+        json={
+            "category": "Travel",
+            "limit_amount": 400_000,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert reservation.status_code == 201, reservation.text
+    assert reservation.json()["selected_month_reserved_amount"] == 400_000
+    assert reservation.json()["category_breakdown"][0]["budget_year"] == 2026
+    assert reservation.json()["category_breakdown"][0]["budget_month"] == 6
+
+    duplicate = client.post(
+        f"/projects/{project_id}/category-limits",
+        json={
+            "category": "Travel",
+            "limit_amount": 100_000,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"] == "projects.category_limit_exists"
+
+    other_budget = create_budget(
+        client,
+        other_headers,
+        category="Travel",
+        monthly_limit=2_000_000,
+        budget_year=2026,
+        budget_month=6,
+    )
+    assert other_budget.status_code == 201, other_budget.text
+    other_project = client.post(
+        "/projects",
+        json={
+            "title": "Other conference",
+            "is_isolated": False,
+            "start_date": "2026-06-01",
+        },
+        headers=other_headers,
+    )
+    assert other_project.status_code == 201, other_project.text
+    other_reservation = client.post(
+        f"/projects/{other_project.json()['id']}/category-limits",
+        json={
+            "category": "Travel",
+            "limit_amount": 900_000,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=other_headers,
+    )
+    assert other_reservation.status_code == 201, other_reservation.text
+
+    june_detail = client.get(
+        "/budgets/item/detail",
+        params={"budget_year": 2026, "budget_month": 6, "category": "Travel"},
+        headers=headers,
+    )
+    assert june_detail.status_code == 200, june_detail.text
+    assert june_detail.json()["project_reserved_amount"] == 400_000
+    assert june_detail.json()["free_general_limit"] == 600_000
+    assert june_detail.json()["project_reservations"][0]["reserved_amount"] == 400_000
+
+    july_detail = client.get(
+        "/budgets/item/detail",
+        params={"budget_year": 2026, "budget_month": 7, "category": "Travel"},
+        headers=headers,
+    )
+    assert july_detail.status_code == 200, july_detail.text
+    assert july_detail.json()["project_reserved_amount"] == 0
+    assert july_detail.json()["free_general_limit"] == 1_000_000
+
+
+def test_overlay_project_can_overspend_local_reservation_without_blocking_parent_budget(client):
+    headers = create_user_and_token(
+        client, "overlayoverspend", "overlayoverspend@example.com", "Password123!"
+    )
+    budget = create_budget(
+        client,
+        headers,
+        category="Travel",
+        monthly_limit=1_000_000,
+        budget_year=2026,
+        budget_month=6,
+    )
+    assert budget.status_code == 201, budget.text
+
+    project = client.post(
+        "/projects",
+        json={
+            "title": "June trip",
+            "is_isolated": False,
+            "start_date": "2026-06-01",
+            "target_end_date": "2026-06-30",
+        },
+        headers=headers,
+    )
+    assert project.status_code == 201, project.text
+    project_id = project.json()["id"]
+
+    reservation = client.post(
+        f"/projects/{project_id}/category-limits",
+        json={
+            "category": "Travel",
+            "limit_amount": 400_000,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert reservation.status_code == 201, reservation.text
+
+    expense = client.post(
+        "/expenses/",
+        json={
+            "title": "Hotel",
+            "amount": 500_000,
+            "category": "Travel",
+            "date": "2026-06-10",
+            "project_id": project_id,
+        },
+        headers=headers,
+    )
+    assert expense.status_code == 201, expense.text
+
+    detail = client.get(
+        "/budgets/item/detail",
+        params={"budget_year": 2026, "budget_month": 6, "category": "Travel"},
+        headers=headers,
+    )
+    assert detail.status_code == 200, detail.text
+    payload = detail.json()
+    assert payload["spent"] == 500_000
+    assert payload["project_reserved_amount"] == 400_000
+    assert payload["project_spent_amount"] == 500_000
+    assert payload["free_general_limit"] == 600_000
+    assert payload["free_general_remaining"] == 500_000
+    assert payload["project_reservations"][0]["remaining"] == -100_000
+    assert payload["project_reservations"][0]["is_over_limit"] is True
+
+    projects = client.get(
+        "/projects",
+        params={"budget_year": 2026, "budget_month": 6},
+        headers=headers,
+    )
+    assert projects.status_code == 200, projects.text
+    project_row = next(item for item in projects.json() if item["id"] == project_id)
+    assert project_row["selected_month_reserved_amount"] == 400_000
+    assert project_row["total_reserved_scope"] == 400_000
+    assert project_row["category_breakdown"][0]["remaining"] == -100_000
+
+
 def test_get_budgets_does_not_auto_rollover_unused_room(client):
     email = "norolloverbudget@example.com"
     headers = create_user_and_token(

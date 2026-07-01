@@ -1997,6 +1997,9 @@ class Project(Base):
 
     owner = relationship("User", back_populates="projects")
     category_limits = relationship("ProjectCategoryLimit", back_populates="project", cascade="all, delete-orphan")
+    monthly_category_limits = relationship(
+        "ProjectCategoryMonthlyLimit", back_populates="project", cascade="all, delete-orphan"
+    )
     subcategories = relationship("ProjectSubcategory", back_populates="project", cascade="all, delete-orphan")
     goal_releases = relationship("GoalProjectRelease", back_populates="project", cascade="all, delete-orphan")
     session_draft_items = relationship("ExpenseSessionDraftItem", back_populates="project")
@@ -2014,6 +2017,35 @@ class ProjectCategoryLimit(Base):
     limit_amount = Column(BigInteger, nullable=False)
     
     project = relationship("Project", back_populates="category_limits")
+
+
+class ProjectCategoryMonthlyLimit(Base):
+    __tablename__ = "project_category_monthly_limits"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "category",
+            "budget_year",
+            "budget_month",
+            name="uq_project_category_monthly_limits_project_category_month",
+        ),
+        CheckConstraint("budget_month >= 1 AND budget_month <= 12", name="ck_project_category_monthly_limits_month"),
+        CheckConstraint("budget_year >= 2020", name="ck_project_category_monthly_limits_year"),
+        CheckConstraint("limit_amount > 0", name="ck_project_category_monthly_limits_amount_positive"),
+        CheckConstraint("limit_amount <= 999999999999", name="ck_project_category_monthly_limits_amount_max"),
+        Index("ix_project_category_monthly_limits_month", "budget_year", "budget_month", "category"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    category = Column(Enum(ExpenseCategory), nullable=False)
+    budget_year = Column(Integer, nullable=False)
+    budget_month = Column(Integer, nullable=False)
+    limit_amount = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    project = relationship("Project", back_populates="monthly_category_limits")
 
 
 class ProjectSubcategory(Base):
