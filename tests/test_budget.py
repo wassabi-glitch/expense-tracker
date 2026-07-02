@@ -2093,7 +2093,6 @@ def test_overlay_project_expense_still_requires_and_hits_monthly_budget(client):
         json={
             "title": "Work trip",
             "is_isolated": False,
-            "total_limit": 1_000_000,
             "start_date": today.isoformat(),
         },
         headers=headers,

@@ -18,10 +18,12 @@ import { AlertCircle } from "lucide-react";
 export function EditProjectDialog({ open, onOpenChange, project, onSuccess }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const projectIsIsolated = (project?.project_type || (project?.is_isolated ? "ISOLATED" : "OVERLAY")) === "ISOLATED";
 
   const [title, setTitle] = useState("");
   const [startDate, setStartDate] = useState("");
   const [targetEndDate, setTargetEndDate] = useState("");
+  const [targetEstimate, setTargetEstimate] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
@@ -29,6 +31,7 @@ export function EditProjectDialog({ open, onOpenChange, project, onSuccess }) {
       setTitle(project.title || "");
       setStartDate(project.start_date || "");
       setTargetEndDate(project.target_end_date || "");
+      setTargetEstimate((project.overlay?.target_estimate ?? project.target_estimate) ? String(project.overlay?.target_estimate ?? project.target_estimate) : "");
       setErrorMsg("");
     }
   }, [open, project]);
@@ -64,11 +67,19 @@ export function EditProjectDialog({ open, onOpenChange, project, onSuccess }) {
 
   const handleSubmit = () => {
     setErrorMsg("");
+    const parsedTargetEstimate = targetEstimate ? Number(String(targetEstimate).replace(/\s+/g, "")) : null;
+    if (targetEstimate && (!Number.isFinite(parsedTargetEstimate) || parsedTargetEstimate <= 0)) {
+      setErrorMsg(t("projects.targetEstimateInvalid", { defaultValue: "Target estimate must be greater than zero." }));
+      return;
+    }
     const payload = {
       title,
       start_date: startDate || null,
       target_end_date: targetEndDate || null,
     };
+    if (!projectIsIsolated) {
+      payload.target_estimate = parsedTargetEstimate;
+    }
     updateMutation.mutate(payload);
   };
 
@@ -101,6 +112,24 @@ export function EditProjectDialog({ open, onOpenChange, project, onSuccess }) {
               disabled={updateMutation.isPending}
             />
           </div>
+
+          {!projectIsIsolated && (
+            <div className="space-y-2">
+              <Label htmlFor="edit-project-target-estimate">
+                {t("projects.targetEstimate", { defaultValue: "Target estimate" })}
+                <span className="ml-1 text-muted-foreground font-normal">({t("common.optional", { defaultValue: "Optional" })})</span>
+              </Label>
+              <Input
+                id="edit-project-target-estimate"
+                type="text"
+                inputMode="numeric"
+                value={targetEstimate}
+                onChange={(e) => setTargetEstimate(e.target.value)}
+                disabled={updateMutation.isPending}
+                placeholder={t("projects.planningContextOnly", { defaultValue: "Planning context only" })}
+              />
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="edit-project-start">{t("projects.startDate", { defaultValue: "Start Date" })}</Label>
@@ -127,7 +156,7 @@ export function EditProjectDialog({ open, onOpenChange, project, onSuccess }) {
             </div>
           </div>
 
-          {hasDateChanges && !project?.is_isolated && (
+          {hasDateChanges && !projectIsIsolated && (
             <div className="rounded-md bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
               <p className="font-semibold">{t("projects.dateChangeWarningTitle", { defaultValue: "Date Change Warning" })}</p>
               <p className="mt-1">

@@ -15,6 +15,7 @@ from app.services.budget_service import (
 )
 from app.services.category_policy import validate_active_expense_category
 from app.services.goal_funding_service import validate_wallet_goal_protection_for_outflow
+from app.services.project_service import is_isolated_project
 from app.services.session_draft_service import validate_session_item_links
 from app.services.wallet_service import WalletService
 from app.services.wallet_value_service import classify_outflow
@@ -187,7 +188,7 @@ def post_expense_event(
     )
 
     budget = None
-    if project is None or not project.is_isolated:
+    if project is None or not is_isolated_project(project):
         budget = resolve_expense_budget(db, user_id, category, expense_date)
 
     if project is not None:

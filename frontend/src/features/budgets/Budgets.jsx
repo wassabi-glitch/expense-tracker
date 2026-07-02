@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Trash2, Circle, Plus, BriefcaseBusiness, MoreHorizontal, Eye, Pencil, ReceiptText, ListTree, ChartColumn, FolderKanban, Layers3, ExternalLink, GitMerge, ArrowRightLeft, AlertTriangle, Shield, Check, ChevronsUpDown } from "lucide-react";
+import { Trash2, Circle, Plus, BriefcaseBusiness, MoreHorizontal, Eye, Pencil, ReceiptText, ListTree, ChartColumn, FolderKanban, Layers3, ExternalLink, GitMerge, ArrowRightLeft, AlertTriangle, Shield, Check, ChevronsUpDown, CalendarClock } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -57,6 +57,7 @@ import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   createBudgetSubcategory,
+  createOverlayProject,
   createProject,
   createProjectCategoryLimit,
   createProjectSubcategory,
@@ -72,6 +73,7 @@ import {
   updateProjectCategoryLimit,
   updateProjectSubcategory,
 } from "@/lib/api";
+import { toISODateInTimeZone } from "@/lib/date";
 import { useToast } from "@/lib/context/ToastContext";
 import { Input } from "@/components/ui/input";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -218,6 +220,78 @@ function BudgetAmountRow({ label, value, prefix = "", tone = "" }) {
   );
 }
 
+function getProjectType(project) {
+  return project?.project_type || (project?.is_isolated ? "ISOLATED" : "OVERLAY");
+}
+
+function isIsolatedProject(project) {
+  return getProjectType(project) === "ISOLATED";
+}
+
+function BudgetProjectReservationRow({ reservation, t }) {
+  const reservedAmount = Number(reservation.reserved_amount || 0);
+  const spent = Number(reservation.spent || 0);
+  const remaining = Number(reservation.remaining || 0);
+  const isOverLimit = Boolean(reservation.is_over_limit);
+  const spentPercent = reservedAmount > 0 ? Math.min((spent / reservedAmount) * 100, 100) : 0;
+  const statusLabel = isOverLimit
+    ? t("budgets.reservationOver", { defaultValue: "Over reservation" })
+    : t("budgets.reservationRemaining", { defaultValue: "Remaining" });
+
+  return (
+    <div
+      className={cn(
+        "space-y-3 rounded-lg border bg-background/70 p-3",
+        isOverLimit ? "border-destructive/40 bg-destructive/5" : "border-border/60",
+      )}
+    >
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+        <div className="min-w-0">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <p className="truncate text-sm font-semibold text-foreground">{reservation.project_title}</p>
+            <Badge variant={isOverLimit ? "destructive" : "secondary"} className="rounded-full px-2 py-0 text-[10px]">
+              {statusLabel}
+            </Badge>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t("budgets.spendingPermissionReservation", { defaultValue: "Spending permission reservation" })}
+          </p>
+        </div>
+        <CurrencyAmount
+          value={Math.abs(remaining)}
+          prefix={isOverLimit ? "+" : ""}
+          format="compact"
+          tooltip="compact"
+          className={cn(
+            "flex items-baseline gap-1 text-sm font-semibold sm:justify-end",
+            isOverLimit ? "text-destructive" : "text-primary",
+          )}
+          currencyClassName="text-muted-foreground/70"
+        />
+      </div>
+      <div className="space-y-2">
+        <div className="h-2 overflow-hidden rounded-full bg-muted">
+          <div
+            className={cn("h-full rounded-full", isOverLimit ? "bg-destructive" : "bg-primary")}
+            style={{ width: `${spentPercent}%` }}
+          />
+        </div>
+        <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
+          <span>
+            {t("budgets.reserved", { defaultValue: "Reserved" })}: {formatCompactUzs(reservedAmount)}
+          </span>
+          <span>
+            {t("budgets.actualSpent", { defaultValue: "Actual spent" })}: {formatCompactUzs(spent)}
+          </span>
+          <span className={cn("sm:text-right", isOverLimit ? "text-destructive" : "text-primary")}>
+            {statusLabel}: {formatCompactUzs(Math.abs(remaining))}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BudgetExpenseFeedRow({ feedItem, t, tCategory, appLang, onOpenExpense }) {
   if (feedItem?.type === "MERGE_GROUP" && feedItem.merge_group) {
     const group = feedItem.merge_group;
@@ -354,9 +428,8 @@ export default function Budgets() {
   const navigate = useNavigate();
   const toast = useToast();
   const queryClient = useQueryClient();
-  const today = new Date();
-  const currentYear = today.getFullYear();
-  const currentMonth = today.getMonth() + 1;
+  const todayIso = toISODateInTimeZone();
+  const [currentYear, currentMonth] = todayIso.split("-").map(Number);
   const [actionError, setActionError] = React.useState("");
   const [viewMode, setViewMode] = React.useState("monthly_plan");
   const [windowWidth, setWindowWidth] = React.useState(typeof window !== "undefined" ? window.innerWidth : 1280);
@@ -429,10 +502,18 @@ export default function Budgets() {
   const [projectDescription, setProjectDescription] = React.useState("");
   const [projectIsIsolated, setProjectIsIsolated] = React.useState("true");
   const [projectTotalLimit, setProjectTotalLimit] = React.useState("");
+  const [projectTargetEstimate, setProjectTargetEstimate] = React.useState("");
   const [projectStartDate, setProjectStartDate] = React.useState(
     `${currentYear}-${String(currentMonth).padStart(2, "0")}-01`
   );
   const [projectTargetEndDate, setProjectTargetEndDate] = React.useState("");
+  const [projectWizardStep, setProjectWizardStep] = React.useState(1);
+  const [projectSelectedCategories, setProjectSelectedCategories] = React.useState([]);
+  const [projectCategoryAllocations, setProjectCategoryAllocations] = React.useState({});
+  const [projectMicroCategory, setProjectMicroCategory] = React.useState("");
+  const [projectMicroSubcategoryId, setProjectMicroSubcategoryId] = React.useState("");
+  const [projectMicroLimit, setProjectMicroLimit] = React.useState("");
+  const [projectSubcategoryReservations, setProjectSubcategoryReservations] = React.useState([]);
   const [projectStructureId, setProjectStructureId] = React.useState(null);
   const [projectCategoryValue, setProjectCategoryValue] = React.useState("");
   const [projectCategoryLimitValue, setProjectCategoryLimitValue] = React.useState("");
@@ -501,6 +582,12 @@ export default function Budgets() {
   const projectsQuery = useQuery({
     queryKey: ["projects", summaryTarget.year, summaryTarget.month],
     queryFn: () => getProjects({ budgetYear: summaryTarget.year, budgetMonth: summaryTarget.month }),
+    staleTime: 60_000,
+  });
+  const jitProjectsQuery = useQuery({
+    queryKey: ["projects", "jit-overlay", currentYear, currentMonth],
+    queryFn: () => getProjects({ budgetYear: currentYear, budgetMonth: currentMonth }),
+    enabled: projectOpen && (summaryTarget.year !== currentYear || summaryTarget.month !== currentMonth),
     staleTime: 60_000,
   });
   const expensesTargetRange = React.useMemo(
@@ -600,6 +687,12 @@ export default function Budgets() {
     () => (Array.isArray(projectsQuery.data) ? projectsQuery.data : []),
     [projectsQuery.data],
   );
+  const jitProjects = React.useMemo(() => {
+    if (summaryTarget.year === currentYear && summaryTarget.month === currentMonth) {
+      return projects;
+    }
+    return Array.isArray(jitProjectsQuery.data) ? jitProjectsQuery.data : [];
+  }, [currentMonth, currentYear, jitProjectsQuery.data, projects, summaryTarget.month, summaryTarget.year]);
   const managedSubcategories = React.useMemo(
     () => (Array.isArray(subcategoriesQuery.data) ? subcategoriesQuery.data : []),
     [subcategoriesQuery.data],
@@ -656,6 +749,7 @@ export default function Budgets() {
     () => projects.find((project) => project.id === projectStructureId) || null,
     [projects, projectStructureId],
   );
+  const structureProjectIsIsolated = structureProject ? isIsolatedProject(structureProject) : false;
   const structureProjectCategories = React.useMemo(
     () => Array.isArray(structureProject?.category_breakdown) ? structureProject.category_breakdown : [],
     [structureProject],
@@ -663,7 +757,7 @@ export default function Budgets() {
   const selectedOverlayReservationTotalsByCategory = React.useMemo(() => {
     const totals = new Map();
     projects
-      .filter((project) => !project.is_isolated && String(project.status || "").toUpperCase() === "ACTIVE")
+      .filter((project) => !isIsolatedProject(project) && String(project.status || "").toUpperCase() === "ACTIVE")
       .forEach((project) => {
         (project.category_breakdown || []).forEach((categoryRow) => {
           if (
@@ -683,7 +777,7 @@ export default function Budgets() {
   const selectedOverlayReservationTotalsBySubcategory = React.useMemo(() => {
     const totals = new Map();
     projects
-      .filter((project) => !project.is_isolated && String(project.status || "").toUpperCase() === "ACTIVE")
+      .filter((project) => !isIsolatedProject(project) && String(project.status || "").toUpperCase() === "ACTIVE")
       .forEach((project) => {
         (project.category_breakdown || []).forEach((categoryRow) => {
           (categoryRow.subcategories || []).forEach((subcategory) => {
@@ -700,6 +794,46 @@ export default function Budgets() {
       });
     return totals;
   }, [projects, summaryTarget.month, summaryTarget.year]);
+  const jitOverlayReservationTotalsByCategory = React.useMemo(() => {
+    const totals = new Map();
+    jitProjects
+      .filter((project) => !isIsolatedProject(project) && String(project.status || "").toUpperCase() === "ACTIVE")
+      .forEach((project) => {
+        (project.category_breakdown || []).forEach((categoryRow) => {
+          if (
+            Number(categoryRow.budget_year) !== Number(currentYear) ||
+            Number(categoryRow.budget_month) !== Number(currentMonth)
+          ) {
+            return;
+          }
+          totals.set(
+            categoryRow.category,
+            Number(totals.get(categoryRow.category) || 0) + Number(categoryRow.limit_amount || 0),
+          );
+        });
+      });
+    return totals;
+  }, [currentMonth, currentYear, jitProjects]);
+  const jitOverlayReservationTotalsBySubcategory = React.useMemo(() => {
+    const totals = new Map();
+    jitProjects
+      .filter((project) => !isIsolatedProject(project) && String(project.status || "").toUpperCase() === "ACTIVE")
+      .forEach((project) => {
+        (project.category_breakdown || []).forEach((categoryRow) => {
+          (categoryRow.subcategories || []).forEach((subcategory) => {
+            if (
+              Number(subcategory.budget_year) !== Number(currentYear) ||
+              Number(subcategory.budget_month) !== Number(currentMonth)
+            ) {
+              return;
+            }
+            const key = String(subcategory.user_subcategory_id || "");
+            totals.set(key, Number(totals.get(key) || 0) + Number(subcategory.limit_amount || 0));
+          });
+        });
+      });
+    return totals;
+  }, [currentMonth, currentYear, jitProjects]);
   const getOverlayCategoryHeadroom = React.useCallback((category, excludeAmount = 0) => {
     const budget = budgets.find((item) =>
       item.category === category &&
@@ -713,6 +847,19 @@ export default function Budgets() {
     const headroom = Math.max(Number(budget.baseLimit || 0) - reserved + Number(excludeAmount || 0), 0);
     return { budget, reserved, headroom };
   }, [budgets, selectedOverlayReservationTotalsByCategory, summaryTarget.month, summaryTarget.year]);
+  const getJitOverlayCategoryHeadroom = React.useCallback((category) => {
+    const budget = budgets.find((item) =>
+      item.category === category &&
+      Number(item.budgetYear) === Number(currentYear) &&
+      Number(item.budgetMonth) === Number(currentMonth)
+    ) || null;
+    if (!budget) {
+      return { budget: null, reserved: 0, headroom: 0 };
+    }
+    const reserved = Number(jitOverlayReservationTotalsByCategory.get(category) ?? budget.projectReservedAmount ?? 0);
+    const headroom = Math.max(Number(budget.baseLimit || 0) - reserved, 0);
+    return { budget, reserved, headroom };
+  }, [budgets, currentMonth, currentYear, jitOverlayReservationTotalsByCategory]);
   const editingProjectSubcategoryRow = React.useMemo(
     () => structureProjectCategories
       .flatMap((categoryRow) => categoryRow.subcategories || [])
@@ -728,13 +875,26 @@ export default function Budgets() {
     ) || null,
     [budgets, overlayProjectSubcategoryCategory, summaryTarget.month, summaryTarget.year],
   );
+  const projectMicroBudget = React.useMemo(
+    () => budgets.find((budget) =>
+      budget.category === projectMicroCategory &&
+      Number(budget.budgetYear) === Number(currentYear) &&
+      Number(budget.budgetMonth) === Number(currentMonth)
+    ) || null,
+    [budgets, currentMonth, currentYear, projectMicroCategory],
+  );
+  const projectMicroSubcategoriesQuery = useQuery({
+    queryKey: ["budgets", projectMicroBudget?.id, "subcategories", "jit-overlay-project"],
+    queryFn: () => getBudgetSubcategories(projectMicroBudget?.id),
+    enabled: Boolean(projectOpen && projectIsIsolated === "false" && projectWizardStep === 4 && projectMicroBudget?.id),
+  });
   const overlayProjectSubcategoriesQuery = useQuery({
     queryKey: ["budgets", overlayProjectSubcategoryBudget?.id, "subcategories", "overlay-project"],
     queryFn: () => getBudgetSubcategories(overlayProjectSubcategoryBudget?.id),
     enabled: Boolean(
       projectStructureOpen &&
       structureProject &&
-      !structureProject.is_isolated &&
+      !structureProjectIsIsolated &&
       overlayProjectSubcategoryBudget?.id
     ),
   });
@@ -761,11 +921,11 @@ export default function Budgets() {
   }, [overlayProjectSubcategoriesQuery.data, selectedOverlayReservationTotalsBySubcategory]);
   const projectCategoryHeadroom = React.useMemo(
     () => (
-      structureProject && !structureProject.is_isolated && projectCategoryValue
+      structureProject && !structureProjectIsIsolated && projectCategoryValue
         ? getOverlayCategoryHeadroom(projectCategoryValue)
         : null
     ),
-    [getOverlayCategoryHeadroom, projectCategoryValue, structureProject],
+    [getOverlayCategoryHeadroom, projectCategoryValue, structureProject, structureProjectIsIsolated],
   );
   const projectCategoryLimitAmount = parseBudgetAmountInput(projectCategoryLimitValue);
   const projectCategoryWouldOverbook = Boolean(
@@ -779,11 +939,11 @@ export default function Budgets() {
   );
   const editingProjectCategoryHeadroom = React.useMemo(
     () => (
-      structureProject && !structureProject.is_isolated && editingProjectCategory
+      structureProject && !structureProjectIsIsolated && editingProjectCategory
         ? getOverlayCategoryHeadroom(editingProjectCategory, Number(editingProjectCategoryRow?.limit_amount || 0))
         : null
     ),
-    [editingProjectCategory, editingProjectCategoryRow, getOverlayCategoryHeadroom, structureProject],
+    [editingProjectCategory, editingProjectCategoryRow, getOverlayCategoryHeadroom, structureProject, structureProjectIsIsolated],
   );
   const editingProjectCategoryLimitAmount = parseBudgetAmountInput(editingProjectCategoryLimit);
   const editingProjectCategoryWouldOverbook = Boolean(
@@ -793,11 +953,11 @@ export default function Budgets() {
   );
   const projectSubcategoryHeadroom = React.useMemo(
     () => (
-      structureProject && !structureProject.is_isolated && projectSubcategoryUserSubcategoryId
+      structureProject && !structureProjectIsIsolated && projectSubcategoryUserSubcategoryId
         ? getOverlaySubcategoryHeadroom(projectSubcategoryUserSubcategoryId)
         : null
     ),
-    [getOverlaySubcategoryHeadroom, projectSubcategoryUserSubcategoryId, structureProject],
+    [getOverlaySubcategoryHeadroom, projectSubcategoryUserSubcategoryId, structureProject, structureProjectIsIsolated],
   );
   const projectSubcategoryLimitAmount = parseBudgetAmountInput(projectSubcategoryLimit);
   const projectSubcategoryWouldOverbook = Boolean(
@@ -807,14 +967,14 @@ export default function Budgets() {
   );
   const editingProjectSubcategoryHeadroom = React.useMemo(
     () => (
-      structureProject && !structureProject.is_isolated && editingProjectSubcategoryUserSubcategoryId
+      structureProject && !structureProjectIsIsolated && editingProjectSubcategoryUserSubcategoryId
         ? getOverlaySubcategoryHeadroom(
             editingProjectSubcategoryUserSubcategoryId,
             Number(editingProjectSubcategoryRow?.limit_amount || 0),
           )
         : null
     ),
-    [editingProjectSubcategoryRow, editingProjectSubcategoryUserSubcategoryId, getOverlaySubcategoryHeadroom, structureProject],
+    [editingProjectSubcategoryRow, editingProjectSubcategoryUserSubcategoryId, getOverlaySubcategoryHeadroom, structureProject, structureProjectIsIsolated],
   );
   const editingProjectSubcategoryLimitAmount = parseBudgetAmountInput(editingProjectSubcategoryLimit);
   const editingProjectSubcategoryWouldOverbook = Boolean(
@@ -849,6 +1009,73 @@ export default function Budgets() {
   const formatBudgetMonth = React.useCallback((year, month) => formatMonthYear(year, month, appLang), [appLang]);
 
   const formatBudgetAmountInput = (raw) => formatAmountInput(raw, maxBudgetAmountDigits);
+  const activeBudgetMonthLabel = formatBudgetMonth(currentYear, currentMonth);
+  const isOverlayProjectDraft = projectIsIsolated === "false";
+  const projectCategoryAllocationRows = React.useMemo(
+    () => projectSelectedCategories.map((category) => {
+      const amount = parseBudgetAmountInput(projectCategoryAllocations[category]);
+      const headroom = getJitOverlayCategoryHeadroom(category);
+      return {
+        category,
+        amount,
+        input: projectCategoryAllocations[category] || "",
+        ...headroom,
+        isMissingBudget: !headroom.budget,
+        isInvalidAmount: amount === null || amount <= 0,
+        isOverbooked: amount !== null && amount > Number(headroom.headroom || 0),
+      };
+    }),
+    [getJitOverlayCategoryHeadroom, projectCategoryAllocations, projectSelectedCategories],
+  );
+  const projectCategoryReservationPayload = React.useMemo(
+    () => projectCategoryAllocationRows
+      .filter((row) => row.amount !== null && row.amount > 0)
+      .map((row) => ({ category: row.category, limit_amount: row.amount })),
+    [projectCategoryAllocationRows],
+  );
+  const projectOverlayStepOneValid = Boolean(projectTitle.trim() && projectStartDate) &&
+    !(projectTargetEndDate && projectTargetEndDate < projectStartDate);
+  const projectOverlayStepTwoValid = projectSelectedCategories.length > 0;
+  const projectOverlayStepThreeValid = projectCategoryAllocationRows.length > 0 &&
+    projectCategoryAllocationRows.every((row) => !row.isMissingBudget && !row.isInvalidAmount && !row.isOverbooked);
+  const projectMicroSubcategories = React.useMemo(
+    () => Array.isArray(projectMicroSubcategoriesQuery.data) ? projectMicroSubcategoriesQuery.data : [],
+    [projectMicroSubcategoriesQuery.data],
+  );
+  const projectUsedMicroSubcategoryIds = React.useMemo(
+    () => new Set(projectSubcategoryReservations.map((item) => String(item.user_subcategory_id))),
+    [projectSubcategoryReservations],
+  );
+  const projectEligibleMicroSubcategories = React.useMemo(
+    () => projectMicroSubcategories.filter((item) => !projectUsedMicroSubcategoryIds.has(String(item.id))),
+    [projectMicroSubcategories, projectUsedMicroSubcategoryIds],
+  );
+  const projectMicroSelectedSubcategory = React.useMemo(
+    () => projectMicroSubcategories.find((item) => String(item.id) === String(projectMicroSubcategoryId)) || null,
+    [projectMicroSubcategories, projectMicroSubcategoryId],
+  );
+  const projectMicroSelectedHeadroom = React.useMemo(() => {
+    if (!projectMicroSelectedSubcategory) {
+      return { subcategory: null, reserved: 0, headroom: 0 };
+    }
+    const reserved = Number(jitOverlayReservationTotalsBySubcategory.get(String(projectMicroSelectedSubcategory.id)) || 0);
+    return {
+      subcategory: projectMicroSelectedSubcategory,
+      reserved,
+      headroom: Math.max(Number(projectMicroSelectedSubcategory.monthly_limit || 0) - reserved, 0),
+    };
+  }, [jitOverlayReservationTotalsBySubcategory, projectMicroSelectedSubcategory]);
+  const projectMicroLimitAmount = parseBudgetAmountInput(projectMicroLimit);
+  const projectMicroWouldOverbook = Boolean(
+    projectMicroSelectedSubcategory &&
+    projectMicroLimitAmount !== null &&
+    projectMicroLimitAmount > Number(projectMicroSelectedHeadroom.headroom || 0)
+  );
+  const canAdvanceProjectWizard =
+    projectWizardStep === 1 ? projectOverlayStepOneValid :
+    projectWizardStep === 2 ? projectOverlayStepTwoValid :
+    projectWizardStep === 3 ? projectOverlayStepThreeValid :
+    true;
 
   const budgetYearOptions = React.useMemo(() => {
     const minYear = 2020;
@@ -1033,6 +1260,26 @@ export default function Budgets() {
         queryClient.invalidateQueries({ queryKey: ["budgets"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary", summaryTarget.year, summaryTarget.month] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
+      ]);
+      toast.success(t("projects.created", { defaultValue: "Project created" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("projects.failedToCreate", { defaultValue: "Failed to create project" }), msg);
+    },
+  });
+  const createOverlayProjectMutation = useMutation({
+    mutationFn: createOverlayProject,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary", currentYear, currentMonth] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
       ]);
       toast.success(t("projects.created", { defaultValue: "Project created" }));
     },
@@ -1045,7 +1292,7 @@ export default function Budgets() {
   const isAddingBudget = addBudgetMutation.isPending;
   const isUpdatingBudget = updateBudgetMutation.isPending;
   const isDeletingBudget = deleteBudgetMutation.isPending;
-  const isCreatingProject = createProjectMutation.isPending;
+  const isCreatingProject = createProjectMutation.isPending || createOverlayProjectMutation.isPending;
   const createProjectCategoryMutation = useMutation({
     mutationFn: ({ projectId, payload }) => createProjectCategoryLimit(projectId, payload),
     onSuccess: async () => {
@@ -1054,6 +1301,8 @@ export default function Budgets() {
         queryClient.invalidateQueries({ queryKey: ["budgets"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary", summaryTarget.year, summaryTarget.month] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
       ]);
       toast.success(t("projects.categoryLimitCreated", { defaultValue: "Project category added" }));
     },
@@ -1070,6 +1319,8 @@ export default function Budgets() {
         queryClient.invalidateQueries({ queryKey: ["budgets"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary", summaryTarget.year, summaryTarget.month] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
       ]);
       toast.success(t("projects.categoryLimitUpdated", { defaultValue: "Project category updated" }));
     },
@@ -1088,6 +1339,8 @@ export default function Budgets() {
         queryClient.invalidateQueries({ queryKey: ["budgets"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary", summaryTarget.year, summaryTarget.month] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
       ]);
       toast.success(t("projects.categoryLimitDeleted", { defaultValue: "Project category deleted" }));
     },
@@ -1104,6 +1357,8 @@ export default function Budgets() {
         queryClient.invalidateQueries({ queryKey: ["budgets"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary", summaryTarget.year, summaryTarget.month] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
       ]);
       toast.success(t("projects.projectSubcategoryCreated", { defaultValue: "Project subcategory created" }));
     },
@@ -1120,6 +1375,8 @@ export default function Budgets() {
         queryClient.invalidateQueries({ queryKey: ["budgets"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary", summaryTarget.year, summaryTarget.month] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
       ]);
       toast.success(t("projects.projectSubcategoryUpdated", { defaultValue: "Project subcategory updated" }));
     },
@@ -1134,6 +1391,10 @@ export default function Budgets() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["projects"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary", summaryTarget.year, summaryTarget.month] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
       ]);
       toast.success(t("projects.projectSubcategoryDeleted", { defaultValue: "Project subcategory deleted" }));
     },
@@ -1259,8 +1520,16 @@ export default function Budgets() {
     setProjectDescription("");
     setProjectIsIsolated("true");
     setProjectTotalLimit("");
+    setProjectTargetEstimate("");
     setProjectStartDate(`${currentYear}-${String(currentMonth).padStart(2, "0")}-01`);
     setProjectTargetEndDate("");
+    setProjectWizardStep(1);
+    setProjectSelectedCategories([]);
+    setProjectCategoryAllocations({});
+    setProjectMicroCategory("");
+    setProjectMicroSubcategoryId("");
+    setProjectMicroLimit("");
+    setProjectSubcategoryReservations([]);
     setProjectOpen(true);
   };
 
@@ -1310,6 +1579,74 @@ export default function Budgets() {
     setParentReallocateOpen(true);
   };
 
+  const toggleProjectCategory = (category) => {
+    setProjectSelectedCategories((current) => {
+      if (current.includes(category)) {
+        const next = current.filter((item) => item !== category);
+        setProjectCategoryAllocations((allocations) => {
+          const rest = { ...allocations };
+          delete rest[category];
+          return rest;
+        });
+        setProjectSubcategoryReservations((items) => items.filter((item) => item.category !== category));
+        if (projectMicroCategory === category) {
+          setProjectMicroCategory("");
+          setProjectMicroSubcategoryId("");
+          setProjectMicroLimit("");
+        }
+        return next;
+      }
+      return [...current, category];
+    });
+  };
+
+  const handleProjectWizardNext = () => {
+    setActionError("");
+    if (!canAdvanceProjectWizard) {
+      setActionError(t("projects.overlayWizardIncomplete", { defaultValue: "Complete the current step before continuing." }));
+      return;
+    }
+    setProjectWizardStep((step) => Math.min(step + 1, 4));
+  };
+
+  const handleProjectWizardBack = () => {
+    setActionError("");
+    setProjectWizardStep((step) => Math.max(step - 1, 1));
+  };
+
+  const handleAddProjectMicroReservation = () => {
+    setActionError("");
+    if (!projectMicroCategory || !projectMicroSubcategoryId || !projectMicroSelectedSubcategory) {
+      setActionError(t("projects.globalSubcategoryRequired", { defaultValue: "Choose a monthly budget subcategory first" }));
+      return;
+    }
+    if (!projectMicroLimitAmount || projectMicroLimitAmount <= 0) {
+      setActionError(t("projects.projectSubcategoryLimitInvalid", { defaultValue: "Project subcategory limit must be greater than zero" }));
+      return;
+    }
+    if (projectMicroWouldOverbook) {
+      setActionError(t("projects.overlayReservationOverbooked", { defaultValue: "Reservation exceeds available selected-month headroom." }));
+      return;
+    }
+    setProjectSubcategoryReservations((items) => [
+      ...items,
+      {
+        category: projectMicroCategory,
+        user_subcategory_id: Number(projectMicroSubcategoryId),
+        name: projectMicroSelectedSubcategory.name,
+        limit_amount: projectMicroLimitAmount,
+      },
+    ]);
+    setProjectMicroSubcategoryId("");
+    setProjectMicroLimit("");
+  };
+
+  const removeProjectMicroReservation = (userSubcategoryId) => {
+    setProjectSubcategoryReservations((items) =>
+      items.filter((item) => String(item.user_subcategory_id) !== String(userSubcategoryId))
+    );
+  };
+
   async function handleCreateProjectCategoryLimit() {
     if (!structureProject || createProjectCategoryMutation.isPending) return;
     setActionError("");
@@ -1322,7 +1659,7 @@ export default function Budgets() {
       setActionError(t("projects.categoryLimitInvalid", { defaultValue: "Category limit must be greater than zero" }));
       return;
     }
-    if (!structureProject.is_isolated) {
+    if (!structureProjectIsIsolated) {
       if (!projectCategoryHeadroom?.budget) {
         setActionError(t("projects.overlayCategoryNeedsBudget", { defaultValue: "Add this category to the selected monthly budget before reserving it." }));
         return;
@@ -1357,7 +1694,7 @@ export default function Budgets() {
       setActionError(t("projects.categoryLimitInvalid", { defaultValue: "Category limit must be greater than zero" }));
       return;
     }
-    if (!structureProject.is_isolated && editingProjectCategoryWouldOverbook) {
+    if (!structureProjectIsIsolated && editingProjectCategoryWouldOverbook) {
       setActionError(t("projects.overlayReservationOverbooked", { defaultValue: "Reservation exceeds available selected-month headroom." }));
       return;
     }
@@ -1385,16 +1722,16 @@ export default function Budgets() {
       setActionError(t("projects.categoryRequired", { defaultValue: "Choose a category first" }));
       return;
     }
-    if (structureProject.is_isolated && !projectSubcategoryName.trim()) {
+    if (structureProjectIsIsolated && !projectSubcategoryName.trim()) {
       setActionError(t("projects.projectSubcategoryNameRequired", { defaultValue: "Project subcategory name is required" }));
       return;
     }
-    if (!structureProject.is_isolated && !projectSubcategoryUserSubcategoryId) {
+    if (!structureProjectIsIsolated && !projectSubcategoryUserSubcategoryId) {
       setActionError(t("projects.globalSubcategoryRequired", { defaultValue: "Choose a monthly budget subcategory first" }));
       return;
     }
     const limitAmount = parseBudgetAmountInput(projectSubcategoryLimit);
-    if (!structureProject.is_isolated && !projectSubcategoryLimit) {
+    if (!structureProjectIsIsolated && !projectSubcategoryLimit) {
       setActionError(t("projects.projectSubcategoryLimitInvalid", { defaultValue: "Project subcategory limit must be greater than zero" }));
       return;
     }
@@ -1402,12 +1739,12 @@ export default function Budgets() {
       setActionError(t("projects.projectSubcategoryLimitInvalid", { defaultValue: "Project subcategory limit must be greater than zero" }));
       return;
     }
-    if (!structureProject.is_isolated && projectSubcategoryWouldOverbook) {
+    if (!structureProjectIsIsolated && projectSubcategoryWouldOverbook) {
       setActionError(t("projects.overlayReservationOverbooked", { defaultValue: "Reservation exceeds available selected-month headroom." }));
       return;
     }
     try {
-      const payload = structureProject.is_isolated
+      const payload = structureProjectIsIsolated
         ? {
             category: projectSubcategoryCategory,
             name: projectSubcategoryName.trim(),
@@ -1438,12 +1775,12 @@ export default function Budgets() {
   async function handleUpdateProjectSubcategory() {
     if (!structureProject || !editingProjectSubcategoryId || updateProjectSubcategoryMutation.isPending) return;
     setActionError("");
-    if (structureProject.is_isolated && !editingProjectSubcategoryName.trim()) {
+    if (structureProjectIsIsolated && !editingProjectSubcategoryName.trim()) {
       setActionError(t("projects.projectSubcategoryNameRequired", { defaultValue: "Project subcategory name is required" }));
       return;
     }
     const limitAmount = parseBudgetAmountInput(editingProjectSubcategoryLimit);
-    if (!structureProject.is_isolated && !editingProjectSubcategoryLimit) {
+    if (!structureProjectIsIsolated && !editingProjectSubcategoryLimit) {
       setActionError(t("projects.projectSubcategoryLimitInvalid", { defaultValue: "Project subcategory limit must be greater than zero" }));
       return;
     }
@@ -1451,16 +1788,16 @@ export default function Budgets() {
       setActionError(t("projects.projectSubcategoryLimitInvalid", { defaultValue: "Project subcategory limit must be greater than zero" }));
       return;
     }
-    if (!structureProject.is_isolated && !editingProjectSubcategoryHeadroom?.subcategory) {
+    if (!structureProjectIsIsolated && !editingProjectSubcategoryHeadroom?.subcategory) {
       setActionError(t("projects.overlaySubcategoryHeadroomLoading", { defaultValue: "Monthly subcategory headroom is still loading." }));
       return;
     }
-    if (!structureProject.is_isolated && editingProjectSubcategoryWouldOverbook) {
+    if (!structureProjectIsIsolated && editingProjectSubcategoryWouldOverbook) {
       setActionError(t("projects.overlayReservationOverbooked", { defaultValue: "Reservation exceeds available selected-month headroom." }));
       return;
     }
     try {
-      const payload = structureProject.is_isolated
+      const payload = structureProjectIsIsolated
         ? {
             name: editingProjectSubcategoryName.trim(),
             limit_amount: limitAmount,
@@ -1575,12 +1912,44 @@ export default function Budgets() {
       return;
     }
     const totalLimit = projectTotalLimit ? Number(String(projectTotalLimit).replace(/\s+/g, "")) : null;
+    const targetEstimate = projectTargetEstimate ? Number(String(projectTargetEstimate).replace(/\s+/g, "")) : null;
     if (projectTotalLimit && (!Number.isFinite(totalLimit) || totalLimit <= 0)) {
       setActionError(t("projects.totalLimitInvalid", { defaultValue: "Project total limit must be greater than zero" }));
       return;
     }
+    if (projectTargetEstimate && (!Number.isFinite(targetEstimate) || targetEstimate <= 0)) {
+      setActionError(t("projects.targetEstimateInvalid", { defaultValue: "Target estimate must be greater than zero" }));
+      return;
+    }
     if (projectTargetEndDate && projectTargetEndDate < projectStartDate) {
       setActionError(t("projects.target_end_before_start", { defaultValue: "Target end date cannot be before start date" }));
+      return;
+    }
+    if (projectIsIsolated === "false") {
+      if (!projectOverlayStepThreeValid) {
+        setActionError(t("projects.overlayWizardIncomplete", { defaultValue: "Complete the current-month allocations before creating the project." }));
+        return;
+      }
+      try {
+        await createOverlayProjectMutation.mutateAsync({
+          title: projectTitle.trim(),
+          description: projectDescription.trim() || null,
+          target_estimate: targetEstimate,
+          start_date: projectStartDate,
+          target_end_date: projectTargetEndDate || null,
+          budget_year: currentYear,
+          budget_month: currentMonth,
+          category_reservations: projectCategoryReservationPayload,
+          subcategory_reservations: projectSubcategoryReservations.map((item) => ({
+            category: item.category,
+            user_subcategory_id: item.user_subcategory_id,
+            limit_amount: item.limit_amount,
+          })),
+        });
+        setProjectOpen(false);
+      } catch (e) {
+        setActionError(getBudgetActionErrorMessage(e));
+      }
       return;
     }
     try {
@@ -1742,28 +2111,49 @@ export default function Budgets() {
 
   const createProjectFooter = (
     <>
-      <Button variant="outline" onClick={() => setProjectOpen(false)} disabled={isCreatingProject}>
-        {t("common.cancel")}
-      </Button>
-      <Button
-        onClick={handleCreateProject}
-        disabled={isCreatingProject || !projectTitle.trim() || !projectStartDate}
-        className="relative min-w-[120px] disabled:pointer-events-auto disabled:cursor-not-allowed"
-      >
-        {isCreatingProject ? (
-          <>
-            <span className="invisible">{t("projects.create", { defaultValue: "Create Project" })}</span>
-            <span className="absolute inset-0 flex items-center justify-center">
-              <span
-                aria-label="Loading"
-                className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
-              />
-            </span>
-          </>
-        ) : (
-          t("projects.create", { defaultValue: "Create Project" })
-        )}
-      </Button>
+      {isOverlayProjectDraft && projectWizardStep > 1 ? (
+        <Button variant="outline" onClick={handleProjectWizardBack} disabled={isCreatingProject}>
+          {t("common.back", { defaultValue: "Back" })}
+        </Button>
+      ) : (
+        <Button variant="outline" onClick={() => setProjectOpen(false)} disabled={isCreatingProject}>
+          {t("common.cancel")}
+        </Button>
+      )}
+      {isOverlayProjectDraft && projectWizardStep < 4 ? (
+        <Button
+          onClick={handleProjectWizardNext}
+          disabled={!canAdvanceProjectWizard}
+          className="min-w-[120px] disabled:pointer-events-auto disabled:cursor-not-allowed"
+        >
+          {t("common.next", { defaultValue: "Next" })}
+        </Button>
+      ) : (
+        <Button
+          onClick={handleCreateProject}
+          disabled={
+            isCreatingProject ||
+            !projectTitle.trim() ||
+            !projectStartDate ||
+            (isOverlayProjectDraft && !projectOverlayStepThreeValid)
+          }
+          className="relative min-w-[120px] disabled:pointer-events-auto disabled:cursor-not-allowed"
+        >
+          {isCreatingProject ? (
+            <>
+              <span className="invisible">{t("projects.create", { defaultValue: "Create Project" })}</span>
+              <span className="absolute inset-0 flex items-center justify-center">
+                <span
+                  aria-label="Loading"
+                  className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
+                />
+              </span>
+            </>
+          ) : (
+            t("projects.create", { defaultValue: "Create Project" })
+          )}
+        </Button>
+      )}
     </>
   );
 
@@ -2231,12 +2621,26 @@ export default function Budgets() {
                 ) : (
                   <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
                     {projects.map((project) => {
-                      const totalLimit = Number(project.total_limit || 0);
+                      const projectIsIsolated = isIsolatedProject(project);
+                      const overlayDetails = project.overlay || {};
+                      const isolatedDetails = project.isolated || {};
+                      const totalLimit = Number(isolatedDetails.funding_limit ?? project.total_limit ?? 0);
                       const spent = Number(project.spent || 0);
                       const remaining = Number(project.remaining || Math.max(0, totalLimit - spent));
-                      const releasedFunding = Number(project.released_funding || 0);
-                      const remainingFunding = Number(project.remaining_funding || 0);
-                      const isGoalFundedIsolated = Boolean(project.is_isolated && project.origin_goal_id);
+                      const targetEstimate = Number(overlayDetails.target_estimate ?? project.target_estimate ?? 0);
+                      const selectedMonthReserved = Number(overlayDetails.selected_month_reserved_amount ?? project.selected_month_reserved_amount ?? 0);
+                      const totalReservedScope = Number(overlayDetails.total_reserved_scope ?? project.total_reserved_scope ?? 0);
+                      const selectedMonthSpent = (project.category_breakdown || []).reduce(
+                        (sum, item) => sum + Number(item.spent || 0),
+                        0,
+                      );
+                      const selectedMonthRemaining = selectedMonthReserved - selectedMonthSpent;
+                      const overlayReservedPercent = selectedMonthReserved > 0
+                        ? Math.min(100, Math.round((selectedMonthSpent / selectedMonthReserved) * 100))
+                        : 0;
+                      const releasedFunding = Number(isolatedDetails.released_funding ?? project.released_funding ?? 0);
+                      const remainingFunding = Number(isolatedDetails.remaining_funding ?? project.remaining_funding ?? 0);
+                      const isGoalFundedIsolated = Boolean(projectIsIsolated && project.origin_goal_id);
                       const hasFundingLayer = isGoalFundedIsolated || releasedFunding > 0 || remainingFunding > 0;
                       const fundingGap = Math.max(0, totalLimit - releasedFunding);
                       const limitPercent = totalLimit > 0 ? Math.min(100, Math.round((spent / totalLimit) * 100)) : 0;
@@ -2254,7 +2658,7 @@ export default function Budgets() {
                                   </Button>
                                 </CardTitle>
                                 <CardDescription className="mt-1">
-                                  {project.is_isolated
+                                  {projectIsIsolated
                                     ? t("projects.isolatedHelp", { defaultValue: "Isolated projects keep this spending out of monthly budget pressure." })
                                     : t("projects.overlayHelp", { defaultValue: "Overlay projects still count against monthly category budgets." })}
                                 </CardDescription>
@@ -2264,7 +2668,7 @@ export default function Budgets() {
                                   {project.status || t("common.active", { defaultValue: "Active" })}
                                 </span>
                                 <span className="rounded-full border border-border/60 bg-muted/30 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-foreground">
-                                  {project.is_isolated
+                                  {projectIsIsolated
                                     ? t("projects.isolated", { defaultValue: "Isolated" })
                                     : t("projects.overlay", { defaultValue: "Overlay" })}
                                 </span>
@@ -2366,6 +2770,59 @@ export default function Budgets() {
                                   ) : null}
                                 </div>
                               </div>
+                            ) : !projectIsIsolated ? (
+                              <div className="space-y-4">
+                                <div className="space-y-1">
+                                  <div className="flex items-baseline justify-between gap-3">
+                                    <CurrencyAmount value={selectedMonthSpent} format="display" className="text-xl font-bold tracking-tight" />
+                                    <span className="text-sm text-muted-foreground">
+                                      {selectedMonthReserved > 0
+                                        ? `${t("budgets.usedOf", { spent: formatCompactUzs(selectedMonthSpent), limit: formatCompactUzs(selectedMonthReserved) })} UZS`
+                                        : t("projects.noCurrentMonthReservation", { defaultValue: "No current-month reservation" })}
+                                    </span>
+                                  </div>
+                                  <p className="text-sm text-muted-foreground">
+                                    {selectedMonthRemaining >= 0
+                                      ? `${t("projects.remainingThisMonth", { defaultValue: "Remaining this month" })}: ${formatCompactUzs(selectedMonthRemaining)}`
+                                      : `${t("projects.overThisMonth", { defaultValue: "Over this month" })}: ${formatCompactUzs(Math.abs(selectedMonthRemaining))}`}
+                                  </p>
+                                  {selectedMonthReserved > 0 ? (
+                                    <Progress
+                                      value={overlayReservedPercent}
+                                      indicatorClassName="bg-yellow-500 rounded-full"
+                                      trackClassName="bg-yellow-500/15 rounded-full"
+                                      className="h-2.5 rounded-full"
+                                    />
+                                  ) : null}
+                                </div>
+
+                                <div className="grid gap-3 sm:grid-cols-3">
+                                  <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
+                                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                                      {t("projects.reservedThisMonth", { defaultValue: "Reserved this month" })}
+                                    </p>
+                                    <CurrencyAmount value={selectedMonthReserved} format="compact" className="mt-1 text-base font-semibold" />
+                                  </div>
+                                  <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
+                                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                                      {t("projects.reservedSoFar", { defaultValue: "Reserved so far" })}
+                                    </p>
+                                    <CurrencyAmount value={totalReservedScope} format="compact" className="mt-1 text-base font-semibold" />
+                                  </div>
+                                  <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
+                                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                                      {t("projects.targetEstimate", { defaultValue: "Target estimate" })}
+                                    </p>
+                                    {targetEstimate > 0 ? (
+                                      <CurrencyAmount value={targetEstimate} format="compact" className="mt-1 text-base font-semibold" />
+                                    ) : (
+                                      <p className="mt-1 text-sm font-medium text-muted-foreground">
+                                        {t("projects.targetEstimateNotSet", { defaultValue: "Not set" })}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
                             ) : (
                               <div className="space-y-1">
                                 <div className="flex items-baseline justify-between gap-3">
@@ -2382,7 +2839,7 @@ export default function Budgets() {
                                 {totalLimit > 0 ? (
                                   <Progress
                                     value={limitPercent}
-                                    indicatorClassName={project.is_isolated ? "bg-primary rounded-full" : "bg-yellow-500 rounded-full"}
+                                    indicatorClassName="bg-primary rounded-full"
                                     trackClassName="bg-primary/15 rounded-full"
                                     className="h-2.5 rounded-full"
                                   />
@@ -2630,9 +3087,42 @@ export default function Budgets() {
                       </InteractiveTooltip>
                       <div className="space-y-1 text-xs tabular-nums">
                         <div className="flex items-center justify-between gap-3 text-muted-foreground">
-                          <span>{t("budgets.baseLimit")}</span>
+                          <span>{t("budgets.parentLimit", { defaultValue: "Parent limit" })}</span>
                           <CurrencyAmount
-                            value={b.baseLimit}
+                            value={b.effectiveLimit}
+                            format={useCompactAmounts ? "compact" : "full"}
+                            tooltip="compact"
+                            className="flex items-baseline gap-1"
+                            valueClassName=""
+                            currencyClassName="font-normal"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between gap-3 text-muted-foreground">
+                          <span>{t("budgets.totalSpent", { defaultValue: "Total spent" })}</span>
+                          <CurrencyAmount
+                            value={b.spent}
+                            format={useCompactAmounts ? "compact" : "full"}
+                            tooltip="compact"
+                            className="flex items-baseline gap-1"
+                            valueClassName=""
+                            currencyClassName="font-normal"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between gap-3 text-muted-foreground">
+                          <span>{t("budgets.projectReserved", { defaultValue: "Project reserved" })}</span>
+                          <CurrencyAmount
+                            value={b.projectReservedAmount}
+                            format={useCompactAmounts ? "compact" : "full"}
+                            tooltip="compact"
+                            className="flex items-baseline gap-1"
+                            valueClassName=""
+                            currencyClassName="font-normal"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between gap-3 text-muted-foreground">
+                          <span>{t("budgets.freeGeneralLimit", { defaultValue: "Free general limit" })}</span>
+                          <CurrencyAmount
+                            value={b.freeGeneralLimit}
                             format={useCompactAmounts ? "compact" : "full"}
                             tooltip="compact"
                             className="flex items-baseline gap-1"
@@ -2934,11 +3424,11 @@ export default function Budgets() {
                     })}
                   </Badge>
                 ) : null}
-                {(budgetDetail.project_spending || []).length ? (
+                {(budgetDetail.project_reservations || []).length ? (
                   <Badge variant="outline" className="rounded-full px-3 py-1">
-                    {t("budgets.projectCount", {
-                      defaultValue: "{{count}} linked projects",
-                      count: budgetDetail.project_spending.length,
+                    {t("budgets.projectReservationCount", {
+                      defaultValue: "{{count}} active reservations",
+                      count: budgetDetail.project_reservations.length,
                     })}
                   </Badge>
                 ) : null}
@@ -3117,32 +3607,27 @@ export default function Budgets() {
                 </section>
 
                 <section className="space-y-3 rounded-lg border border-border/60 bg-muted/10 p-4">
-                  <h3 className="text-sm font-semibold">{t("budgets.projectOverlay", { defaultValue: "Project overlay inside this budget" })}</h3>
-                  {(budgetDetail.project_spending || []).length ? (
+                  <div className="flex flex-col gap-1">
+                    <h3 className="text-sm font-semibold">{t("budgets.activeProjectReservations", { defaultValue: "Active project reservations" })}</h3>
+                    <p className="text-xs text-muted-foreground">
+                      {t("budgets.activeProjectReservationsHint", {
+                        defaultValue: "Overlay projects reserve spending permission from this parent category for the selected month.",
+                      })}
+                    </p>
+                  </div>
+                  {(budgetDetail.project_reservations || []).length ? (
                     <div className="space-y-2">
-                      {budgetDetail.project_spending.map((project) => (
-                        <div key={project.project_id} className="grid gap-3 rounded-lg border border-border/60 bg-background/70 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-foreground">{project.project_title}</p>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {project.is_isolated
-                                ? t("projects.isolated", { defaultValue: "Isolated" })
-                                : t("projects.overlay", { defaultValue: "Overlay" })}
-                            </p>
-                          </div>
-                          <CurrencyAmount
-                            value={project.spent}
-                            format="compact"
-                            tooltip="compact"
-                            className="flex items-baseline gap-1 text-sm font-semibold sm:justify-end"
-                            currencyClassName="text-muted-foreground/70"
-                          />
-                        </div>
+                      {budgetDetail.project_reservations.map((reservation) => (
+                        <BudgetProjectReservationRow
+                          key={`${reservation.project_id}-${reservation.category}-${reservation.budget_year}-${reservation.budget_month}`}
+                          reservation={reservation}
+                          t={t}
+                        />
                       ))}
                     </div>
                   ) : (
                     <p className="rounded-lg border border-dashed border-border bg-background/60 px-3 py-4 text-sm text-muted-foreground">
-                      {t("budgets.noProjectSpending", { defaultValue: "No project-linked spending in this budget." })}
+                      {t("budgets.noActiveProjectReservations", { defaultValue: "No active overlay reservations in this budget month." })}
                     </p>
                   )}
                 </section>
@@ -3159,7 +3644,7 @@ export default function Budgets() {
         title={t("projects.manageStructure", { defaultValue: "Manage structure" })}
         description={
           structureProject
-            ? `${structureProject.title} · ${structureProject.is_isolated
+            ? `${structureProject.title} · ${structureProjectIsIsolated
               ? t("projects.isolated", { defaultValue: "Isolated" })
               : t("projects.overlay", { defaultValue: "Overlay" })}`
             : t("projects.manageStructureDesc", {
@@ -3199,14 +3684,14 @@ export default function Budgets() {
                   !structureProject ||
                   createProjectCategoryMutation.isPending ||
                   projectCategoryWouldOverbook ||
-                  Boolean(projectCategoryValue && !structureProject?.is_isolated && !projectCategoryHeadroom?.budget)
+                  Boolean(projectCategoryValue && !structureProjectIsIsolated && !projectCategoryHeadroom?.budget)
                 }
               >
                 <Plus className="mr-2 h-4 w-4" />
                 {t("common.add", { defaultValue: "Add" })}
               </Button>
             </div>
-            {structureProject && !structureProject.is_isolated && projectCategoryValue ? (
+            {structureProject && !structureProjectIsIsolated && projectCategoryValue ? (
               <p className={cn("mt-3 text-sm", projectCategoryWouldOverbook ? "text-destructive" : "text-muted-foreground")}>
                 {projectCategoryHeadroom?.budget
                   ? t("projects.overlayCategoryHeadroom", {
@@ -3306,7 +3791,7 @@ export default function Budgets() {
             )}
           </div>
 
-          {structureProject && !structureProject.is_isolated ? (
+          {structureProject && !structureProjectIsIsolated ? (
             <>
               <div className="rounded-2xl border border-border/60 bg-muted/15 p-4">
                 <p className="text-sm font-semibold">{t("projects.addOverlaySubcategory", { defaultValue: "Reserve a global monthly subcategory" })}</p>
@@ -3401,7 +3886,7 @@ export default function Budgets() {
                                   disabled={
                                     updateProjectSubcategoryMutation.isPending ||
                                     editingProjectSubcategoryWouldOverbook ||
-                                    Boolean(!structureProject?.is_isolated && !editingProjectSubcategoryHeadroom?.subcategory)
+                                    Boolean(!structureProjectIsIsolated && !editingProjectSubcategoryHeadroom?.subcategory)
                                   }
                                 >
                                   {t("common.save")}
@@ -3470,7 +3955,7 @@ export default function Budgets() {
             </>
           ) : null}
 
-          {structureProject?.is_isolated ? (
+          {structureProjectIsIsolated ? (
             <>
               <div className="rounded-2xl border border-border/60 bg-muted/15 p-4">
                 <p className="text-sm font-semibold">{t("projects.addProjectSubcategory", { defaultValue: "Add project subcategory" })}</p>
@@ -3608,6 +4093,24 @@ export default function Budgets() {
         dialogClassName="sm:max-w-[560px]"
       >
         <div className={cn("space-y-3", useBottomSheetForms && "pb-1")}>
+          {isOverlayProjectDraft ? (
+            <div className="flex flex-wrap gap-2 text-xs">
+              {[1, 2, 3, 4].map((step) => (
+                <span
+                  key={step}
+                  className={cn(
+                    "inline-flex h-7 min-w-7 items-center justify-center rounded-full border px-2 font-medium",
+                    projectWizardStep === step
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-muted/20 text-muted-foreground"
+                  )}
+                >
+                  {step}
+                </span>
+              ))}
+            </div>
+          ) : null}
+
           <div className="space-y-1.5">
             <label>{t("projects.title", { defaultValue: "Title" })}</label>
             <input
@@ -3626,32 +4129,45 @@ export default function Budgets() {
               onChange={(e) => setProjectDescription(e.target.value)}
             />
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <label>{t("projects.mode", { defaultValue: "Mode" })}</label>
-              <Select value={projectIsIsolated} onValueChange={setProjectIsIsolated}>
-                <SelectTrigger className={selectTriggerClass}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className={selectContentClass}>
-                  <SelectItem value="true">{t("projects.isolated", { defaultValue: "Isolated" })}</SelectItem>
-                  <SelectItem value="false">{t("projects.overlay", { defaultValue: "Overlay" })}</SelectItem>
-                </SelectContent>
-              </Select>
+          {projectWizardStep === 1 || !isOverlayProjectDraft ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label>{t("projects.mode", { defaultValue: "Mode" })}</label>
+                <Select value={projectIsIsolated} onValueChange={(value) => {
+                  setProjectIsIsolated(value);
+                  setProjectWizardStep(1);
+                }}>
+                  <SelectTrigger className={selectTriggerClass}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className={selectContentClass}>
+                    <SelectItem value="true">{t("projects.isolated", { defaultValue: "Isolated" })}</SelectItem>
+                    <SelectItem value="false">{t("projects.overlay", { defaultValue: "Overlay" })}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {!isOverlayProjectDraft ? (
+                <div className="space-y-1.5">
+                  <label>{t("projects.totalLimit", { defaultValue: "Total limit" })}</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    maxLength={maxBudgetAmountInputLength}
+                    className={inputBaseClass}
+                    value={projectTotalLimit}
+                    onChange={(e) => setProjectTotalLimit(formatBudgetAmountInput(e.target.value))}
+                  />
+                </div>
+              ) : (
+                <BudgetDialogStat
+                  label={t("projects.activeBudgetMonth", { defaultValue: "Active month" })}
+                  value={activeBudgetMonthLabel}
+                  icon={CalendarClock}
+                />
+              )}
             </div>
-            <div className="space-y-1.5">
-              <label>{t("projects.totalLimit", { defaultValue: "Total limit" })}</label>
-              <input
-                type="text"
-                inputMode="numeric"
-                autoComplete="off"
-                maxLength={maxBudgetAmountInputLength}
-                className={inputBaseClass}
-                value={projectTotalLimit}
-                onChange={(e) => setProjectTotalLimit(formatBudgetAmountInput(e.target.value))}
-              />
-            </div>
-          </div>
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <label>{t("projects.startDate", { defaultValue: "Start date" })}</label>
@@ -3672,11 +4188,202 @@ export default function Budgets() {
               />
             </div>
           </div>
-          <div className="rounded-2xl border border-border/60 bg-muted/15 p-3 text-sm text-muted-foreground">
-            {projectIsIsolated === "true"
-              ? t("projects.isolatedHelp", { defaultValue: "Isolated projects keep this spending out of monthly budget pressure." })
-              : t("projects.overlayHelp", { defaultValue: "Overlay projects still count against monthly category budgets." })}
-          </div>
+
+          {isOverlayProjectDraft && projectWizardStep === 1 ? (
+            <div className="space-y-1.5">
+              <label>{t("projects.targetEstimate", { defaultValue: "Target estimate" })}</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={maxBudgetAmountInputLength}
+                className={inputBaseClass}
+                value={projectTargetEstimate}
+                onChange={(e) => setProjectTargetEstimate(formatBudgetAmountInput(e.target.value))}
+                placeholder={t("projects.planningContextOnly", { defaultValue: "Planning context only" })}
+              />
+            </div>
+          ) : null}
+
+          {isOverlayProjectDraft && projectWizardStep === 2 ? (
+            <div className="space-y-3">
+              <p className="text-sm font-semibold">{t("projects.parentCategories", { defaultValue: "Parent categories" })}</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {orderedCategoryOptions.map((category) => {
+                  const selected = projectSelectedCategories.includes(category);
+                  const headroom = getJitOverlayCategoryHeadroom(category);
+                  return (
+                    <button
+                      type="button"
+                      key={category}
+                      onClick={() => toggleProjectCategory(category)}
+                      className={cn(
+                        "flex min-h-16 items-center justify-between rounded-lg border p-3 text-left text-sm transition",
+                        selected ? "border-primary bg-primary/10" : "border-border/70 bg-muted/10 hover:bg-muted/30"
+                      )}
+                    >
+                      <span>
+                        <span className="block font-medium">{tCategory(category)}</span>
+                        <span className={cn("text-xs", headroom.budget ? "text-muted-foreground" : "text-destructive")}>
+                          {headroom.budget
+                            ? t("projects.availableHeadroom", {
+                                defaultValue: "{{amount}} available",
+                                amount: formatUzs(headroom.headroom || 0),
+                              })
+                            : t("projects.overlayCategoryNeedsBudget", { defaultValue: "Add this category to the selected monthly budget before reserving it." })}
+                        </span>
+                      </span>
+                      {selected ? <Check className="h-4 w-4 text-primary" /> : <Circle className="h-4 w-4 text-muted-foreground" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          {isOverlayProjectDraft && projectWizardStep === 3 ? (
+            <div className="space-y-3">
+              <div>
+                <p className="text-sm font-semibold">{t("projects.currentMonthAllocation", { defaultValue: "Current-month allocation" })}</p>
+                <p className="text-xs text-muted-foreground">{activeBudgetMonthLabel}</p>
+              </div>
+              <div className="space-y-2">
+                {projectCategoryAllocationRows.map((row) => (
+                  <div key={row.category} className="rounded-lg border border-border/70 p-3">
+                    <div className="grid gap-2 sm:grid-cols-[1fr_160px] sm:items-center">
+                      <div>
+                        <p className="text-sm font-medium">{tCategory(row.category)}</p>
+                        <p className={cn("text-xs", row.isMissingBudget || row.isOverbooked ? "text-destructive" : "text-muted-foreground")}>
+                          {row.isMissingBudget
+                            ? t("projects.overlayCategoryNeedsBudget", { defaultValue: "Add this category to the selected monthly budget before reserving it." })
+                            : t("projects.availableHeadroom", {
+                                defaultValue: "{{amount}} available",
+                                amount: formatUzs(row.headroom || 0),
+                              })}
+                        </p>
+                      </div>
+                      <Input
+                        value={row.input}
+                        inputMode="numeric"
+                        maxLength={maxBudgetAmountInputLength}
+                        onChange={(e) => setProjectCategoryAllocations((current) => ({
+                          ...current,
+                          [row.category]: formatBudgetAmountInput(e.target.value),
+                        }))}
+                        className={cn(row.isOverbooked && "border-destructive focus-visible:ring-destructive/30")}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {isOverlayProjectDraft && projectWizardStep === 4 ? (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-border/70 p-3">
+                <p className="text-sm font-semibold">{t("projects.microStructure", { defaultValue: "Micro structure" })}</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_140px_auto]">
+                  <Select value={projectMicroCategory || undefined} onValueChange={(value) => {
+                    setProjectMicroCategory(value);
+                    setProjectMicroSubcategoryId("");
+                    setProjectMicroLimit("");
+                  }}>
+                    <SelectTrigger className={selectTriggerClass}>
+                      <SelectValue placeholder={t("projects.category", { defaultValue: "Category" })} />
+                    </SelectTrigger>
+                    <SelectContent className={selectContentClass}>
+                      {projectSelectedCategories.map((category) => (
+                        <SelectItem key={category} value={category}>{tCategory(category)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={projectMicroSubcategoryId || undefined}
+                    onValueChange={setProjectMicroSubcategoryId}
+                    disabled={!projectMicroBudget || projectEligibleMicroSubcategories.length === 0}
+                  >
+                    <SelectTrigger className={selectTriggerClass}>
+                      <SelectValue placeholder={t("projects.subcategory", { defaultValue: "Subcategory" })} />
+                    </SelectTrigger>
+                    <SelectContent className={selectContentClass}>
+                      {projectEligibleMicroSubcategories.map((subcategory) => (
+                        <SelectItem key={subcategory.id} value={String(subcategory.id)}>
+                          {subcategory.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={projectMicroLimit}
+                    inputMode="numeric"
+                    maxLength={maxBudgetAmountInputLength}
+                    onChange={(e) => setProjectMicroLimit(formatBudgetAmountInput(e.target.value))}
+                    className={cn(projectMicroWouldOverbook && "border-destructive focus-visible:ring-destructive/30")}
+                  />
+                  <Button type="button" onClick={handleAddProjectMicroReservation} disabled={!projectMicroSubcategoryId || projectMicroWouldOverbook}>
+                    <Plus className="mr-2 h-4 w-4" /> {t("common.add", { defaultValue: "Add" })}
+                  </Button>
+                </div>
+                {projectMicroCategory && projectMicroBudget && projectEligibleMicroSubcategories.length === 0 ? (
+                  <div className="mt-3 flex flex-col gap-2 rounded-lg border border-dashed border-border/70 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                    <span>{t("projects.subcategoryMonthlyLaneRequired", { defaultValue: "This month has no available subcategory lane for that category." })}</span>
+                    <Button type="button" variant="outline" onClick={() => {
+                      setProjectOpen(false);
+                      openSubcategories(projectMicroBudget);
+                    }}>
+                      <ExternalLink className="mr-2 h-4 w-4" /> {t("budgets.manageSubcategories", { defaultValue: "Manage Subcategories" })}
+                    </Button>
+                  </div>
+                ) : null}
+                {projectMicroSelectedSubcategory ? (
+                  <p className={cn("mt-2 text-xs", projectMicroWouldOverbook ? "text-destructive" : "text-muted-foreground")}>
+                    {t("projects.availableHeadroom", {
+                      defaultValue: "{{amount}} available",
+                      amount: formatUzs(projectMicroSelectedHeadroom.headroom || 0),
+                    })}
+                  </p>
+                ) : null}
+                {projectSubcategoryReservations.length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    {projectSubcategoryReservations.map((item) => (
+                      <div key={item.user_subcategory_id} className="flex items-center justify-between rounded-lg bg-muted/20 px-3 py-2 text-sm">
+                        <span>{tCategory(item.category)} · {item.name}</span>
+                        <span className="flex items-center gap-2">
+                          <CurrencyAmount value={item.limit_amount} format="compact" tooltip="compact" />
+                          <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => removeProjectMicroReservation(item.user_subcategory_id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="rounded-lg border border-border/70 p-3">
+                <p className="text-sm font-semibold">{t("projects.reviewCurrentReservations", { defaultValue: "Current-month reservations" })}</p>
+                <div className="mt-2 space-y-2">
+                  {projectCategoryAllocationRows.map((row) => (
+                    <div key={row.category} className="flex items-center justify-between text-sm">
+                      <span>{tCategory(row.category)}</span>
+                      <CurrencyAmount value={row.amount || 0} format="compact" tooltip="compact" />
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 flex gap-2 text-xs text-muted-foreground">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  {t("projects.futureMonthsAllocatedLater", { defaultValue: "Future months will be allocated when those months are set up." })}
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {!isOverlayProjectDraft ? (
+            <div className="rounded-lg border border-border/60 bg-muted/15 p-3 text-sm text-muted-foreground">
+              {t("projects.isolatedHelp", { defaultValue: "Isolated projects keep this spending out of monthly budget pressure." })}
+            </div>
+          ) : null}
           {actionError && <p className="text-sm text-red-600">{actionError}</p>}
         </div>
       </ResponsiveBudgetFormShell>
@@ -4254,6 +4961,7 @@ export default function Budgets() {
     </div>
   );
 }
+
 
 
 

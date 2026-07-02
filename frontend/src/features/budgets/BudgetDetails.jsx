@@ -27,6 +27,45 @@ function DetailStat({ title, value, icon: Icon }) {
   );
 }
 
+function ProjectReservationMiniBar({ reservation, t }) {
+  const reservedAmount = Number(reservation.reserved_amount || 0);
+  const spent = Number(reservation.spent || 0);
+  const remaining = Number(reservation.remaining || 0);
+  const isOverLimit = Boolean(reservation.is_over_limit);
+  const spentPercent = reservedAmount > 0 ? Math.min((spent / reservedAmount) * 100, 100) : 0;
+  const statusLabel = isOverLimit
+    ? t("budgets.reservationOver", { defaultValue: "Over reservation" })
+    : t("budgets.reservationRemaining", { defaultValue: "Remaining" });
+
+  return (
+    <div className={`space-y-3 rounded-lg border p-3 ${isOverLimit ? "border-destructive/40 bg-destructive/5" : "border-border bg-muted/20"}`}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <p className="truncate font-medium">{reservation.project_title}</p>
+            <Badge variant={isOverLimit ? "destructive" : "secondary"}>{statusLabel}</Badge>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {t("budgets.spendingPermissionReservation", { defaultValue: "Spending permission reservation" })}
+          </p>
+        </div>
+        <CurrencyAmount value={Math.abs(remaining)} prefix={isOverLimit ? "+" : ""} format="display" />
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-background">
+        <div
+          className={`h-full rounded-full ${isOverLimit ? "bg-destructive" : "bg-primary"}`}
+          style={{ width: `${spentPercent}%` }}
+        />
+      </div>
+      <div className="grid gap-2 text-sm text-muted-foreground sm:grid-cols-3">
+        <div><p>{t("budgets.reserved", { defaultValue: "Reserved" })}</p><CurrencyAmount value={reservedAmount} format="display" /></div>
+        <div><p>{t("budgets.actualSpent", { defaultValue: "Actual spent" })}</p><CurrencyAmount value={spent} format="display" /></div>
+        <div><p>{statusLabel}</p><CurrencyAmount value={Math.abs(remaining)} format="display" /></div>
+      </div>
+    </div>
+  );
+}
+
 export default function BudgetDetails() {
   const { budgetYear, budgetMonth, category } = useParams();
   const navigate = useNavigate();
@@ -90,13 +129,15 @@ export default function BudgetDetails() {
       <div className="flex flex-wrap gap-2">
         {detail.is_over_limit ? <Badge variant="destructive">Over limit</Badge> : <Badge>On track</Badge>}
         {(detail.subcategories || []).length ? <Badge variant="secondary">{detail.subcategories.length} subcategories</Badge> : null}
-        {(detail.project_spending || []).length ? <Badge variant="secondary">{detail.project_spending.length} linked projects</Badge> : null}
+        {(detail.project_reservations || []).length ? <Badge variant="secondary">{detail.project_reservations.length} active reservations</Badge> : null}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <DetailStat title="Base limit" value={<CurrencyAmount value={detail.monthly_limit} format="display" />} icon={Layers3} />
-        <DetailStat title="Effective limit" value={<CurrencyAmount value={detail.effective_monthly_limit} format="display" />} icon={ChartColumn} />
-        <DetailStat title="Spent" value={<CurrencyAmount value={detail.spent} format="display" />} icon={ReceiptText} />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <DetailStat title="Parent limit" value={<CurrencyAmount value={detail.effective_monthly_limit} format="display" />} icon={Layers3} />
+        <DetailStat title="Total spent" value={<CurrencyAmount value={detail.spent} format="display" />} icon={ReceiptText} />
+        <DetailStat title="Project reserved" value={<CurrencyAmount value={detail.project_reserved_amount || 0} format="display" />} icon={ChartColumn} />
+        <DetailStat title="Free general limit" value={<CurrencyAmount value={detail.free_general_limit || 0} format="display" />} icon={FolderKanban} />
+        <DetailStat title="Free general remaining" value={<CurrencyAmount value={detail.free_general_remaining || 0} format="display" />} icon={FolderKanban} />
         <DetailStat title="Remaining" value={<CurrencyAmount value={detail.remaining} format="display" />} icon={FolderKanban} />
       </div>
 
@@ -175,17 +216,15 @@ export default function BudgetDetails() {
         </Card>
 
         <Card className="shadow-sm">
-          <CardHeader><CardTitle>Project overlay inside this budget</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Active project reservations</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            {(detail.project_spending || []).length ? detail.project_spending.map((project) => (
-              <div key={project.project_id} className="flex items-center justify-between rounded-2xl border border-border bg-muted/20 p-3">
-                <div>
-                  <p className="font-medium">{project.project_title}</p>
-                  <p className="text-sm text-muted-foreground">{project.is_isolated ? "Isolated" : "Overlay"}</p>
-                </div>
-                <CurrencyAmount value={project.spent} format="display" />
-              </div>
-            )) : <p className="text-sm text-muted-foreground">No project-linked spending in this budget.</p>}
+            {(detail.project_reservations || []).length ? detail.project_reservations.map((reservation) => (
+              <ProjectReservationMiniBar
+                key={`${reservation.project_id}-${reservation.category}-${reservation.budget_year}-${reservation.budget_month}`}
+                reservation={reservation}
+                t={t}
+              />
+            )) : <p className="text-sm text-muted-foreground">No active overlay reservations in this budget month.</p>}
           </CardContent>
         </Card>
       </div>
