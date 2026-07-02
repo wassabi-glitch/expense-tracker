@@ -2089,6 +2089,20 @@ def validate_project_budget(
     if not is_isolated_project(project):
         if project_subcategory is not None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategories_isolated_only")
+            
+        limit_exists = (
+            db.query(models.ProjectCategoryMonthlyLimit.id)
+            .filter(
+                models.ProjectCategoryMonthlyLimit.project_id == project.id,
+                models.ProjectCategoryMonthlyLimit.category == category,
+                models.ProjectCategoryMonthlyLimit.budget_year == expense_date.year,
+                models.ProjectCategoryMonthlyLimit.budget_month == expense_date.month,
+            )
+            .first()
+        )
+        if limit_exists is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="budgets.project_category_not_part_of_project")
+            
         return
 
     signed_amount = _signed_expense_amount()

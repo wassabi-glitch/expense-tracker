@@ -2123,6 +2123,18 @@ def test_overlay_project_expense_still_requires_and_hits_monthly_budget(client):
     )
     assert budget.status_code == 201, budget.text
 
+    reservation = client.post(
+        f"/projects/{project.json()['id']}/category-limits",
+        json={
+            "category": "Transport",
+            "limit_amount": 200_000,
+            "budget_year": today.year,
+            "budget_month": today.month,
+        },
+        headers=headers,
+    )
+    assert reservation.status_code == 201, reservation.text
+
     expense = client.post(
         "/expenses/",
         json={
