@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import date
 
 from fastapi import HTTPException, status
+# pyrefly: ignore [missing-import]
 from sqlalchemy import func
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
@@ -413,3 +415,34 @@ def build_project_detail(
         created_at=project.created_at,
         updated_at=project.updated_at,
     )
+
+
+def migrate_overlay_project_slices(db: Session, project: models.Project, start_date: date, target_end_date: date | None) -> None:
+    if project.is_isolated:
+        return
+
+    start_year = start_date.year
+    start_month = start_date.month
+    
+    for limit in list(project.monthly_category_limits):
+        is_before_start = (limit.budget_year < start_year) or (limit.budget_year == start_year and limit.budget_month < start_month)
+        is_after_end = False
+        if target_end_date is not None:
+            end_year = target_end_date.year
+            end_month = target_end_date.month
+            is_after_end = (limit.budget_year > end_year) or (limit.budget_year == end_year and limit.budget_month > end_month)
+            
+        if is_before_start or is_after_end:
+            db.delete(limit)
+            
+    for sub_limit in list(project.monthly_subcategory_limits):
+        is_before_start = (sub_limit.budget_year < start_year) or (sub_limit.budget_year == start_year and sub_limit.budget_month < start_month)
+        is_after_end = False
+        if target_end_date is not None:
+            end_year = target_end_date.year
+            end_month = target_end_date.month
+            is_after_end = (sub_limit.budget_year > end_year) or (sub_limit.budget_year == end_year and sub_limit.budget_month > end_month)
+            
+        if is_before_start or is_after_end:
+            db.delete(sub_limit)
+
