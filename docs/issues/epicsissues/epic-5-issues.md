@@ -245,21 +245,21 @@ Future month slices are created later when those months are actually planned.
 
 ### Acceptance criteria
 
-- [ ] The overlay creation flow collects project title, description, start date, and target end date.
+- [x] The overlay creation flow collects project title, description, start date, and target end date.
 - [x] The overlay creation flow can collect an optional target estimate as non-operational planning context.
 - [x] Overlay projects keep `total_limit` null; target estimate does not create budget permission or future-month slices.
 - [x] Overlay project cards show reserved this month, reserved so far, and target estimate instead of isolated-project "No total limit" copy.
-- [ ] The wizard lets the user choose parent categories for the overlay project scope.
-- [ ] The allocation step renders inputs only for the current active budget month, even when project dates span future months.
-- [ ] The allocation step fetches selected-month parent budget headroom and validates proposed reservations live.
-- [ ] The wizard cannot submit reservations that exceed available selected-month parent-category headroom.
-- [ ] The optional micro-structure step lets the user attach eligible global monthly subcategory lanes to the overlay project.
-- [ ] If a needed global subcategory lane is missing from the selected budget month, the wizard routes the user to create or attach it through the Budget Workspace taxonomy flow.
-- [ ] The final review explains the current-month reservations that will be created and states that future months will be allocated when those months are set up.
-- [ ] Submitting the wizard creates the overlay project and its current-month category/subcategory slices transactionally or leaves no partial project behind.
-- [ ] Successful creation refreshes projects, budgets, budget details, dashboard summaries, and analytics as applicable.
-- [ ] API failures preserve draft input and show localized actionable errors.
-- [ ] Tests prove future months are not rendered, current-month headroom validation works, optional subcategory attachment maps to global tags, and successful submit creates the expected reservation slices.
+- [x] The wizard lets the user choose parent categories for the overlay project scope.
+- [x] The allocation step renders inputs only for the current active budget month, even when project dates span future months.
+- [x] The allocation step fetches selected-month parent budget headroom and validates proposed reservations live.
+- [x] The wizard cannot submit reservations that exceed available selected-month parent-category headroom.
+- [x] The optional micro-structure step lets the user attach eligible global monthly subcategory lanes to the overlay project.
+- [x] If a needed global subcategory lane is missing from the selected budget month, the wizard routes the user to create or attach it through the Budget Workspace taxonomy flow.
+- [x] The final review explains the current-month reservations that will be created and states that future months will be allocated when those months are set up.
+- [x] Submitting the wizard creates the overlay project and its current-month category/subcategory slices transactionally or leaves no partial project behind.
+- [x] Successful creation refreshes projects, budgets, budget details, dashboard summaries, and analytics as applicable.
+- [x] API failures preserve draft input and show localized actionable errors.
+- [x] Tests prove future months are not rendered, current-month headroom validation works, optional subcategory attachment maps to global tags, and successful submit creates the expected reservation slices.
 - [x] Frontend build passes.
 
 ### Blocked by
@@ -306,7 +306,7 @@ This issue should use the existing month setup backend seam where available and 
 
 ---
 
-## Issue 8: Enforce Pristine Deletion for Overlay Projects
+## Issue 8: Enforce Ledger-Safe Deletion & Resolution for Overlay Projects
 
 **Type:** AFK
 
@@ -316,21 +316,24 @@ This issue should use the existing month setup backend seam where available and 
 
 ### What to build
 
-Protect ledger history by allowing hard deletion only for pristine overlay projects. If an overlay project has no linked financial reality, deletion should release its reservation slices. If the project has any linked expenses or ledger activity, deletion must be blocked and the user should be guided to complete or wrap up the project instead.
+Protect ledger history when deleting overlay projects. A project with no linked expenses (Pristine) can be hard-deleted immediately. If a project has linked financial events (Non-Pristine), clicking "Delete" must present a Resolution Screen with three options:
+1. **Archive:** Safely hide the project while keeping expenses and ledger records intact.
+2. **Detach Expenses:** Remove the `project_id` from all linked expenses (turning them into normal standalone expenses) and then hard-delete the project.
+3. **Cascade Void (Danger Zone):** Force the user to type the project name to confirm. This will automatically VOID all linked expenses (appending ADR-0011 compliant Reversals) and then hard-delete the project.
 
 ### Acceptance criteria
 
-- [ ] Overlay project deletion checks for linked financial events or entity-ledger rows before deleting.
-- [ ] Pristine overlay projects can be hard-deleted.
-- [ ] Hard-deleting a pristine overlay project removes its category and subcategory reservation slices.
-- [ ] Hard-deleting a pristine overlay project refreshes parent budget reserved/free limit math immediately.
-- [ ] Non-pristine overlay project deletion returns a stable forbidden error explaining that the project must be completed or wrapped up.
-- [ ] Non-pristine deletion leaves the project, reservation slices, ledger rows, expenses, subcategory references, and reports unchanged.
-- [ ] Delete actions in the UI are enabled only for pristine overlay projects.
-- [ ] Non-pristine overlay project UI shows a disabled delete action with an explanation and a route to wrap up/complete.
-- [ ] Successful delete refreshes projects, budgets, budget details, dashboard summaries, and analytics as applicable.
-- [ ] Backend tests cover pristine delete, non-pristine blocked delete, reservation release, ownership isolation, and no ledger orphaning.
-- [ ] Frontend tests cover delete action visibility, disabled reason, confirmation, success refresh, and API error handling.
+- [ ] Overlay project deletion checks for linked financial events before deleting.
+- [ ] Pristine overlay projects can be hard-deleted immediately with no extra steps.
+- [ ] Hard-deleting a pristine overlay project removes its category and subcategory reservation slices and refreshes parent budget limits.
+- [ ] Non-pristine overlay project deletion triggers a UI Resolution modal instead of a direct API delete call.
+- [ ] The Resolution modal lists the number of linked expenses and their total monetary value.
+- [ ] **Archive Option:** Updates project status to `ARCHIVED`.
+- [ ] **Detach Option:** Strips `project_id` and `project_subcategory_id` from all linked expenses, then hard-deletes the project.
+- [ ] **Cascade Void Option:** Requires type-to-confirm UX. Triggers backend logic to void all linked expenses (inserting compliant reversal ledger legs) before hard-deleting the project.
+- [ ] Successful resolution refreshes projects, budgets, expenses list, and dashboard summaries.
+- [ ] Backend tests cover pristine delete, archive state, safe detachment, and ADR-0011 compliant cascade voiding.
+- [ ] Frontend tests cover the resolution modal trigger, the danger zone confirmation state, and API payload correctness.
 
 ### Blocked by
 

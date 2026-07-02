@@ -82,6 +82,11 @@ import { useSubcategoriesQuery } from "./hooks/useSubcategoriesQuery";
 import { ConfigureSurvivalDialog } from "./components/ConfigureSurvivalDialog";
 import { BudgetTimeline } from "./components/BudgetTimeline";
 import { TaxonomyHub } from "./TaxonomyHub";
+import {
+  buildOverlayProjectPayload,
+  getOverlayCategoryAllocationRows,
+  parseBudgetAmountInput,
+} from "./overlayProjectWizard";
 
 const EMPTY_ARRAY = [];
 
@@ -138,12 +143,6 @@ function getBudgetMonthRange(budgetYear, budgetMonth) {
   return { startDate, endDate };
 }
 
-function parseBudgetAmountInput(raw) {
-  if (!raw) return null;
-  const amount = Number(String(raw).replace(/\s+/g, ""));
-  return Number.isFinite(amount) ? amount : null;
-}
-
 function ResponsiveBudgetFormShell({
   compact,
   open,
@@ -178,12 +177,19 @@ function ResponsiveBudgetFormShell({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={dialogClassName}>
+      <DialogContent
+        className={cn(
+          "max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden",
+          dialogClassName,
+        )}
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        {children}
+        <div className="min-h-0 overflow-y-auto pr-1">
+          {children}
+        </div>
         <DialogFooter>{footer}</DialogFooter>
       </DialogContent>
     </Dialog>
@@ -514,6 +520,7 @@ export default function Budgets() {
   const [projectMicroSubcategoryId, setProjectMicroSubcategoryId] = React.useState("");
   const [projectMicroLimit, setProjectMicroLimit] = React.useState("");
   const [projectSubcategoryReservations, setProjectSubcategoryReservations] = React.useState([]);
+  const [returnToOverlayWizardAfterSubcategories, setReturnToOverlayWizardAfterSubcategories] = React.useState(false);
   const [projectStructureId, setProjectStructureId] = React.useState(null);
   const [projectCategoryValue, setProjectCategoryValue] = React.useState("");
   const [projectCategoryLimitValue, setProjectCategoryLimitValue] = React.useState("");
@@ -1012,26 +1019,12 @@ export default function Budgets() {
   const activeBudgetMonthLabel = formatBudgetMonth(currentYear, currentMonth);
   const isOverlayProjectDraft = projectIsIsolated === "false";
   const projectCategoryAllocationRows = React.useMemo(
-    () => projectSelectedCategories.map((category) => {
-      const amount = parseBudgetAmountInput(projectCategoryAllocations[category]);
-      const headroom = getJitOverlayCategoryHeadroom(category);
-      return {
-        category,
-        amount,
-        input: projectCategoryAllocations[category] || "",
-        ...headroom,
-        isMissingBudget: !headroom.budget,
-        isInvalidAmount: amount === null || amount <= 0,
-        isOverbooked: amount !== null && amount > Number(headroom.headroom || 0),
-      };
+    () => getOverlayCategoryAllocationRows({
+      selectedCategories: projectSelectedCategories,
+      categoryAllocations: projectCategoryAllocations,
+      getCategoryHeadroom: getJitOverlayCategoryHeadroom,
     }),
     [getJitOverlayCategoryHeadroom, projectCategoryAllocations, projectSelectedCategories],
-  );
-  const projectCategoryReservationPayload = React.useMemo(
-    () => projectCategoryAllocationRows
-      .filter((row) => row.amount !== null && row.amount > 0)
-      .map((row) => ({ category: row.category, limit_amount: row.amount })),
-    [projectCategoryAllocationRows],
   );
   const projectOverlayStepOneValid = Boolean(projectTitle.trim() && projectStartDate) &&
     !(projectTargetEndDate && projectTargetEndDate < projectStartDate);
@@ -1041,6 +1034,12 @@ export default function Budgets() {
   const projectMicroSubcategories = React.useMemo(
     () => Array.isArray(projectMicroSubcategoriesQuery.data) ? projectMicroSubcategoriesQuery.data : [],
     [projectMicroSubcategoriesQuery.data],
+  );
+  const projectMicroNeedsMonthlyLane = Boolean(
+    projectMicroCategory &&
+    projectMicroBudget &&
+    !projectMicroSubcategoriesQuery.isLoading &&
+    projectMicroSubcategories.length === 0
   );
   const projectUsedMicroSubcategoryIds = React.useMemo(
     () => new Set(projectSubcategoryReservations.map((item) => String(item.user_subcategory_id))),
@@ -1076,6 +1075,23 @@ export default function Budgets() {
     projectWizardStep === 2 ? projectOverlayStepTwoValid :
     projectWizardStep === 3 ? projectOverlayStepThreeValid :
     true;
+  const projectCurrentMonthReservationTotal = React.useMemo(
+    () => projectCategoryAllocationRows.reduce((sum, row) => sum + Number(row.amount || 0), 0),
+    [projectCategoryAllocationRows],
+  );
+  const projectCurrentMonthMicroReservationTotal = React.useMemo(
+    () => projectSubcategoryReservations.reduce((sum, item) => sum + Number(item.limit_amount || 0), 0),
+    [projectSubcategoryReservations],
+  );
+  const overlayWizardSteps = React.useMemo(
+    () => [
+      t("projects.identityStep", { defaultValue: "Identity" }),
+      t("projects.scopeStep", { defaultValue: "Scope" }),
+      t("projects.allocateStep", { defaultValue: "Allocate" }),
+      t("projects.reviewStep", { defaultValue: "Review" }),
+    ],
+    [t],
+  );
 
   const budgetYearOptions = React.useMemo(() => {
     const minYear = 2020;
@@ -1261,6 +1277,7 @@ export default function Budgets() {
         queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary", summaryTarget.year, summaryTarget.month] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
         queryClient.invalidateQueries({ queryKey: ["analytics"] }),
       ]);
       toast.success(t("projects.created", { defaultValue: "Project created" }));
@@ -1279,6 +1296,7 @@ export default function Budgets() {
         queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary", currentYear, currentMonth] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
         queryClient.invalidateQueries({ queryKey: ["analytics"] }),
       ]);
       toast.success(t("projects.created", { defaultValue: "Project created" }));
@@ -1530,6 +1548,7 @@ export default function Budgets() {
     setProjectMicroSubcategoryId("");
     setProjectMicroLimit("");
     setProjectSubcategoryReservations([]);
+    setReturnToOverlayWizardAfterSubcategories(false);
     setProjectOpen(true);
   };
 
@@ -1569,6 +1588,24 @@ export default function Budgets() {
     setReallocationSourceId("buffer");
     setReallocationAmount(repair?.amount ? formatBudgetAmountInput(String(repair.amount)) : "");
     setSubcategoriesOpen(true);
+  };
+
+  const openProjectMicroTaxonomy = () => {
+    if (!projectMicroBudget) return;
+    setActionError("");
+    setReturnToOverlayWizardAfterSubcategories(true);
+    setProjectOpen(false);
+    openSubcategories(projectMicroBudget);
+  };
+
+  const closeSubcategories = () => {
+    setSubcategoriesOpen(false);
+    if (returnToOverlayWizardAfterSubcategories) {
+      setReturnToOverlayWizardAfterSubcategories(false);
+      setActionError("");
+      setProjectWizardStep(4);
+      setProjectOpen(true);
+    }
   };
 
   const openParentReallocate = (budget) => {
@@ -1931,21 +1968,17 @@ export default function Budgets() {
         return;
       }
       try {
-        await createOverlayProjectMutation.mutateAsync({
+        await createOverlayProjectMutation.mutateAsync(buildOverlayProjectPayload({
           title: projectTitle.trim(),
-          description: projectDescription.trim() || null,
-          target_estimate: targetEstimate,
-          start_date: projectStartDate,
-          target_end_date: projectTargetEndDate || null,
-          budget_year: currentYear,
-          budget_month: currentMonth,
-          category_reservations: projectCategoryReservationPayload,
-          subcategory_reservations: projectSubcategoryReservations.map((item) => ({
-            category: item.category,
-            user_subcategory_id: item.user_subcategory_id,
-            limit_amount: item.limit_amount,
-          })),
-        });
+          description: projectDescription,
+          targetEstimate,
+          startDate: projectStartDate,
+          targetEndDate: projectTargetEndDate,
+          budgetYear: currentYear,
+          budgetMonth: currentMonth,
+          categoryAllocationRows: projectCategoryAllocationRows,
+          subcategoryReservations: projectSubcategoryReservations,
+        }));
         setProjectOpen(false);
       } catch (e) {
         setActionError(getBudgetActionErrorMessage(e));
@@ -2646,6 +2679,14 @@ export default function Budgets() {
                       const limitPercent = totalLimit > 0 ? Math.min(100, Math.round((spent / totalLimit) * 100)) : 0;
                       const fundingPercent = releasedFunding > 0 ? Math.min(100, Math.round((spent / releasedFunding) * 100)) : 0;
 
+                      const currentMonthCategoryRows = (project.category_breakdown || []).filter(
+                        (row) =>
+                          Number(row.budget_year) === Number(summaryTarget.year) &&
+                          Number(row.budget_month) === Number(summaryTarget.month) &&
+                          Number(row.limit_amount || 0) > 0
+                      );
+                      const currentMonthCategories = currentMonthCategoryRows.map((c) => tCategory(c.category)).join(", ");
+
                       return (
                         <Card key={project.id} className="border border-border/70 bg-background/70 shadow-sm">
                           <CardHeader className="space-y-3 pb-3">
@@ -2772,55 +2813,61 @@ export default function Budgets() {
                               </div>
                             ) : !projectIsIsolated ? (
                               <div className="space-y-4">
-                                <div className="space-y-1">
-                                  <div className="flex items-baseline justify-between gap-3">
-                                    <CurrencyAmount value={selectedMonthSpent} format="display" className="text-xl font-bold tracking-tight" />
-                                    <span className="text-sm text-muted-foreground">
-                                      {selectedMonthReserved > 0
-                                        ? `${t("budgets.usedOf", { spent: formatCompactUzs(selectedMonthSpent), limit: formatCompactUzs(selectedMonthReserved) })} UZS`
-                                        : t("projects.noCurrentMonthReservation", { defaultValue: "No current-month reservation" })}
-                                    </span>
-                                  </div>
-                                  <p className="text-sm text-muted-foreground">
-                                    {selectedMonthRemaining >= 0
-                                      ? `${t("projects.remainingThisMonth", { defaultValue: "Remaining this month" })}: ${formatCompactUzs(selectedMonthRemaining)}`
-                                      : `${t("projects.overThisMonth", { defaultValue: "Over this month" })}: ${formatCompactUzs(Math.abs(selectedMonthRemaining))}`}
-                                  </p>
-                                  {selectedMonthReserved > 0 ? (
+                                {selectedMonthReserved > 0 ? (
+                                  <div className="space-y-2">
+                                    <div className="flex items-baseline justify-between gap-3">
+                                      <span className="text-sm font-medium text-foreground">
+                                        {t("projects.thisMonthAllocation", { defaultValue: "This month's allocation" })}
+                                      </span>
+                                      <span className="text-sm text-muted-foreground">
+                                        {t("budgets.usedOf", { spent: formatCompactUzs(selectedMonthSpent), limit: formatCompactUzs(selectedMonthReserved) })} UZS
+                                      </span>
+                                    </div>
+                                    <p className="text-sm font-medium">
+                                      {selectedMonthRemaining >= 0 ? (
+                                        <span className="text-emerald-600 dark:text-emerald-400">
+                                          {formatCompactUzs(selectedMonthRemaining)} {t("projects.leftThisMonth", { defaultValue: "left this month" })}
+                                        </span>
+                                      ) : (
+                                        <span className="text-red-600 dark:text-red-400">
+                                          {formatCompactUzs(Math.abs(selectedMonthRemaining))} {t("projects.overThisMonth", { defaultValue: "over this month" })}
+                                        </span>
+                                      )}
+                                    </p>
                                     <Progress
                                       value={overlayReservedPercent}
-                                      indicatorClassName="bg-yellow-500 rounded-full"
-                                      trackClassName="bg-yellow-500/15 rounded-full"
+                                      indicatorClassName={selectedMonthRemaining >= 0 ? "bg-yellow-500 rounded-full" : "bg-red-500 rounded-full"}
+                                      trackClassName={selectedMonthRemaining >= 0 ? "bg-yellow-500/15 rounded-full" : "bg-red-500/15 rounded-full"}
                                       className="h-2.5 rounded-full"
                                     />
-                                  ) : null}
-                                </div>
+                                  </div>
+                                ) : (
+                                  <div className="rounded-xl border border-dashed border-border/60 bg-muted/5 p-4 text-center">
+                                    <p className="text-sm font-medium text-foreground">
+                                      {t("projects.noMonthAllocation", { defaultValue: "No allocation this month" })}
+                                    </p>
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                      {t("projects.noAllocationDesc", { defaultValue: "This project has no spending slice for the selected month." })}
+                                    </p>
+                                  </div>
+                                )}
 
-                                <div className="grid gap-3 sm:grid-cols-3">
-                                  <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
+                                {currentMonthCategories && (
+                                  <div className="pt-2">
                                     <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                                      {t("projects.reservedThisMonth", { defaultValue: "Reserved this month" })}
+                                      {t("projects.mainPressure", { defaultValue: "Main pressure" })}
                                     </p>
-                                    <CurrencyAmount value={selectedMonthReserved} format="compact" className="mt-1 text-base font-semibold" />
-                                  </div>
-                                  <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
-                                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                                      {t("projects.reservedSoFar", { defaultValue: "Reserved so far" })}
+                                    <p className="mt-1 text-sm font-medium text-foreground">
+                                      {currentMonthCategories}
                                     </p>
-                                    <CurrencyAmount value={totalReservedScope} format="compact" className="mt-1 text-base font-semibold" />
                                   </div>
-                                  <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
-                                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                                      {t("projects.targetEstimate", { defaultValue: "Target estimate" })}
-                                    </p>
-                                    {targetEstimate > 0 ? (
-                                      <CurrencyAmount value={targetEstimate} format="compact" className="mt-1 text-base font-semibold" />
-                                    ) : (
-                                      <p className="mt-1 text-sm font-medium text-muted-foreground">
-                                        {t("projects.targetEstimateNotSet", { defaultValue: "Not set" })}
-                                      </p>
-                                    )}
-                                  </div>
+                                )}
+                                
+                                <div className="border-t border-border/50 pt-3 flex items-center justify-between text-xs text-muted-foreground">
+                                  <span>{t("projects.totalSpent", { defaultValue: "Total spent" })}: {formatCompactUzs(spent)}</span>
+                                  {targetEstimate > 0 && (
+                                    <span>{t("projects.expectedCost", { defaultValue: "Expected cost" })}: {formatCompactUzs(targetEstimate)}</span>
+                                  )}
                                 </div>
                               </div>
                             ) : (
@@ -2864,49 +2911,63 @@ export default function Budgets() {
                               </div>
                             ) : null}
 
-                            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                              {project.start_date ? (
-                                <span className="rounded-full border border-border/60 bg-background px-2.5 py-1">
-                                  {t("projects.startDate", { defaultValue: "Start date" })}: {project.start_date}
-                                </span>
-                              ) : null}
-                              {project.target_end_date ? (
-                                <span className="rounded-full border border-border/60 bg-background px-2.5 py-1">
-                                  {t("projects.targetEndDate", { defaultValue: "Target end date" })}: {project.target_end_date}
-                                </span>
-                              ) : null}
-                              {Array.isArray(project.category_limits) && project.category_limits.length > 0 ? (
-                                <span className="rounded-full border border-border/60 bg-background px-2.5 py-1">
-                                  {t("projects.categoryLimitsChip", {
-                                    defaultValue: "{{count}} category limits",
-                                    count: project.category_limits.length,
-                                  })}
-                                </span>
-                              ) : null}
-                            </div>
+                            {projectIsIsolated && (
+                              <>
+                                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                                  {project.start_date ? (
+                                    <span className="rounded-full border border-border/60 bg-background px-2.5 py-1">
+                                      {t("projects.startDate", { defaultValue: "Start date" })}: {project.start_date}
+                                    </span>
+                                  ) : null}
+                                  {project.target_end_date ? (
+                                    <span className="rounded-full border border-border/60 bg-background px-2.5 py-1">
+                                      {t("projects.targetEndDate", { defaultValue: "Target end date" })}: {project.target_end_date}
+                                    </span>
+                                  ) : null}
+                                  {Array.isArray(project.category_limits) && project.category_limits.length > 0 ? (
+                                    <span className="rounded-full border border-border/60 bg-background px-2.5 py-1">
+                                      {t("projects.categoryLimitsChip", {
+                                        defaultValue: "{{count}} category limits",
+                                        count: project.category_limits.length,
+                                      })}
+                                    </span>
+                                  ) : null}
+                                </div>
 
-                            <div className="grid gap-2 sm:grid-cols-2">
-                              <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
-                                <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                                  {t("projects.structureSignal", { defaultValue: "Structure" })}
-                                </p>
-                                <p className="mt-1 text-sm font-semibold">
-                                  {t("projects.structureCounts", {
-                                    defaultValue: "{{categories}} categories · {{subcategories}} subcategories",
-                                    categories: project.category_breakdown?.length || 0,
-                                    subcategories: (project.category_breakdown || []).reduce((sum, item) => sum + (item.subcategories?.length || 0), 0),
-                                  })}
-                                </p>
-                              </div>
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                  <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
+                                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                                      {t("projects.structureSignal", { defaultValue: "Structure" })}
+                                    </p>
+                                    <p className="mt-1 text-sm font-semibold">
+                                      {t("projects.structureCounts", {
+                                        defaultValue: "{{categories}} categories · {{subcategories}} subcategories",
+                                        categories: project.category_breakdown?.length || 0,
+                                        subcategories: (project.category_breakdown || []).reduce((sum, item) => sum + (item.subcategories?.length || 0), 0),
+                                      })}
+                                    </p>
+                                  </div>
+                                  <Button
+                                    variant="outline"
+                                    className="h-full min-h-16 rounded-xl"
+                                    onClick={() => openProjectStructure(project)}
+                                  >
+                                    <BriefcaseBusiness className="mr-2 h-4 w-4" />
+                                    {t("projects.manageStructure", { defaultValue: "Manage structure" })}
+                                  </Button>
+                                </div>
+                              </>
+                            )}
+
+                            {!projectIsIsolated && (
                               <Button
                                 variant="outline"
-                                className="h-full min-h-16 rounded-xl"
+                                className="w-full rounded-xl"
                                 onClick={() => openProjectStructure(project)}
                               >
-                                <BriefcaseBusiness className="mr-2 h-4 w-4" />
-                                {t("projects.manageStructure", { defaultValue: "Manage structure" })}
+                                {t("projects.adjustAllocation", { defaultValue: "Adjust allocation" })}
                               </Button>
-                            </div>
+                            )}
                           </CardContent>
                         </Card>
                       );
@@ -4094,20 +4155,23 @@ export default function Budgets() {
       >
         <div className={cn("space-y-3", useBottomSheetForms && "pb-1")}>
           {isOverlayProjectDraft ? (
-            <div className="flex flex-wrap gap-2 text-xs">
-              {[1, 2, 3, 4].map((step) => (
-                <span
-                  key={step}
-                  className={cn(
-                    "inline-flex h-7 min-w-7 items-center justify-center rounded-full border px-2 font-medium",
-                    projectWizardStep === step
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border bg-muted/20 text-muted-foreground"
-                  )}
-                >
-                  {step}
-                </span>
-              ))}
+            <div className="grid gap-2 text-xs sm:grid-cols-4">
+              {overlayWizardSteps.map((label, index) => {
+                const step = index + 1;
+                return (
+                  <span
+                    key={step}
+                    className={cn(
+                      "inline-flex min-h-8 items-center justify-center rounded-lg border px-2 text-center font-medium",
+                      projectWizardStep === step
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-muted/20 text-muted-foreground"
+                    )}
+                  >
+                    {step}. {label}
+                  </span>
+                );
+              })}
             </div>
           ) : null}
 
@@ -4245,7 +4309,12 @@ export default function Budgets() {
             <div className="space-y-3">
               <div>
                 <p className="text-sm font-semibold">{t("projects.currentMonthAllocation", { defaultValue: "Current-month allocation" })}</p>
-                <p className="text-xs text-muted-foreground">{activeBudgetMonthLabel}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t("projects.onlyActiveMonthAllocation", {
+                    defaultValue: "Only {{month}} is allocated now. Future months stay untouched.",
+                    month: activeBudgetMonthLabel,
+                  })}
+                </p>
               </div>
               <div className="space-y-2">
                 {projectCategoryAllocationRows.map((row) => (
@@ -4327,13 +4396,16 @@ export default function Budgets() {
                 </div>
                 {projectMicroCategory && projectMicroBudget && projectEligibleMicroSubcategories.length === 0 ? (
                   <div className="mt-3 flex flex-col gap-2 rounded-lg border border-dashed border-border/70 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-                    <span>{t("projects.subcategoryMonthlyLaneRequired", { defaultValue: "This month has no available subcategory lane for that category." })}</span>
-                    <Button type="button" variant="outline" onClick={() => {
-                      setProjectOpen(false);
-                      openSubcategories(projectMicroBudget);
-                    }}>
-                      <ExternalLink className="mr-2 h-4 w-4" /> {t("budgets.manageSubcategories", { defaultValue: "Manage Subcategories" })}
-                    </Button>
+                    <span>
+                      {projectMicroNeedsMonthlyLane
+                        ? t("projects.subcategoryMonthlyLaneRequired", { defaultValue: "This month has no available subcategory lane for that category." })
+                        : t("projects.subcategoryMonthlyLanesAlreadyAttached", { defaultValue: "All current monthly subcategory lanes for this category are already attached." })}
+                    </span>
+                    {projectMicroNeedsMonthlyLane ? (
+                      <Button type="button" variant="outline" onClick={openProjectMicroTaxonomy}>
+                        <ExternalLink className="mr-2 h-4 w-4" /> {t("budgets.manageSubcategories", { defaultValue: "Manage Subcategories" })}
+                      </Button>
+                    ) : null}
                   </div>
                 ) : null}
                 {projectMicroSelectedSubcategory ? (
@@ -4348,7 +4420,7 @@ export default function Budgets() {
                   <div className="mt-3 space-y-2">
                     {projectSubcategoryReservations.map((item) => (
                       <div key={item.user_subcategory_id} className="flex items-center justify-between rounded-lg bg-muted/20 px-3 py-2 text-sm">
-                        <span>{tCategory(item.category)} · {item.name}</span>
+                        <span>{tCategory(item.category)} - {item.name}</span>
                         <span className="flex items-center gap-2">
                           <CurrencyAmount value={item.limit_amount} format="compact" tooltip="compact" />
                           <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => removeProjectMicroReservation(item.user_subcategory_id)}>
@@ -4363,11 +4435,29 @@ export default function Budgets() {
 
               <div className="rounded-lg border border-border/70 p-3">
                 <p className="text-sm font-semibold">{t("projects.reviewCurrentReservations", { defaultValue: "Current-month reservations" })}</p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <BudgetDialogStat
+                    label={t("projects.reservedThisMonth", { defaultValue: "Reserved this month" })}
+                    value={<CurrencyAmount value={projectCurrentMonthReservationTotal} format="compact" tooltip="compact" />}
+                    icon={Shield}
+                  />
+                  <BudgetDialogStat
+                    label={t("projects.subcategoryReservations", { defaultValue: "Subcategory reservations" })}
+                    value={<CurrencyAmount value={projectCurrentMonthMicroReservationTotal} format="compact" tooltip="compact" />}
+                    icon={ListTree}
+                  />
+                </div>
                 <div className="mt-2 space-y-2">
                   {projectCategoryAllocationRows.map((row) => (
                     <div key={row.category} className="flex items-center justify-between text-sm">
                       <span>{tCategory(row.category)}</span>
                       <CurrencyAmount value={row.amount || 0} format="compact" tooltip="compact" />
+                    </div>
+                  ))}
+                  {projectSubcategoryReservations.map((item) => (
+                    <div key={`review-${item.user_subcategory_id}`} className="flex items-center justify-between text-sm text-muted-foreground">
+                      <span>{tCategory(item.category)} - {item.name}</span>
+                      <CurrencyAmount value={item.limit_amount || 0} format="compact" tooltip="compact" />
                     </div>
                   ))}
                 </div>
@@ -4391,7 +4481,13 @@ export default function Budgets() {
       <ResponsiveBudgetFormShell
         compact={useBottomSheetForms}
         open={subcategoriesOpen}
-        onOpenChange={setSubcategoriesOpen}
+        onOpenChange={(open) => {
+          if (open) {
+            setSubcategoriesOpen(true);
+          } else {
+            closeSubcategories();
+          }
+        }}
         title={t("budgets.manageSubcategories", { defaultValue: "Manage Subcategories" })}
         description={
           subcategoryTargetBudget
@@ -4399,7 +4495,7 @@ export default function Budgets() {
             : t("budgets.manageSubcategoriesDesc", { defaultValue: "Create and manage child partitions inside this parent budget." })
         }
         footer={
-          <Button variant="outline" onClick={() => setSubcategoriesOpen(false)}>
+          <Button variant="outline" onClick={closeSubcategories}>
             {t("common.close", { defaultValue: "Close" })}
           </Button>
         }
