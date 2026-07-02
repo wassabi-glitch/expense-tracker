@@ -17,6 +17,7 @@ from .models import (
     GoalStatus,
     LifeStatus,
     ProjectStatus,
+    ProjectType,
     RecurringFrequency,
     RecurringStatus,
     RecurringOccurrenceStatus,
@@ -2826,13 +2827,30 @@ class ProjectBudgetCategoryDetailOut(ProjectBudgetCategoryOut):
     subcategories: List["ProjectSubcategoryOut"] = []
 
 
+class ProjectOverlayFinancialOut(BaseModel):
+    target_estimate: Optional[int] = None
+    selected_month_reserved_amount: int = 0
+    total_reserved_scope: int = 0
+
+
+class ProjectIsolatedFinancialOut(BaseModel):
+    funding_limit: Optional[int] = None
+    released_funding: Optional[int] = None
+    remaining_funding: Optional[int] = None
+    funding_shortfall: int = 0
+
+
 class ProjectBudgetOut(BaseModel):
     id: int
     owner_id: int
     title: str
     description: Optional[str] = None
+    project_type: ProjectType
     is_isolated: bool
     total_limit: Optional[int] = None
+    target_estimate: Optional[int] = None
+    overlay: Optional[ProjectOverlayFinancialOut] = None
+    isolated: Optional[ProjectIsolatedFinancialOut] = None
     status: ProjectStatus
     origin_goal_id: Optional[int] = None
     start_date: date
@@ -2865,6 +2883,8 @@ class ProjectBase(BaseModel):
     target_end_date: Optional[date] = None
     origin_goal_id: Optional[int] = None
 
+    model_config = ConfigDict(extra="forbid")
+
     @field_validator("title")
     @classmethod
     def validate_project_title(cls, v: str):
@@ -2888,11 +2908,76 @@ class ProjectCreate(ProjectBase):
     pass
 
 
+class ProjectOverlayCategoryReservationCreate(BaseModel):
+    category: ExpenseCategory
+    limit_amount: int = Field(gt=0)
+
+
+class ProjectOverlaySubcategoryReservationCreate(BaseModel):
+    category: ExpenseCategory
+    user_subcategory_id: int
+    limit_amount: int = Field(gt=0)
+
+
+class ProjectOverlayCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=100)
+    description: Optional[str] = Field(default=None, max_length=500)
+    target_estimate: Optional[int] = Field(default=None, gt=0)
+    start_date: date
+    target_end_date: Optional[date] = None
+    budget_year: int
+    budget_month: int
+    category_reservations: List[ProjectOverlayCategoryReservationCreate] = Field(
+        default_factory=list,
+        min_length=1,
+        max_length=20,
+    )
+    subcategory_reservations: List[ProjectOverlaySubcategoryReservationCreate] = Field(
+        default_factory=list,
+        max_length=100,
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("title")
+    @classmethod
+    def validate_overlay_project_title(cls, v: str):
+        return v.strip()
+
+    @field_validator("description")
+    @classmethod
+    def validate_overlay_project_description(cls, v: Optional[str]):
+        if v is None:
+            return v
+        return v.strip()
+
+    @field_validator("budget_year")
+    @classmethod
+    def validate_overlay_project_budget_year(cls, value: int):
+        if value < MIN_BUDGET_YEAR:
+            raise ValueError("budgets.year_too_early")
+        return value
+
+    @field_validator("budget_month")
+    @classmethod
+    def validate_overlay_project_budget_month(cls, value: int):
+        if value < 1 or value > 12:
+            raise ValueError("budgets.month_invalid")
+        return value
+
+    @model_validator(mode="after")
+    def validate_overlay_project_dates(self):
+        if self.target_end_date is not None and self.target_end_date < self.start_date:
+            raise ValueError("projects.target_end_before_start")
+        return self
+
+
 class ProjectUpdate(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=100)
     description: Optional[str] = Field(default=None, max_length=500)
     is_isolated: Optional[bool] = None
     total_limit: Optional[int] = Field(default=None, gt=0)
+    target_estimate: Optional[int] = Field(default=None, gt=0)
     start_date: Optional[date] = None
     target_end_date: Optional[date] = None
 

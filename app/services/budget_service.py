@@ -18,6 +18,7 @@ from .obligation_source_service import (
     exclude_legacy_payment_plan_debt_duplicate_filter,
     regular_debt_obligation_filters,
 )
+from .project_service import get_project_funding_limit, get_project_target_estimate, get_project_type, is_isolated_project
 from .wallet_value_service import owned_balance
 
 BUDGET_MATERIALIZE_MIN_YEAR = 2020
@@ -86,7 +87,7 @@ def previous_month(year: int, month: int) -> tuple[int, int]:
 def _isolated_project_spend_filter():
     return (
         (models.EntityLedger.project_id.is_(None))
-        | (models.Project.is_isolated == False)  # noqa: E712
+        | (models.Project.project_type == models.ProjectType.OVERLAY)
         | (models.Project.id.is_(None))
     )
 
@@ -529,7 +530,7 @@ def get_overlay_project_reservation_rows(
         .join(models.Project, models.Project.id == models.ProjectCategoryMonthlyLimit.project_id)
         .filter(
             models.Project.owner_id == owner_id,
-            models.Project.is_isolated == False,  # noqa: E712
+            models.Project.project_type == models.ProjectType.OVERLAY,
             models.Project.status == models.ProjectStatus.ACTIVE,
             models.ProjectCategoryMonthlyLimit.budget_year == budget_year,
             models.ProjectCategoryMonthlyLimit.budget_month == budget_month,
@@ -561,7 +562,7 @@ def get_overlay_project_reservation_totals(
         .join(models.Project, models.Project.id == models.ProjectCategoryMonthlyLimit.project_id)
         .filter(
             models.Project.owner_id == owner_id,
-            models.Project.is_isolated == False,  # noqa: E712
+            models.Project.project_type == models.ProjectType.OVERLAY,
             models.Project.status == models.ProjectStatus.ACTIVE,
             models.ProjectCategoryMonthlyLimit.budget_year == budget_year,
             models.ProjectCategoryMonthlyLimit.budget_month == budget_month,
@@ -596,7 +597,7 @@ def get_overlay_project_spent_totals(
             ),
             models.FinancialEvent.date >= start,
             models.FinancialEvent.date < end,
-            models.Project.is_isolated == False,  # noqa: E712
+            models.Project.project_type == models.ProjectType.OVERLAY,
             models.EntityLedger.category.isnot(None),
         )
         .group_by(models.EntityLedger.category)
@@ -630,7 +631,7 @@ def get_overlay_project_spent_by_project_category(
             ),
             models.FinancialEvent.date >= start,
             models.FinancialEvent.date < end,
-            models.Project.is_isolated == False,  # noqa: E712
+            models.Project.project_type == models.ProjectType.OVERLAY,
             models.EntityLedger.project_id.isnot(None),
             models.EntityLedger.category.isnot(None),
         )
@@ -669,7 +670,7 @@ def get_overlay_project_spent_by_project_subcategory(
             ),
             models.FinancialEvent.date >= start,
             models.FinancialEvent.date < end,
-            models.Project.is_isolated == False,  # noqa: E712
+            models.Project.project_type == models.ProjectType.OVERLAY,
             models.EntityLedger.project_id.isnot(None),
             models.EntityLedger.subcategory_id.isnot(None),
         )
@@ -1491,7 +1492,7 @@ def get_budget_detail(
         db.query(
             models.Project.id,
             models.Project.title,
-            models.Project.is_isolated,
+            models.Project.project_type,
             func.coalesce(func.sum(signed_amount), 0).label("spent"),
         )
         .select_from(models.EntityLedger)
@@ -1508,7 +1509,7 @@ def get_budget_detail(
             _isolated_project_spend_filter(),
             _normal_monthly_budget_impact_filter(),
         )
-        .group_by(models.Project.id, models.Project.title, models.Project.is_isolated)
+        .group_by(models.Project.id, models.Project.title, models.Project.project_type)
         .order_by(func.coalesce(func.sum(signed_amount), 0).desc(), models.Project.title.asc())
         .all()
     )
@@ -1516,7 +1517,7 @@ def get_budget_detail(
         schemas.BudgetProjectSpendOut(
             project_id=int(row.id),
             project_title=str(row.title),
-            is_isolated=bool(row.is_isolated),
+            is_isolated=row.project_type == models.ProjectType.ISOLATED,
             spent=int(row.spent or 0),
         )
         for row in project_rows
@@ -1599,7 +1600,7 @@ def validate_subcategory_limit(
 ) -> None:
     if not subcategory.is_active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="budgets.subcategory_inactive")
-    if project is not None and project.is_isolated:
+    if project is not None and is_isolated_project(project):
         return
 
     start, end = month_bounds(expense_date.year, expense_date.month)
@@ -1648,7 +1649,7 @@ def validate_budget_limit(
 ) -> None:
     if amount <= 0:
         return
-    if project is not None and project.is_isolated:
+    if project is not None and is_isolated_project(project):
         return
 
     key = (str(budget.category), int(budget.budget_year), int(budget.budget_month))
@@ -1708,13 +1709,15 @@ def get_project_budget_summaries(
     owner_id: int,
     selected_budget_year: int | None = None,
     selected_budget_month: int | None = None,
+    default_budget_date: date | None = None,
 ) -> list[schemas.ProjectBudgetOut]:
     if (selected_budget_year is None) != (selected_budget_month is None):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.reservation_month_required")
     if selected_budget_year is None or selected_budget_month is None:
-        today = date.today()
-        selected_budget_year = today.year
-        selected_budget_month = today.month
+        if default_budget_date is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.reservation_month_required")
+        selected_budget_year = default_budget_date.year
+        selected_budget_month = default_budget_date.month
 
     projects = (
         db.query(models.Project)
@@ -1799,7 +1802,7 @@ def get_project_budget_summaries(
     )
     total_reserved_scope_by_project: dict[int, int] = {}
     for project in projects:
-        if project.is_isolated:
+        if get_project_type(project) == models.ProjectType.ISOLATED:
             continue
         total_reserved_scope_by_project[int(project.id)] = sum(
             int(limit.limit_amount or 0)
@@ -1811,7 +1814,7 @@ def get_project_budget_summaries(
         .join(models.UserSubcategory, models.UserSubcategory.id == models.ProjectSubcategoryMonthlyLimit.user_subcategory_id)
         .filter(
             models.Project.owner_id == owner_id,
-            models.Project.is_isolated == False,  # noqa: E712
+            models.Project.project_type == models.ProjectType.OVERLAY,
             models.ProjectSubcategoryMonthlyLimit.budget_year == int(selected_budget_year),
             models.ProjectSubcategoryMonthlyLimit.budget_month == int(selected_budget_month),
         )
@@ -1846,9 +1849,11 @@ def get_project_budget_summaries(
 
     outputs: list[schemas.ProjectBudgetOut] = []
     for project in projects:
+        project_type = get_project_type(project)
+        is_isolated = project_type == models.ProjectType.ISOLATED
         spent = int(spent_by_project.get(project.id, 0))
         subcategories_by_category: dict[models.ExpenseCategory, list[schemas.ProjectSubcategoryOut]] = {}
-        if project.is_isolated:
+        if is_isolated:
             for subcategory in project.subcategories:
                 spent_subcategory = int(spent_by_project_subcategory.get(int(subcategory.id), 0))
                 remaining_subcategory = (
@@ -1903,7 +1908,7 @@ def get_project_budget_summaries(
         category_breakdown = []
         category_limits = (
             list(project.category_limits)
-            if project.is_isolated
+            if is_isolated
             else [
                 item
                 for item in project.monthly_category_limits
@@ -1912,7 +1917,7 @@ def get_project_budget_summaries(
             ]
         )
         for limit in category_limits:
-            if project.is_isolated:
+            if is_isolated:
                 category_spent_amount = int(category_spent.get((project.id, limit.category), 0))
             else:
                 category_spent_amount = int(selected_overlay_category_spent.get((project.id, limit.category), 0))
@@ -1921,8 +1926,8 @@ def get_project_budget_summaries(
                 schemas.ProjectBudgetCategoryDetailOut(
                     category=limit.category,
                     limit_amount=int(limit.limit_amount),
-                    budget_year=int(limit.budget_year) if not project.is_isolated else None,
-                    budget_month=int(limit.budget_month) if not project.is_isolated else None,
+                    budget_year=int(limit.budget_year) if not is_isolated else None,
+                    budget_month=int(limit.budget_month) if not is_isolated else None,
                     spent=category_spent_amount,
                     remaining=remaining,
                     is_over_limit=remaining < 0,
@@ -1932,7 +1937,9 @@ def get_project_budget_summaries(
                     ),
                 )
             )
-        remaining = int(project.total_limit) - spent if project.total_limit is not None else None
+        funding_limit = get_project_funding_limit(project)
+        target_estimate = get_project_target_estimate(project)
+        remaining = funding_limit - spent if funding_limit is not None else None
         released_funding = (
             int(released_by_project.get(project.id, 0))
             if project.origin_goal_id is not None
@@ -1948,20 +1955,40 @@ def get_project_budget_summaries(
             if released_funding is not None
             else 0
         )
-        progress_direction = "tick_down" if project.is_isolated else "tick_up"
+        progress_direction = "tick_down" if is_isolated else "tick_up"
         selected_month_reserved_amount = (
             0
-            if project.is_isolated
+            if is_isolated
             else sum(int(item.limit_amount or 0) for item in category_limits)
         )
+        overlay = None
+        isolated = None
+        total_reserved_scope = 0 if is_isolated else int(total_reserved_scope_by_project.get(int(project.id), 0))
+        if is_isolated:
+            isolated = schemas.ProjectIsolatedFinancialOut(
+                funding_limit=funding_limit,
+                released_funding=released_funding,
+                remaining_funding=remaining_funding,
+                funding_shortfall=funding_shortfall,
+            )
+        else:
+            overlay = schemas.ProjectOverlayFinancialOut(
+                target_estimate=target_estimate,
+                selected_month_reserved_amount=selected_month_reserved_amount,
+                total_reserved_scope=total_reserved_scope,
+            )
         outputs.append(
             schemas.ProjectBudgetOut(
                 id=project.id,
                 owner_id=project.owner_id,
                 title=project.title,
                 description=project.description,
-                is_isolated=project.is_isolated,
-                total_limit=int(project.total_limit) if project.total_limit is not None else None,
+                project_type=project_type,
+                is_isolated=is_isolated,
+                total_limit=funding_limit if is_isolated else None,
+                target_estimate=target_estimate if not is_isolated else None,
+                overlay=overlay,
+                isolated=isolated,
                 status=project.status,
                 origin_goal_id=project.origin_goal_id,
                 start_date=project.start_date,
@@ -1977,9 +2004,7 @@ def get_project_budget_summaries(
                 selected_budget_year=int(selected_budget_year),
                 selected_budget_month=int(selected_budget_month),
                 selected_month_reserved_amount=selected_month_reserved_amount,
-                total_reserved_scope=(
-                    0 if project.is_isolated else int(total_reserved_scope_by_project.get(int(project.id), 0))
-                ),
+                total_reserved_scope=total_reserved_scope,
                 category_breakdown=category_breakdown,
                 created_at=project.created_at,
                 updated_at=project.updated_at,
@@ -2061,7 +2086,7 @@ def validate_project_budget(
     if project.completed_at is not None and expense_date > project.completed_at:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.expense_after_completion")
 
-    if not project.is_isolated:
+    if not is_isolated_project(project):
         if project_subcategory is not None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategories_isolated_only")
         return
@@ -2083,7 +2108,8 @@ def validate_project_budget(
     if exclude_event_id is not None:
         total_query = total_query.filter(models.FinancialEvent.id != exclude_event_id)
     spent_total = int(total_query.scalar() or 0)
-    if project.total_limit is not None and spent_total + amount > int(project.total_limit):
+    funding_limit = get_project_funding_limit(project)
+    if funding_limit is not None and spent_total + amount > funding_limit:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="budgets.project_limit_exceeded")
 
     category_limit = next((item for item in project.category_limits if item.category == category), None)
@@ -2120,7 +2146,7 @@ def validate_project_budget(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_category_mismatch")
     if not project_subcategory.is_active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_inactive")
-    if not project.is_isolated:
+    if not is_isolated_project(project):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategories_isolated_only")
     if project_subcategory.limit_amount is None:
         return

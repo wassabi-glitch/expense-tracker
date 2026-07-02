@@ -434,8 +434,15 @@ def get_project_budgets(
     budget_month: int | None = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
 ):
-    return get_project_budget_summaries(db, current_user.id, budget_year, budget_month)
+    return get_project_budget_summaries(
+        db,
+        current_user.id,
+        budget_year,
+        budget_month,
+        default_budget_date=today_in_tz(user_tz),
+    )
 
 
 @router.get("/month-summary", response_model=schemas.BudgetMonthSummaryOut)

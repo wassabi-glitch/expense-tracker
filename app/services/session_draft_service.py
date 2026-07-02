@@ -15,6 +15,7 @@ from ..services.budget_service import (
     validate_project_budget,
 )
 from ..services.goal_funding_service import validate_wallet_goal_protection_for_outflow
+from ..services.project_service import is_isolated_project
 from ..services.debt_service import create_debt_ledger_entry
 from ..services.wallet_service import WalletService
 from ..services.wallet_value_service import classify_outflow
@@ -151,7 +152,7 @@ def validate_session_item_links(
         if subcategory_id is not None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_modes_conflict")
         project_subcategory = get_owned_project_subcategory_or_404(db, owner_id, project.id, project_subcategory_id)
-        if not project.is_isolated:
+        if not is_isolated_project(project):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategories_isolated_only")
         if project_subcategory.category != category:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_category_mismatch")
@@ -389,7 +390,7 @@ def finalize_session_draft(
             db, owner_id, item.category, item.subcategory_id, item.project_id, item.project_subcategory_id
         )
         budget = None
-        if project is None or not project.is_isolated:
+        if project is None or not is_isolated_project(project):
             budget = resolve_budget_for_expense_month(db, owner_id, item.category, draft.date)
             grouped_budget_amounts[budget.id] = grouped_budget_amounts.get(budget.id, 0) + adjusted_amount
         if subcategory is not None:

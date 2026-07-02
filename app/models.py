@@ -396,6 +396,11 @@ class ProjectStatus(str, enum.Enum):
     ARCHIVED = "ARCHIVED"
 
 
+class ProjectType(str, enum.Enum):
+    OVERLAY = "OVERLAY"
+    ISOLATED = "ISOLATED"
+
+
 class ExpenseSessionDraftStatus(str, enum.Enum):
     ACTIVE = "ACTIVE"
     PAUSED = "PAUSED"
@@ -1981,14 +1986,12 @@ class Project(Base):
     title = Column(String(100), nullable=False)
     description = Column(String(500), nullable=True)
     
-    # Core project type
-    is_isolated = Column(Boolean, nullable=False, default=False)
+    # Typology marker. Financial fields live in the type-specific detail tables.
+    project_type = Column(Enum(ProjectType), nullable=False, default=ProjectType.OVERLAY)
     
     # Optional Graduation pipeline
     origin_goal_id = Column(Integer, ForeignKey("goals.id", ondelete="SET NULL"), nullable=True)
     
-    # Financials
-    total_limit = Column(BigInteger, nullable=True)
     status = Column(Enum(ProjectStatus), nullable=False, default=ProjectStatus.ACTIVE)
     start_date = Column(Date, nullable=False, default=date.today)
     target_end_date = Column(Date, nullable=True)
@@ -1998,6 +2001,18 @@ class Project(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     owner = relationship("User", back_populates="projects")
+    overlay_detail = relationship(
+        "ProjectOverlayDetail",
+        back_populates="project",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    isolated_detail = relationship(
+        "ProjectIsolatedDetail",
+        back_populates="project",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
     category_limits = relationship("ProjectCategoryLimit", back_populates="project", cascade="all, delete-orphan")
     monthly_category_limits = relationship(
         "ProjectCategoryMonthlyLimit", back_populates="project", cascade="all, delete-orphan"
@@ -2008,6 +2023,42 @@ class Project(Base):
     )
     goal_releases = relationship("GoalProjectRelease", back_populates="project", cascade="all, delete-orphan")
     session_draft_items = relationship("ExpenseSessionDraftItem", back_populates="project")
+
+
+class ProjectOverlayDetail(Base):
+    __tablename__ = "project_overlay_details"
+    __table_args__ = (
+        UniqueConstraint("project_id", name="uq_project_overlay_details_project_id"),
+        CheckConstraint("target_estimate IS NULL OR target_estimate > 0", name="ck_project_overlay_details_target_estimate_positive"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    target_estimate = Column(BigInteger, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    project = relationship("Project", back_populates="overlay_detail")
+    owner = relationship("User")
+
+
+class ProjectIsolatedDetail(Base):
+    __tablename__ = "project_isolated_details"
+    __table_args__ = (
+        UniqueConstraint("project_id", name="uq_project_isolated_details_project_id"),
+        CheckConstraint("funding_limit IS NULL OR funding_limit > 0", name="ck_project_isolated_details_funding_limit_positive"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    funding_limit = Column(BigInteger, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    project = relationship("Project", back_populates="isolated_detail")
+    owner = relationship("User")
 
 
 class ProjectCategoryLimit(Base):

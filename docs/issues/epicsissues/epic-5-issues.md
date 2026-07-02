@@ -66,7 +66,7 @@ This keeps overlay projects as a lens over the main monthly budget rather than a
 - [x] Isolated project subcategory behavior remains available for isolated-project scope and is not silently changed by overlay inheritance work.
 - [x] Frontend project structure controls let users search/select eligible global subcategories for overlay projects and explain when a tag must first be added to the monthly budget.
 - [x] Backend tests cover global-tag linkage, missing monthly lane rejection, cross-user rejection, cross-category rejection, hard-block limit validation, and ledger compatibility.
-- [ ] Frontend tests cover eligible tag selection, unavailable/missing tag copy, payload mapping, refreshed project details, and localized errors.
+- [x] Frontend tests cover eligible tag selection, unavailable/missing tag copy, payload mapping, refreshed project details, and localized errors.
 
 ### Blocked by
 
@@ -90,16 +90,16 @@ This block applies to planning reservations only. Real expense posting remains t
 
 ### Acceptance criteria
 
-- [ ] Creating an overlay category reservation sums existing active overlay reservations for the same user, category, year, and month before saving.
-- [ ] Updating an overlay category reservation excludes the current slice and validates the proposed new amount against the parent monthly limit.
-- [ ] Creating or updating a reservation fails with a stable validation error when total reservations would exceed the parent monthly limit.
-- [ ] Creating or updating a reservation fails when the selected parent budget month does not exist.
-- [ ] Reservation validation is ownership-scoped and never counts another user's projects or budgets.
-- [ ] Project subcategory reservations cannot exceed their matching global monthly subcategory lane after considering existing project reservations.
-- [ ] Moving reservation amount between project categories validates that the target parent category has enough unreserved selected-month capacity.
-- [ ] The UI shows available selected-month headroom while editing overlay project reservations.
-- [ ] The UI prevents accidental overbooking before submit and still surfaces backend validation errors when another change races the user.
-- [ ] Tests cover overlapping projects, same-category collisions, cross-category reallocation, subcategory overbooking, missing parent budget, ownership isolation, and concurrent-style stale headroom failures.
+- [x] Creating an overlay category reservation sums existing active overlay reservations for the same user, category, year, and month before saving.
+- [x] Updating an overlay category reservation excludes the current slice and validates the proposed new amount against the parent monthly limit.
+- [x] Creating or updating a reservation fails with a stable validation error when total reservations would exceed the parent monthly limit.
+- [x] Creating or updating a reservation fails when the selected parent budget month does not exist.
+- [x] Reservation validation is ownership-scoped and never counts another user's projects or budgets.
+- [x] Project subcategory reservations cannot exceed their matching global monthly subcategory lane after considering existing project reservations.
+- [x] Moving reservation amount between project categories validates that the target parent category has enough unreserved selected-month capacity.
+- [x] The UI shows available selected-month headroom while editing overlay project reservations.
+- [x] The UI prevents accidental overbooking before submit and still surfaces backend validation errors when another change races the user.
+- [x] Tests cover overlapping projects, same-category collisions, cross-category reallocation, subcategory overbooking, missing parent budget, ownership isolation, and concurrent-style stale headroom failures.
 
 ### Blocked by
 
@@ -124,18 +124,18 @@ The user should never be allowed to make a date edit that strands historical spe
 
 ### Acceptance criteria
 
-- [ ] Overlay project updates derive the old and new project month windows from user-local calendar months.
-- [ ] Date edits cannot move the project start after the earliest linked project expense.
-- [ ] Date edits cannot move the target end date before the latest linked project expense.
-- [ ] Slices outside the new month window are removed only when their actual spent amount is zero.
-- [ ] Slices outside the new month window with actual spent are preserved or the update is rejected with a stable validation error.
-- [ ] Any slice migration or pruning runs transactionally with the project date update.
-- [ ] Slice amounts are never reduced below actual spent for the same project, category/subcategory, and month.
-- [ ] Project detail and budget month responses remain consistent immediately after a successful date update.
-- [ ] The UI previews which selected-month reservations will remain, move, or be blocked before submitting date changes.
-- [ ] API failures leave the project dates and reservation slices unchanged in local UI state.
-- [ ] Backend tests cover narrowing, widening, moving, actual-spent guards, local month boundaries, and transaction rollback.
-- [ ] Frontend tests cover preview copy, blocked edits, successful refresh, and localized validation messages.
+- [x] Overlay project updates derive the old and new project month windows from user-local calendar months.
+- [x] Date edits cannot move the project start after the earliest linked project expense.
+- [x] Date edits cannot move the target end date before the latest linked project expense.
+- [x] Slices outside the new month window are removed only when their actual spent amount is zero.
+- [x] Slices outside the new month window with actual spent are preserved or the update is rejected with a stable validation error.
+- [x] Any slice migration or pruning runs transactionally with the project date update.
+- [x] Slice amounts are never reduced below actual spent for the same project, category/subcategory, and month.
+- [x] Project detail and budget month responses remain consistent immediately after a successful date update.
+- [x] The UI previews which selected-month reservations will remain, move, or be blocked before submitting date changes.
+- [x] API failures leave the project dates and reservation slices unchanged in local UI state.
+- [x] Backend tests cover narrowing, widening, moving, actual-spent guards, local month boundaries, and transaction rollback.
+- [x] Frontend tests cover preview copy, blocked edits, successful refresh, and localized validation messages.
 
 ### Blocked by
 
@@ -159,23 +159,73 @@ The parent progress bar must continue to represent total real spending against t
 
 ### Acceptance criteria
 
-- [ ] Budget cards show parent limit, total spent, total project reserved, and free general limit for the selected month.
-- [ ] Budget card progress remains based on total spent versus parent monthly limit.
-- [ ] Budget cards do not render stacked project progress bars.
-- [ ] A parent category can remain visually healthy when project spending is over its local reservation but total parent spending is still within the parent monthly limit.
-- [ ] Budget Details includes an Active Project Reservations section for the selected category/month.
-- [ ] Budget Details lists each overlapping project reservation with project title, reserved amount, actual spent, remaining or over amount, and status.
-- [ ] Multiple overlapping projects render as individual mini-bars without changing parent card progress math.
-- [ ] Empty, loading, error, desktop, and mobile states are supported.
-- [ ] User-facing copy uses spending permission and reservation language, not envelope cash language.
-- [ ] Budget, project, and analytics queries are invalidated after reservation changes so the UI does not show stale free limit.
+- [x] Budget cards show parent limit, total spent, total project reserved, and free general limit for the selected month.
+- [x] Budget card progress remains based on total spent versus parent monthly limit.
+- [x] Budget cards do not render stacked project progress bars.
+- [x] A parent category can remain visually healthy when project spending is over its local reservation but total parent spending is still within the parent monthly limit.
+- [x] Budget Details includes an Active Project Reservations section for the selected category/month.
+- [x] Budget Details lists each overlapping project reservation with project title, reserved amount, actual spent, remaining or over amount, and status.
+- [x] Multiple overlapping projects render as individual mini-bars without changing parent card progress math.
+- [x] Empty, loading, error, desktop, and mobile states are supported.
+- [x] User-facing copy uses spending permission and reservation language, not envelope cash language.
+- [x] Budget, project, and analytics queries are invalidated after reservation changes so the UI does not show stale free limit.
 - [ ] Frontend tests cover card macro math, detail mini-bars, local project overspend with healthy parent category, empty states, mobile layout, and stale-query refresh.
-- [ ] Frontend build passes.
+- [x] Frontend build passes.
 
 ### Blocked by
 
 - Issue 1: Make Overlay Project Category Limits Month-Scoped
 - Issue 3: Hard-Block Overlay Reservation Overbooking
+
+---
+
+## Issue 5.5: Decouple Overlay and Isolated Project Typology
+
+**Type:** AFK
+
+### Parent
+
+[Epic 5 - Overlay Project Architecture](../../epics/epic-5-overlay-projects.md), [G34 - Decouple Overlay and Isolated Project Typology](../../prd/g34-project-typology-decoupling.md), [G33 - Overlay Project Target Estimate vs Operational Reserved Scope](../../prd/g33-overlay-target-vs-operational-limits.md)
+
+### What to build
+
+Split overlay and isolated project financial semantics before completing the just-in-time overlay wizard. Sarflog should keep a shared project identity for ownership, lifecycle, dates, expenses, and ledger references, but project-type-specific money behavior must live behind explicit overlay and isolated contracts.
+
+Overlay projects are limit-based budget lenses: they reserve monthly spending permission from parent budget categories and never own money. Isolated projects are dedicated project-funding containers: they can use stash/funding language and spend down project-specific funding. The completed slice should remove the need for overlay code to reason through isolated `total_limit` behavior, while preserving historical project ids and ledger/report compatibility.
+
+### Checkpoint
+
+Before implementing new typology structures, audit the already-completed Issue 1-5 work for old shared-project assumptions. The agent must preserve the completed behavior from those issues, but refactor their overlay logic into the new decoupled architecture where needed. Issue 5.5 is not complete if Issues 1-5 still depend on generic project financial fields, `is_isolated` branching, or shared response contracts in places that should now be overlay-specific or isolated-specific.
+
+### Acceptance criteria
+
+- [ ] Completed Issue 1-5 behavior is audited and refactored into the decoupled architecture instead of being left behind under old shared-project assumptions.
+- [ ] Shared project identity remains stable for ownership, title, description, status, dates, expenses, entity-ledger rows, goal releases, and reports.
+- [ ] Project type is explicit and validated; code does not rely on nullable financial fields to infer overlay versus isolated behavior.
+- [ ] Isolated-project financial data is stored behind an isolated-specific structure or contract, including project-wide total/funding concepts where they remain valid.
+- [ ] Overlay-project metadata is stored behind an overlay-specific structure or contract, including target estimate as planning context only.
+- [ ] Overlay operational permission continues to come only from month-scoped category and subcategory reservation rows.
+- [ ] Overlay projects cannot create, update, or report an isolated operational `total_limit`.
+- [ ] Isolated projects are not forced through overlay monthly reservation rows or overlay headroom validation.
+- [ ] Existing projects are backfilled deterministically into exactly one typology without changing project ids.
+- [ ] Existing ledger rows, expenses, goal releases, project reservations, and reports remain readable after migration.
+- [ ] Any compatibility layer for old shared fields is read-only, temporary, and tested; new Issue 6 work uses overlay-specific contracts.
+- [ ] Overlay and isolated project services are separated enough that each service uses its own financial language and validation rules.
+- [ ] Project create/update API contracts are typology-specific and reject fields that belong to the other project type.
+- [ ] Frontend project cards and edit/create flows show only typology-appropriate controls and copy.
+- [ ] Overlay UI uses limit, reservation, selected-month headroom, reserved so far, and target estimate language.
+- [ ] Isolated UI uses funding, stash, released funding, remaining funding, and spend-down language.
+- [ ] User-facing project date defaults and validations use the user's effective timezone.
+- [ ] Backend tests cover migration backfill, ownership isolation, invalid cross-typology payloads, overlay reservation summaries, isolated funding summaries, and ledger/report compatibility.
+- [ ] Frontend tests cover typology-specific project cards, create/edit controls, and rejection of stale generic `total_limit` assumptions in overlay paths.
+- [ ] Docker verification passes for migration, focused backend tests, and frontend build.
+
+### Blocked by
+
+- Issue 1: Make Overlay Project Category Limits Month-Scoped
+- Issue 2: Enforce Overlay Subcategory Inheritance from the Global Taxonomy
+- Issue 3: Hard-Block Overlay Reservation Overbooking
+- Issue 5: Render Overlay Reservations in Budget Cards and Budget Details
 
 ---
 
@@ -185,17 +235,20 @@ The parent progress bar must continue to represent total real spending against t
 
 ### Parent
 
-[Epic 5 - Overlay Project Architecture](../../epics/epic-5-overlay-projects.md), [G27 - Overlay UI Matrix & Creation Wizard](../../prd/g27-overlay-ui-matrix-wizard.md)
+[Epic 5 - Overlay Project Architecture](../../epics/epic-5-overlay-projects.md), [G27 - Overlay UI Matrix & Creation Wizard](../../prd/g27-overlay-ui-matrix-wizard.md), [G33 - Overlay Project Target Estimate vs Operational Reserved Scope](../../prd/g33-overlay-target-vs-operational-limits.md), [G34 - Decouple Overlay and Isolated Project Typology](../../prd/g34-project-typology-decoupling.md)
 
 ### What to build
 
-Replace the overlay project creation flow with a just-in-time wizard that only asks the user to allocate the current active budget month. The user can choose project identity and dates, select parent categories, reserve current-month headroom, and optionally attach global subcategory lanes without being asked to invent future-month money.
+Replace the overlay project creation flow with a just-in-time wizard that only asks the user to allocate the current active budget month. The user can choose project identity and dates, optionally enter a target estimate as planning metadata, select parent categories, reserve current-month headroom, and optionally attach global subcategory lanes without being asked to invent future-month money.
 
 Future month slices are created later when those months are actually planned.
 
 ### Acceptance criteria
 
 - [ ] The overlay creation flow collects project title, description, start date, and target end date.
+- [x] The overlay creation flow can collect an optional target estimate as non-operational planning context.
+- [x] Overlay projects keep `total_limit` null; target estimate does not create budget permission or future-month slices.
+- [x] Overlay project cards show reserved this month, reserved so far, and target estimate instead of isolated-project "No total limit" copy.
 - [ ] The wizard lets the user choose parent categories for the overlay project scope.
 - [ ] The allocation step renders inputs only for the current active budget month, even when project dates span future months.
 - [ ] The allocation step fetches selected-month parent budget headroom and validates proposed reservations live.
@@ -207,13 +260,14 @@ Future month slices are created later when those months are actually planned.
 - [ ] Successful creation refreshes projects, budgets, budget details, dashboard summaries, and analytics as applicable.
 - [ ] API failures preserve draft input and show localized actionable errors.
 - [ ] Tests prove future months are not rendered, current-month headroom validation works, optional subcategory attachment maps to global tags, and successful submit creates the expected reservation slices.
-- [ ] Frontend build passes.
+- [x] Frontend build passes.
 
 ### Blocked by
 
 - Issue 2: Enforce Overlay Subcategory Inheritance from the Global Taxonomy
 - Issue 3: Hard-Block Overlay Reservation Overbooking
 - Issue 5: Render Overlay Reservations in Budget Cards and Budget Details
+- Issue 5.5: Decouple Overlay and Isolated Project Typology
 
 ---
 

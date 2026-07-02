@@ -11,6 +11,52 @@ from sqlalchemy.orm import Session
 from .. import models, schemas
 
 
+def get_project_type(project: models.Project) -> models.ProjectType:
+    return project.project_type or models.ProjectType.OVERLAY
+
+
+def is_isolated_project(project: models.Project) -> bool:
+    return get_project_type(project) == models.ProjectType.ISOLATED
+
+
+def is_overlay_project(project: models.Project) -> bool:
+    return get_project_type(project) == models.ProjectType.OVERLAY
+
+
+def get_project_funding_limit(project: models.Project) -> int | None:
+    if project.isolated_detail is None or project.isolated_detail.funding_limit is None:
+        return None
+    return int(project.isolated_detail.funding_limit)
+
+
+def get_project_target_estimate(project: models.Project) -> int | None:
+    if project.overlay_detail is None or project.overlay_detail.target_estimate is None:
+        return None
+    return int(project.overlay_detail.target_estimate)
+
+
+def ensure_project_typology_details(db: Session, project: models.Project) -> None:
+    project_type = get_project_type(project)
+    project.project_type = project_type
+    if project_type == models.ProjectType.OVERLAY:
+        if project.overlay_detail is None:
+            project.overlay_detail = models.ProjectOverlayDetail(
+                owner_id=project.owner_id,
+                target_estimate=None,
+            )
+        if project.isolated_detail is not None:
+            db.delete(project.isolated_detail)
+        return
+
+    if project.isolated_detail is None:
+        project.isolated_detail = models.ProjectIsolatedDetail(
+            owner_id=project.owner_id,
+            funding_limit=None,
+        )
+    if project.overlay_detail is not None:
+        db.delete(project.overlay_detail)
+
+
 def count_project_linked_events(db: Session, project_id: int) -> int:
     return int(
         db.query(func.count(func.distinct(models.EntityLedger.event_id)))
@@ -91,7 +137,7 @@ def get_owned_project_subcategory_monthly_limit_or_404(
             models.ProjectSubcategoryMonthlyLimit.id == reservation_id,
             models.ProjectSubcategoryMonthlyLimit.project_id == project_id,
             models.Project.owner_id == owner_id,
-            models.Project.is_isolated == False,  # noqa: E712
+            models.Project.project_type == models.ProjectType.OVERLAY,
         )
         .first()
     )
@@ -135,7 +181,7 @@ def validate_overlay_project_category_reservation(
     limit_amount: int,
     exclude_reservation_id: int | None = None,
 ) -> models.Budget:
-    if project.is_isolated:
+    if is_isolated_project(project):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="projects.overlay_category_reservations_only",
@@ -153,7 +199,7 @@ def validate_overlay_project_category_reservation(
         .join(models.Project, models.Project.id == models.ProjectCategoryMonthlyLimit.project_id)
         .filter(
             models.Project.owner_id == owner_id,
-            models.Project.is_isolated == False,  # noqa: E712
+            models.Project.project_type == models.ProjectType.OVERLAY,
             models.Project.status == models.ProjectStatus.ACTIVE,
             models.ProjectCategoryMonthlyLimit.category == category,
             models.ProjectCategoryMonthlyLimit.budget_year == budget_year,
@@ -183,7 +229,7 @@ def validate_overlay_project_subcategory_reservation(
     limit_amount: int,
     exclude_reservation_id: int | None = None,
 ) -> models.UserSubcategory:
-    if project.is_isolated:
+    if is_isolated_project(project):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="projects.overlay_subcategories_only",
@@ -249,7 +295,7 @@ def validate_overlay_project_subcategory_reservation(
         .join(models.Project, models.Project.id == models.ProjectSubcategoryMonthlyLimit.project_id)
         .filter(
             models.Project.owner_id == owner_id,
-            models.Project.is_isolated == False,  # noqa: E712
+            models.Project.project_type == models.ProjectType.OVERLAY,
             models.Project.status == models.ProjectStatus.ACTIVE,
             models.ProjectSubcategoryMonthlyLimit.user_subcategory_id == subcategory.id,
             models.ProjectSubcategoryMonthlyLimit.budget_year == budget_year,
@@ -286,7 +332,7 @@ def validate_project_subcategory_rules(
     project: models.Project,
     category: models.ExpenseCategory,
 ) -> None:
-    if not project.is_isolated:
+    if not is_isolated_project(project):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="projects.subcategories_isolated_only",
@@ -339,15 +385,15 @@ def validate_project_update_rules(
     db: Session,
     project: models.Project,
     *,
-    next_is_isolated: bool,
-    next_total_limit: int | None,
+    next_project_type: models.ProjectType,
+    next_funding_limit: int | None,
     next_start_date: date,
     next_target_end_date: date | None,
 ) -> None:
     linked_count = count_project_linked_events(db, project.id)
-    if linked_count > 0 and next_is_isolated != bool(project.is_isolated):
+    if linked_count > 0 and next_project_type != get_project_type(project):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.isolation_locked")
-    if not next_is_isolated and project.is_isolated and len(project.subcategories) > 0:
+    if next_project_type == models.ProjectType.OVERLAY and is_isolated_project(project) and len(project.subcategories) > 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategories_isolated_only")
 
     earliest_linked_date = earliest_project_event_date(db, project.id)
@@ -365,8 +411,8 @@ def validate_project_update_rules(
     ):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.end_before_linked_expense")
 
-    if next_is_isolated:
-        validate_project_limit_sum(next_total_limit, list(project.category_limits))
+    if next_project_type == models.ProjectType.ISOLATED:
+        validate_project_limit_sum(next_funding_limit, list(project.category_limits))
 
 
 def validate_project_completion_date(project: models.Project, completion_date: date) -> None:
@@ -384,17 +430,40 @@ def build_project_detail(
     selected_month_reserved_amount: int = 0,
     total_reserved_scope: int = 0,
 ) -> schemas.ProjectBudgetOut:
-    remaining = int(project.total_limit) - spent if project.total_limit is not None else None
+    project_type = get_project_type(project)
+    is_isolated = project_type == models.ProjectType.ISOLATED
+    funding_limit = get_project_funding_limit(project)
+    target_estimate = get_project_target_estimate(project)
+    remaining = funding_limit - spent if funding_limit is not None else None
     remaining_funding = int(released_funding) - spent if released_funding is not None else None
     funding_shortfall = max(int(spent) - int(released_funding), 0) if released_funding is not None else 0
-    progress_direction = "tick_down" if project.is_isolated else "tick_up"
+    progress_direction = "tick_down" if is_isolated else "tick_up"
+    overlay = None
+    isolated = None
+    if is_isolated:
+        isolated = schemas.ProjectIsolatedFinancialOut(
+            funding_limit=funding_limit,
+            released_funding=int(released_funding) if released_funding is not None else None,
+            remaining_funding=remaining_funding,
+            funding_shortfall=funding_shortfall,
+        )
+    else:
+        overlay = schemas.ProjectOverlayFinancialOut(
+            target_estimate=target_estimate,
+            selected_month_reserved_amount=selected_month_reserved_amount,
+            total_reserved_scope=total_reserved_scope,
+        )
     return schemas.ProjectBudgetOut(
         id=project.id,
         owner_id=project.owner_id,
         title=project.title,
         description=project.description,
-        is_isolated=project.is_isolated,
-        total_limit=int(project.total_limit) if project.total_limit is not None else None,
+        project_type=project_type,
+        is_isolated=is_isolated,
+        total_limit=funding_limit if is_isolated else None,
+        target_estimate=target_estimate if not is_isolated else None,
+        overlay=overlay,
+        isolated=isolated,
         status=project.status,
         origin_goal_id=project.origin_goal_id,
         start_date=project.start_date,
@@ -418,7 +487,7 @@ def build_project_detail(
 
 
 def migrate_overlay_project_slices(db: Session, project: models.Project, start_date: date, target_end_date: date | None) -> None:
-    if project.is_isolated:
+    if is_isolated_project(project):
         return
 
     start_year = start_date.year

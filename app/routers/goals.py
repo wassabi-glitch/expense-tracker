@@ -33,6 +33,7 @@ from ..services.goal_funding_service import (
     validate_wallet_for_goal_allocation,
     validate_wallet_for_goal_release,
 )
+from ..services.project_service import get_project_funding_limit, is_isolated_project
 from ..services.wallet_fee_service import (
     get_owned_fee_wallet_or_404,
     record_linked_bank_fee_event,
@@ -504,8 +505,24 @@ def _get_goal_project_or_404(db: Session, user_id: int, goal_id: int) -> models.
     return project
 
 
-def _get_project_summary_or_404(db: Session, user_id: int, project_id: int) -> schemas.ProjectBudgetOut:
-    summary = next((item for item in get_project_budget_summaries(db, user_id) if item.id == project_id), None)
+def _get_project_summary_or_404(
+    db: Session,
+    user_id: int,
+    project_id: int,
+    default_budget_date: date,
+) -> schemas.ProjectBudgetOut:
+    summary = next(
+        (
+            item
+            for item in get_project_budget_summaries(
+                db,
+                user_id,
+                default_budget_date=default_budget_date,
+            )
+            if item.id == project_id
+        ),
+        None,
+    )
     if summary is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="projects.not_found")
     return summary
@@ -2608,6 +2625,7 @@ def graduate_goal_to_project(
     response: Response,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
 ):
     ensure_premium_user(current_user)
     rate_headers = enforce_goal_money_write_rate_limit(current_user.id)
@@ -2620,19 +2638,41 @@ def graduate_goal_to_project(
     if _get_goal_project_or_none(db, current_user.id, goal.id) is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="goals.project_already_exists")
 
+    if not payload.is_isolated and payload.total_limit is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.overlay_total_limit_not_allowed")
+
+    project_type = models.ProjectType.ISOLATED if payload.is_isolated else models.ProjectType.OVERLAY
+    project_total_limit = (
+        payload.total_limit if payload.total_limit is not None else int(goal.target_amount)
+    ) if project_type == models.ProjectType.ISOLATED else None
     project = models.Project(
         owner_id=current_user.id,
         title=(payload.project_title or goal.title).strip(),
         description=payload.description,
-        is_isolated=payload.is_isolated,
+        project_type=project_type,
         origin_goal_id=goal.id,
-        total_limit=payload.total_limit if payload.total_limit is not None else int(goal.target_amount),
         status=models.ProjectStatus.ACTIVE,
         start_date=payload.start_date,
         target_end_date=payload.target_end_date if payload.target_end_date is not None else goal.target_date,
     )
     db.add(project)
     db.flush()
+    if project_type == models.ProjectType.ISOLATED:
+        db.add(
+            models.ProjectIsolatedDetail(
+                project_id=project.id,
+                owner_id=current_user.id,
+                funding_limit=project_total_limit,
+            )
+        )
+    else:
+        db.add(
+            models.ProjectOverlayDetail(
+                project_id=project.id,
+                owner_id=current_user.id,
+                target_estimate=None,
+            )
+        )
 
     funded_amount = get_goal_funded_amount(db, current_user.id, goal.id)
     released_amount = get_goal_released_amount(db, current_user.id, goal.id)
@@ -2657,7 +2697,8 @@ def graduate_goal_to_project(
         )
         if payload.initial_release_amount > max(wallet_funded_amount - wallet_released_amount, 0):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.release_exceeds_wallet_unreleased")
-        if project.total_limit is not None and int(payload.initial_release_amount) > int(project.total_limit):
+        funding_limit = project_total_limit
+        if funding_limit is not None and int(payload.initial_release_amount) > funding_limit:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.release_exceeds_total_limit")
         db.add(
             models.GoalProjectRelease(
@@ -2670,9 +2711,10 @@ def graduate_goal_to_project(
                 note="Initial release on project graduation",
             )
         )
-    elif goal.intent == models.GoalIntent.FUND_PROJECT and project.is_isolated:
+    elif goal.intent == models.GoalIntent.FUND_PROJECT and is_isolated_project(project):
         available_to_release = max(int(funded_amount) - int(released_amount), 0)
-        if project.total_limit is not None and available_to_release > int(project.total_limit):
+        funding_limit = project_total_limit
+        if funding_limit is not None and available_to_release > funding_limit:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.release_exceeds_total_limit")
         for source in get_goal_funding_sources(db, current_user.id, goal.id):
             release_amount = int(source.unreleased_amount)
@@ -2692,7 +2734,12 @@ def graduate_goal_to_project(
             )
 
     db.commit()
-    return _get_project_summary_or_404(db, current_user.id, project.id)
+    return _get_project_summary_or_404(
+        db,
+        current_user.id,
+        project.id,
+        today_in_tz(user_tz),
+    )
 
 
 @router.post("/{goal_id}/release-to-project", response_model=schemas.GoalWithProgressOut)
@@ -2727,7 +2774,8 @@ def release_goal_to_project(
     if payload.amount > max(wallet_funded_amount - wallet_released_amount, 0):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.release_exceeds_wallet_unreleased")
 
-    if project.total_limit is not None and released_amount + payload.amount > int(project.total_limit):
+    funding_limit = get_project_funding_limit(project)
+    if funding_limit is not None and released_amount + payload.amount > funding_limit:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.release_exceeds_total_limit")
 
     effective_date = payload.released_at or today_in_tz(user_tz)

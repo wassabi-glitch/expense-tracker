@@ -33,6 +33,7 @@ export {
 export {
     getProjects,
     createProject,
+    createOverlayProject,
     updateProject,
     createProjectCategoryLimit,
     updateProjectCategoryLimit,

@@ -29,6 +29,11 @@ export async function createProject(payload) {
     return response.data;
 }
 
+export async function createOverlayProject(payload) {
+    const response = await apiClient.post("/projects/overlay", payload);
+    return response.data;
+}
+
 export async function updateProject(projectId, payload) {
     const response = await apiClient.put(`/projects/${projectId}`, payload);
     return response.data;
