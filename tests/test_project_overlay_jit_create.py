@@ -168,6 +168,7 @@ def test_project_api_exposes_typology_specific_financial_contracts(client, sessi
         "released_funding": None,
         "remaining_funding": None,
         "funding_shortfall": 0,
+        "wallet_allocations": [],
     }
     project_columns = {column["name"] for column in inspect(session.bind).get_columns("projects")}
     assert "project_type" in project_columns

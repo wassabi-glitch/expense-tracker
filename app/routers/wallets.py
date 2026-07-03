@@ -12,6 +12,7 @@ from ..services.goal_funding_service import (
     release_wallet_goal_allocations,
     validate_wallet_goal_protection_for_outflow,
 )
+from ..services.project_service import get_wallet_project_allocated_amount
 from ..services.wallet_fee_service import (
     get_owned_fee_wallet_or_404,
     record_linked_bank_fee_event,
@@ -19,6 +20,7 @@ from ..services.wallet_fee_service import (
     validate_linked_fee_goal_protection,
 )
 from ..services.wallet_service import WalletService
+from ..services.wallet_value_service import owned_balance
 from ..timezone import get_effective_user_timezone, today_in_tz
 from datetime import tzinfo
 
@@ -36,6 +38,27 @@ def _get_owned_wallet_or_404(db: Session, user_id: int, wallet_id: int) -> model
     if not wallet:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="wallets.not_found")
     return wallet
+
+
+def _build_wallet_out(db: Session, user_id: int, wallet: models.Wallet) -> schemas.WalletOut:
+    payload = schemas.WalletOut.model_validate(wallet)
+    wallet_owned_balance = owned_balance(wallet)
+    protected_for_goals = min(
+        get_wallet_goal_allocated_amount(db, user_id, int(wallet.id)),
+        wallet_owned_balance,
+    )
+    protected_for_projects = min(
+        get_wallet_project_allocated_amount(db, user_id, int(wallet.id)),
+        max(wallet_owned_balance - protected_for_goals, 0),
+    )
+    payload.owned_balance = int(wallet_owned_balance)
+    payload.protected_for_goals = int(protected_for_goals)
+    payload.protected_for_projects = int(protected_for_projects)
+    payload.free_to_allocate = max(
+        int(wallet_owned_balance) - int(protected_for_goals) - int(protected_for_projects),
+        0,
+    )
+    return payload
 
 
 def _resolve_can_fund_goals(payload_value: bool | None, wallet_type: models.WalletType, accounting_type: models.AccountingType) -> bool:
@@ -104,7 +127,7 @@ def list_wallets(
         query = query.filter(models.Wallet.is_active)
         
     wallets = query.order_by(models.Wallet.created_at.asc()).all()
-    return wallets
+    return [_build_wallet_out(db, current_user.id, wallet) for wallet in wallets]
 
 @router.post("", response_model=schemas.WalletOut, status_code=status.HTTP_201_CREATED)
 def create_wallet(

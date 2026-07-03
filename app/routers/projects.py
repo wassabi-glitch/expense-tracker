@@ -35,6 +35,7 @@ from ..services.project_service import (
     validate_project_editable,
     validate_overlay_project_category_reservation,
     validate_project_limit_sum,
+    validate_project_wallet_allocations,
     validate_overlay_project_subcategory_reservation,
     validate_project_subcategory_limit_sum,
     validate_project_subcategory_rules,
@@ -148,6 +149,19 @@ def create_project(
 
     if not payload.is_isolated and "total_limit" in payload.model_fields_set:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.overlay_total_limit_not_allowed")
+    if not payload.is_isolated and payload.wallet_allocations:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.overlay_wallet_allocations_not_allowed")
+    if payload.is_isolated and payload.wallet_allocations and "total_limit" in payload.model_fields_set:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="projects.isolated_total_limit_not_allowed_with_wallet_allocations",
+        )
+
+    wallet_allocations = (
+        validate_project_wallet_allocations(db, current_user.id, payload.wallet_allocations)
+        if payload.is_isolated and payload.wallet_allocations
+        else []
+    )
 
     project_type = models.ProjectType.ISOLATED if payload.is_isolated else models.ProjectType.OVERLAY
     project = models.Project(
@@ -167,9 +181,18 @@ def create_project(
             models.ProjectIsolatedDetail(
                 project_id=project.id,
                 owner_id=current_user.id,
-                funding_limit=payload.total_limit,
+                funding_limit=None if wallet_allocations else payload.total_limit,
             )
         )
+        for wallet, amount in wallet_allocations:
+            db.add(
+                models.ProjectWalletAllocation(
+                    project_id=project.id,
+                    owner_id=current_user.id,
+                    wallet_id=wallet.id,
+                    amount=amount,
+                )
+            )
     else:
         db.add(
             models.ProjectOverlayDetail(
@@ -406,6 +429,15 @@ def update_project(
     ) if "is_isolated" in update_data else current_project_type
     if next_project_type == models.ProjectType.OVERLAY and "total_limit" in payload.model_fields_set:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.overlay_total_limit_not_allowed")
+    if (
+        next_project_type == models.ProjectType.ISOLATED
+        and "total_limit" in payload.model_fields_set
+        and project.wallet_allocations
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="projects.isolated_wallet_funded_total_limit_not_allowed",
+        )
     if next_project_type == models.ProjectType.ISOLATED and "target_estimate" in payload.model_fields_set:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.isolated_target_estimate_not_allowed")
 

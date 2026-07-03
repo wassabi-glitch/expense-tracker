@@ -69,6 +69,7 @@ import {
   getBudgetDetail,
   getExpenses,
   getBudgetSubcategories,
+  getWallets,
   getProjectDeletePreview,
   getProjects,
   reopenProject,
@@ -532,7 +533,7 @@ export default function Budgets() {
   const [projectTitle, setProjectTitle] = React.useState("");
   const [projectDescription, setProjectDescription] = React.useState("");
   const [projectIsIsolated, setProjectIsIsolated] = React.useState("true");
-  const [projectTotalLimit, setProjectTotalLimit] = React.useState("");
+  const [projectWalletAllocations, setProjectWalletAllocations] = React.useState({});
   const [projectTargetEstimate, setProjectTargetEstimate] = React.useState("");
   const [projectStartDate, setProjectStartDate] = React.useState(
     `${currentYear}-${String(currentMonth).padStart(2, "0")}-01`
@@ -927,6 +928,11 @@ export default function Budgets() {
     queryFn: () => getBudgetSubcategories(projectMicroBudget?.id),
     enabled: Boolean(projectOpen && projectIsIsolated === "false" && projectWizardStep === 4 && projectMicroBudget?.id),
   });
+  const projectWalletsQuery = useQuery({
+    queryKey: ["wallets"],
+    queryFn: getWallets,
+    enabled: Boolean(projectOpen && projectIsIsolated === "true"),
+  });
   const overlayProjectSubcategoriesQuery = useQuery({
     queryKey: ["budgets", overlayProjectSubcategoryBudget?.id, "subcategories", "overlay-project"],
     queryFn: () => getBudgetSubcategories(overlayProjectSubcategoryBudget?.id),
@@ -1050,6 +1056,36 @@ export default function Budgets() {
   const formatBudgetAmountInput = (raw) => formatAmountInput(raw, maxBudgetAmountDigits);
   const activeBudgetMonthLabel = formatBudgetMonth(currentYear, currentMonth);
   const isOverlayProjectDraft = projectIsIsolated === "false";
+  const projectWalletRows = React.useMemo(() => {
+    const wallets = Array.isArray(projectWalletsQuery.data) ? projectWalletsQuery.data : EMPTY_ARRAY;
+    return wallets
+      .filter((wallet) => wallet.is_active !== false && Number(wallet.owned_balance ?? wallet.current_balance ?? 0) > 0)
+      .map((wallet) => {
+        const input = projectWalletAllocations[String(wallet.id)] || "";
+        const amount = parseBudgetAmountInput(input) || 0;
+        const freeToAllocate = Number(wallet.free_to_allocate ?? Math.max(Number(wallet.current_balance || 0), 0));
+        return {
+          wallet,
+          input,
+          amount,
+          freeToAllocate,
+          isInvalidAmount: Boolean(input) && amount <= 0,
+          isOverAllocated: amount > freeToAllocate,
+        };
+      });
+  }, [projectWalletAllocations, projectWalletsQuery.data]);
+  const projectWalletAllocationPayload = React.useMemo(
+    () => projectWalletRows
+      .filter((row) => row.amount > 0)
+      .map((row) => ({ wallet_id: Number(row.wallet.id), amount: row.amount })),
+    [projectWalletRows],
+  );
+  const projectDerivedStashTotal = React.useMemo(
+    () => projectWalletAllocationPayload.reduce((sum, item) => sum + Number(item.amount || 0), 0),
+    [projectWalletAllocationPayload],
+  );
+  const projectIsolatedFundingValid = projectWalletAllocationPayload.length > 0 &&
+    projectWalletRows.every((row) => !row.isInvalidAmount && !row.isOverAllocated);
   const projectCategoryAllocationRows = React.useMemo(
     () => getOverlayCategoryAllocationRows({
       selectedCategories: projectSelectedCategories,
@@ -1322,6 +1358,7 @@ export default function Budgets() {
         queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary", summaryTarget.year, summaryTarget.month] }),
         queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["wallets"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
         queryClient.invalidateQueries({ queryKey: ["analytics"] }),
       ]);
@@ -1795,7 +1832,7 @@ export default function Budgets() {
     setProjectTitle("");
     setProjectDescription("");
     setProjectIsIsolated("true");
-    setProjectTotalLimit("");
+    setProjectWalletAllocations({});
     setProjectTargetEstimate("");
     setProjectStartDate(`${currentYear}-${String(currentMonth).padStart(2, "0")}-01`);
     setProjectTargetEndDate("");
@@ -2206,18 +2243,17 @@ export default function Budgets() {
       setActionError(t("projects.startDateRequired", { defaultValue: "Project start date is required" }));
       return;
     }
-    const totalLimit = projectTotalLimit ? Number(String(projectTotalLimit).replace(/\s+/g, "")) : null;
     const targetEstimate = projectTargetEstimate ? Number(String(projectTargetEstimate).replace(/\s+/g, "")) : null;
-    if (projectTotalLimit && (!Number.isFinite(totalLimit) || totalLimit <= 0)) {
-      setActionError(t("projects.totalLimitInvalid", { defaultValue: "Project total limit must be greater than zero" }));
-      return;
-    }
     if (projectTargetEstimate && (!Number.isFinite(targetEstimate) || targetEstimate <= 0)) {
       setActionError(t("projects.targetEstimateInvalid", { defaultValue: "Target estimate must be greater than zero" }));
       return;
     }
     if (projectTargetEndDate && projectTargetEndDate < projectStartDate) {
       setActionError(t("projects.target_end_before_start", { defaultValue: "Target end date cannot be before start date" }));
+      return;
+    }
+    if (projectIsIsolated === "true" && !projectIsolatedFundingValid) {
+      setActionError(t("projects.walletFundingRequired", { defaultValue: "Choose at least one wallet allocation that fits available free money." }));
       return;
     }
     if (projectIsIsolated === "false") {
@@ -2247,8 +2283,8 @@ export default function Budgets() {
       await createProjectMutation.mutateAsync({
         title: projectTitle.trim(),
         description: projectDescription.trim() || null,
-        is_isolated: projectIsIsolated === "true",
-        total_limit: totalLimit,
+        is_isolated: true,
+        wallet_allocations: projectWalletAllocationPayload,
         start_date: projectStartDate,
         target_end_date: projectTargetEndDate || null,
       });
@@ -2426,7 +2462,8 @@ export default function Budgets() {
             isCreatingProject ||
             !projectTitle.trim() ||
             !projectStartDate ||
-            (isOverlayProjectDraft && !projectOverlayStepThreeValid)
+            (isOverlayProjectDraft && !projectOverlayStepThreeValid) ||
+            (!isOverlayProjectDraft && !projectIsolatedFundingValid)
           }
           className="relative min-w-[120px] disabled:pointer-events-auto disabled:cursor-not-allowed"
         >
@@ -4579,18 +4616,11 @@ export default function Budgets() {
                 </Select>
               </div>
               {!isOverlayProjectDraft ? (
-                <div className="space-y-1.5">
-                  <label>{t("projects.totalLimit", { defaultValue: "Total limit" })}</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="off"
-                    maxLength={maxBudgetAmountInputLength}
-                    className={inputBaseClass}
-                    value={projectTotalLimit}
-                    onChange={(e) => setProjectTotalLimit(formatBudgetAmountInput(e.target.value))}
-                  />
-                </div>
+                <BudgetDialogStat
+                  label={t("projects.derivedStash", { defaultValue: "Derived stash" })}
+                  value={<CurrencyAmount value={projectDerivedStashTotal} format="compact" tooltip="compact" />}
+                  icon={Shield}
+                />
               ) : (
                 <BudgetDialogStat
                   label={t("projects.activeBudgetMonth", { defaultValue: "Active month" })}
@@ -4634,6 +4664,76 @@ export default function Budgets() {
                 onChange={(e) => setProjectTargetEstimate(formatBudgetAmountInput(e.target.value))}
                 placeholder={t("projects.planningContextOnly", { defaultValue: "Planning context only" })}
               />
+            </div>
+          ) : null}
+
+          {!isOverlayProjectDraft ? (
+            <div className="space-y-3 rounded-lg border border-border/70 p-3">
+              <div>
+                <p className="text-sm font-semibold">{t("projects.walletQuarantine", { defaultValue: "Wallet quarantine" })}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t("projects.walletQuarantineHint", { defaultValue: "Lock real free money from wallets. The project stash is derived from these rows." })}
+                </p>
+              </div>
+              {projectWalletsQuery.isLoading ? (
+                <div className="flex min-h-24 items-center justify-center">
+                  <LoadingSpinner />
+                </div>
+              ) : projectWalletRows.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-border/70 p-3 text-sm text-muted-foreground">
+                  {t("projects.noWalletFundingAvailable", { defaultValue: "No active wallet has positive owned money available for project funding." })}
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {projectWalletRows.map((row) => (
+                    <div key={row.wallet.id} className="rounded-lg border border-border/70 p-3">
+                      <div className="grid gap-2 sm:grid-cols-[1fr_160px] sm:items-center">
+                        <div>
+                          <p className="text-sm font-medium">{row.wallet.name}</p>
+                          <p className={cn("text-xs", row.isOverAllocated ? "text-destructive" : "text-muted-foreground")}>
+                            {t("projects.walletFundingAvailability", {
+                              defaultValue: "{{free}} free of {{owned}} owned",
+                              free: formatUzs(row.freeToAllocate),
+                              owned: formatUzs(Number(row.wallet.owned_balance ?? row.wallet.current_balance ?? 0)),
+                            })}
+                          </p>
+                          {(Number(row.wallet.protected_for_goals || 0) > 0 || Number(row.wallet.protected_for_projects || 0) > 0) ? (
+                            <p className="text-xs text-muted-foreground">
+                              {t("projects.walletProtectedAmounts", {
+                                defaultValue: "{{goals}} protected for goals, {{projects}} protected for projects",
+                                goals: formatUzs(Number(row.wallet.protected_for_goals || 0)),
+                                projects: formatUzs(Number(row.wallet.protected_for_projects || 0)),
+                              })}
+                            </p>
+                          ) : null}
+                        </div>
+                        <Input
+                          value={row.input}
+                          inputMode="numeric"
+                          maxLength={maxBudgetAmountInputLength}
+                          onChange={(e) => setProjectWalletAllocations((current) => ({
+                            ...current,
+                            [String(row.wallet.id)]: formatBudgetAmountInput(e.target.value),
+                          }))}
+                          className={cn(row.isOverAllocated && "border-destructive focus-visible:ring-destructive/30")}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="grid gap-2 sm:grid-cols-2">
+                <BudgetDialogStat
+                  label={t("projects.totalProjectStash", { defaultValue: "Total project stash" })}
+                  value={<CurrencyAmount value={projectDerivedStashTotal} format="compact" tooltip="compact" />}
+                  icon={Shield}
+                />
+                <BudgetDialogStat
+                  label={t("projects.walletRows", { defaultValue: "Funding wallets" })}
+                  value={projectWalletAllocationPayload.length}
+                  icon={ListTree}
+                />
+              </div>
             </div>
           ) : null}
 

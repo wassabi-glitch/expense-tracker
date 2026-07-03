@@ -9,10 +9,17 @@ from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from .. import models, schemas
+from .goal_funding_service import get_wallet_goal_allocated_amount
 from .wallet_service import WalletService
+from .wallet_value_service import owned_balance
 
 
 OVERLAY_RESERVATION_HOLDING_STATUSES = (
+    models.ProjectStatus.ACTIVE,
+    models.ProjectStatus.STOPPED,
+)
+
+PROJECT_FUNDING_LOCK_STATUSES = (
     models.ProjectStatus.ACTIVE,
     models.ProjectStatus.STOPPED,
 )
@@ -31,9 +38,157 @@ def is_overlay_project(project: models.Project) -> bool:
 
 
 def get_project_funding_limit(project: models.Project) -> int | None:
+    wallet_allocated = get_project_wallet_allocated_amount(project)
+    if wallet_allocated > 0:
+        return wallet_allocated
     if project.isolated_detail is None or project.isolated_detail.funding_limit is None:
         return None
     return int(project.isolated_detail.funding_limit)
+
+
+def get_project_wallet_allocated_amount(project: models.Project) -> int:
+    return int(sum(int(item.amount or 0) for item in project.wallet_allocations))
+
+
+def get_wallet_project_allocated_amount(
+    db: Session,
+    owner_id: int,
+    wallet_id: int,
+    *,
+    exclude_project_id: int | None = None,
+) -> int:
+    query = (
+        db.query(func.coalesce(func.sum(models.ProjectWalletAllocation.amount), 0))
+        .join(models.Project, models.Project.id == models.ProjectWalletAllocation.project_id)
+        .filter(
+            models.ProjectWalletAllocation.owner_id == owner_id,
+            models.ProjectWalletAllocation.wallet_id == wallet_id,
+            models.Project.status.in_(PROJECT_FUNDING_LOCK_STATUSES),
+        )
+    )
+    if exclude_project_id is not None:
+        query = query.filter(models.ProjectWalletAllocation.project_id != exclude_project_id)
+    return int(query.scalar() or 0)
+
+
+def get_wallet_free_to_allocate_for_projects(
+    db: Session,
+    owner_id: int,
+    wallet: models.Wallet,
+    *,
+    exclude_project_id: int | None = None,
+) -> tuple[int, int, int, int]:
+    owned_amount = owned_balance(wallet)
+    protected_for_goals = min(
+        get_wallet_goal_allocated_amount(db, owner_id, int(wallet.id)),
+        owned_amount,
+    )
+    protected_for_projects = min(
+        get_wallet_project_allocated_amount(
+            db,
+            owner_id,
+            int(wallet.id),
+            exclude_project_id=exclude_project_id,
+        ),
+        max(owned_amount - protected_for_goals, 0),
+    )
+    free_to_allocate = max(owned_amount - protected_for_goals - protected_for_projects, 0)
+    return (
+        int(owned_amount),
+        int(protected_for_goals),
+        int(protected_for_projects),
+        int(free_to_allocate),
+    )
+
+
+def validate_project_wallet_allocations(
+    db: Session,
+    owner_id: int,
+    allocations: list[schemas.ProjectWalletAllocationCreate],
+    *,
+    exclude_project_id: int | None = None,
+) -> list[tuple[models.Wallet, int]]:
+    seen_wallet_ids: set[int] = set()
+    validated: list[tuple[models.Wallet, int]] = []
+    for item in allocations:
+        wallet_id = int(item.wallet_id)
+        amount = int(item.amount)
+        if wallet_id in seen_wallet_ids:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="projects.wallet_allocation_duplicate",
+            )
+        seen_wallet_ids.add(wallet_id)
+        wallet = (
+            db.query(models.Wallet)
+            .filter(
+                models.Wallet.id == wallet_id,
+                models.Wallet.owner_id == owner_id,
+                models.Wallet.is_active == True,  # noqa: E712
+            )
+            .first()
+        )
+        if wallet is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="wallets.not_found")
+
+        (
+            owned_amount,
+            protected_for_goals,
+            protected_for_projects,
+            free_to_allocate,
+        ) = get_wallet_free_to_allocate_for_projects(
+            db,
+            owner_id,
+            wallet,
+            exclude_project_id=exclude_project_id,
+        )
+        if amount > free_to_allocate:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "projects.wallet_allocation_exceeds_free_money",
+                    "wallet_id": wallet_id,
+                    "wallet_name": wallet.name,
+                    "currency": wallet.currency,
+                    "wallet_balance": int(wallet.current_balance or 0),
+                    "owned_balance": owned_amount,
+                    "protected_for_goals": protected_for_goals,
+                    "protected_for_projects": protected_for_projects,
+                    "free_to_allocate": free_to_allocate,
+                    "requested_amount": amount,
+                },
+            )
+        validated.append((wallet, amount))
+    return validated
+
+
+def project_wallet_allocation_out(
+    allocation: models.ProjectWalletAllocation,
+) -> schemas.ProjectWalletAllocationOut:
+    return schemas.ProjectWalletAllocationOut(
+        id=int(allocation.id),
+        project_id=int(allocation.project_id),
+        wallet_id=int(allocation.wallet_id),
+        amount=int(allocation.amount),
+        wallet=schemas.WalletOut.model_validate(allocation.wallet) if allocation.wallet else None,
+        created_at=allocation.created_at,
+        updated_at=allocation.updated_at,
+    )
+
+
+def project_wallet_allocations_out(
+    project: models.Project,
+) -> list[schemas.ProjectWalletAllocationOut]:
+    return [
+        project_wallet_allocation_out(item)
+        for item in sorted(
+            project.wallet_allocations,
+            key=lambda allocation: (
+                allocation.created_at,
+                int(allocation.id or 0),
+            ),
+        )
+    ]
 
 
 def get_project_target_estimate(project: models.Project) -> int | None:
@@ -837,9 +992,17 @@ def build_project_detail(
     is_isolated = project_type == models.ProjectType.ISOLATED
     funding_limit = get_project_funding_limit(project)
     target_estimate = get_project_target_estimate(project)
+    wallet_allocated = get_project_wallet_allocated_amount(project) if is_isolated else 0
     remaining = funding_limit - spent if funding_limit is not None else None
-    remaining_funding = int(released_funding) - spent if released_funding is not None else None
-    funding_shortfall = max(int(spent) - int(released_funding), 0) if released_funding is not None else 0
+    if wallet_allocated > 0:
+        remaining_funding = int(wallet_allocated) - spent
+        funding_shortfall = max(int(spent) - int(wallet_allocated), 0)
+    elif released_funding is not None:
+        remaining_funding = int(released_funding) - spent
+        funding_shortfall = max(int(spent) - int(released_funding), 0)
+    else:
+        remaining_funding = None
+        funding_shortfall = 0
     progress_direction = "tick_down" if is_isolated else "tick_up"
     overlay = None
     isolated = None
@@ -849,6 +1012,7 @@ def build_project_detail(
             released_funding=int(released_funding) if released_funding is not None else None,
             remaining_funding=remaining_funding,
             funding_shortfall=funding_shortfall,
+            wallet_allocations=project_wallet_allocations_out(project),
         )
     else:
         overlay = schemas.ProjectOverlayFinancialOut(

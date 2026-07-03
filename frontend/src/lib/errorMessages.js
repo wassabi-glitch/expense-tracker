@@ -362,6 +362,31 @@ export function localizeApiError(message, t) {
   if (msg === "projects.release_exceeds_total_limit") {
     return t("savings.goals.projectReleaseExceedsTotalLimit");
   }
+  if (msg === "projects.wallet_allocation_duplicate") {
+    return t("projects.walletAllocationDuplicate", {
+      defaultValue: "Each wallet can appear only once in project funding.",
+    });
+  }
+  if (msg === "projects.wallet_allocation_exceeds_free_money") {
+    return t("projects.walletAllocationExceedsFreeMoney", {
+      defaultValue: "That wallet does not have enough free money available for this project funding.",
+    });
+  }
+  if (msg === "projects.isolated_total_limit_not_allowed_with_wallet_allocations") {
+    return t("projects.isolatedTotalLimitNotAllowedWithWalletAllocations", {
+      defaultValue: "Project funding is derived from wallet allocations, not a typed target amount.",
+    });
+  }
+  if (msg === "projects.isolated_wallet_funded_total_limit_not_allowed") {
+    return t("projects.isolatedWalletFundedTotalLimitNotAllowed", {
+      defaultValue: "This project's funding is derived from wallet allocations, so its total cannot be typed manually.",
+    });
+  }
+  if (msg === "projects.overlay_wallet_allocations_not_allowed") {
+    return t("projects.overlayWalletAllocationsNotAllowed", {
+      defaultValue: "Overlay projects reserve monthly budget permission, not wallet funding.",
+    });
+  }
   if (msg === "projects.not_active") {
     return t("savings.goals.projectNotActive");
   }
