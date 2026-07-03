@@ -17,7 +17,11 @@ from ..services.budget_service import (
 from ..services.category_policy import validate_active_expense_category
 from ..services.project_service import (
     build_project_detail,
+    cascade_void_project_expenses_and_delete,
+    delete_pristine_overlay_project,
+    detach_project_expenses_and_delete,
     ensure_project_typology_details,
+    get_project_deletion_preview,
     get_project_funding_limit,
     get_project_type,
     get_owned_project_subcategory_or_404,
@@ -34,6 +38,7 @@ from ..services.project_service import (
     validate_project_subcategory_limit_sum,
     validate_project_subcategory_rules,
     validate_project_update_rules,
+    validate_overlay_project_deletion_target,
 )
 from ..session import get_db
 
@@ -313,6 +318,66 @@ def get_project(
         budget_month,
         default_budget_date=today_in_tz(user_tz),
     )
+
+
+@router.get("/{project_id}/delete-preview", response_model=schemas.ProjectDeletionPreviewOut)
+def get_project_delete_preview(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+):
+    project = get_owned_project_or_404(db, current_user.id, project_id)
+    validate_overlay_project_deletion_target(project)
+    return get_project_deletion_preview(db, project)
+
+
+@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_project(
+    project_id: int,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+):
+    _apply_headers(response, enforce_project_write_rate_limit(current_user.id))
+    project = get_owned_project_or_404(db, current_user.id, project_id)
+    delete_pristine_overlay_project(db, project)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{project_id}/delete-resolution")
+def resolve_project_deletion(
+    project_id: int,
+    payload: schemas.ProjectDeletionResolutionRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
+):
+    _apply_headers(response, enforce_project_write_rate_limit(current_user.id))
+    project = get_owned_project_or_404(db, current_user.id, project_id)
+    validate_overlay_project_deletion_target(project)
+
+    if payload.action == schemas.ProjectDeletionAction.ARCHIVE:
+        project.status = models.ProjectStatus.ARCHIVED
+        db.commit()
+        return _project_detail_out(db, current_user.id, project.id, default_budget_date=today_in_tz(user_tz))
+
+    if payload.action == schemas.ProjectDeletionAction.DETACH_EXPENSES:
+        detach_project_expenses_and_delete(db, project)
+        db.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    if payload.confirm_title != project.title:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.confirm_title_mismatch")
+    cascade_void_project_expenses_and_delete(
+        db,
+        current_user.id,
+        project,
+        void_date=today_in_tz(user_tz),
+    )
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.put("/{project_id}", response_model=schemas.ProjectBudgetOut)

@@ -3002,6 +3002,26 @@ class ProjectLifecycleRequest(BaseModel):
     effective_date: Optional[date] = None
 
 
+class ProjectDeletionAction(str, Enum):
+    ARCHIVE = "ARCHIVE"
+    DETACH_EXPENSES = "DETACH_EXPENSES"
+    CASCADE_VOID = "CASCADE_VOID"
+
+
+class ProjectDeletionPreviewOut(BaseModel):
+    project_id: int
+    is_pristine: bool
+    linked_expense_count: int = 0
+    linked_expense_total: int = 0
+
+
+class ProjectDeletionResolutionRequest(BaseModel):
+    action: ProjectDeletionAction
+    confirm_title: Optional[str] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class ProjectCategoryLimitCreate(BaseModel):
     category: ExpenseCategory
     limit_amount: int = Field(gt=0)

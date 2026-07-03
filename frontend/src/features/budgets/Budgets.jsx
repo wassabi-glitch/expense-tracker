@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Trash2, Circle, Plus, BriefcaseBusiness, MoreHorizontal, Eye, Pencil, ReceiptText, ListTree, ChartColumn, FolderKanban, Layers3, ExternalLink, GitMerge, ArrowRightLeft, AlertTriangle, Shield, Check, ChevronsUpDown, CalendarClock } from "lucide-react";
+import { Trash2, Circle, Plus, BriefcaseBusiness, MoreHorizontal, Eye, Pencil, ReceiptText, ListTree, ChartColumn, FolderKanban, Layers3, ExternalLink, GitMerge, ArrowRightLeft, AlertTriangle, Shield, Check, ChevronsUpDown, CalendarClock, Archive, Unlink, ShieldX } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -62,13 +62,16 @@ import {
   createProjectCategoryLimit,
   createProjectSubcategory,
   deleteBudgetSubcategory,
+  deleteProject,
   deleteProjectCategoryLimit,
   deleteProjectSubcategory,
   getBudgetDetail,
   getExpenses,
   getBudgetSubcategories,
+  getProjectDeletePreview,
   getProjects,
   reallocateBudgetSubcategory,
+  resolveProjectDeletion,
   updateBudgetSubcategory,
   updateProjectCategoryLimit,
   updateProjectSubcategory,
@@ -87,6 +90,12 @@ import {
   getOverlayCategoryAllocationRows,
   parseBudgetAmountInput,
 } from "./overlayProjectWizard";
+import {
+  PROJECT_DELETE_ACTIONS,
+  buildProjectDeletionResolutionPayload,
+  canSubmitCascadeVoid,
+  shouldOpenProjectDeletionResolution,
+} from "./projectDeletionResolution";
 
 const EMPTY_ARRAY = [];
 
@@ -528,6 +537,10 @@ export default function Budgets() {
   const [editingProjectCategoryLimit, setEditingProjectCategoryLimit] = React.useState("");
 
   const [editProjectModalProject, setEditProjectModalProject] = React.useState(null);
+  const [projectDeletionTarget, setProjectDeletionTarget] = React.useState(null);
+  const [projectDeletionPreview, setProjectDeletionPreview] = React.useState(null);
+  const [projectDeletionOpen, setProjectDeletionOpen] = React.useState(false);
+  const [projectDeletionConfirmTitle, setProjectDeletionConfirmTitle] = React.useState("");
 
   const [projectSubcategoryCategory, setProjectSubcategoryCategory] = React.useState("");
   const [projectSubcategoryUserSubcategoryId, setProjectSubcategoryUserSubcategoryId] = React.useState("");
@@ -1268,6 +1281,19 @@ export default function Budgets() {
   const updateBudgetMutation = useUpdateBudgetMutation();
   const deleteBudgetMutation = useDeleteBudgetMutation();
   const reallocateBudgetMutation = useReallocateBudgetMutation();
+  const invalidateAfterProjectDeletion = React.useCallback(async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["projects"] }),
+      queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+      queryClient.invalidateQueries({ queryKey: ["budgets", "detail"] }),
+      queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary", summaryTarget.year, summaryTarget.month] }),
+      queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
+      queryClient.invalidateQueries({ queryKey: ["expenses"] }),
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["analytics"] }),
+    ]);
+  }, [queryClient, summaryTarget.month, summaryTarget.year]);
+
   const createProjectMutation = useMutation({
     mutationFn: createProject,
     onSuccess: async () => {
@@ -1421,6 +1447,37 @@ export default function Budgets() {
       toast.error(t("projects.projectSubcategoryDeleteFailed", { defaultValue: "Failed to delete project subcategory" }), msg);
     },
   });
+  const projectDeletePreviewMutation = useMutation({
+    mutationFn: getProjectDeletePreview,
+  });
+  const deleteProjectMutation = useMutation({
+    mutationFn: deleteProject,
+    onSuccess: async () => {
+      await invalidateAfterProjectDeletion();
+      toast.success(t("projects.deleted", { defaultValue: "Project deleted" }));
+    },
+  });
+  const resolveProjectDeletionMutation = useMutation({
+    mutationFn: ({ projectId, payload }) => resolveProjectDeletion(projectId, payload),
+    onSuccess: async (_data, variables) => {
+      await invalidateAfterProjectDeletion();
+      setProjectDeletionOpen(false);
+      setProjectDeletionTarget(null);
+      setProjectDeletionPreview(null);
+      setProjectDeletionConfirmTitle("");
+      const successKey = variables?.payload?.action === PROJECT_DELETE_ACTIONS.ARCHIVE
+        ? "projects.archived"
+        : "projects.deleted";
+      const successDefault = variables?.payload?.action === PROJECT_DELETE_ACTIONS.ARCHIVE
+        ? "Project archived"
+        : "Project deleted";
+      toast.success(t(successKey, { defaultValue: successDefault }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("projects.deleteResolutionFailed", { defaultValue: "Failed to resolve project deletion" }), msg);
+    },
+  });
   const createSubcategoryMutation = useMutation({
     mutationFn: ({ budgetId, payload }) => createBudgetSubcategory(budgetId, payload),
     onSuccess: async () => {
@@ -1495,6 +1552,12 @@ export default function Budgets() {
     [newLimit, selectedBudget]
   );
   const canSubmitUpdateBudget = updateBudgetFormParsed.success && !isUpdatingBudget;
+  const isProjectDeletionPending = projectDeletePreviewMutation.isPending
+    || deleteProjectMutation.isPending
+    || resolveProjectDeletionMutation.isPending;
+  const projectDeletionLinkedCount = Number(projectDeletionPreview?.linked_expense_count || 0);
+  const projectDeletionLinkedTotal = Number(projectDeletionPreview?.linked_expense_total || 0);
+  const canCascadeVoidProject = canSubmitCascadeVoid(projectDeletionTarget, projectDeletionConfirmTitle);
   const openExpectedIncomeDialog = () => {
     const targetMonth = `${summaryTarget.year}-${String(summaryTarget.month).padStart(2, "0")}`;
     navigate(`/money-in/expected-inflow?expected_month=${targetMonth}&action=add`);
@@ -1522,6 +1585,50 @@ export default function Budgets() {
     setSelectedBudget(budget);
     setDeleteOpen(true);
   };
+
+  const closeProjectDeletionResolution = (open) => {
+    setProjectDeletionOpen(open);
+    if (!open) {
+      setProjectDeletionTarget(null);
+      setProjectDeletionPreview(null);
+      setProjectDeletionConfirmTitle("");
+    }
+  };
+
+  async function handleProjectDeleteClick(project) {
+    setActionError("");
+    try {
+      const preview = await projectDeletePreviewMutation.mutateAsync(project.id);
+      if (shouldOpenProjectDeletionResolution(preview)) {
+        setProjectDeletionTarget(project);
+        setProjectDeletionPreview(preview);
+        setProjectDeletionConfirmTitle("");
+        setProjectDeletionOpen(true);
+        return;
+      }
+      await deleteProjectMutation.mutateAsync(project.id);
+    } catch (error) {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("projects.deleteFailed", { defaultValue: "Failed to delete project" }), msg);
+    }
+  }
+
+  async function handleResolveProjectDeletion(action) {
+    if (!projectDeletionTarget) return;
+    const payload = buildProjectDeletionResolutionPayload(
+      action,
+      projectDeletionTarget,
+      projectDeletionConfirmTitle,
+    );
+    try {
+      await resolveProjectDeletionMutation.mutateAsync({
+        projectId: projectDeletionTarget.id,
+        payload,
+      });
+    } catch {
+      // Error toast is handled by the mutation.
+    }
+  }
 
   const openAdd = () => {
     setActionError("");
@@ -2960,13 +3067,25 @@ export default function Budgets() {
                             )}
 
                             {!projectIsIsolated && (
-                              <Button
-                                variant="outline"
-                                className="w-full rounded-xl"
-                                onClick={() => openProjectStructure(project)}
-                              >
-                                {t("projects.adjustAllocation", { defaultValue: "Adjust allocation" })}
-                              </Button>
+                              <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                                <Button
+                                  variant="outline"
+                                  className="rounded-xl"
+                                  onClick={() => openProjectStructure(project)}
+                                >
+                                  {t("projects.adjustAllocation", { defaultValue: "Adjust allocation" })}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  className="rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                  onClick={() => handleProjectDeleteClick(project)}
+                                  disabled={isProjectDeletionPending}
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  {t("common.delete", { defaultValue: "Delete" })}
+                                </Button>
+                              </div>
                             )}
                           </CardContent>
                         </Card>
@@ -5046,6 +5165,119 @@ export default function Budgets() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ResponsiveBudgetFormShell
+        compact={useBottomSheetForms}
+        open={projectDeletionOpen}
+        onOpenChange={closeProjectDeletionResolution}
+        title={t("projects.deleteResolutionTitle", { defaultValue: "Resolve project deletion" })}
+        description={
+          projectDeletionTarget
+            ? t("projects.deleteResolutionDesc", {
+                defaultValue: "{{title}} has recorded spending attached.",
+                title: projectDeletionTarget.title,
+              })
+            : ""
+        }
+        footer={
+          <Button
+            variant="outline"
+            onClick={() => closeProjectDeletionResolution(false)}
+            disabled={isProjectDeletionPending}
+          >
+            {t("common.cancel", { defaultValue: "Cancel" })}
+          </Button>
+        }
+      >
+        <div className={cn("space-y-4", useBottomSheetForms && "pb-1")}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <BudgetDialogStat
+              label={t("projects.linkedExpenses", { defaultValue: "Linked expenses" })}
+              value={projectDeletionLinkedCount}
+              icon={ReceiptText}
+            />
+            <BudgetDialogStat
+              label={t("projects.linkedExpenseTotal", { defaultValue: "Linked total" })}
+              value={`${formatUzs(projectDeletionLinkedTotal)} UZS`}
+              icon={ChartColumn}
+            />
+          </div>
+
+          <div className="space-y-3">
+            <div className="rounded-md border border-border/70 bg-background/70 p-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="font-semibold">{t("projects.archiveOption", { defaultValue: "Archive" })}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {t("projects.archiveOptionDesc", { defaultValue: "Hide the project while keeping expenses and ledger records intact." })}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => handleResolveProjectDeletion(PROJECT_DELETE_ACTIONS.ARCHIVE)}
+                  disabled={isProjectDeletionPending}
+                >
+                  <Archive className="mr-2 h-4 w-4" />
+                  {t("common.archive", { defaultValue: "Archive" })}
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-md border border-border/70 bg-background/70 p-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="font-semibold">{t("projects.detachExpensesOption", { defaultValue: "Detach expenses" })}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {t("projects.detachExpensesOptionDesc", { defaultValue: "Turn linked spending into standalone expenses, then delete the project." })}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => handleResolveProjectDeletion(PROJECT_DELETE_ACTIONS.DETACH_EXPENSES)}
+                  disabled={isProjectDeletionPending}
+                >
+                  <Unlink className="mr-2 h-4 w-4" />
+                  {t("projects.detachExpenses", { defaultValue: "Detach" })}
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-md border border-destructive/35 bg-destructive/5 p-3">
+              <div className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <ShieldX className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+                  <div className="min-w-0">
+                    <p className="font-semibold text-destructive">
+                      {t("projects.cascadeVoidOption", { defaultValue: "Cascade void" })}
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {t("projects.cascadeVoidOptionDesc", { defaultValue: "Void linked expenses with reversal ledger entries, then delete the project." })}
+                    </p>
+                  </div>
+                </div>
+                <Input
+                  value={projectDeletionConfirmTitle}
+                  onChange={(event) => setProjectDeletionConfirmTitle(event.target.value)}
+                  placeholder={projectDeletionTarget?.title || ""}
+                  aria-label={t("projects.confirmProjectName", { defaultValue: "Confirm project name" })}
+                />
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="w-full sm:w-auto"
+                  onClick={() => handleResolveProjectDeletion(PROJECT_DELETE_ACTIONS.CASCADE_VOID)}
+                  disabled={isProjectDeletionPending || !canCascadeVoidProject}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  {t("projects.voidAndDelete", { defaultValue: "Void and delete" })}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </ResponsiveBudgetFormShell>
 
       <EditProjectDialog
         open={!!editProjectModalProject}
