@@ -30,6 +30,7 @@ from ..services.project_service import (
     is_overlay_project,
     latest_project_event_date,
     migrate_overlay_project_slices,
+    sweep_overlay_project_reservations,
     validate_project_completion_date,
     validate_project_editable,
     validate_overlay_project_category_reservation,
@@ -359,6 +360,8 @@ def resolve_project_deletion(
     validate_overlay_project_deletion_target(project)
 
     if payload.action == schemas.ProjectDeletionAction.ARCHIVE:
+        if project.status == models.ProjectStatus.ARCHIVED:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.already_archived")
         project.status = models.ProjectStatus.ARCHIVED
         db.commit()
         return _project_detail_out(db, current_user.id, project.id, default_budget_date=today_in_tz(user_tz))
@@ -481,11 +484,19 @@ def complete_project(
 ):
     _apply_headers(response, enforce_project_write_rate_limit(current_user.id))
     project = get_owned_project_or_404(db, current_user.id, project_id)
+    if project.status not in (models.ProjectStatus.ACTIVE, models.ProjectStatus.STOPPED):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.complete_invalid_state")
     effective_date = payload.effective_date or today_in_tz(user_tz)
     validate_project_completion_date(project, effective_date)
     latest_linked = latest_project_event_date(db, project.id)
     if latest_linked is not None and effective_date < latest_linked:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.completed_before_linked_expense")
+    sweep_overlay_project_reservations(
+        db,
+        current_user.id,
+        project,
+        anchor_date=effective_date,
+    )
     project.status = models.ProjectStatus.COMPLETED
     project.completed_at = effective_date
     db.commit()
@@ -502,6 +513,8 @@ def archive_project(
 ):
     _apply_headers(response, enforce_project_write_rate_limit(current_user.id))
     project = get_owned_project_or_404(db, current_user.id, project_id)
+    if project.status == models.ProjectStatus.ARCHIVED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.already_archived")
     project.status = models.ProjectStatus.ARCHIVED
     db.commit()
     return _project_detail_out(db, current_user.id, project.id, default_budget_date=today_in_tz(user_tz))

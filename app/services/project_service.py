@@ -4,12 +4,18 @@ from datetime import date, datetime, timezone
 
 from fastapi import HTTPException, status
 # pyrefly: ignore [missing-import]
-from sqlalchemy import func, or_
+from sqlalchemy import and_, case, func, or_
 # pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session, selectinload
 
 from .. import models, schemas
 from .wallet_service import WalletService
+
+
+OVERLAY_RESERVATION_HOLDING_STATUSES = (
+    models.ProjectStatus.ACTIVE,
+    models.ProjectStatus.STOPPED,
+)
 
 
 def get_project_type(project: models.Project) -> models.ProjectType:
@@ -83,6 +89,165 @@ def latest_project_event_date(db: Session, project_id: int) -> date | None:
         .filter(models.EntityLedger.project_id == project_id)
         .scalar()
     )
+
+
+def _signed_posted_expense_amount():
+    return case(
+        (
+            and_(
+                models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+                models.FinancialEvent.event_type == models.TransactionType.EXPENSE,
+            ),
+            models.EntityLedger.amount,
+        ),
+        (
+            and_(
+                models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+                models.FinancialEvent.event_type == models.TransactionType.REFUND,
+            ),
+            -models.EntityLedger.amount,
+        ),
+        else_=0,
+    )
+
+
+def _overlay_project_spent_by_category_month(
+    db: Session,
+    owner_id: int,
+    project_id: int,
+) -> dict[tuple[int, int, models.ExpenseCategory], int]:
+    signed_amount = _signed_posted_expense_amount()
+    rows = (
+        db.query(
+            func.extract("year", models.FinancialEvent.date).label("budget_year"),
+            func.extract("month", models.FinancialEvent.date).label("budget_month"),
+            models.EntityLedger.category,
+            func.coalesce(func.sum(signed_amount), 0).label("spent"),
+        )
+        .select_from(models.EntityLedger)
+        .join(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
+        .filter(
+            models.FinancialEvent.owner_id == owner_id,
+            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+            models.FinancialEvent.event_type.in_(
+                [models.TransactionType.EXPENSE, models.TransactionType.REFUND]
+            ),
+            models.EntityLedger.project_id == project_id,
+            models.EntityLedger.category.isnot(None),
+        )
+        .group_by(
+            func.extract("year", models.FinancialEvent.date),
+            func.extract("month", models.FinancialEvent.date),
+            models.EntityLedger.category,
+        )
+        .all()
+    )
+    return {
+        (int(year), int(month), category): int(spent or 0)
+        for year, month, category, spent in rows
+        if category is not None
+    }
+
+
+def _overlay_project_spent_by_subcategory_month(
+    db: Session,
+    owner_id: int,
+    project_id: int,
+) -> dict[tuple[int, int, int], int]:
+    signed_amount = _signed_posted_expense_amount()
+    rows = (
+        db.query(
+            func.extract("year", models.FinancialEvent.date).label("budget_year"),
+            func.extract("month", models.FinancialEvent.date).label("budget_month"),
+            models.EntityLedger.subcategory_id,
+            func.coalesce(func.sum(signed_amount), 0).label("spent"),
+        )
+        .select_from(models.EntityLedger)
+        .join(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
+        .filter(
+            models.FinancialEvent.owner_id == owner_id,
+            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+            models.FinancialEvent.event_type.in_(
+                [models.TransactionType.EXPENSE, models.TransactionType.REFUND]
+            ),
+            models.EntityLedger.project_id == project_id,
+            models.EntityLedger.subcategory_id.isnot(None),
+        )
+        .group_by(
+            func.extract("year", models.FinancialEvent.date),
+            func.extract("month", models.FinancialEvent.date),
+            models.EntityLedger.subcategory_id,
+        )
+        .all()
+    )
+    return {
+        (int(year), int(month), int(subcategory_id)): int(spent or 0)
+        for year, month, subcategory_id, spent in rows
+        if subcategory_id is not None
+    }
+
+
+def _is_current_or_future_month(row_year: int, row_month: int, anchor_date: date) -> bool:
+    return (int(row_year), int(row_month)) >= (anchor_date.year, anchor_date.month)
+
+
+def _swept_limit_amount(planned_amount: int, actual_spent: int) -> int:
+    return min(int(planned_amount), max(int(actual_spent), 0))
+
+
+def sweep_overlay_project_reservations(
+    db: Session,
+    owner_id: int,
+    project: models.Project,
+    *,
+    anchor_date: date,
+) -> None:
+    if not is_overlay_project(project):
+        return
+
+    spent_by_category = _overlay_project_spent_by_category_month(db, owner_id, project.id)
+    for reservation in list(project.monthly_category_limits):
+        if not _is_current_or_future_month(
+            int(reservation.budget_year),
+            int(reservation.budget_month),
+            anchor_date,
+        ):
+            continue
+        actual_spent = spent_by_category.get(
+            (
+                int(reservation.budget_year),
+                int(reservation.budget_month),
+                reservation.category,
+            ),
+            0,
+        )
+        swept_amount = _swept_limit_amount(int(reservation.limit_amount), actual_spent)
+        if swept_amount <= 0:
+            db.delete(reservation)
+        else:
+            reservation.limit_amount = swept_amount
+
+    spent_by_subcategory = _overlay_project_spent_by_subcategory_month(db, owner_id, project.id)
+    for reservation in list(project.monthly_subcategory_limits):
+        if not _is_current_or_future_month(
+            int(reservation.budget_year),
+            int(reservation.budget_month),
+            anchor_date,
+        ):
+            continue
+        actual_spent = spent_by_subcategory.get(
+            (
+                int(reservation.budget_year),
+                int(reservation.budget_month),
+                int(reservation.user_subcategory_id),
+            ),
+            0,
+        )
+        swept_amount = _swept_limit_amount(int(reservation.limit_amount), actual_spent)
+        if swept_amount <= 0:
+            db.delete(reservation)
+        else:
+            reservation.limit_amount = swept_amount
 
 
 def get_project_deletion_preview(db: Session, project: models.Project) -> schemas.ProjectDeletionPreviewOut:
@@ -438,7 +603,7 @@ def validate_overlay_project_category_reservation(
         .filter(
             models.Project.owner_id == owner_id,
             models.Project.project_type == models.ProjectType.OVERLAY,
-            models.Project.status == models.ProjectStatus.ACTIVE,
+            models.Project.status.in_(OVERLAY_RESERVATION_HOLDING_STATUSES),
             models.ProjectCategoryMonthlyLimit.category == category,
             models.ProjectCategoryMonthlyLimit.budget_year == budget_year,
             models.ProjectCategoryMonthlyLimit.budget_month == budget_month,
@@ -534,7 +699,7 @@ def validate_overlay_project_subcategory_reservation(
         .filter(
             models.Project.owner_id == owner_id,
             models.Project.project_type == models.ProjectType.OVERLAY,
-            models.Project.status == models.ProjectStatus.ACTIVE,
+            models.Project.status.in_(OVERLAY_RESERVATION_HOLDING_STATUSES),
             models.ProjectSubcategoryMonthlyLimit.user_subcategory_id == subcategory.id,
             models.ProjectSubcategoryMonthlyLimit.budget_year == budget_year,
             models.ProjectSubcategoryMonthlyLimit.budget_month == budget_month,

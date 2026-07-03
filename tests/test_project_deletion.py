@@ -154,6 +154,33 @@ def test_non_pristine_overlay_delete_requires_resolution_and_archive_keeps_ledge
     assert leg.project_id == project["id"]
 
 
+def test_archived_overlay_project_rejects_repeated_archive_actions(client):
+    headers = create_user_and_token(
+        client,
+        "projectdeletealreadyarchived",
+        "projectdeletealreadyarchived@example.com",
+        "Password123!",
+    )
+    _, _, project = _create_overlay_project_with_reservations(client, headers)
+    _linked_overlay_expense(client, headers, project["id"], amount=120_000)
+
+    archived = client.post(f"/projects/{project['id']}/archive", headers=headers)
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["status"] == "ARCHIVED"
+
+    archive_again = client.post(f"/projects/{project['id']}/archive", headers=headers)
+    assert archive_again.status_code == 400
+    assert archive_again.json()["detail"] == "projects.already_archived"
+
+    resolution_archive_again = client.post(
+        f"/projects/{project['id']}/delete-resolution",
+        json={"action": "ARCHIVE"},
+        headers=headers,
+    )
+    assert resolution_archive_again.status_code == 400
+    assert resolution_archive_again.json()["detail"] == "projects.already_archived"
+
+
 def test_detach_resolution_strips_project_links_then_hard_deletes_overlay_project(client, session):
     headers = create_user_and_token(
         client,
