@@ -492,6 +492,8 @@ class User(Base):
         "GoalContributions", back_populates="owner", cascade="all, delete")
     goal_project_releases = relationship(
         "GoalProjectRelease", back_populates="owner", cascade="all, delete-orphan")
+    project_wallet_allocations = relationship(
+        "ProjectWalletAllocation", back_populates="owner", cascade="all, delete-orphan")
     reset_tokens = relationship(
         "PasswordResetToken", back_populates="user", cascade="all, delete-orphan")
     email_verification_tokens = relationship(
@@ -651,6 +653,7 @@ class Wallet(Base):
     owner = relationship("User", back_populates="wallets")
     ledger_entries = relationship("WalletLedger", back_populates="wallet", cascade="all, delete-orphan")
     goal_contributions = relationship("GoalContributions", back_populates="wallet")
+    project_allocations = relationship("ProjectWalletAllocation", back_populates="wallet")
 
 
 class WalletTransfer(Base):
@@ -2022,6 +2025,11 @@ class Project(Base):
         "ProjectSubcategoryMonthlyLimit", back_populates="project", cascade="all, delete-orphan"
     )
     goal_releases = relationship("GoalProjectRelease", back_populates="project", cascade="all, delete-orphan")
+    wallet_allocations = relationship(
+        "ProjectWalletAllocation",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
     session_draft_items = relationship("ExpenseSessionDraftItem", back_populates="project")
 
 
@@ -2059,6 +2067,28 @@ class ProjectIsolatedDetail(Base):
 
     project = relationship("Project", back_populates="isolated_detail")
     owner = relationship("User")
+
+
+class ProjectWalletAllocation(Base):
+    __tablename__ = "project_wallet_allocations"
+    __table_args__ = (
+        UniqueConstraint("project_id", "wallet_id", name="uq_project_wallet_allocations_project_wallet"),
+        CheckConstraint("amount > 0", name="ck_project_wallet_allocations_amount_positive"),
+        CheckConstraint("amount <= 999999999999", name="ck_project_wallet_allocations_amount_max"),
+        Index("ix_project_wallet_allocations_owner_wallet", "owner_id", "wallet_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    wallet_id = Column(Integer, ForeignKey("wallets.id", ondelete="RESTRICT"), nullable=False, index=True)
+    amount = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    project = relationship("Project", back_populates="wallet_allocations")
+    owner = relationship("User", back_populates="project_wallet_allocations")
+    wallet = relationship("Wallet", back_populates="project_allocations")
 
 
 class ProjectCategoryLimit(Base):

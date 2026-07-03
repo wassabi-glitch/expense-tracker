@@ -23,7 +23,9 @@ from .project_service import (
     get_project_funding_limit,
     get_project_target_estimate,
     get_project_type,
+    get_project_wallet_allocated_amount,
     is_isolated_project,
+    project_wallet_allocations_out,
 )
 from .wallet_value_service import owned_balance
 
@@ -232,7 +234,40 @@ def get_free_money_now(db: Session, owner_id: int) -> tuple[int, int, int]:
         )
         for wallet in wallets
     )
-    free_money_now = max(int(owned_money_now) - int(protected_goal_money), 0)
+    project_wallet_money = (
+        db.query(
+            models.ProjectWalletAllocation.wallet_id,
+            func.coalesce(func.sum(models.ProjectWalletAllocation.amount), 0),
+        )
+        .join(models.Project, models.Project.id == models.ProjectWalletAllocation.project_id)
+        .filter(
+            models.ProjectWalletAllocation.owner_id == owner_id,
+            models.Project.status.in_(
+                [models.ProjectStatus.ACTIVE, models.ProjectStatus.STOPPED]
+            ),
+        )
+        .group_by(models.ProjectWalletAllocation.wallet_id)
+        .all()
+    )
+    owned_by_wallet = {int(wallet.id): owned_balance(wallet) for wallet in wallets}
+    goal_by_wallet = {
+        int(wallet.id): min(
+            get_wallet_goal_allocated_amount(db, owner_id, int(wallet.id)),
+            owned_by_wallet[int(wallet.id)],
+        )
+        for wallet in wallets
+    }
+    protected_project_money = sum(
+        min(
+            int(amount or 0),
+            max(owned_by_wallet.get(int(wallet_id), 0) - goal_by_wallet.get(int(wallet_id), 0), 0),
+        )
+        for wallet_id, amount in project_wallet_money
+    )
+    free_money_now = max(
+        int(owned_money_now) - int(protected_goal_money) - int(protected_project_money),
+        0,
+    )
     return int(owned_money_now), int(protected_goal_money), int(free_money_now)
 
 
@@ -1945,22 +1980,22 @@ def get_project_budget_summaries(
             )
         funding_limit = get_project_funding_limit(project)
         target_estimate = get_project_target_estimate(project)
+        wallet_allocated = get_project_wallet_allocated_amount(project) if is_isolated else 0
         remaining = funding_limit - spent if funding_limit is not None else None
         released_funding = (
             int(released_by_project.get(project.id, 0))
             if project.origin_goal_id is not None
             else None
         )
-        remaining_funding = (
-            int(released_funding) - spent
-            if released_funding is not None
-            else None
-        )
-        funding_shortfall = (
-            max(int(spent) - int(released_funding), 0)
-            if released_funding is not None
-            else 0
-        )
+        if wallet_allocated > 0:
+            remaining_funding = int(wallet_allocated) - spent
+            funding_shortfall = max(int(spent) - int(wallet_allocated), 0)
+        elif released_funding is not None:
+            remaining_funding = int(released_funding) - spent
+            funding_shortfall = max(int(spent) - int(released_funding), 0)
+        else:
+            remaining_funding = None
+            funding_shortfall = 0
         progress_direction = "tick_down" if is_isolated else "tick_up"
         selected_month_reserved_amount = (
             0
@@ -1976,6 +2011,7 @@ def get_project_budget_summaries(
                 released_funding=released_funding,
                 remaining_funding=remaining_funding,
                 funding_shortfall=funding_shortfall,
+                wallet_allocations=project_wallet_allocations_out(project),
             )
         else:
             overlay = schemas.ProjectOverlayFinancialOut(

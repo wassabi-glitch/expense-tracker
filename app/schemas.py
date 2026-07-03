@@ -228,6 +228,10 @@ class WalletOut(WalletBase):
     created_at: datetime
     updated_at: datetime
     warning: Optional[str] = None
+    owned_balance: int = 0
+    protected_for_goals: int = 0
+    protected_for_projects: int = 0
+    free_to_allocate: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -2833,11 +2837,29 @@ class ProjectOverlayFinancialOut(BaseModel):
     total_reserved_scope: int = 0
 
 
+class ProjectWalletAllocationCreate(BaseModel):
+    wallet_id: int
+    amount: int = Field(gt=0, le=999999999999)
+
+
+class ProjectWalletAllocationOut(BaseModel):
+    id: int
+    project_id: int
+    wallet_id: int
+    amount: int
+    wallet: Optional[WalletOut] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ProjectIsolatedFinancialOut(BaseModel):
     funding_limit: Optional[int] = None
     released_funding: Optional[int] = None
     remaining_funding: Optional[int] = None
     funding_shortfall: int = 0
+    wallet_allocations: List[ProjectWalletAllocationOut] = Field(default_factory=list)
 
 
 class ProjectBudgetOut(BaseModel):
@@ -2882,6 +2904,7 @@ class ProjectBase(BaseModel):
     start_date: date
     target_end_date: Optional[date] = None
     origin_goal_id: Optional[int] = None
+    wallet_allocations: List[ProjectWalletAllocationCreate] = Field(default_factory=list, max_length=50)
 
     model_config = ConfigDict(extra="forbid")
 
