@@ -1,7 +1,7 @@
 from datetime import date
 
 from app import models
-from tests.helpers import create_budget, create_expense, create_user_and_token
+from tests.helpers import create_budget, create_user_and_token
 
 
 def _create_overlay_project_with_reservations(client, headers):
