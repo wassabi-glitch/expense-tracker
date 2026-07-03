@@ -2354,6 +2354,75 @@ def test_overlay_project_can_overspend_local_reservation_without_blocking_parent
     assert project_row["category_breakdown"][0]["remaining"] == -100_000
 
 
+def test_stopped_overlay_project_keeps_reservation_but_blocks_new_project_expenses(client):
+    headers = create_user_and_token(
+        client, "overlaypausedholds", "overlaypausedholds@example.com", "Password123!"
+    )
+    budget = create_budget(
+        client,
+        headers,
+        category="Travel",
+        monthly_limit=1_000_000,
+        budget_year=2026,
+        budget_month=6,
+    )
+    assert budget.status_code == 201, budget.text
+
+    project = client.post(
+        "/projects",
+        json={
+            "title": "Paused trip",
+            "is_isolated": False,
+            "start_date": "2026-06-01",
+            "target_end_date": "2026-06-30",
+        },
+        headers=headers,
+    )
+    assert project.status_code == 201, project.text
+    project_id = project.json()["id"]
+
+    reservation = client.post(
+        f"/projects/{project_id}/category-limits",
+        json={
+            "category": "Travel",
+            "limit_amount": 400_000,
+            "budget_year": 2026,
+            "budget_month": 6,
+        },
+        headers=headers,
+    )
+    assert reservation.status_code == 201, reservation.text
+
+    stopped = client.post(f"/projects/{project_id}/stop", headers=headers)
+    assert stopped.status_code == 200, stopped.text
+    assert stopped.json()["status"] == "STOPPED"
+
+    detail = client.get(
+        "/budgets/item/detail",
+        params={"budget_year": 2026, "budget_month": 6, "category": "Travel"},
+        headers=headers,
+    )
+    assert detail.status_code == 200, detail.text
+    payload = detail.json()
+    assert payload["project_reserved_amount"] == 400_000
+    assert payload["free_general_limit"] == 600_000
+    assert payload["project_reservations"][0]["reserved_amount"] == 400_000
+
+    expense = client.post(
+        "/expenses/",
+        json={
+            "title": "Paused hotel",
+            "amount": 100_000,
+            "category": "Travel",
+            "date": "2026-06-10",
+            "project_id": project_id,
+        },
+        headers=headers,
+    )
+    assert expense.status_code == 400
+    assert expense.json()["detail"] == "projects.not_active"
+
+
 def test_overlay_category_reservations_cannot_overbook_parent_budget_month(client):
     headers = create_user_and_token(
         client, "overlaycap", "overlaycap@example.com", "Password123!"

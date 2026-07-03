@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Trash2, Circle, Plus, BriefcaseBusiness, MoreHorizontal, Eye, Pencil, ReceiptText, ListTree, ChartColumn, FolderKanban, Layers3, ExternalLink, GitMerge, ArrowRightLeft, AlertTriangle, Shield, Check, ChevronsUpDown, CalendarClock, Archive, Unlink, ShieldX } from "lucide-react";
+import { Trash2, Circle, Plus, BriefcaseBusiness, MoreHorizontal, Eye, Pencil, ReceiptText, ListTree, ChartColumn, FolderKanban, Layers3, ExternalLink, GitMerge, ArrowRightLeft, AlertTriangle, Shield, Check, ChevronsUpDown, CalendarClock, Archive, ArchiveRestore, Unlink, ShieldX, PauseCircle, PlayCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -61,6 +61,7 @@ import {
   createProject,
   createProjectCategoryLimit,
   createProjectSubcategory,
+  completeProject,
   deleteBudgetSubcategory,
   deleteProject,
   deleteProjectCategoryLimit,
@@ -70,8 +71,11 @@ import {
   getBudgetSubcategories,
   getProjectDeletePreview,
   getProjects,
+  reopenProject,
   reallocateBudgetSubcategory,
+  resumeProject,
   resolveProjectDeletion,
+  stopProject,
   updateBudgetSubcategory,
   updateProjectCategoryLimit,
   updateProjectSubcategory,
@@ -98,6 +102,18 @@ import {
 } from "./projectDeletionResolution";
 
 const EMPTY_ARRAY = [];
+const PROJECT_LIFECYCLE_ACTIONS = {
+  PAUSE: "PAUSE",
+  RESUME: "RESUME",
+  COMPLETE: "COMPLETE",
+};
+
+function getProjectStatusLabel(status, t) {
+  if (status === "STOPPED") return t("projects.statusPaused", { defaultValue: "Paused" });
+  if (status === "COMPLETED") return t("projects.statusCompleted", { defaultValue: "Completed" });
+  if (status === "ARCHIVED") return t("projects.statusArchived", { defaultValue: "Archived" });
+  return t("projects.statusActive", { defaultValue: "Active" });
+}
 
 function getPlanStatusMeta(status, t) {
   if (status === "covered_with_cushion") {
@@ -541,6 +557,9 @@ export default function Budgets() {
   const [projectDeletionPreview, setProjectDeletionPreview] = React.useState(null);
   const [projectDeletionOpen, setProjectDeletionOpen] = React.useState(false);
   const [projectDeletionConfirmTitle, setProjectDeletionConfirmTitle] = React.useState("");
+  const [projectLifecycleTarget, setProjectLifecycleTarget] = React.useState(null);
+  const [projectLifecycleAction, setProjectLifecycleAction] = React.useState(null);
+  const [projectLifecycleOpen, setProjectLifecycleOpen] = React.useState(false);
 
   const [projectSubcategoryCategory, setProjectSubcategoryCategory] = React.useState("");
   const [projectSubcategoryUserSubcategoryId, setProjectSubcategoryUserSubcategoryId] = React.useState("");
@@ -1281,7 +1300,7 @@ export default function Budgets() {
   const updateBudgetMutation = useUpdateBudgetMutation();
   const deleteBudgetMutation = useDeleteBudgetMutation();
   const reallocateBudgetMutation = useReallocateBudgetMutation();
-  const invalidateAfterProjectDeletion = React.useCallback(async () => {
+  const invalidateProjectFinancialState = React.useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["projects"] }),
       queryClient.invalidateQueries({ queryKey: ["budgets"] }),
@@ -1453,14 +1472,14 @@ export default function Budgets() {
   const deleteProjectMutation = useMutation({
     mutationFn: deleteProject,
     onSuccess: async () => {
-      await invalidateAfterProjectDeletion();
+      await invalidateProjectFinancialState();
       toast.success(t("projects.deleted", { defaultValue: "Project deleted" }));
     },
   });
   const resolveProjectDeletionMutation = useMutation({
     mutationFn: ({ projectId, payload }) => resolveProjectDeletion(projectId, payload),
     onSuccess: async (_data, variables) => {
-      await invalidateAfterProjectDeletion();
+      await invalidateProjectFinancialState();
       setProjectDeletionOpen(false);
       setProjectDeletionTarget(null);
       setProjectDeletionPreview(null);
@@ -1476,6 +1495,59 @@ export default function Budgets() {
     onError: (error) => {
       const msg = localizeApiError(error.message, t) || error.message;
       toast.error(t("projects.deleteResolutionFailed", { defaultValue: "Failed to resolve project deletion" }), msg);
+    },
+  });
+  const stopProjectMutation = useMutation({
+    mutationFn: stopProject,
+    onSuccess: async () => {
+      await invalidateProjectFinancialState();
+      setProjectLifecycleOpen(false);
+      setProjectLifecycleTarget(null);
+      setProjectLifecycleAction(null);
+      toast.success(t("projects.paused", { defaultValue: "Project paused" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("projects.pauseFailed", { defaultValue: "Failed to pause project" }), msg);
+    },
+  });
+  const resumeProjectMutation = useMutation({
+    mutationFn: resumeProject,
+    onSuccess: async () => {
+      await invalidateProjectFinancialState();
+      setProjectLifecycleOpen(false);
+      setProjectLifecycleTarget(null);
+      setProjectLifecycleAction(null);
+      toast.success(t("projects.resumed", { defaultValue: "Project resumed" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("projects.resumeFailed", { defaultValue: "Failed to resume project" }), msg);
+    },
+  });
+  const completeProjectMutation = useMutation({
+    mutationFn: ({ projectId }) => completeProject(projectId),
+    onSuccess: async () => {
+      await invalidateProjectFinancialState();
+      setProjectLifecycleOpen(false);
+      setProjectLifecycleTarget(null);
+      setProjectLifecycleAction(null);
+      toast.success(t("projects.completed", { defaultValue: "Project completed" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("projects.completeFailed", { defaultValue: "Failed to complete project" }), msg);
+    },
+  });
+  const reopenProjectMutation = useMutation({
+    mutationFn: reopenProject,
+    onSuccess: async () => {
+      await invalidateProjectFinancialState();
+      toast.success(t("projects.restored", { defaultValue: "Project restored" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error.message, t) || error.message;
+      toast.error(t("projects.restoreFailed", { defaultValue: "Failed to restore project" }), msg);
     },
   });
   const createSubcategoryMutation = useMutation({
@@ -1555,9 +1627,55 @@ export default function Budgets() {
   const isProjectDeletionPending = projectDeletePreviewMutation.isPending
     || deleteProjectMutation.isPending
     || resolveProjectDeletionMutation.isPending;
+  const isProjectLifecyclePending = stopProjectMutation.isPending
+    || resumeProjectMutation.isPending
+    || completeProjectMutation.isPending
+    || reopenProjectMutation.isPending;
   const projectDeletionLinkedCount = Number(projectDeletionPreview?.linked_expense_count || 0);
   const projectDeletionLinkedTotal = Number(projectDeletionPreview?.linked_expense_total || 0);
   const canCascadeVoidProject = canSubmitCascadeVoid(projectDeletionTarget, projectDeletionConfirmTitle);
+  const projectLifecycleIsComplete = projectLifecycleAction === PROJECT_LIFECYCLE_ACTIONS.COMPLETE;
+  const projectLifecycleIsPause = projectLifecycleAction === PROJECT_LIFECYCLE_ACTIONS.PAUSE;
+  const projectLifecycleTargetIsStopped = projectLifecycleTarget?.status === "STOPPED";
+  const projectLifecycleIsOverdue = Boolean(
+    projectLifecycleTarget?.target_end_date && projectLifecycleTarget.target_end_date < todayIso
+  );
+  const projectLifecycleTitle = projectLifecycleIsComplete
+    ? (
+      projectLifecycleIsOverdue
+        ? t("projects.wrapUpProjectTitle", { defaultValue: "Wrap up project" })
+        : projectLifecycleTargetIsStopped
+          ? t("projects.completeProjectNowTitle", { defaultValue: "Complete project now" })
+          : t("projects.completeProjectEarlyTitle", { defaultValue: "Complete project early" })
+    )
+    : projectLifecycleIsPause
+      ? t("projects.pauseProjectTitle", { defaultValue: "Pause project" })
+      : t("projects.resumeProjectTitle", { defaultValue: "Resume project" });
+  const projectLifecycleDescription = projectLifecycleIsComplete
+    ? t("projects.completeProjectDesc", {
+      defaultValue: "{{title}} will be marked completed. Unused current and future overlay reservations will be swept back to the parent budgets.",
+      title: projectLifecycleTarget?.title || "",
+    })
+    : projectLifecycleIsPause
+      ? t("projects.pauseProjectDesc", {
+        defaultValue: "{{title}} will stop accepting new project expenses, but its overlay reservations will stay held.",
+        title: projectLifecycleTarget?.title || "",
+      })
+      : t("projects.resumeProjectDesc", {
+        defaultValue: "{{title}} will accept project expenses again.",
+        title: projectLifecycleTarget?.title || "",
+      });
+  const projectLifecycleConfirmText = projectLifecycleIsComplete
+    ? (
+      projectLifecycleIsOverdue
+        ? t("projects.wrapUpProject", { defaultValue: "Wrap up project" })
+        : projectLifecycleTargetIsStopped
+          ? t("projects.completeNow", { defaultValue: "Complete now" })
+          : t("projects.completeEarly", { defaultValue: "Complete early" })
+    )
+    : projectLifecycleIsPause
+      ? t("projects.pauseProject", { defaultValue: "Pause project" })
+      : t("projects.resumeProject", { defaultValue: "Resume project" });
   const openExpectedIncomeDialog = () => {
     const targetMonth = `${summaryTarget.year}-${String(summaryTarget.month).padStart(2, "0")}`;
     navigate(`/money-in/expected-inflow?expected_month=${targetMonth}&action=add`);
@@ -1625,6 +1743,39 @@ export default function Budgets() {
         projectId: projectDeletionTarget.id,
         payload,
       });
+    } catch {
+      // Error toast is handled by the mutation.
+    }
+  }
+
+  function openProjectLifecycleDialog(project, action) {
+    setActionError("");
+    setProjectLifecycleTarget(project);
+    setProjectLifecycleAction(action);
+    setProjectLifecycleOpen(true);
+  }
+
+  function closeProjectLifecycleDialog(open) {
+    setProjectLifecycleOpen(open);
+    if (!open) {
+      setProjectLifecycleTarget(null);
+      setProjectLifecycleAction(null);
+    }
+  }
+
+  async function handleConfirmProjectLifecycle() {
+    if (!projectLifecycleTarget || !projectLifecycleAction) return;
+    const projectId = projectLifecycleTarget.id;
+    try {
+      if (projectLifecycleAction === PROJECT_LIFECYCLE_ACTIONS.PAUSE) {
+        await stopProjectMutation.mutateAsync(projectId);
+        return;
+      }
+      if (projectLifecycleAction === PROJECT_LIFECYCLE_ACTIONS.RESUME) {
+        await resumeProjectMutation.mutateAsync(projectId);
+        return;
+      }
+      await completeProjectMutation.mutateAsync({ projectId });
     } catch {
       // Error toast is handled by the mutation.
     }
@@ -2793,17 +2944,23 @@ export default function Budgets() {
                           Number(row.limit_amount || 0) > 0
                       );
                       const currentMonthCategories = currentMonthCategoryRows.map((c) => tCategory(c.category)).join(", ");
+                      const projectStatus = project.status || "ACTIVE";
+                      const projectIsActive = projectStatus === "ACTIVE";
+                      const projectIsStopped = projectStatus === "STOPPED";
+                      const projectIsCompleted = projectStatus === "COMPLETED";
+                      const projectIsArchived = projectStatus === "ARCHIVED";
+                      const projectCanModify = !projectIsCompleted && !projectIsArchived;
+                      const projectCanComplete = projectIsActive || projectIsStopped;
+                      const projectIsOverdue = Boolean(project.target_end_date && project.target_end_date < todayIso);
+                      const projectReadyToWrap = projectCanComplete && projectIsOverdue;
 
                       return (
                         <Card key={project.id} className="border border-border/70 bg-background/70 shadow-sm">
                           <CardHeader className="space-y-3 pb-3">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
-                                <CardTitle className="truncate text-lg flex items-center">
-                                  {project.title}
-                                  <Button variant="ghost" size="icon" className="h-6 w-6 ml-2" onClick={() => setEditProjectModalProject(project)} title={t("common.edit", { defaultValue: "Edit properties" })}>
-                                    <Pencil className="h-3 w-3 text-muted-foreground hover:text-foreground transition-colors" />
-                                  </Button>
+                                <CardTitle className="text-lg">
+                                  <span className="block truncate">{project.title}</span>
                                 </CardTitle>
                                 <CardDescription className="mt-1">
                                   {projectIsIsolated
@@ -2811,15 +2968,104 @@ export default function Budgets() {
                                     : t("projects.overlayHelp", { defaultValue: "Overlay projects still count against monthly category budgets." })}
                                 </CardDescription>
                               </div>
-                              <div className="flex flex-col items-end gap-2">
-                                <span className="rounded-full border border-border/60 bg-background px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                                  {project.status || t("common.active", { defaultValue: "Active" })}
-                                </span>
-                                <span className="rounded-full border border-border/60 bg-muted/30 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-foreground">
-                                  {projectIsIsolated
-                                    ? t("projects.isolated", { defaultValue: "Isolated" })
-                                    : t("projects.overlay", { defaultValue: "Overlay" })}
-                                </span>
+                              <div className="flex shrink-0 items-start gap-2">
+                                <div className="flex flex-col items-end gap-2">
+                                  <span className="rounded-full border border-border/60 bg-background px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                                    {getProjectStatusLabel(projectStatus, t)}
+                                  </span>
+                                  <span className="rounded-full border border-border/60 bg-muted/30 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-foreground">
+                                    {projectIsIsolated
+                                      ? t("projects.isolated", { defaultValue: "Isolated" })
+                                      : t("projects.overlay", { defaultValue: "Overlay" })}
+                                  </span>
+                                </div>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8 rounded-full"
+                                      aria-label={t("common.actions", { defaultValue: "Actions" })}
+                                    >
+                                      <MoreHorizontal className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-56">
+                                    {projectCanModify ? (
+                                      <DropdownMenuItem onSelect={() => setEditProjectModalProject(project)}>
+                                        <Pencil className="mr-2 h-4 w-4" />
+                                        {t("common.edit", { defaultValue: "Edit properties" })}
+                                      </DropdownMenuItem>
+                                    ) : null}
+
+                                    {projectCanModify ? (
+                                      <DropdownMenuItem
+                                        onSelect={() => openProjectStructure(project)}
+                                        disabled={isProjectLifecyclePending}
+                                      >
+                                        <BriefcaseBusiness className="mr-2 h-4 w-4" />
+                                        {projectIsIsolated
+                                          ? t("projects.manageStructure", { defaultValue: "Manage structure" })
+                                          : t("projects.adjustAllocation", { defaultValue: "Adjust allocation" })}
+                                      </DropdownMenuItem>
+                                    ) : null}
+
+                                    {!projectIsIsolated && projectIsActive ? (
+                                      <DropdownMenuItem
+                                        onSelect={() => openProjectLifecycleDialog(project, PROJECT_LIFECYCLE_ACTIONS.PAUSE)}
+                                        disabled={isProjectLifecyclePending}
+                                      >
+                                        <PauseCircle className="mr-2 h-4 w-4" />
+                                        {t("projects.pauseProject", { defaultValue: "Pause project" })}
+                                      </DropdownMenuItem>
+                                    ) : null}
+
+                                    {!projectIsIsolated && projectIsStopped ? (
+                                      <DropdownMenuItem
+                                        onSelect={() => openProjectLifecycleDialog(project, PROJECT_LIFECYCLE_ACTIONS.RESUME)}
+                                        disabled={isProjectLifecyclePending}
+                                      >
+                                        <PlayCircle className="mr-2 h-4 w-4" />
+                                        {t("projects.resumeProject", { defaultValue: "Resume project" })}
+                                      </DropdownMenuItem>
+                                    ) : null}
+
+                                    {!projectIsIsolated && projectCanComplete ? (
+                                      <DropdownMenuItem
+                                        onSelect={() => openProjectLifecycleDialog(project, PROJECT_LIFECYCLE_ACTIONS.COMPLETE)}
+                                        disabled={isProjectLifecyclePending}
+                                      >
+                                        <CalendarClock className="mr-2 h-4 w-4" />
+                                        {projectReadyToWrap
+                                          ? t("projects.wrapUpProject", { defaultValue: "Wrap up project" })
+                                          : projectIsStopped
+                                            ? t("projects.completeNow", { defaultValue: "Complete now" })
+                                            : t("projects.completeEarly", { defaultValue: "Complete early" })}
+                                      </DropdownMenuItem>
+                                    ) : null}
+
+                                    {projectIsArchived ? (
+                                      <DropdownMenuItem
+                                        onSelect={() => reopenProjectMutation.mutate(project.id)}
+                                        disabled={isProjectLifecyclePending}
+                                      >
+                                        <ArchiveRestore className="mr-2 h-4 w-4" />
+                                        {t("common.restore", { defaultValue: "Restore" })}
+                                      </DropdownMenuItem>
+                                    ) : null}
+
+                                    {projectCanModify || projectIsArchived ? <DropdownMenuSeparator /> : null}
+                                    <DropdownMenuItem
+                                      variant="destructive"
+                                      onSelect={() => handleProjectDeleteClick(project)}
+                                      disabled={isProjectDeletionPending || isProjectLifecyclePending}
+                                    >
+                                      <Trash2 className="mr-2 h-4 w-4" />
+                                      {t("common.delete", { defaultValue: "Delete" })}
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               </div>
                             </div>
                           </CardHeader>
@@ -3066,27 +3312,30 @@ export default function Budgets() {
                               </>
                             )}
 
-                            {!projectIsIsolated && (
-                              <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                                <Button
-                                  variant="outline"
-                                  className="rounded-xl"
-                                  onClick={() => openProjectStructure(project)}
-                                >
-                                  {t("projects.adjustAllocation", { defaultValue: "Adjust allocation" })}
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  className="rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                  onClick={() => handleProjectDeleteClick(project)}
-                                  disabled={isProjectDeletionPending}
-                                >
-                                  <Trash2 className="mr-2 h-4 w-4" />
-                                  {t("common.delete", { defaultValue: "Delete" })}
-                                </Button>
+                            {!projectIsIsolated && projectReadyToWrap ? (
+                              <div className="rounded-xl border border-amber-400/40 bg-amber-500/10 p-3">
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+                                      {t("projects.readyToWrap", { defaultValue: "Ready to wrap up" })}
+                                    </p>
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                      {t("projects.readyToWrapDesc", { defaultValue: "The target date has passed. Finish the project when late receipts are done." })}
+                                    </p>
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="rounded-xl"
+                                    onClick={() => openProjectLifecycleDialog(project, PROJECT_LIFECYCLE_ACTIONS.COMPLETE)}
+                                    disabled={isProjectLifecyclePending}
+                                  >
+                                    <CalendarClock className="mr-2 h-4 w-4" />
+                                    {t("projects.wrapUpProject", { defaultValue: "Wrap up project" })}
+                                  </Button>
+                                </div>
                               </div>
-                            )}
+                            ) : null}
                           </CardContent>
                         </Card>
                       );
@@ -5111,6 +5360,31 @@ export default function Budgets() {
         error={actionError}
       />
 
+      <ConfirmDialog
+        open={projectLifecycleOpen}
+        onOpenChange={closeProjectLifecycleDialog}
+        title={projectLifecycleTitle}
+        description={projectLifecycleDescription}
+        onConfirm={handleConfirmProjectLifecycle}
+        confirmText={projectLifecycleConfirmText}
+        cancelText={t("common.cancel", { defaultValue: "Cancel" })}
+        confirmVariant={projectLifecycleIsComplete ? "default" : "outline"}
+        isConfirming={isProjectLifecyclePending}
+      >
+        {projectLifecycleTarget ? (
+          <div className="rounded-md border border-border/70 bg-muted/20 p-3 text-sm text-muted-foreground">
+            <p className="font-medium text-foreground">{projectLifecycleTarget.title}</p>
+            <p className="mt-1">
+              {projectLifecycleIsComplete
+                ? t("projects.completeProjectSweepNote", { defaultValue: "Current and future overlay reservations will be reduced to actual spending. Past months stay unchanged." })
+                : projectLifecycleIsPause
+                  ? t("projects.pauseProjectHoldNote", { defaultValue: "Reserved limits stay held while project expenses are paused." })
+                  : t("projects.resumeProjectSpendNote", { defaultValue: "The project can receive linked expenses again after resume." })}
+            </p>
+          </div>
+        ) : null}
+      </ConfirmDialog>
+
       <ConfigureSurvivalDialog
         open={showSurvivalDialog}
         onOpenChange={setShowSurvivalDialog}
@@ -5170,11 +5444,11 @@ export default function Budgets() {
         compact={useBottomSheetForms}
         open={projectDeletionOpen}
         onOpenChange={closeProjectDeletionResolution}
-        title={t("projects.deleteResolutionTitle", { defaultValue: "Resolve project deletion" })}
+        title={t("projects.deleteResolutionTitle", { defaultValue: "Delete project?" })}
         description={
           projectDeletionTarget
             ? t("projects.deleteResolutionDesc", {
-                defaultValue: "{{title}} has recorded spending attached.",
+                defaultValue: "{{title}} has linked expenses. Choose what should happen to them.",
                 title: projectDeletionTarget.title,
               })
             : ""
@@ -5207,9 +5481,9 @@ export default function Budgets() {
             <div className="rounded-md border border-border/70 bg-background/70 p-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
-                  <p className="font-semibold">{t("projects.archiveOption", { defaultValue: "Archive" })}</p>
+                  <p className="font-semibold">{t("projects.archiveOption", { defaultValue: "Archive project" })}</p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {t("projects.archiveOptionDesc", { defaultValue: "Hide the project while keeping expenses and ledger records intact." })}
+                    {t("projects.archiveOptionDesc", { defaultValue: "Hide the project from daily planning while keeping linked expenses attached." })}
                   </p>
                 </div>
                 <Button
@@ -5229,7 +5503,7 @@ export default function Budgets() {
                 <div className="min-w-0">
                   <p className="font-semibold">{t("projects.detachExpensesOption", { defaultValue: "Detach expenses" })}</p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {t("projects.detachExpensesOptionDesc", { defaultValue: "Turn linked spending into standalone expenses, then delete the project." })}
+                    {t("projects.detachExpensesOptionDesc", { defaultValue: "Keep the expenses in your budgets as standalone spending, then delete the project." })}
                   </p>
                 </div>
                 <Button
@@ -5250,10 +5524,10 @@ export default function Budgets() {
                   <ShieldX className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
                   <div className="min-w-0">
                     <p className="font-semibold text-destructive">
-                      {t("projects.cascadeVoidOption", { defaultValue: "Cascade void" })}
+                      {t("projects.cascadeVoidOption", { defaultValue: "Delete linked expenses and project" })}
                     </p>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {t("projects.cascadeVoidOptionDesc", { defaultValue: "Void linked expenses with reversal ledger entries, then delete the project." })}
+                      {t("projects.cascadeVoidOptionDesc", { defaultValue: "These expenses will no longer count in your budgets or wallet balances. Accounting history is preserved for accuracy." })}
                     </p>
                   </div>
                 </div>
@@ -5271,7 +5545,7 @@ export default function Budgets() {
                   disabled={isProjectDeletionPending || !canCascadeVoidProject}
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
-                  {t("projects.voidAndDelete", { defaultValue: "Void and delete" })}
+                  {t("projects.deleteLinkedExpenses", { defaultValue: "Delete linked expenses" })}
                 </Button>
               </div>
             </div>

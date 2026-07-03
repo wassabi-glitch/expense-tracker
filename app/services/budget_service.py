@@ -18,7 +18,13 @@ from .obligation_source_service import (
     exclude_legacy_payment_plan_debt_duplicate_filter,
     regular_debt_obligation_filters,
 )
-from .project_service import get_project_funding_limit, get_project_target_estimate, get_project_type, is_isolated_project
+from .project_service import (
+    OVERLAY_RESERVATION_HOLDING_STATUSES,
+    get_project_funding_limit,
+    get_project_target_estimate,
+    get_project_type,
+    is_isolated_project,
+)
 from .wallet_value_service import owned_balance
 
 BUDGET_MATERIALIZE_MIN_YEAR = 2020
@@ -531,7 +537,7 @@ def get_overlay_project_reservation_rows(
         .filter(
             models.Project.owner_id == owner_id,
             models.Project.project_type == models.ProjectType.OVERLAY,
-            models.Project.status == models.ProjectStatus.ACTIVE,
+            models.Project.status.in_(OVERLAY_RESERVATION_HOLDING_STATUSES),
             models.ProjectCategoryMonthlyLimit.budget_year == budget_year,
             models.ProjectCategoryMonthlyLimit.budget_month == budget_month,
         )
@@ -563,7 +569,7 @@ def get_overlay_project_reservation_totals(
         .filter(
             models.Project.owner_id == owner_id,
             models.Project.project_type == models.ProjectType.OVERLAY,
-            models.Project.status == models.ProjectStatus.ACTIVE,
+            models.Project.status.in_(OVERLAY_RESERVATION_HOLDING_STATUSES),
             models.ProjectCategoryMonthlyLimit.budget_year == budget_year,
             models.ProjectCategoryMonthlyLimit.budget_month == budget_month,
         )

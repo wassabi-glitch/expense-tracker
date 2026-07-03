@@ -39,6 +39,26 @@ export async function updateProject(projectId, payload) {
     return response.data;
 }
 
+export async function stopProject(projectId) {
+    const response = await apiClient.post(`/projects/${projectId}/stop`);
+    return response.data;
+}
+
+export async function resumeProject(projectId) {
+    const response = await apiClient.post(`/projects/${projectId}/resume`);
+    return response.data;
+}
+
+export async function completeProject(projectId, payload = {}) {
+    const response = await apiClient.post(`/projects/${projectId}/complete`, payload);
+    return response.data;
+}
+
+export async function reopenProject(projectId) {
+    const response = await apiClient.post(`/projects/${projectId}/reopen`);
+    return response.data;
+}
+
 export async function getProjectDeletePreview(projectId) {
     const response = await apiClient.get(`/projects/${projectId}/delete-preview`);
     return response.data;

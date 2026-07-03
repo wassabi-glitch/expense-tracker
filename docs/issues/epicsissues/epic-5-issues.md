@@ -319,7 +319,7 @@ This issue should use the existing month setup backend seam where available and 
 Protect ledger history when deleting overlay projects. A project with no linked expenses (Pristine) can be hard-deleted immediately. If a project has linked financial events (Non-Pristine), clicking "Delete" must present a Resolution Screen with three options:
 1. **Archive:** Safely hide the project while keeping expenses and ledger records intact.
 2. **Detach Expenses:** Remove the `project_id` from all linked expenses (turning them into normal standalone expenses) and then hard-delete the project.
-3. **Cascade Void (Danger Zone):** Force the user to type the project name to confirm. This will automatically VOID all linked expenses (appending ADR-0011 compliant Reversals) and then hard-delete the project.
+3. **Delete linked expenses and project (Danger Zone):** Force the user to type the project name to confirm. The UI should describe the user outcome while the backend preserves ADR-0011 reversal-ledger mechanics internally.
 
 ### Acceptance criteria
 
@@ -328,9 +328,10 @@ Protect ledger history when deleting overlay projects. A project with no linked 
 - [ ] Hard-deleting a pristine overlay project removes its category and subcategory reservation slices and refreshes parent budget limits.
 - [ ] Non-pristine overlay project deletion triggers a UI Resolution modal instead of a direct API delete call.
 - [ ] The Resolution modal lists the number of linked expenses and their total monetary value.
-- [ ] **Archive Option:** Updates project status to `ARCHIVED`.
+- [x] **Archive Option:** Updates project status to `ARCHIVED`.
+- [x] Archived projects reject repeated archive actions with a stable `projects.already_archived` error.
 - [ ] **Detach Option:** Strips `project_id` and `project_subcategory_id` from all linked expenses, then hard-deletes the project.
-- [ ] **Cascade Void Option:** Requires type-to-confirm UX. Triggers backend logic to void all linked expenses (inserting compliant reversal ledger legs) before hard-deleting the project.
+- [x] **Delete linked expenses option:** Requires type-to-confirm UX and uses user-facing copy while backend logic voids linked expenses with compliant reversal ledger legs before hard-deleting the project.
 - [ ] Successful resolution refreshes projects, budgets, expenses list, and dashboard summaries.
 - [ ] Backend tests cover pristine delete, archive state, safe detachment, and ADR-0011 compliant cascade voiding.
 - [ ] Frontend tests cover the resolution modal trigger, the danger zone confirmation state, and API payload correctness.
@@ -358,15 +359,24 @@ Past month slices remain historically preserved under the no-rollover rule.
 
 ### Acceptance criteria
 
-- [ ] Completing an overlay project computes actual spent by project, category/subcategory, year, and month.
-- [ ] Current and future category reservation slices are reduced to actual spent for the matching slice.
-- [ ] Current and future subcategory reservation slices are reduced to actual spent for the matching global subcategory slice.
-- [ ] Completely unspent current/future slices are reduced to zero or removed according to the chosen persistence convention.
-- [ ] Past month slices are not swept or rewritten during completion.
-- [ ] Sweep math treats refunds as reductions to actual spent where the ledger already represents a refund against the project.
-- [ ] Completion cannot set a completion date before linked project activity.
-- [ ] Completing the project marks it completed and prevents further ordinary reservation edits.
-- [ ] The parent budget's reserved amount and free general limit update immediately after sweep.
+- [x] Completion is a user-triggered action; projects are not auto-completed when the target end date arrives.
+- [x] Overdue active projects can surface a ready-to-wrap prompt, but the prompt is a derived UI state, not a stored backend status.
+- [x] Active projects can be completed early before `target_end_date` when the user intentionally wraps up or cancels the project.
+- [x] Normal completion stores the completion as the user's local business date, using the backend effective timezone, without asking the user to type a date.
+- [x] `completed_at` remains a date-only business field; technical audit timestamps remain timezone-aware UTC datetimes.
+- [x] Paused/stopped overlay projects block new project expenses but continue to hold their reservation slices against parent budgets.
+- [x] Paused/stopped overlay projects can be completed directly without first resuming them.
+- [x] Issue 9 sweep runs for both overdue completion and early completion.
+- [x] Fully unspent current/future slices are removed, because current monthly reservation tables require positive `limit_amount`.
+- [x] Completing an overlay project computes actual spent by project, category/subcategory, year, and month.
+- [x] Current and future category reservation slices are reduced to actual spent for the matching slice.
+- [x] Current and future subcategory reservation slices are reduced to actual spent for the matching global subcategory slice.
+- [x] Completely unspent current/future slices are reduced to zero or removed according to the chosen persistence convention.
+- [x] Past month slices are not swept or rewritten during completion.
+- [x] Sweep math treats refunds as reductions to actual spent where the ledger already represents a refund against the project.
+- [x] Completion cannot set a completion date before linked project activity.
+- [x] Completing the project marks it completed and prevents further ordinary reservation edits.
+- [x] The parent budget's reserved amount and free general limit update immediately after sweep.
 - [ ] The UI preview shows planned, actual, and reclaimed reservation amounts before confirmation.
 - [ ] API failures leave project status and reservation slices unchanged.
 - [ ] Backend tests cover under-budget sweep, unspent slice sweep, refund-adjusted actuals, past-month exclusion, linked-expense date guard, and transaction rollback.
