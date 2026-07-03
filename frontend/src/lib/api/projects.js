@@ -39,6 +39,21 @@ export async function updateProject(projectId, payload) {
     return response.data;
 }
 
+export async function getProjectDeletePreview(projectId) {
+    const response = await apiClient.get(`/projects/${projectId}/delete-preview`);
+    return response.data;
+}
+
+export async function deleteProject(projectId) {
+    const response = await apiClient.delete(`/projects/${projectId}`);
+    return response.data;
+}
+
+export async function resolveProjectDeletion(projectId, payload) {
+    const response = await apiClient.post(`/projects/${projectId}/delete-resolution`, payload);
+    return response.data;
+}
+
 export async function createProjectCategoryLimit(projectId, payload) {
     const response = await apiClient.post(`/projects/${projectId}/category-limits`, payload);
     return response.data;

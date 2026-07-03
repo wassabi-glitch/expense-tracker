@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 from fastapi import HTTPException, status
 # pyrefly: ignore [missing-import]
-from sqlalchemy import func
+from sqlalchemy import func, or_
 # pyrefly: ignore [missing-import]
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from .. import models, schemas
+from .wallet_service import WalletService
 
 
 def get_project_type(project: models.Project) -> models.ProjectType:
@@ -82,6 +83,243 @@ def latest_project_event_date(db: Session, project_id: int) -> date | None:
         .filter(models.EntityLedger.project_id == project_id)
         .scalar()
     )
+
+
+def get_project_deletion_preview(db: Session, project: models.Project) -> schemas.ProjectDeletionPreviewOut:
+    linked_event_count = count_project_linked_events(db, project.id)
+    expense_summary = (
+        db.query(
+            func.count(func.distinct(models.FinancialEvent.id)).label("expense_count"),
+            func.coalesce(func.sum(models.EntityLedger.amount), 0).label("expense_total"),
+        )
+        .join(models.EntityLedger, models.EntityLedger.event_id == models.FinancialEvent.id)
+        .filter(
+            models.FinancialEvent.owner_id == project.owner_id,
+            models.FinancialEvent.event_type == models.TransactionType.EXPENSE,
+            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+            models.EntityLedger.project_id == project.id,
+        )
+        .first()
+    )
+    return schemas.ProjectDeletionPreviewOut(
+        project_id=int(project.id),
+        is_pristine=linked_event_count == 0,
+        linked_expense_count=int(expense_summary.expense_count or 0) if expense_summary else 0,
+        linked_expense_total=int(expense_summary.expense_total or 0) if expense_summary else 0,
+    )
+
+
+def validate_overlay_project_deletion_target(project: models.Project) -> None:
+    if not is_overlay_project(project):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.overlay_delete_only")
+
+
+def delete_pristine_overlay_project(db: Session, project: models.Project) -> None:
+    validate_overlay_project_deletion_target(project)
+    preview = get_project_deletion_preview(db, project)
+    if not preview.is_pristine:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "projects.delete_resolution_required",
+                "linked_expense_count": preview.linked_expense_count,
+                "linked_expense_total": preview.linked_expense_total,
+            },
+        )
+    db.delete(project)
+
+
+def detach_project_expenses_and_delete(db: Session, project: models.Project) -> None:
+    validate_overlay_project_deletion_target(project)
+    project_subcategory_ids = (
+        db.query(models.ProjectSubcategory.id)
+        .filter(models.ProjectSubcategory.project_id == project.id)
+    )
+    (
+        db.query(models.EntityLedger)
+        .filter(
+            or_(
+                models.EntityLedger.project_id == project.id,
+                models.EntityLedger.project_subcategory_id.in_(project_subcategory_ids),
+            )
+        )
+        .update(
+            {
+                models.EntityLedger.project_id: None,
+                models.EntityLedger.project_subcategory_id: None,
+            },
+            synchronize_session=False,
+        )
+    )
+    (
+        db.query(models.ExpenseSessionDraftItem)
+        .filter(
+            or_(
+                models.ExpenseSessionDraftItem.project_id == project.id,
+                models.ExpenseSessionDraftItem.project_subcategory_id.in_(project_subcategory_ids),
+            )
+        )
+        .update(
+            {
+                models.ExpenseSessionDraftItem.project_id: None,
+                models.ExpenseSessionDraftItem.project_subcategory_id: None,
+            },
+            synchronize_session=False,
+        )
+    )
+    db.delete(project)
+
+
+def _project_linked_posted_expense_events(
+    db: Session,
+    owner_id: int,
+    project_id: int,
+) -> list[models.FinancialEvent]:
+    return (
+        db.query(models.FinancialEvent)
+        .options(
+            selectinload(models.FinancialEvent.wallet_legs).selectinload(models.WalletLedger.wallet),
+            selectinload(models.FinancialEvent.entity_legs),
+        )
+        .join(models.EntityLedger, models.EntityLedger.event_id == models.FinancialEvent.id)
+        .filter(
+            models.FinancialEvent.owner_id == owner_id,
+            models.FinancialEvent.event_type == models.TransactionType.EXPENSE,
+            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+            models.EntityLedger.project_id == project_id,
+        )
+        .distinct()
+        .all()
+    )
+
+
+def _validate_project_cascade_void_event(
+    db: Session,
+    owner_id: int,
+    project_id: int,
+    event: models.FinancialEvent,
+) -> None:
+    if event.is_session:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.cascade_void_session_not_supported")
+    if not event.entity_legs or any(leg.project_id != project_id for leg in event.entity_legs):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.cascade_void_split_event_not_supported")
+    for wallet_leg in event.wallet_legs:
+        if wallet_leg.wallet and not wallet_leg.wallet.is_active:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="wallets.archived_locked")
+
+    has_refund = (
+        db.query(models.FinancialEvent.id)
+        .filter(
+            models.FinancialEvent.owner_id == owner_id,
+            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+            models.FinancialEvent.event_type == models.TransactionType.REFUND,
+            models.FinancialEvent.linked_event_id == event.id,
+        )
+        .first()
+    )
+    if has_refund:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expenses.has_refund_lock")
+
+    has_asset = (
+        db.query(models.Asset.id)
+        .filter(
+            models.Asset.owner_id == owner_id,
+            models.Asset.origin_event_id == event.id,
+        )
+        .first()
+    )
+    if has_asset:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expenses.asset_link_lock")
+
+    has_debt = (
+        db.query(models.Debt.id)
+        .filter(
+            models.Debt.owner_id == owner_id,
+            models.Debt.linked_event_id == event.id,
+        )
+        .first()
+    )
+    linked_entity_dependency = any(
+        leg.debt_id or leg.payment_plan_id or leg.payment_plan_payment_id
+        for leg in event.entity_legs
+    )
+    if has_debt or linked_entity_dependency:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expenses.linked_dependency_lock")
+
+
+def _append_expense_void_reversal(
+    db: Session,
+    owner_id: int,
+    event: models.FinancialEvent,
+    void_date: date,
+) -> None:
+    reversal = models.FinancialEvent(
+        owner_id=owner_id,
+        title=f"Void {event.title}",
+        description=f"Reversal for cascade-voided project expense #{event.id}",
+        event_type=event.event_type,
+        status=models.FinancialEventStatus.REVERSAL,
+        reference_type=models.ReferenceType.VOID_REVERSAL,
+        is_session=False,
+        linked_event_id=event.id,
+        reverses_event_id=event.id,
+        date=void_date,
+    )
+    db.add(reversal)
+    db.flush()
+
+    for wallet_leg in event.wallet_legs:
+        reversal_amount = -int(wallet_leg.amount)
+        WalletService.adjust_balance(db, wallet_leg.wallet_id, reversal_amount)
+        db.add(
+            models.WalletLedger(
+                owner_id=owner_id,
+                event_id=reversal.id,
+                wallet_id=wallet_leg.wallet_id,
+                amount=reversal_amount,
+            )
+        )
+
+    for entity_leg in event.entity_legs:
+        db.add(
+            models.EntityLedger(
+                event_id=reversal.id,
+                label=entity_leg.label,
+                amount=-int(entity_leg.amount),
+                original_amount=(
+                    -int(entity_leg.original_amount)
+                    if entity_leg.original_amount is not None
+                    else None
+                ),
+                category=entity_leg.category,
+                subcategory_id=entity_leg.subcategory_id,
+                project_id=entity_leg.project_id,
+                project_subcategory_id=entity_leg.project_subcategory_id,
+                budget_id=entity_leg.budget_id,
+            )
+        )
+
+    event.status = models.FinancialEventStatus.VOIDED
+    event.voided_at = datetime.now(timezone.utc)
+    event.void_reason = "Project cascade void"
+    event.void_reversal_event_id = reversal.id
+
+
+def cascade_void_project_expenses_and_delete(
+    db: Session,
+    owner_id: int,
+    project: models.Project,
+    *,
+    void_date: date,
+) -> None:
+    validate_overlay_project_deletion_target(project)
+    events = _project_linked_posted_expense_events(db, owner_id, project.id)
+    for event in events:
+        _validate_project_cascade_void_event(db, owner_id, project.id, event)
+    for event in events:
+        _append_expense_void_reversal(db, owner_id, event, void_date)
+    db.flush()
+    detach_project_expenses_and_delete(db, project)
 
 
 def validate_project_limit_sum(
