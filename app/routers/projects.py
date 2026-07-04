@@ -1243,8 +1243,6 @@ def update_project_subcategory(
         if current_allocated + next_limit_amount > parent_alloc.limit_amount:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.isolated_subcategory_limit_exceeds_category")
 
-        # Check below spent
-        spent = get_isolated_project_category_spent_amount(db, current_user.id, project.id, allocation.category)
         # Note: actually this checks category level, we need subcategory level!
         # For now, it's fine or we should fetch subcategory spent. Let's do it properly:
         from app.services.budget_service import _signed_expense_amount

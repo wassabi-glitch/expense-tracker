@@ -1,7 +1,5 @@
 import pytest
-from app import models
-from app.timezone import today_in_tz
-from tests.helpers import create_user_and_token, TEST_TIMEZONE
+from tests.helpers import create_user_and_token
 
 
 @pytest.fixture
