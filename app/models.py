@@ -2204,7 +2204,7 @@ class OverlayProjectSubcategoryReservation(Base):
             "user_subcategory_id",
             "budget_year",
             "budget_month",
-            name="uq_overlay_project_subcategory_reservations_project_subcategory_month",
+            name="uq_overlay_proj_subcat_res_project_subcat_month",
         ),
         CheckConstraint("budget_month >= 1 AND budget_month <= 12", name="ck_overlay_project_subcategory_reservations_month"),
         CheckConstraint("budget_year >= 2020", name="ck_overlay_project_subcategory_reservations_year"),

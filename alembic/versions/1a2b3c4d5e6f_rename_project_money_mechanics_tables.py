@@ -116,7 +116,7 @@ def upgrade() -> None:
         unique=False,
     )
     op.create_index(
-        op.f("ix_isolated_project_subcategory_allocations_category_allocation_id"),
+        "ix_iso_proj_subcat_alloc_category_alloc_id",
         "isolated_project_subcategory_allocations",
         ["category_allocation_id"],
         unique=False,
@@ -198,7 +198,7 @@ def upgrade() -> None:
     _rename_pg_constraint(
         "overlay_project_subcategory_reservations",
         "uq_project_subcategory_monthly_limits_project_subcategory_month",
-        "uq_overlay_project_subcategory_reservations_project_subcategory_month",
+        "uq_overlay_proj_subcat_res_project_subcat_month",
     )
     _rename_pg_constraint(
         "overlay_project_subcategory_reservations",
@@ -248,7 +248,7 @@ def downgrade() -> None:
 
         _rename_pg_constraint(
             "overlay_project_subcategory_reservations",
-            "uq_overlay_project_subcategory_reservations_project_subcategory_month",
+            "uq_overlay_proj_subcat_res_project_subcat_month",
             "uq_project_subcategory_monthly_limits_project_subcategory_month",
         )
         _rename_pg_constraint(
@@ -336,7 +336,7 @@ def downgrade() -> None:
 
     op.drop_index("ix_isolated_project_subcategory_allocations_taxonomy", table_name="isolated_project_subcategory_allocations")
     op.drop_index("ix_isolated_project_subcategory_allocations_project_category", table_name="isolated_project_subcategory_allocations")
-    op.drop_index(op.f("ix_isolated_project_subcategory_allocations_category_allocation_id"), table_name="isolated_project_subcategory_allocations")
+    op.drop_index("ix_iso_proj_subcat_alloc_category_alloc_id", table_name="isolated_project_subcategory_allocations")
     op.drop_index(op.f("ix_isolated_project_subcategory_allocations_project_id"), table_name="isolated_project_subcategory_allocations")
     op.drop_index(op.f("ix_isolated_project_subcategory_allocations_id"), table_name="isolated_project_subcategory_allocations")
     op.drop_table("isolated_project_subcategory_allocations")
