@@ -2954,7 +2954,7 @@ def test_historical_overlay_project_subcategory_rows_remain_readable(client, ses
     headers = create_user_and_token(client, "overlayhistory", email, "Password123!")
     budget, subcategory, project = _create_overlay_subcategory_context(client, headers)
     user = _get_user(session, email)
-    legacy_project_subcategory = models.ProjectSubcategory(
+    legacy_project_subcategory = models.LegacyProjectSubcategory(
         project_id=project["id"],
         category=models.ExpenseCategory.TRAVEL,
         name="Legacy lodging",

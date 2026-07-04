@@ -12,7 +12,11 @@ Introduce **Isolated Projects**, a fundamentally different beast from Overlay Pr
    - *Routing:* Intercept the main "Create Project" button to display a 2-card splash screen asking the user to choose between "Track an Event (Overlay)" and "Fund a Massive Goal (Isolated)". This acts as the funnel into G27 or G28.
 2. [ ] **[G28 - Isolated Project Wizard](../prd/g28-isolated-project-wizard.md)**
    - *Creation & Architecture:* Build the 4-step wizard (Identity -> Wallet Quarantine -> Internal Categories -> Micro Subcategories) that locks wallet funds into a Derived Total Stash, completely bypassing standard monthly budget limits.
-3. [ ] **[G23 - Project Completion & Wrap-Up](../prd/g23-project-completion-and-wrap-up.md)**
+3. [ ] **[G35 - Project Money Mechanics Architecture Refactor](../prd/g35-project-money-mechanics-refactor.md)**
+   - *Architecture:* Keep the shared project identity shell, but split overlay reservation mechanics and isolated allocation mechanics into explicit storage, service, schema, and UI language before isolated micro-subcategories are built.
+4. [ ] **[G36 - Complete Project Money Mechanics Separation](../prd/g36-complete-project-money-mechanics-separation.md)**
+   - *Cleanup:* Finish Issue 2.5 by removing old mixed project money-mechanics aliases, generic service ownership, and legacy project-local subcategory mechanics before Issue 3.
+5. [ ] **[G23 - Project Completion & Wrap-Up](../prd/g23-project-completion-and-wrap-up.md)**
    - *Lifecycle:* Implement the workflow to cleanly close out an isolated project when its dates have passed, sweeping any unused locked funds back to Free Money.
 
 ## Relevant Edge Cases
@@ -31,10 +35,10 @@ The internals of Isolated Projects are complex. The following edge cases, logged
 - **EC-169: Derived Total Stash vs Abstract Target**
   - The UI must NOT ask for a "Target Amount". The stash is purely derived from whatever the user allocates in the wallet rows.
 - **EC-170: The "Ghost Goal" Anti-Pattern for Direct Projects**
-  - The backend must not create fake goals to lock wallets. It must use a dedicated `ProjectWalletAllocation` table.
+  - The backend must not create fake goals to lock wallets. It must use dedicated isolated project wallet allocation storage.
 - **EC-171: The Premature Graduation Double-Funding Trap**
   - When a Goal graduates into a Project, the Goal is frozen. Future top-ups must happen inside the Project, not the Goal.
 
 ## Execution Rules
-- The database schema updates (`ProjectWalletAllocation`) from EC-170 and EC-171 must be built first.
+- The database schema updates for isolated project wallet allocation storage from EC-170 and EC-171 must be built first.
 - G28 execution will heavily rely on the UI patterns established in the Goal Funding wizard for Wallet locks.

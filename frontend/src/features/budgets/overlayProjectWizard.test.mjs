@@ -3,12 +3,12 @@ import test from "node:test";
 
 import {
   buildOverlayProjectPayload,
-  getOverlayCategoryAllocationRows,
+  getOverlayCategoryReservationRows,
   parseBudgetAmountInput,
 } from "./overlayProjectWizard.js";
 
-test("overlay allocations validate against current-month headroom only", () => {
-  const rows = getOverlayCategoryAllocationRows({
+test("overlay reservation rows validate against current-month headroom only", () => {
+  const rows = getOverlayCategoryReservationRows({
     selectedCategories: ["Travel", "Food"],
     categoryAllocations: {
       Travel: "500 000",
@@ -36,7 +36,7 @@ test("overlay create payload uses one selected budget month for every reservatio
     targetEndDate: "2026-08-28",
     budgetYear: 2026,
     budgetMonth: 7,
-    categoryAllocationRows: [
+    categoryReservationRows: [
       { category: "Travel", amount: 500_000 },
       { category: "Food", amount: null },
     ],

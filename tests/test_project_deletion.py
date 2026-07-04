@@ -116,8 +116,8 @@ def test_pristine_overlay_project_delete_hard_deletes_reservations_and_releases_
     assert travel_after["free_general_limit"] == 1_000_000
 
     session.expire_all()
-    assert session.query(models.ProjectCategoryMonthlyLimit).filter_by(project_id=project_id).count() == 0
-    assert session.query(models.ProjectSubcategoryMonthlyLimit).filter_by(project_id=project_id).count() == 0
+    assert session.query(models.OverlayProjectCategoryReservation).filter_by(project_id=project_id).count() == 0
+    assert session.query(models.OverlayProjectSubcategoryReservation).filter_by(project_id=project_id).count() == 0
 
 
 def test_non_pristine_overlay_delete_requires_resolution_and_archive_keeps_ledger_links(client, session):
