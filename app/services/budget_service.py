@@ -23,7 +23,6 @@ from .project_service import (
     is_isolated_project,
 )
 from .isolated_project_service import (
-    PROJECT_FUNDING_LOCK_STATUSES,
     get_project_category_allocated_amount,
     get_project_funding_limit,
     get_project_unallocated_funding_amount,

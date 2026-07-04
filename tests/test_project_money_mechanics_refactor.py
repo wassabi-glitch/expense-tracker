@@ -1,7 +1,5 @@
 from pathlib import Path
 
-from sqlalchemy import inspect
-
 from app import models
 from tests.helpers import create_budget, create_user_and_token, user_timezone_today
 

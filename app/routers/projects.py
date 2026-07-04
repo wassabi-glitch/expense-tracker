@@ -23,7 +23,6 @@ from ..services.project_service import (
     ensure_project_typology_details,
     get_project_deletion_preview,
     get_project_type,
-    get_owned_project_subcategory_or_404,
     is_isolated_project,
     is_overlay_project,
     latest_project_event_date,
