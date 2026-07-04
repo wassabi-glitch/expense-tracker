@@ -2272,6 +2272,7 @@ class ExpenseSessionDraftItem(Base):
     subcategory_id = Column(Integer, ForeignKey("user_subcategories.id", ondelete="SET NULL"), nullable=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
     project_subcategory_id = Column(Integer, ForeignKey("legacy_project_subcategories.id", ondelete="SET NULL"), nullable=True, index=True)
+    isolated_project_subcategory_id = Column(Integer, ForeignKey("isolated_project_subcategory_allocations.id", ondelete="SET NULL"), nullable=True, index=True)
     sort_order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -2281,6 +2282,7 @@ class ExpenseSessionDraftItem(Base):
     subcategory = relationship("UserSubcategory")
     project = relationship("Project", back_populates="session_draft_items")
     project_subcategory = relationship("LegacyProjectSubcategory")
+    isolated_project_subcategory = relationship("IsolatedProjectSubcategoryAllocation")
 
 
 class ExpenseSessionDraftWalletAllocation(Base):
@@ -2407,6 +2409,7 @@ class EntityLedger(Base):
     subcategory_id = Column(Integer, ForeignKey("user_subcategories.id", ondelete="SET NULL"), nullable=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
     project_subcategory_id = Column(Integer, ForeignKey("legacy_project_subcategories.id", ondelete="SET NULL"), nullable=True, index=True)
+    isolated_project_subcategory_id = Column(Integer, ForeignKey("isolated_project_subcategory_allocations.id", ondelete="SET NULL"), nullable=True, index=True)
     budget_id = Column(Integer, ForeignKey("budgets.id", ondelete="SET NULL"), nullable=True)
     debt_id = Column(Integer, ForeignKey("debts.id", ondelete="SET NULL"), nullable=True)
     income_source_id = Column(Integer, ForeignKey("income_sources.id", ondelete="SET NULL"), nullable=True)
@@ -2422,6 +2425,7 @@ class EntityLedger(Base):
     project = relationship("Project")
     subcategory = relationship("UserSubcategory")
     project_subcategory = relationship("LegacyProjectSubcategory")
+    isolated_project_subcategory = relationship("IsolatedProjectSubcategoryAllocation")
 
 
 class Asset(Base):

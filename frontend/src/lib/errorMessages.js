@@ -372,6 +372,16 @@ export function localizeApiError(message, t) {
       defaultValue: "That wallet does not have enough free money available for this project funding.",
     });
   }
+  if (msg === "projects.wallet_funding_required") {
+    return t("projects.walletFundingRequired", {
+      defaultValue: "This wallet has not funded the isolated project. Choose a project-funded wallet or top up the project first.",
+    });
+  }
+  if (msg === "projects.wallet_funding_exceeded") {
+    return t("projects.walletFundingExceeded", {
+      defaultValue: "This wallet does not have enough remaining project funding. Choose another project wallet, split the payment, or top up first.",
+    });
+  }
   if (msg === "projects.isolated_total_limit_not_allowed_with_wallet_allocations") {
     return t("projects.isolatedTotalLimitNotAllowedWithWalletAllocations", {
       defaultValue: "Project funding is derived from wallet allocations, not a typed target amount.",

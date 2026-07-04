@@ -658,6 +658,20 @@ export default function Expenses() {
       }
       return t("expenses.tooManySoon");
     }
+    if (e?.detail?.code === "projects.wallet_funding_required") {
+      return t("projects.walletFundingRequiredWithWallet", {
+        defaultValue: "{{wallet}} has not funded this isolated project. Choose a project-funded wallet or top up first.",
+        wallet: e.detail.wallet_name || t("wallet.wallet", { defaultValue: "This wallet" }),
+      });
+    }
+    if (e?.detail?.code === "projects.wallet_funding_exceeded") {
+      return t("projects.walletFundingExceededWithAmounts", {
+        defaultValue: "{{wallet}} has {{remaining}} remaining for this isolated project, but this expense asks for {{requested}}.",
+        wallet: e.detail.wallet_name || t("wallet.wallet", { defaultValue: "This wallet" }),
+        remaining: formatUzs(Number(e.detail.remaining_amount || 0)),
+        requested: formatUzs(Number(e.detail.requested_amount || 0)),
+      });
+    }
     return localizeApiError(e?.message, t) || e?.message || t("expenses.requestFailed");
   };
 

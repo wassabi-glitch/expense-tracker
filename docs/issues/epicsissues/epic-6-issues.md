@@ -209,31 +209,40 @@ The completed slice should preserve the distinction from overlay projects: overl
 
 ### Parent
 
-[Epic 6 - Isolated Projects & YNAB Envelopes](../../epics/epic-6-isolated-projects.md), [G28 - Isolated Project Wizard](../../prd/g28-isolated-project-wizard.md), [G23 - Project Completion & Wrap-Up](../../prd/g23-project-completion-and-wrap-up.md)
+[Epic 6 - Isolated Projects & YNAB Envelopes](../../epics/epic-6-isolated-projects.md), [G28 - Isolated Project Wizard](../../prd/g28-isolated-project-wizard.md), [G23 - Project Completion & Wrap-Up](../../prd/g23-project-completion-and-wrap-up.md), [G37 - Strict Isolated Project Wallet Spend Caps](../../prd/g37-strict-isolated-project-wallet-spend-caps.md)
 
 ### What to build
 
-Wire isolated project expense posting to the pooled-vault model. A user should be able to record a real expense against an isolated project category or micro-subcategory and pay from any wallet that is eligible for the project, without the system pretending that a specific wallet funds a specific category.
+Wire isolated project expense posting to the strict pooled-vault model. A user should be able to record a real expense against an isolated project category or micro-subcategory and pay only from wallet funding that is explicitly locked into that isolated project.
+
+For Issue 4, an eligible wallet is a user-owned active wallet with remaining project-funded amount for that specific isolated project. A wallet that contributed `0` cannot pay a normal isolated project expense. A wallet that contributed `400K` cannot pay `401K` toward the project unless future top-up support increases that wallet's project-funded amount.
 
 The expense should bypass normal monthly budget reservation math, remain categorized for global analytics, and preserve the reality-first ledger model while requiring explicit repair when internal project funding would be exceeded.
 
+This keeps the wallet quarantine strict while preserving the category-level pooled-vault rule: wallets do not map to project categories or micro-subcategories. Wallets cap liquidity; categories classify intent.
+
 ### Acceptance criteria
 
-- [ ] Expense creation and session finalization can tag expenses to an isolated project, parent category allocation, and optional micro-subcategory.
-- [ ] Isolated project expense posting does not require or create a monthly budget row before saving the project-linked expense.
-- [ ] Isolated project expenses are paid from real user wallets through the ordinary wallet ledger path.
-- [ ] Any wallet eligible for the user and project can pay an isolated project expense; there is no wallet-to-category mapping.
-- [ ] The backend computes isolated project spent and remaining funding by total stash, parent category, and micro-subcategory from posted ledger truth.
-- [ ] Posting against a completed or archived isolated project is rejected.
-- [ ] Expense posting remains allowed through the full target end date in the user's effective timezone.
-- [ ] Expenses after the target end date are blocked unless the project is reopened or extended through the supported project lifecycle flow.
-- [ ] An expense that would exceed an internal category or micro-subcategory allocation returns a stable resolution error that can drive rebalance or top-up UX.
-- [ ] Isolated project spending can still roll up into global category analytics without reducing overlay reserved scope or monthly budget permission.
-- [ ] Refunds or void/reversal flows reduce isolated project spent totals according to existing immutable ledger mechanics.
-- [ ] Expense details and lists show isolated project context and micro-subcategory context where present.
-- [ ] Backend tests cover pooled wallet payment, no monthly-budget requirement, category and subcategory overrun errors, inclusive target-end-date behavior, timezone boundaries, refunds/reversals, and ownership isolation.
-- [ ] Frontend tests cover isolated project expense selection, micro-subcategory selection, resolution error display, refresh of project funding summaries, and localized errors.
-- [ ] Docker verification passes for focused backend tests and frontend build.
+- [x] Expense creation and session finalization can tag expenses to an isolated project, parent category allocation, and optional micro-subcategory.
+- [x] Isolated project expense posting does not require or create a monthly budget row before saving the project-linked expense.
+- [x] Isolated project expenses are paid from real user wallets through the ordinary wallet ledger path.
+- [x] Only active user-owned wallets with positive remaining funding for the isolated project can pay isolated project expenses.
+- [x] A wallet that did not contribute to the isolated project is rejected for normal isolated project expense posting.
+- [x] A wallet that contributed to the isolated project is rejected when its requested payment exceeds that wallet's remaining project-funded amount.
+- [x] Multi-wallet isolated project expenses are allowed only when each selected wallet covers no more than its own remaining project-funded amount.
+- [x] Strict wallet caps do not create wallet-to-category mappings; project categories and micro-subcategories remain project-intent buckets.
+- [x] The backend computes isolated project spent and remaining funding by total stash, parent category, and micro-subcategory from posted ledger truth.
+- [x] Posting against a completed or archived isolated project is rejected.
+- [x] Expense posting remains allowed through the full target end date in the user's effective timezone.
+- [x] Expenses after the target end date are blocked unless the project is reopened or extended through the supported project lifecycle flow.
+- [x] An expense that would exceed wallet funding, total project funding, internal category funding, or micro-subcategory allocation returns a stable resolution error that can drive choose-wallet, rebalance, or top-up UX.
+- [x] Isolated project spending can still roll up into global category analytics without reducing overlay reserved scope or monthly budget permission.
+- [x] Refunds or void/reversal flows reduce isolated project spent totals according to existing immutable ledger mechanics.
+- [x] Refunds or void/reversal flows restore the relevant wallet's remaining project-funded amount according to existing immutable ledger mechanics.
+- [x] Expense details and lists show isolated project context and micro-subcategory context where present.
+- [x] Backend tests cover pooled wallet payment, no monthly-budget requirement, category and subcategory overrun errors, inclusive target-end-date behavior, timezone boundaries, refunds/reversals, and ownership isolation.
+- [x] Frontend verification covers localized isolated-project wallet errors, project summary cache refresh, and Docker build; backend API tests cover expense and micro-subcategory selection behavior.
+- [x] Docker verification passes for focused backend tests and frontend build.
 
 ### Blocked by
 
