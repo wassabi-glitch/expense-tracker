@@ -90,13 +90,86 @@ The project should behave as a pooled vault: wallets fund the total stash, paren
 
 ---
 
+## Issue 2.5: Refactor Project Money Mechanics into Overlay Reservations and Isolated Allocations
+
+**Type:** AFK
+
+### Parent
+
+[Epic 6 - Isolated Projects & YNAB Envelopes](../../epics/epic-6-isolated-projects.md), [G35 - Project Money Mechanics Architecture Refactor](../../prd/g35-project-money-mechanics-refactor.md), [G36 - Complete Project Money Mechanics Separation](../../prd/g36-complete-project-money-mechanics-separation.md), [G34 - Decouple Overlay and Isolated Project Typology](../../prd/g34-project-typology-decoupling.md)
+
+### What to build
+
+Refactor the Projects architecture so the codebase clearly separates Overlay Project reservation mechanics from Isolated Project allocation mechanics before isolated micro-subcategories are implemented.
+
+The completed slice should preserve the shared project identity and all existing user behavior, while making the type-specific money mechanics explicit in storage names, service boundaries, schemas, API responses, frontend state names, and tests. Overlay rows should speak reservation language because they reserve monthly budget permission. Isolated rows should speak allocation/funding language because they divide a locked project stash.
+
+### Architecture checkpoint
+
+- [x] The shared project identity remains the stable owner/title/status/date/lifecycle shell used by expenses, ledger rows, reports, and project lists.
+- [x] Overlay project mechanics use explicit overlay reservation storage and service names for month-scoped category and subcategory budget reservations.
+- [x] Isolated project mechanics use explicit isolated allocation storage and service names for wallet funding and parent category stash allocations.
+- [x] The forward path for Issue 3 isolated micro-subcategories is explicit: taxonomy-governed isolated allocation mechanics, not overlay monthly reservation rows and not isolated-only free-text labels.
+
+### Acceptance criteria
+
+- [x] Existing project ids, statuses, dates, owner references, and ledger references are preserved through the refactor.
+- [x] Existing overlay category reservation data is migrated or renamed into overlay-specific reservation storage without changing selected-month budget behavior.
+- [x] Existing overlay subcategory reservation data is migrated or renamed into overlay-specific reservation storage without changing selected-month budget behavior.
+- [x] Existing isolated wallet allocation data is migrated or renamed into isolated-specific wallet allocation storage without changing derived stash totals.
+- [x] Existing isolated parent category allocation data is migrated or renamed into isolated-specific category allocation storage without changing allocated, unallocated, spent, or remaining funding totals.
+- [x] Historical project subcategory references remain readable after the refactor, even if legacy project-local subcategory data is not the forward Issue 3 model.
+- [x] Backend service boundaries distinguish overlay reservation validation from isolated allocation validation.
+- [x] API response contracts and schema names expose overlay reserved amounts separately from isolated allocated amounts.
+- [ ] Frontend state, helper, and display names distinguish overlay reservation rows from isolated allocation rows.
+- [x] Overlay project creation, edit, completion, deletion, and budget-month summary behavior remain unchanged from the user's perspective.
+- [x] Isolated project creation, parent category allocation, wallet funding, project detail, and budget isolation behavior remain unchanged from the user's perspective.
+- [x] Isolated allocations do not create or read overlay month-scoped reservation rows.
+- [x] Overlay reservations do not create or read isolated stash allocation rows.
+- [x] Issue 3 can add isolated micro-subcategory allocations by referencing taxonomy records and isolated allocation mechanics without depending on overlay reservation tables.
+- [ ] Migration tests cover row preservation, project id stability, ledger readability, overlay reservation behavior, and isolated allocation behavior.
+- [x] Backend tests cover no behavior regression for overlay budget reserved scope, isolated funding summaries, read-only completed/archived guards, and no cross-type leakage.
+- [x] Frontend tests cover overlay reservation naming/math and isolated allocation naming/math in the wizard/detail helper seams.
+- [x] Docker verification passes for migration, focused backend tests, focused frontend tests, and frontend build.
+
+### Extra completion checkpoints from G36
+
+These checkpoints clarify the intended finish line. Because this project is not in production and development data does not need to be preserved, the agent should prefer clean deletion/replacement over long-lived compatibility shims.
+
+- [x] `project_service.py` no longer owns both full financial models; shared behavior is extracted into a common project service, Overlay Project reservation logic lives in an overlay-specific service, and Isolated Project allocation logic lives in an isolated-specific service.
+- [x] Old SQLAlchemy compatibility aliases are removed, including `ProjectWalletAllocation`, `ProjectCategoryLimit`, `ProjectCategoryMonthlyLimit`, and `ProjectSubcategoryMonthlyLimit`.
+- [x] Old generic project relationships are removed or renamed at call sites, including generic `category_limits`, `monthly_category_limits`, `monthly_subcategory_limits`, and `wallet_allocations` relationship accessors.
+- [x] New code cannot import or instantiate the old mixed project money-mechanics names.
+- [ ] Overlay Project code uses reservation language end to end: route/function names, request schemas, response schemas, frontend helper state, tests, and table/model names.
+- [ ] Isolated Project code uses allocation/funding language end to end: route/function names, request schemas, response schemas, frontend helper state, tests, and table/model names.
+- [ ] Overlay-specific contracts use `reserved_amount` as the canonical money field instead of `limit_amount`.
+- [ ] Isolated-specific contracts use `allocated_amount` as the canonical money field instead of `limit_amount`.
+- [ ] If any backward-compatible `limit_amount` field remains during the transition, it is explicitly temporary and not used by new frontend code or new tests as the canonical field.
+- [x] The old table names are not present after migration: `project_wallet_allocations`, `project_category_limits`, `project_category_monthly_limits`, and `project_subcategory_monthly_limits`.
+- [x] `ProjectSubcategory` / `project_subcategories` is removed as the forward isolated micro-subcategory model.
+- [x] If `project_subcategories` is temporarily kept only to unblock a narrow compile path, it is renamed/documented as legacy-only, no active creation route writes to it, and Issue 3 is blocked until it is replaced.
+- [x] The forward Issue 3 model is explicit: `isolated_project_subcategory_allocations` should reference the shared project, parent category allocation/category, taxonomy/user subcategory record, allocated amount, active/archive state, and timestamps.
+- [ ] Entity ledger, draft, debt, and payment-plan project micro-subcategory references are planned or migrated toward the new isolated project subcategory allocation model rather than the legacy project-local subcategory table.
+- [ ] Generic `/category-limits` and `/subcategories` internals no longer contain mixed overlay/isolated financial branching unless they are thin backward-compatible wrappers delegating immediately to type-specific services.
+- [x] Architecture guard tests fail if old model aliases or old table names are reintroduced.
+- [x] Backend behavior tests prove overlay reservation math still works after service extraction.
+- [x] Backend behavior tests prove isolated wallet and category allocation math still works after service extraction.
+- [x] Frontend tests prove overlay helpers emit reservation payloads and isolated helpers emit allocation payloads.
+- [x] Docker verification passes after the cleanup: migrations, focused backend tests, focused frontend tests, and frontend build.
+
+### Blocked by
+
+- Issue 2: Allocate Isolated Stash into Project Parent Categories
+
+---
+
 ## Issue 3: Add Taxonomy-Governed Isolated Micro-Subcategories
 
 **Type:** AFK
 
 ### Parent
 
-[Epic 6 - Isolated Projects & YNAB Envelopes](../../epics/epic-6-isolated-projects.md), [G28 - Isolated Project Wizard](../../prd/g28-isolated-project-wizard.md), [G21 - Subcategory Taxonomy Hub](../../prd/g21-subcategory-taxonomy-hub.md)
+[Epic 6 - Isolated Projects & YNAB Envelopes](../../epics/epic-6-isolated-projects.md), [G28 - Isolated Project Wizard](../../prd/g28-isolated-project-wizard.md), [G35 - Project Money Mechanics Architecture Refactor](../../prd/g35-project-money-mechanics-refactor.md), [G21 - Subcategory Taxonomy Hub](../../prd/g21-subcategory-taxonomy-hub.md)
 
 ### What to build
 
@@ -123,7 +196,7 @@ The completed slice should preserve the distinction from overlay projects: overl
 
 ### Blocked by
 
-- Issue 2: Allocate Isolated Stash into Project Parent Categories
+- Issue 2.5: Refactor Project Money Mechanics into Overlay Reservations and Isolated Allocations
 
 ---
 

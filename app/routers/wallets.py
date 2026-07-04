@@ -12,7 +12,7 @@ from ..services.goal_funding_service import (
     release_wallet_goal_allocations,
     validate_wallet_goal_protection_for_outflow,
 )
-from ..services.project_service import get_wallet_project_allocated_amount
+from ..services.isolated_project_service import get_wallet_project_allocated_amount
 from ..services.wallet_fee_service import (
     get_owned_fee_wallet_or_404,
     record_linked_bank_fee_event,

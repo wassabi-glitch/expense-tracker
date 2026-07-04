@@ -134,7 +134,7 @@ def validate_session_item_links(
     subcategory_id: int | None,
     project_id: int | None,
     project_subcategory_id: int | None = None,
-) -> tuple[models.UserSubcategory | None, models.Project | None, models.ProjectSubcategory | None]:
+) -> tuple[models.UserSubcategory | None, models.Project | None, models.LegacyProjectSubcategory | None]:
     subcategory = None
     if subcategory_id is not None:
         subcategory = get_owned_subcategory_or_404(db, owner_id, subcategory_id)
@@ -374,7 +374,7 @@ def finalize_session_draft(
             int,
             models.UserSubcategory | None,
             models.Project | None,
-            models.ProjectSubcategory | None,
+            models.LegacyProjectSubcategory | None,
             models.Budget | None,
         ]
     ] = []

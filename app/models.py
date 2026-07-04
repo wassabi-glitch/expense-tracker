@@ -492,8 +492,8 @@ class User(Base):
         "GoalContributions", back_populates="owner", cascade="all, delete")
     goal_project_releases = relationship(
         "GoalProjectRelease", back_populates="owner", cascade="all, delete-orphan")
-    project_wallet_allocations = relationship(
-        "ProjectWalletAllocation", back_populates="owner", cascade="all, delete-orphan")
+    isolated_project_wallet_allocations = relationship(
+        "IsolatedProjectWalletAllocation", back_populates="owner", cascade="all, delete-orphan")
     reset_tokens = relationship(
         "PasswordResetToken", back_populates="user", cascade="all, delete-orphan")
     email_verification_tokens = relationship(
@@ -653,7 +653,7 @@ class Wallet(Base):
     owner = relationship("User", back_populates="wallets")
     ledger_entries = relationship("WalletLedger", back_populates="wallet", cascade="all, delete-orphan")
     goal_contributions = relationship("GoalContributions", back_populates="wallet")
-    project_allocations = relationship("ProjectWalletAllocation", back_populates="wallet")
+    isolated_project_allocations = relationship("IsolatedProjectWalletAllocation", back_populates="wallet")
 
 
 class WalletTransfer(Base):
@@ -1432,12 +1432,12 @@ class Debt(Base):
     expense_category = Column(Enum(ExpenseCategory), nullable=True)
     expense_subcategory_id = Column(Integer, ForeignKey("user_subcategories.id", ondelete="SET NULL"), nullable=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="SET NULL", use_alter=True, name="fk_debts_project_id"), nullable=True)
-    project_subcategory_id = Column(Integer, ForeignKey("project_subcategories.id", ondelete="SET NULL", use_alter=True, name="fk_debts_project_subcategory_id"), nullable=True)
+    project_subcategory_id = Column(Integer, ForeignKey("legacy_project_subcategories.id", ondelete="SET NULL", use_alter=True, name="fk_debts_project_subcategory_id"), nullable=True)
     income_source_id = Column(Integer, ForeignKey("income_sources.id", ondelete="SET NULL"), nullable=True)
 
     expense_subcategory = relationship("UserSubcategory")
     project = relationship("Project")
-    project_subcategory = relationship("ProjectSubcategory")
+    project_subcategory = relationship("LegacyProjectSubcategory")
 
 
 
@@ -1750,7 +1750,7 @@ class PaymentPlan(Base):
     expense_category = Column(Enum(ExpenseCategory), nullable=True)
     expense_subcategory_id = Column(Integer, ForeignKey("user_subcategories.id", ondelete="SET NULL"), nullable=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="SET NULL", use_alter=True, name="fk_payment_plans_project_id"), nullable=True)
-    project_subcategory_id = Column(Integer, ForeignKey("project_subcategories.id", ondelete="SET NULL", use_alter=True, name="fk_payment_plans_project_subcategory_id"), nullable=True)
+    project_subcategory_id = Column(Integer, ForeignKey("legacy_project_subcategories.id", ondelete="SET NULL", use_alter=True, name="fk_payment_plans_project_subcategory_id"), nullable=True)
     asset_id = Column(Integer, ForeignKey("assets.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -1764,7 +1764,7 @@ class PaymentPlan(Base):
     debt = relationship("Debt", back_populates="payment_plan")
     expense_subcategory = relationship("UserSubcategory")
     project = relationship("Project")
-    project_subcategory = relationship("ProjectSubcategory")
+    project_subcategory = relationship("LegacyProjectSubcategory")
     asset = relationship("Asset")
 
 
@@ -1931,7 +1931,7 @@ class UserSubcategory(Base):
     monthly_limits = relationship(
         "BudgetSubcategoryLimit", back_populates="subcategory", cascade="all, delete-orphan")
     project_monthly_limits = relationship(
-        "ProjectSubcategoryMonthlyLimit", back_populates="user_subcategory", cascade="all, delete-orphan")
+        "OverlayProjectSubcategoryReservation", back_populates="user_subcategory", cascade="all, delete-orphan")
 
 
 class BudgetSubcategoryLimit(Base):
@@ -2016,17 +2016,19 @@ class Project(Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
-    category_limits = relationship("ProjectCategoryLimit", back_populates="project", cascade="all, delete-orphan")
-    monthly_category_limits = relationship(
-        "ProjectCategoryMonthlyLimit", back_populates="project", cascade="all, delete-orphan"
+    isolated_category_allocations = relationship(
+        "IsolatedProjectCategoryAllocation", back_populates="project", cascade="all, delete-orphan"
     )
-    subcategories = relationship("ProjectSubcategory", back_populates="project", cascade="all, delete-orphan")
-    monthly_subcategory_limits = relationship(
-        "ProjectSubcategoryMonthlyLimit", back_populates="project", cascade="all, delete-orphan"
+    overlay_category_reservations = relationship(
+        "OverlayProjectCategoryReservation", back_populates="project", cascade="all, delete-orphan"
+    )
+    legacy_subcategories = relationship("LegacyProjectSubcategory", back_populates="project", cascade="all, delete-orphan")
+    overlay_subcategory_reservations = relationship(
+        "OverlayProjectSubcategoryReservation", back_populates="project", cascade="all, delete-orphan"
     )
     goal_releases = relationship("GoalProjectRelease", back_populates="project", cascade="all, delete-orphan")
-    wallet_allocations = relationship(
-        "ProjectWalletAllocation",
+    isolated_wallet_allocations = relationship(
+        "IsolatedProjectWalletAllocation",
         back_populates="project",
         cascade="all, delete-orphan",
     )
@@ -2069,13 +2071,13 @@ class ProjectIsolatedDetail(Base):
     owner = relationship("User")
 
 
-class ProjectWalletAllocation(Base):
-    __tablename__ = "project_wallet_allocations"
+class IsolatedProjectWalletAllocation(Base):
+    __tablename__ = "isolated_project_wallet_allocations"
     __table_args__ = (
-        UniqueConstraint("project_id", "wallet_id", name="uq_project_wallet_allocations_project_wallet"),
-        CheckConstraint("amount > 0", name="ck_project_wallet_allocations_amount_positive"),
-        CheckConstraint("amount <= 999999999999", name="ck_project_wallet_allocations_amount_max"),
-        Index("ix_project_wallet_allocations_owner_wallet", "owner_id", "wallet_id"),
+        UniqueConstraint("project_id", "wallet_id", name="uq_isolated_project_wallet_allocations_project_wallet"),
+        CheckConstraint("amount > 0", name="ck_isolated_project_wallet_allocations_amount_positive"),
+        CheckConstraint("amount <= 999999999999", name="ck_isolated_project_wallet_allocations_amount_max"),
+        Index("ix_isolated_project_wallet_allocations_owner_wallet", "owner_id", "wallet_id"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -2086,15 +2088,15 @@ class ProjectWalletAllocation(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    project = relationship("Project", back_populates="wallet_allocations")
-    owner = relationship("User", back_populates="project_wallet_allocations")
-    wallet = relationship("Wallet", back_populates="project_allocations")
+    project = relationship("Project", back_populates="isolated_wallet_allocations")
+    owner = relationship("User", back_populates="isolated_project_wallet_allocations")
+    wallet = relationship("Wallet", back_populates="isolated_project_allocations")
 
 
-class ProjectCategoryLimit(Base):
-    __tablename__ = "project_category_limits"
+class IsolatedProjectCategoryAllocation(Base):
+    __tablename__ = "isolated_project_category_allocations"
     __table_args__ = (
-        UniqueConstraint("project_id", "category", name="uq_project_category_limits"),
+        UniqueConstraint("project_id", "category", name="uq_isolated_project_category_allocations_project_category"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -2102,24 +2104,24 @@ class ProjectCategoryLimit(Base):
     category = Column(Enum(ExpenseCategory), nullable=False)
     limit_amount = Column(BigInteger, nullable=False)
     
-    project = relationship("Project", back_populates="category_limits")
+    project = relationship("Project", back_populates="isolated_category_allocations")
 
 
-class ProjectCategoryMonthlyLimit(Base):
-    __tablename__ = "project_category_monthly_limits"
+class OverlayProjectCategoryReservation(Base):
+    __tablename__ = "overlay_project_category_reservations"
     __table_args__ = (
         UniqueConstraint(
             "project_id",
             "category",
             "budget_year",
             "budget_month",
-            name="uq_project_category_monthly_limits_project_category_month",
+            name="uq_overlay_project_category_reservations_project_category_month",
         ),
-        CheckConstraint("budget_month >= 1 AND budget_month <= 12", name="ck_project_category_monthly_limits_month"),
-        CheckConstraint("budget_year >= 2020", name="ck_project_category_monthly_limits_year"),
-        CheckConstraint("limit_amount > 0", name="ck_project_category_monthly_limits_amount_positive"),
-        CheckConstraint("limit_amount <= 999999999999", name="ck_project_category_monthly_limits_amount_max"),
-        Index("ix_project_category_monthly_limits_month", "budget_year", "budget_month", "category"),
+        CheckConstraint("budget_month >= 1 AND budget_month <= 12", name="ck_overlay_project_category_reservations_month"),
+        CheckConstraint("budget_year >= 2020", name="ck_overlay_project_category_reservations_year"),
+        CheckConstraint("limit_amount > 0", name="ck_overlay_project_category_reservations_amount_positive"),
+        CheckConstraint("limit_amount <= 999999999999", name="ck_overlay_project_category_reservations_amount_max"),
+        Index("ix_overlay_project_category_reservations_month", "budget_year", "budget_month", "category"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -2131,14 +2133,20 @@ class ProjectCategoryMonthlyLimit(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    project = relationship("Project", back_populates="monthly_category_limits")
+    project = relationship("Project", back_populates="overlay_category_reservations")
 
 
-class ProjectSubcategory(Base):
-    __tablename__ = "project_subcategories"
+class LegacyProjectSubcategory(Base):
+    """Legacy-only project-local subcategories kept for historical references.
+
+    Forward isolated micro-subcategory work must use
+    IsolatedProjectSubcategoryAllocation, which references user taxonomy.
+    """
+
+    __tablename__ = "legacy_project_subcategories"
     __table_args__ = (
-        UniqueConstraint("project_id", "category", "name", name="uq_project_subcategories_project_category_name"),
-        Index("ix_project_subcategories_project_category", "project_id", "category"),
+        UniqueConstraint("project_id", "category", "name", name="uq_legacy_project_subcategories_project_category_name"),
+        Index("ix_legacy_project_subcategories_project_category", "project_id", "category"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -2150,25 +2158,60 @@ class ProjectSubcategory(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    project = relationship("Project", back_populates="subcategories")
+    project = relationship("Project", back_populates="legacy_subcategories")
 
 
-class ProjectSubcategoryMonthlyLimit(Base):
-    __tablename__ = "project_subcategory_monthly_limits"
+class IsolatedProjectSubcategoryAllocation(Base):
+    __tablename__ = "isolated_project_subcategory_allocations"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "user_subcategory_id",
+            name="uq_isolated_project_subcategory_allocations_project_taxonomy",
+        ),
+        CheckConstraint("allocated_amount > 0", name="ck_isolated_project_subcategory_allocations_amount_positive"),
+        CheckConstraint("allocated_amount <= 999999999999", name="ck_isolated_project_subcategory_allocations_amount_max"),
+        Index("ix_isolated_project_subcategory_allocations_project_category", "project_id", "category"),
+        Index("ix_isolated_project_subcategory_allocations_taxonomy", "user_subcategory_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    category_allocation_id = Column(
+        Integer,
+        ForeignKey("isolated_project_category_allocations.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    category = Column(Enum(ExpenseCategory), nullable=False)
+    user_subcategory_id = Column(Integer, ForeignKey("user_subcategories.id", ondelete="RESTRICT"), nullable=False)
+    allocated_amount = Column(BigInteger, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    archived_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    project = relationship("Project")
+    category_allocation = relationship("IsolatedProjectCategoryAllocation")
+    user_subcategory = relationship("UserSubcategory")
+
+
+class OverlayProjectSubcategoryReservation(Base):
+    __tablename__ = "overlay_project_subcategory_reservations"
     __table_args__ = (
         UniqueConstraint(
             "project_id",
             "user_subcategory_id",
             "budget_year",
             "budget_month",
-            name="uq_project_subcategory_monthly_limits_project_subcategory_month",
+            name="uq_overlay_proj_subcat_res_project_subcat_month",
         ),
-        CheckConstraint("budget_month >= 1 AND budget_month <= 12", name="ck_project_subcategory_monthly_limits_month"),
-        CheckConstraint("budget_year >= 2020", name="ck_project_subcategory_monthly_limits_year"),
-        CheckConstraint("limit_amount > 0", name="ck_project_subcategory_monthly_limits_amount_positive"),
-        CheckConstraint("limit_amount <= 999999999999", name="ck_project_subcategory_monthly_limits_amount_max"),
-        Index("ix_project_subcategory_monthly_limits_month", "budget_year", "budget_month", "category"),
-        Index("ix_project_subcategory_monthly_limits_subcategory", "user_subcategory_id"),
+        CheckConstraint("budget_month >= 1 AND budget_month <= 12", name="ck_overlay_project_subcategory_reservations_month"),
+        CheckConstraint("budget_year >= 2020", name="ck_overlay_project_subcategory_reservations_year"),
+        CheckConstraint("limit_amount > 0", name="ck_overlay_project_subcategory_reservations_amount_positive"),
+        CheckConstraint("limit_amount <= 999999999999", name="ck_overlay_project_subcategory_reservations_amount_max"),
+        Index("ix_overlay_project_subcategory_reservations_month", "budget_year", "budget_month", "category"),
+        Index("ix_overlay_project_subcategory_reservations_subcategory", "user_subcategory_id"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -2181,7 +2224,7 @@ class ProjectSubcategoryMonthlyLimit(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    project = relationship("Project", back_populates="monthly_subcategory_limits")
+    project = relationship("Project", back_populates="overlay_subcategory_reservations")
     user_subcategory = relationship("UserSubcategory", back_populates="project_monthly_limits")
 
 
@@ -2228,7 +2271,7 @@ class ExpenseSessionDraftItem(Base):
     category = Column(Enum(ExpenseCategory), nullable=False)
     subcategory_id = Column(Integer, ForeignKey("user_subcategories.id", ondelete="SET NULL"), nullable=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
-    project_subcategory_id = Column(Integer, ForeignKey("project_subcategories.id", ondelete="SET NULL"), nullable=True, index=True)
+    project_subcategory_id = Column(Integer, ForeignKey("legacy_project_subcategories.id", ondelete="SET NULL"), nullable=True, index=True)
     sort_order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -2237,7 +2280,7 @@ class ExpenseSessionDraftItem(Base):
     owner = relationship("User", back_populates="expense_session_draft_items")
     subcategory = relationship("UserSubcategory")
     project = relationship("Project", back_populates="session_draft_items")
-    project_subcategory = relationship("ProjectSubcategory")
+    project_subcategory = relationship("LegacyProjectSubcategory")
 
 
 class ExpenseSessionDraftWalletAllocation(Base):
@@ -2363,7 +2406,7 @@ class EntityLedger(Base):
     category = Column(Enum(ExpenseCategory), nullable=True)
     subcategory_id = Column(Integer, ForeignKey("user_subcategories.id", ondelete="SET NULL"), nullable=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
-    project_subcategory_id = Column(Integer, ForeignKey("project_subcategories.id", ondelete="SET NULL"), nullable=True, index=True)
+    project_subcategory_id = Column(Integer, ForeignKey("legacy_project_subcategories.id", ondelete="SET NULL"), nullable=True, index=True)
     budget_id = Column(Integer, ForeignKey("budgets.id", ondelete="SET NULL"), nullable=True)
     debt_id = Column(Integer, ForeignKey("debts.id", ondelete="SET NULL"), nullable=True)
     income_source_id = Column(Integer, ForeignKey("income_sources.id", ondelete="SET NULL"), nullable=True)
@@ -2378,7 +2421,7 @@ class EntityLedger(Base):
     payment_plan_payment = relationship("PaymentPlanPayment")
     project = relationship("Project")
     subcategory = relationship("UserSubcategory")
-    project_subcategory = relationship("ProjectSubcategory")
+    project_subcategory = relationship("LegacyProjectSubcategory")
 
 
 class Asset(Base):

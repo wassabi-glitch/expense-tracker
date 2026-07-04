@@ -119,14 +119,14 @@ def test_project_date_update_prunes_empty_slices(client, session):
     assert update.status_code == 200, update.text
     
     # Verify July slices are gone from DB
-    cat_limits = session.query(models.ProjectCategoryMonthlyLimit).filter(
-        models.ProjectCategoryMonthlyLimit.project_id == project["id"]
+    cat_limits = session.query(models.OverlayProjectCategoryReservation).filter(
+        models.OverlayProjectCategoryReservation.project_id == project["id"]
     ).all()
     assert len(cat_limits) == 1
     assert cat_limits[0].budget_month == 6
     
-    sub_limits = session.query(models.ProjectSubcategoryMonthlyLimit).filter(
-        models.ProjectSubcategoryMonthlyLimit.project_id == project["id"]
+    sub_limits = session.query(models.OverlayProjectSubcategoryReservation).filter(
+        models.OverlayProjectSubcategoryReservation.project_id == project["id"]
     ).all()
     assert len(sub_limits) == 1
     assert sub_limits[0].budget_month == 6
@@ -181,8 +181,8 @@ def test_project_date_update_removes_target_end_date(client, session):
     assert update.status_code == 200
     
     # Verify both June and July slices remain
-    cat_limits = session.query(models.ProjectCategoryMonthlyLimit).filter(
-        models.ProjectCategoryMonthlyLimit.project_id == project["id"]
+    cat_limits = session.query(models.OverlayProjectCategoryReservation).filter(
+        models.OverlayProjectCategoryReservation.project_id == project["id"]
     ).all()
     assert len(cat_limits) == 2
 
@@ -216,16 +216,16 @@ def test_project_date_update_adds_target_end_date_prunes_future(client, session)
     assert update.status_code == 200
     
     # Verify August slices are pruned, June and July remain
-    cat_limits = session.query(models.ProjectCategoryMonthlyLimit).filter(
-        models.ProjectCategoryMonthlyLimit.project_id == project["id"]
-    ).order_by(models.ProjectCategoryMonthlyLimit.budget_month).all()
+    cat_limits = session.query(models.OverlayProjectCategoryReservation).filter(
+        models.OverlayProjectCategoryReservation.project_id == project["id"]
+    ).order_by(models.OverlayProjectCategoryReservation.budget_month).all()
     assert len(cat_limits) == 2
     assert cat_limits[0].budget_month == 6
     assert cat_limits[1].budget_month == 7
     
-    sub_limits = session.query(models.ProjectSubcategoryMonthlyLimit).filter(
-        models.ProjectSubcategoryMonthlyLimit.project_id == project["id"]
-    ).order_by(models.ProjectSubcategoryMonthlyLimit.budget_month).all()
+    sub_limits = session.query(models.OverlayProjectSubcategoryReservation).filter(
+        models.OverlayProjectSubcategoryReservation.project_id == project["id"]
+    ).order_by(models.OverlayProjectSubcategoryReservation.budget_month).all()
     assert len(sub_limits) == 2
     assert sub_limits[0].budget_month == 6
     assert sub_limits[1].budget_month == 7

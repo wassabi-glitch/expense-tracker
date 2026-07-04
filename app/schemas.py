@@ -2801,6 +2801,8 @@ class BudgetRecalculateRequest(BaseModel):
 class ProjectBudgetCategoryOut(BaseModel):
     category: ExpenseCategory
     limit_amount: Optional[int] = None
+    allocated_amount: Optional[int] = None
+    reserved_amount: Optional[int] = None
     budget_year: Optional[int] = None
     budget_month: Optional[int] = None
     spent: int = 0
@@ -2818,6 +2820,8 @@ class ProjectSubcategoryOut(BaseModel):
     budget_year: Optional[int] = None
     budget_month: Optional[int] = None
     limit_amount: Optional[int] = None
+    allocated_amount: Optional[int] = None
+    reserved_amount: Optional[int] = None
     spent: int = 0
     remaining: Optional[int] = None
     is_over_limit: bool = False

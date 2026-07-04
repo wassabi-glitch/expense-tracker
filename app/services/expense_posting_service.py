@@ -28,7 +28,7 @@ class ExpensePostingResult:
     wallet_allocations: list[tuple[models.Wallet, int]]
     subcategory: models.UserSubcategory | None
     project: models.Project | None
-    project_subcategory: models.ProjectSubcategory | None
+    project_subcategory: models.LegacyProjectSubcategory | None
 
 
 def validate_real_expense_category(category: models.ExpenseCategory) -> None:

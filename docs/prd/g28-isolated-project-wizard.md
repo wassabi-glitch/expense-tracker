@@ -32,8 +32,8 @@ Implement a 3-Step Creation Wizard for Direct Isolated Projects that forces user
 - **The Pooled Vault Architecture**: Wallets are NOT directly mapped to Categories. Wallets fund the total stash. Categories draw from the total stash.
 - **The Cascading Top-Up**: When injecting new Free Money directly into a project subcategory, the system must prompt the user to select the funding wallet, and then execute the ledger updates sequentially: Wallet -> Project Stash -> Parent Category -> Subcategory.
 - **Over-Planned Enforcement**: If a project expense forces the project stash below 0, the system must absorb the shock by draining global `Free Money Now`. If this drops below 0, the monthly plan state becomes `Over-Planned`.
-- **Single Table Project Architecture**: Overlay and Isolated projects will share a single `projects` table using a `project_type` Enum (`OVERLAY`, `ISOLATED`). The differing mechanics are enforced by their relation tables: Overlay uses `BudgetProjectReservation` (month slices), while Isolated uses `ProjectWalletAllocation` (physical cash quarantine).
-- **The `ProjectWalletAllocation` Table**: A new database table mapping `project_id`, `wallet_id`, and `amount` must be created. This acts as the single source of truth for an Isolated Project's total stash (which is mathematically derived as `SUM(amount)`).
+- **Single Table Project Architecture**: Overlay and Isolated projects will share a single `projects` table using a `project_type` Enum (`OVERLAY`, `ISOLATED`). The differing mechanics are enforced by their relation tables: Overlay uses month-scoped reservation storage, while Isolated uses isolated project wallet allocation storage for physical cash quarantine.
+- **The Isolated Project Wallet Allocation Table**: A database table mapping `project_id`, `wallet_id`, and `amount` acts as the single source of truth for an Isolated Project's total stash (which is mathematically derived as `SUM(amount)`). G36 supersedes the older generic `ProjectWalletAllocation` naming.
 
 ## Testing Decisions
 

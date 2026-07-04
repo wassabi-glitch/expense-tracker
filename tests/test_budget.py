@@ -2916,7 +2916,7 @@ def test_overlay_expense_uses_project_id_with_global_subcategory_id(client, sess
     assert project_subcategory["remaining"] == 120_000
 
 
-def test_isolated_project_subcategory_behavior_stays_project_local(client):
+def test_isolated_project_subcategory_creation_is_blocked_until_issue3(client):
     headers = create_user_and_token(
         client, "isolatedsubstill", "isolatedsubstill@example.com", "Password123!"
     )
@@ -2944,9 +2944,8 @@ def test_isolated_project_subcategory_behavior_stays_project_local(client):
         json={"category": "Family & Events", "name": "Venue", "limit_amount": 500_000},
         headers=headers,
     )
-    assert subcategory.status_code == 201, subcategory.text
-    assert subcategory.json()["category_breakdown"][0]["subcategories"][0]["name"] == "Venue"
-    assert subcategory.json()["category_breakdown"][0]["subcategories"][0]["user_subcategory_id"] is None
+    assert subcategory.status_code == 501
+    assert subcategory.json()["detail"] == "projects.isolated_subcategory_allocations_issue3_required"
 
 
 def test_historical_overlay_project_subcategory_rows_remain_readable(client, session):
@@ -2954,7 +2953,7 @@ def test_historical_overlay_project_subcategory_rows_remain_readable(client, ses
     headers = create_user_and_token(client, "overlayhistory", email, "Password123!")
     budget, subcategory, project = _create_overlay_subcategory_context(client, headers)
     user = _get_user(session, email)
-    legacy_project_subcategory = models.ProjectSubcategory(
+    legacy_project_subcategory = models.LegacyProjectSubcategory(
         project_id=project["id"],
         category=models.ExpenseCategory.TRAVEL,
         name="Legacy lodging",

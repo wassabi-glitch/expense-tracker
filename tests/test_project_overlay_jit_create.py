@@ -91,16 +91,16 @@ def test_overlay_jit_create_allocates_only_selected_month(client, session):
 
     project_id = body["id"]
     category_limits = (
-        session.query(models.ProjectCategoryMonthlyLimit)
-        .filter(models.ProjectCategoryMonthlyLimit.project_id == project_id)
+        session.query(models.OverlayProjectCategoryReservation)
+        .filter(models.OverlayProjectCategoryReservation.project_id == project_id)
         .all()
     )
     assert [(row.budget_year, row.budget_month, row.limit_amount) for row in category_limits] == [
         (today.year, today.month, 500_000)
     ]
     subcategory_limits = (
-        session.query(models.ProjectSubcategoryMonthlyLimit)
-        .filter(models.ProjectSubcategoryMonthlyLimit.project_id == project_id)
+        session.query(models.OverlayProjectSubcategoryReservation)
+        .filter(models.OverlayProjectSubcategoryReservation.project_id == project_id)
         .all()
     )
     assert [(row.budget_year, row.budget_month, row.limit_amount) for row in subcategory_limits] == [

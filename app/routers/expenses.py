@@ -2210,7 +2210,7 @@ def split_expense(
             models.ExpenseCategory,
             models.Budget,
             models.UserSubcategory | None,
-            models.ProjectSubcategory | None,
+            models.LegacyProjectSubcategory | None,
         ]
     ] = []
     requested_by_budget: dict[int, int] = {}
@@ -2218,7 +2218,7 @@ def split_expense(
     validated_subcategories: dict[int, models.UserSubcategory] = {}
     requested_by_project_category: dict[models.ExpenseCategory, int] = {}
     requested_by_project_subcategory: dict[int, int] = {}
-    validated_project_subcategories: dict[int, models.ProjectSubcategory] = {}
+    validated_project_subcategories: dict[int, models.LegacyProjectSubcategory] = {}
     for item in payload.items:
         line_category = item.category or entity_leg.category
         validate_real_expense_category(line_category)

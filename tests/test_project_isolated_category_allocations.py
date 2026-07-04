@@ -65,8 +65,8 @@ def test_isolated_project_creation_persists_parent_category_allocations_without_
     ]
 
     monthly_rows = (
-        session.query(models.ProjectCategoryMonthlyLimit)
-        .filter(models.ProjectCategoryMonthlyLimit.project_id == body["id"])
+        session.query(models.OverlayProjectCategoryReservation)
+        .filter(models.OverlayProjectCategoryReservation.project_id == body["id"])
         .all()
     )
     assert monthly_rows == []
@@ -105,8 +105,8 @@ def test_isolated_project_creation_rejects_parent_category_allocations_above_sta
     assert projects.status_code == 200, projects.text
     assert all(project["title"] != "Overfilled stash" for project in projects.json())
 
-    assert session.query(models.ProjectCategoryLimit).count() == 0
-    assert session.query(models.ProjectWalletAllocation).count() == 0
+    assert session.query(models.IsolatedProjectCategoryAllocation).count() == 0
+    assert session.query(models.IsolatedProjectWalletAllocation).count() == 0
 
 
 def test_isolated_project_category_allocation_update_cannot_drop_below_actual_spending(client):

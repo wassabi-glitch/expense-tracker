@@ -4,7 +4,7 @@ export function parseBudgetAmountInput(raw) {
   return Number.isFinite(amount) ? amount : null;
 }
 
-export function getOverlayCategoryAllocationRows({
+export function getOverlayCategoryReservationRows({
   selectedCategories,
   categoryAllocations,
   getCategoryHeadroom,
@@ -24,6 +24,8 @@ export function getOverlayCategoryAllocationRows({
   });
 }
 
+export const getOverlayCategoryAllocationRows = getOverlayCategoryReservationRows;
+
 export function buildOverlayProjectPayload({
   title,
   description,
@@ -32,9 +34,11 @@ export function buildOverlayProjectPayload({
   targetEndDate,
   budgetYear,
   budgetMonth,
+  categoryReservationRows,
   categoryAllocationRows,
   subcategoryReservations,
 }) {
+  const reservationRows = categoryReservationRows || categoryAllocationRows || [];
   return {
     title: title.trim(),
     description: description.trim() || null,
@@ -43,7 +47,7 @@ export function buildOverlayProjectPayload({
     target_end_date: targetEndDate || null,
     budget_year: budgetYear,
     budget_month: budgetMonth,
-    category_reservations: categoryAllocationRows
+    category_reservations: reservationRows
       .filter((row) => row.amount !== null && row.amount > 0)
       .map((row) => ({ category: row.category, limit_amount: row.amount })),
     subcategory_reservations: subcategoryReservations.map((item) => ({
