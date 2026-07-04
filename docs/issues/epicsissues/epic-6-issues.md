@@ -60,24 +60,29 @@ Add the next end-to-end wizard slice: after wallet quarantine, the user distribu
 
 The project should behave as a pooled vault: wallets fund the total stash, parent categories draw from that total stash, and categories are never tied to individual wallets.
 
+### Architecture checkpoint
+
+- [x] Isolated parent-category allocations use dedicated isolated-project storage separate from monthly budget and overlay reservation tables; they may reference the global parent category enum for unified reporting, but must not share overlay/monthly reservation rows.
+- [ ] The Issue 2 storage boundary preserves a clean path for Issue 3 micro-subcategories: isolated micro-subcategory allocations should reference global taxonomy records from dedicated isolated-project allocation mechanics, not overlay subcategory monthly reservation rows or isolated-only free-text labels.
+
 ### Acceptance criteria
 
-- [ ] Isolated projects can store project-local parent category funding allocations.
-- [ ] Parent category allocations can use only valid global parent categories supported by the app.
-- [ ] Creating or updating isolated category allocations never creates overlay month-scoped reservation rows.
-- [ ] The sum of isolated parent category allocations cannot exceed the derived project stash unless the user goes through a top-up flow.
-- [ ] The backend exposes allocated, unallocated, spent, and remaining funding by parent category for isolated projects.
-- [ ] Project creation can persist wallet allocations and parent category allocations in one transaction.
-- [ ] Updating category allocations after creation is blocked for completed or archived projects.
-- [ ] Reducing a category allocation below actual linked project spending is rejected with a stable validation error.
-- [ ] The isolated wizard renders the parent-category allocation step after wallet quarantine and before micro-structure.
-- [ ] The wizard displays derived total stash, allocated amount, and unallocated amount while the user edits category rows.
-- [ ] The wizard prevents submit while category allocations exceed the derived stash.
-- [ ] Project detail renders isolated category funding with funding/spent/remaining language.
-- [ ] Budget month responses do not treat isolated category funding as monthly spending permission or overlay reserved scope.
+- [x] Isolated projects can store project-local parent category funding allocations.
+- [x] Parent category allocations can use only valid global parent categories supported by the app.
+- [x] Creating or updating isolated category allocations never creates overlay month-scoped reservation rows.
+- [x] The sum of isolated parent category allocations cannot exceed the derived project stash unless the user goes through a top-up flow.
+- [x] The backend exposes allocated, unallocated, spent, and remaining funding by parent category for isolated projects.
+- [x] Project creation can persist wallet allocations and parent category allocations in one transaction.
+- [x] Updating category allocations after creation is blocked for completed or archived projects.
+- [x] Reducing a category allocation below actual linked project spending is rejected with a stable validation error.
+- [x] The isolated wizard renders the parent-category allocation step after wallet quarantine and before micro-structure.
+- [x] The wizard displays derived total stash, allocated amount, and unallocated amount while the user edits category rows.
+- [x] The wizard prevents submit while category allocations exceed the derived stash.
+- [x] Project detail renders isolated category funding with funding/spent/remaining language.
+- [x] Budget month responses do not treat isolated category funding as monthly spending permission or overlay reserved scope.
 - [ ] Backend tests cover category allocation creation, update guards, over-allocation rejection, completed/archived read-only behavior, analytics rollup data, and no overlay reservation leakage.
 - [ ] Frontend tests cover category selection, allocation math, over-allocation UI, project detail display, and stale-query refresh after updates.
-- [ ] Docker verification passes for focused backend tests and frontend build.
+- [x] Docker verification passes for focused backend tests and frontend build.
 
 ### Blocked by
 

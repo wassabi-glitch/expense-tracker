@@ -165,6 +165,8 @@ def test_project_api_exposes_typology_specific_financial_contracts(client, sessi
     assert isolated_body["overlay"] is None
     assert isolated_body["isolated"] == {
         "funding_limit": 900_000,
+        "allocated_funding": 0,
+        "unallocated_funding": 900_000,
         "released_funding": None,
         "remaining_funding": None,
         "funding_shortfall": 0,

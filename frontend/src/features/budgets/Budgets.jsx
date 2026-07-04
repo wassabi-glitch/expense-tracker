@@ -96,6 +96,11 @@ import {
   parseBudgetAmountInput,
 } from "./overlayProjectWizard";
 import {
+  buildIsolatedProjectPayload,
+  getIsolatedCategoryAllocationRows,
+  getIsolatedCategoryAllocationSummary,
+} from "./isolatedProjectWizard";
+import {
   PROJECT_DELETE_ACTIONS,
   buildProjectDeletionResolutionPayload,
   canSubmitCascadeVoid,
@@ -1086,7 +1091,7 @@ export default function Budgets() {
   );
   const projectIsolatedFundingValid = projectWalletAllocationPayload.length > 0 &&
     projectWalletRows.every((row) => !row.isInvalidAmount && !row.isOverAllocated);
-  const projectCategoryAllocationRows = React.useMemo(
+  const projectOverlayCategoryAllocationRows = React.useMemo(
     () => getOverlayCategoryAllocationRows({
       selectedCategories: projectSelectedCategories,
       categoryAllocations: projectCategoryAllocations,
@@ -1094,11 +1099,33 @@ export default function Budgets() {
     }),
     [getJitOverlayCategoryHeadroom, projectCategoryAllocations, projectSelectedCategories],
   );
+  const projectIsolatedCategoryAllocationRows = React.useMemo(
+    () => getIsolatedCategoryAllocationRows({
+      selectedCategories: projectSelectedCategories,
+      categoryAllocations: projectCategoryAllocations,
+    }),
+    [projectCategoryAllocations, projectSelectedCategories],
+  );
+  const projectCategoryAllocationRows = isOverlayProjectDraft
+    ? projectOverlayCategoryAllocationRows
+    : projectIsolatedCategoryAllocationRows;
+  const projectIsolatedCategorySummary = React.useMemo(
+    () => getIsolatedCategoryAllocationSummary({
+      categoryAllocationRows: projectIsolatedCategoryAllocationRows,
+      stashTotal: projectDerivedStashTotal,
+    }),
+    [projectDerivedStashTotal, projectIsolatedCategoryAllocationRows],
+  );
   const projectOverlayStepOneValid = Boolean(projectTitle.trim() && projectStartDate) &&
     !(projectTargetEndDate && projectTargetEndDate < projectStartDate);
   const projectOverlayStepTwoValid = projectSelectedCategories.length > 0;
-  const projectOverlayStepThreeValid = projectCategoryAllocationRows.length > 0 &&
-    projectCategoryAllocationRows.every((row) => !row.isMissingBudget && !row.isInvalidAmount && !row.isOverbooked);
+  const projectOverlayStepThreeValid = projectOverlayCategoryAllocationRows.length > 0 &&
+    projectOverlayCategoryAllocationRows.every((row) => !row.isMissingBudget && !row.isInvalidAmount && !row.isOverbooked);
+  const projectIsolatedStepOneValid = projectOverlayStepOneValid;
+  const projectIsolatedStepTwoValid = projectIsolatedFundingValid;
+  const projectIsolatedStepThreeValid = projectIsolatedCategoryAllocationRows.length > 0 &&
+    projectIsolatedCategoryAllocationRows.every((row) => !row.isInvalidAmount) &&
+    !projectIsolatedCategorySummary.isOverAllocated;
   const projectMicroSubcategories = React.useMemo(
     () => Array.isArray(projectMicroSubcategoriesQuery.data) ? projectMicroSubcategoriesQuery.data : [],
     [projectMicroSubcategoriesQuery.data],
@@ -1138,14 +1165,21 @@ export default function Budgets() {
     projectMicroLimitAmount !== null &&
     projectMicroLimitAmount > Number(projectMicroSelectedHeadroom.headroom || 0)
   );
-  const canAdvanceProjectWizard =
-    projectWizardStep === 1 ? projectOverlayStepOneValid :
-    projectWizardStep === 2 ? projectOverlayStepTwoValid :
-    projectWizardStep === 3 ? projectOverlayStepThreeValid :
-    true;
+  const canAdvanceProjectWizard = isOverlayProjectDraft
+    ? (
+      projectWizardStep === 1 ? projectOverlayStepOneValid :
+      projectWizardStep === 2 ? projectOverlayStepTwoValid :
+      projectWizardStep === 3 ? projectOverlayStepThreeValid :
+      true
+    )
+    : (
+      projectWizardStep === 1 ? projectIsolatedStepOneValid :
+      projectWizardStep === 2 ? projectIsolatedStepTwoValid :
+      true
+    );
   const projectCurrentMonthReservationTotal = React.useMemo(
-    () => projectCategoryAllocationRows.reduce((sum, row) => sum + Number(row.amount || 0), 0),
-    [projectCategoryAllocationRows],
+    () => projectOverlayCategoryAllocationRows.reduce((sum, row) => sum + Number(row.amount || 0), 0),
+    [projectOverlayCategoryAllocationRows],
   );
   const projectCurrentMonthMicroReservationTotal = React.useMemo(
     () => projectSubcategoryReservations.reduce((sum, item) => sum + Number(item.limit_amount || 0), 0),
@@ -1160,6 +1194,16 @@ export default function Budgets() {
     ],
     [t],
   );
+  const isolatedWizardSteps = React.useMemo(
+    () => [
+      t("projects.identityStep", { defaultValue: "Identity" }),
+      t("projects.walletQuarantineStep", { defaultValue: "Wallets" }),
+      t("projects.parentCategoriesStep", { defaultValue: "Categories" }),
+    ],
+    [t],
+  );
+  const projectWizardSteps = isOverlayProjectDraft ? overlayWizardSteps : isolatedWizardSteps;
+  const projectMaxWizardStep = projectWizardSteps.length;
 
   const budgetYearOptions = React.useMemo(() => {
     const minYear = 2020;
@@ -1938,7 +1982,7 @@ export default function Budgets() {
       setActionError(t("projects.overlayWizardIncomplete", { defaultValue: "Complete the current step before continuing." }));
       return;
     }
-    setProjectWizardStep((step) => Math.min(step + 1, 4));
+    setProjectWizardStep((step) => Math.min(step + 1, projectMaxWizardStep));
   };
 
   const handleProjectWizardBack = () => {
@@ -2256,6 +2300,10 @@ export default function Budgets() {
       setActionError(t("projects.walletFundingRequired", { defaultValue: "Choose at least one wallet allocation that fits available free money." }));
       return;
     }
+    if (projectIsIsolated === "true" && !projectIsolatedStepThreeValid) {
+      setActionError(t("projects.isolatedCategoryAllocationsInvalid", { defaultValue: "Allocate the isolated stash across categories without exceeding the derived stash." }));
+      return;
+    }
     if (projectIsIsolated === "false") {
       if (!projectOverlayStepThreeValid) {
         setActionError(t("projects.overlayWizardIncomplete", { defaultValue: "Complete the current-month allocations before creating the project." }));
@@ -2280,14 +2328,14 @@ export default function Budgets() {
       return;
     }
     try {
-      await createProjectMutation.mutateAsync({
+      await createProjectMutation.mutateAsync(buildIsolatedProjectPayload({
         title: projectTitle.trim(),
-        description: projectDescription.trim() || null,
-        is_isolated: true,
-        wallet_allocations: projectWalletAllocationPayload,
-        start_date: projectStartDate,
-        target_end_date: projectTargetEndDate || null,
-      });
+        description: projectDescription,
+        walletAllocations: projectWalletAllocationPayload,
+        categoryAllocationRows: projectIsolatedCategoryAllocationRows,
+        startDate: projectStartDate,
+        targetEndDate: projectTargetEndDate,
+      }));
       setProjectOpen(false);
     } catch (e) {
       setActionError(getBudgetActionErrorMessage(e));
@@ -2438,7 +2486,7 @@ export default function Budgets() {
 
   const createProjectFooter = (
     <>
-      {isOverlayProjectDraft && projectWizardStep > 1 ? (
+      {projectWizardStep > 1 ? (
         <Button variant="outline" onClick={handleProjectWizardBack} disabled={isCreatingProject}>
           {t("common.back", { defaultValue: "Back" })}
         </Button>
@@ -2447,7 +2495,7 @@ export default function Budgets() {
           {t("common.cancel")}
         </Button>
       )}
-      {isOverlayProjectDraft && projectWizardStep < 4 ? (
+      {projectWizardStep < projectMaxWizardStep ? (
         <Button
           onClick={handleProjectWizardNext}
           disabled={!canAdvanceProjectWizard}
@@ -2463,7 +2511,7 @@ export default function Budgets() {
             !projectTitle.trim() ||
             !projectStartDate ||
             (isOverlayProjectDraft && !projectOverlayStepThreeValid) ||
-            (!isOverlayProjectDraft && !projectIsolatedFundingValid)
+            (!isOverlayProjectDraft && (!projectIsolatedFundingValid || !projectIsolatedStepThreeValid))
           }
           className="relative min-w-[120px] disabled:pointer-events-auto disabled:cursor-not-allowed"
         >
@@ -4114,7 +4162,7 @@ export default function Budgets() {
               ? t("projects.isolated", { defaultValue: "Isolated" })
               : t("projects.overlay", { defaultValue: "Overlay" })}`
             : t("projects.manageStructureDesc", {
-                defaultValue: "Define project category limits and, for isolated projects, project-local subcategories.",
+                defaultValue: "Define project category funding or overlay reservations.",
               })
         }
         footer={
@@ -4126,7 +4174,11 @@ export default function Budgets() {
       >
         <div className={cn("space-y-4", useBottomSheetForms && "pb-1")}>
           <div className="rounded-2xl border border-border/60 bg-muted/15 p-4">
-            <p className="text-sm font-semibold">{t("projects.addCategoryLimit", { defaultValue: "Add project category" })}</p>
+            <p className="text-sm font-semibold">
+              {structureProjectIsIsolated
+                ? t("projects.addCategoryFunding", { defaultValue: "Add parent category funding" })
+                : t("projects.addCategoryLimit", { defaultValue: "Add project category" })}
+            </p>
             <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
               <Select value={projectCategoryValue || undefined} onValueChange={setProjectCategoryValue}>
                 <SelectTrigger className={selectTriggerClass}>
@@ -4142,7 +4194,11 @@ export default function Budgets() {
                 value={projectCategoryLimitValue}
                 onChange={(e) => setProjectCategoryLimitValue(formatBudgetAmountInput(e.target.value))}
                 inputMode="numeric"
-                placeholder={t("projects.totalLimit", { defaultValue: "Limit amount" })}
+                placeholder={
+                  structureProjectIsIsolated
+                    ? t("projects.fundingAmount", { defaultValue: "Funding amount" })
+                    : t("projects.totalLimit", { defaultValue: "Limit amount" })
+                }
               />
               <Button
                 onClick={handleCreateProjectCategoryLimit}
@@ -4172,10 +4228,16 @@ export default function Budgets() {
           </div>
 
           <div className="space-y-3">
-            <p className="text-sm font-semibold">{t("projects.categoryLimitsSection", { defaultValue: "Project categories" })}</p>
+            <p className="text-sm font-semibold">
+              {structureProjectIsIsolated
+                ? t("projects.categoryFundingSection", { defaultValue: "Parent category funding" })
+                : t("projects.categoryLimitsSection", { defaultValue: "Project categories" })}
+            </p>
             {structureProjectCategories.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-border bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
-                {t("projects.noCategoryLimitsYet", { defaultValue: "No project categories yet. Add one to define structure and spending limits." })}
+                {structureProjectIsIsolated
+                  ? t("projects.noCategoryFundingYet", { defaultValue: "No category funding yet. Add one to distribute the isolated stash." })
+                  : t("projects.noCategoryLimitsYet", { defaultValue: "No project categories yet. Add one to define structure and spending limits." })}
               </div>
             ) : (
               structureProjectCategories.map((categoryRow) => (
@@ -4216,6 +4278,9 @@ export default function Budgets() {
                       <div className="min-w-0">
                         <p className="font-medium">{tCategory(categoryRow.category)}</p>
                         <p className="text-sm text-muted-foreground">
+                          {structureProjectIsIsolated && categoryRow.limit_amount
+                            ? `${t("projects.funding", { defaultValue: "Funding" })}: ${formatUzs(categoryRow.limit_amount)} - `
+                            : ""}
                           {t("budgets.spentLabel", { defaultValue: "Spent" })}: {formatUzs(categoryRow.spent || 0)}
                           {categoryRow.limit_amount ? ` · ${t("budgets.remainingLabel", { defaultValue: "Remaining" })}: ${formatUzs(categoryRow.remaining || 0)}` : ""}
                         </p>
@@ -4559,9 +4624,8 @@ export default function Budgets() {
         dialogClassName="sm:max-w-[560px]"
       >
         <div className={cn("space-y-3", useBottomSheetForms && "pb-1")}>
-          {isOverlayProjectDraft ? (
-            <div className="grid gap-2 text-xs sm:grid-cols-4">
-              {overlayWizardSteps.map((label, index) => {
+          <div className={cn("grid gap-2 text-xs", isOverlayProjectDraft ? "sm:grid-cols-4" : "sm:grid-cols-3")}>
+              {projectWizardSteps.map((label, index) => {
                 const step = index + 1;
                 return (
                   <span
@@ -4578,7 +4642,6 @@ export default function Budgets() {
                 );
               })}
             </div>
-          ) : null}
 
           <div className="space-y-1.5">
             <label>{t("projects.title", { defaultValue: "Title" })}</label>
@@ -4667,7 +4730,7 @@ export default function Budgets() {
             </div>
           ) : null}
 
-          {!isOverlayProjectDraft ? (
+          {!isOverlayProjectDraft && projectWizardStep === 2 ? (
             <div className="space-y-3 rounded-lg border border-border/70 p-3">
               <div>
                 <p className="text-sm font-semibold">{t("projects.walletQuarantine", { defaultValue: "Wallet quarantine" })}</p>
@@ -4734,6 +4797,84 @@ export default function Budgets() {
                   icon={ListTree}
                 />
               </div>
+            </div>
+          ) : null}
+
+          {!isOverlayProjectDraft && projectWizardStep === 3 ? (
+            <div className="space-y-3">
+              <div>
+                <p className="text-sm font-semibold">{t("projects.parentCategoryFunding", { defaultValue: "Parent category funding" })}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t("projects.parentCategoryFundingHint", { defaultValue: "Distribute the derived project stash across global categories." })}
+                </p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <BudgetDialogStat
+                  label={t("projects.allocatedFunding", { defaultValue: "Allocated" })}
+                  value={<CurrencyAmount value={projectIsolatedCategorySummary.allocatedAmount} format="compact" tooltip="compact" />}
+                  icon={ListTree}
+                />
+                <BudgetDialogStat
+                  label={t("projects.unallocatedFunding", { defaultValue: "Unallocated" })}
+                  value={<CurrencyAmount value={projectIsolatedCategorySummary.unallocatedAmount} format="compact" tooltip="compact" />}
+                  icon={Shield}
+                />
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {orderedCategoryOptions.map((category) => {
+                  const selected = projectSelectedCategories.includes(category);
+                  return (
+                    <button
+                      type="button"
+                      key={category}
+                      onClick={() => toggleProjectCategory(category)}
+                      className={cn(
+                        "flex min-h-14 items-center justify-between rounded-lg border p-3 text-left text-sm transition",
+                        selected ? "border-primary bg-primary/10" : "border-border/70 bg-muted/10 hover:bg-muted/30"
+                      )}
+                    >
+                      <span className="block font-medium">{tCategory(category)}</span>
+                      {selected ? <Check className="h-4 w-4 text-primary" /> : <Circle className="h-4 w-4 text-muted-foreground" />}
+                    </button>
+                  );
+                })}
+              </div>
+              {projectIsolatedCategoryAllocationRows.length > 0 ? (
+                <div className="space-y-2">
+                  {projectIsolatedCategoryAllocationRows.map((row) => (
+                    <div key={row.category} className="rounded-lg border border-border/70 p-3">
+                      <div className="grid gap-2 sm:grid-cols-[1fr_160px] sm:items-center">
+                        <div>
+                          <p className="text-sm font-medium">{tCategory(row.category)}</p>
+                          <p className={cn("text-xs", row.isInvalidAmount ? "text-destructive" : "text-muted-foreground")}>
+                            {row.isInvalidAmount
+                              ? t("projects.categoryFundingRequired", { defaultValue: "Enter a funding amount above zero." })
+                              : t("projects.categoryFundingFromStash", { defaultValue: "Funded from the pooled stash." })}
+                          </p>
+                        </div>
+                        <Input
+                          value={row.input}
+                          inputMode="numeric"
+                          maxLength={maxBudgetAmountInputLength}
+                          onChange={(e) => setProjectCategoryAllocations((current) => ({
+                            ...current,
+                            [row.category]: formatBudgetAmountInput(e.target.value),
+                          }))}
+                          className={cn(
+                            (row.isInvalidAmount || projectIsolatedCategorySummary.isOverAllocated) &&
+                            "border-destructive focus-visible:ring-destructive/30"
+                          )}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {projectIsolatedCategorySummary.isOverAllocated ? (
+                <p className="text-sm text-destructive">
+                  {t("projects.isolatedCategoryOverAllocated", { defaultValue: "Category funding exceeds the derived project stash." })}
+                </p>
+              ) : null}
             </div>
           ) : null}
 
