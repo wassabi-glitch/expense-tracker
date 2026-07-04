@@ -1909,29 +1909,6 @@ def get_project_budget_summaries(
         for project_id, subcategory_id, amount in isolated_subcategory_spend_rows
         if project_id is not None and subcategory_id is not None
     }
-    project_subcategory_rows = (
-        db.query(
-            models.EntityLedger.project_subcategory_id,
-            func.coalesce(func.sum(signed_amount), 0),
-        )
-        .join(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
-        .filter(
-            models.FinancialEvent.owner_id == owner_id,
-            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
-            models.EntityLedger.project_subcategory_id.isnot(None),
-            models.FinancialEvent.event_type.in_(
-                [models.TransactionType.EXPENSE, models.TransactionType.REFUND]
-            ),
-        )
-        .group_by(models.EntityLedger.project_subcategory_id)
-        .all()
-    )
-    spent_by_project_subcategory = {
-        int(project_subcategory_id): int(amount or 0)
-        for project_subcategory_id, amount in project_subcategory_rows
-        if project_subcategory_id is not None
-    }
-
     outputs: list[schemas.ProjectBudgetOut] = []
     for project in projects:
         project_type = get_project_type(project)
