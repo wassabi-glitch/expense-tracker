@@ -523,8 +523,12 @@ def test_completed_project_rejects_edits_and_expense_tagging_until_reopen(client
         json={"category": "Family & Events", "name": "Venue", "limit_amount": 500_000},
         headers=headers,
     )
-    assert subcategory.status_code == 501
-    assert subcategory.json()["detail"] == "projects.isolated_subcategory_allocations_issue3_required"
+    assert subcategory.status_code == 201, subcategory.text
+    listed_subcategories = client.get(f"/projects/{project_id}/subcategories", headers=headers)
+    assert listed_subcategories.status_code == 200, listed_subcategories.text
+    created_subcategory = listed_subcategories.json()[0]
+    assert created_subcategory["name"] == "Venue"
+    assert created_subcategory["limit_amount"] == 500_000
 
     completed = client.post(
         f"/projects/{project_id}/complete",

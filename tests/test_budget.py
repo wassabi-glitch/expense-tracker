@@ -2916,7 +2916,7 @@ def test_overlay_expense_uses_project_id_with_global_subcategory_id(client, sess
     assert project_subcategory["remaining"] == 120_000
 
 
-def test_isolated_project_subcategory_creation_is_blocked_until_issue3(client):
+def test_isolated_project_subcategory_creation_allocates_inside_parent_category(client):
     headers = create_user_and_token(
         client, "isolatedsubstill", "isolatedsubstill@example.com", "Password123!"
     )
@@ -2944,8 +2944,17 @@ def test_isolated_project_subcategory_creation_is_blocked_until_issue3(client):
         json={"category": "Family & Events", "name": "Venue", "limit_amount": 500_000},
         headers=headers,
     )
-    assert subcategory.status_code == 501
-    assert subcategory.json()["detail"] == "projects.isolated_subcategory_allocations_issue3_required"
+    assert subcategory.status_code == 201, subcategory.text
+    listed = client.get(
+        f"/projects/{project.json()['id']}/subcategories",
+        headers=headers,
+    )
+    assert listed.status_code == 200, listed.text
+    created = listed.json()[0]
+    assert created["category"] == "Family & Events"
+    assert created["name"] == "Venue"
+    assert created["limit_amount"] == 500_000
+    assert created["remaining"] == 500_000
 
 
 def test_historical_overlay_project_subcategory_rows_remain_readable(client, session):
