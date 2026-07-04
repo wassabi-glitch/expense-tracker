@@ -173,26 +173,29 @@ These checkpoints clarify the intended finish line. Because this project is not 
 
 ### What to build
 
+
+### What to build
+
 Let isolated projects optionally break parent category funding into project-specific micro subcategories, while still using the G21 Taxonomy Hub as the controlled naming and selection surface. A user can create or link one-off project tags such as "Drywall" or "Wedding DJ" without fragmenting free-text labels across the ledger.
 
 The completed slice should preserve the distinction from overlay projects: overlay subcategories inherit monthly global budget lanes, while isolated micro-subcategories are funding breakdowns inside one isolated stash.
 
 ### Acceptance criteria
 
-- [ ] Isolated project micro-subcategories are created or linked through the Taxonomy Hub combobox flow, not raw ad hoc strings.
-- [ ] A project micro-subcategory belongs to exactly one isolated project and one parent category allocation.
-- [ ] Creating or updating a micro-subcategory requires the authenticated user to own the project and any linked taxonomy record.
-- [ ] A micro-subcategory cannot be attached to a parent category that is not allocated inside the isolated project.
-- [ ] Micro-subcategory funding cannot exceed the remaining parent category funding after other active micro-subcategories are counted.
-- [ ] Reducing a micro-subcategory below actual linked spending is rejected with a stable validation error.
-- [ ] Archiving or deactivating a micro-subcategory keeps historical expenses readable.
-- [ ] Overlay projects remain blocked from creating custom project-local subcategories through this flow.
-- [ ] The isolated wizard includes an optional micro-structure step after parent category allocation.
-- [ ] The UI supports creating or selecting taxonomy-governed micro-subcategories, assigning funding, editing, deleting safe pristine rows, and showing blocked states for rows with history.
-- [ ] Expense category selectors can load isolated project micro-subcategories for eligible isolated project expenses.
-- [ ] Backend tests cover taxonomy ownership, category mismatch rejection, over-allocation, historical readability, overlay blocking, and completed/archived project read-only behavior.
+- [x] Isolated project micro-subcategories are created or linked through the Taxonomy Hub combobox flow, not raw ad hoc strings.
+- [x] A project micro-subcategory belongs to exactly one isolated project and one parent category allocation.
+- [x] Creating or updating a micro-subcategory requires the authenticated user to own the project and any linked taxonomy record.
+- [x] A micro-subcategory cannot be attached to a parent category that is not allocated inside the isolated project.
+- [x] Micro-subcategory funding cannot exceed the remaining parent category funding after other active micro-subcategories are counted.
+- [x] Reducing a micro-subcategory below actual linked spending is rejected with a stable validation error.
+- [x] Archiving or deactivating a micro-subcategory keeps historical expenses readable.
+- [x] Overlay projects remain blocked from creating custom project-local subcategories through this flow.
+- [x] The isolated wizard includes an optional micro-structure step after parent category allocation.
+- [x] The UI supports creating or selecting taxonomy-governed micro-subcategories, assigning funding, editing, deleting safe pristine rows, and showing blocked states for rows with history.
+- [x] Expense category selectors can load isolated project micro-subcategories for eligible isolated project expenses.
+- [x] Backend tests cover taxonomy ownership, category mismatch rejection, over-allocation, historical readability, overlay blocking, and completed/archived project read-only behavior.
 - [ ] Frontend tests cover combobox selection/create, allocation math, empty states, edit/delete guards, localized errors, and expense selector integration.
-- [ ] Docker verification passes for focused backend tests and frontend build.
+- [x] Docker verification passes for focused backend tests and frontend build.
 
 ### Blocked by
 

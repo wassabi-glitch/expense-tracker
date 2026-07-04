@@ -90,6 +90,7 @@ import { useSubcategoriesQuery } from "./hooks/useSubcategoriesQuery";
 import { ConfigureSurvivalDialog } from "./components/ConfigureSurvivalDialog";
 import { BudgetTimeline } from "./components/BudgetTimeline";
 import { TaxonomyHub } from "./TaxonomyHub";
+import { useTaxonomyQuery } from "./hooks/useTaxonomyQuery";
 import {
   buildOverlayProjectPayload,
   getOverlayCategoryAllocationRows,
@@ -99,6 +100,7 @@ import {
   buildIsolatedProjectPayload,
   getIsolatedCategoryAllocationRows,
   getIsolatedCategoryAllocationSummary,
+  getIsolatedSubcategoryAllocationSummary,
 } from "./isolatedProjectWizard";
 import {
   PROJECT_DELETE_ACTIONS,
@@ -551,6 +553,7 @@ export default function Budgets() {
   const [projectMicroSubcategoryId, setProjectMicroSubcategoryId] = React.useState("");
   const [projectMicroLimit, setProjectMicroLimit] = React.useState("");
   const [projectSubcategoryReservations, setProjectSubcategoryReservations] = React.useState([]);
+  const [projectIsolatedSubcategoryAllocations, setProjectIsolatedSubcategoryAllocations] = React.useState([]);
   const [returnToOverlayWizardAfterSubcategories, setReturnToOverlayWizardAfterSubcategories] = React.useState(false);
   const [projectStructureId, setProjectStructureId] = React.useState(null);
   const [projectCategoryValue, setProjectCategoryValue] = React.useState("");
@@ -1165,6 +1168,44 @@ export default function Budgets() {
     projectMicroLimitAmount !== null &&
     projectMicroLimitAmount > Number(projectMicroSelectedHeadroom.headroom || 0)
   );
+
+  const taxonomyQuery = useTaxonomyQuery();
+  const projectIsolatedMicroSubcategories = React.useMemo(() => {
+    if (!taxonomyQuery.data) return [];
+    return taxonomyQuery.data.filter(tag => tag.category === projectMicroCategory && tag.is_active);
+  }, [taxonomyQuery.data, projectMicroCategory]);
+
+  const projectIsolatedUsedMicroSubcategoryIds = React.useMemo(
+    () => new Set(projectIsolatedSubcategoryAllocations.map((item) => String(item.user_subcategory_id))),
+    [projectIsolatedSubcategoryAllocations],
+  );
+
+  const projectIsolatedEligibleMicroSubcategories = React.useMemo(
+    () => projectIsolatedMicroSubcategories.filter((item) => !projectIsolatedUsedMicroSubcategoryIds.has(String(item.id))),
+    [projectIsolatedMicroSubcategories, projectIsolatedUsedMicroSubcategoryIds],
+  );
+
+  const projectIsolatedMicroSelectedSubcategory = React.useMemo(
+    () => projectIsolatedMicroSubcategories.find((item) => String(item.id) === String(projectMicroSubcategoryId)) || null,
+    [projectIsolatedMicroSubcategories, projectMicroSubcategoryId],
+  );
+
+  const projectIsolatedMicroSelectedHeadroom = React.useMemo(() => {
+    if (!projectMicroCategory) return { headroom: 0, isOverAllocated: false };
+    return getIsolatedSubcategoryAllocationSummary({
+      category: projectMicroCategory,
+      categoryAllocationRows: projectIsolatedCategoryAllocationRows,
+      subcategoryAllocations: projectIsolatedSubcategoryAllocations,
+    });
+  }, [projectMicroCategory, projectIsolatedCategoryAllocationRows, projectIsolatedSubcategoryAllocations]);
+
+  const projectIsolatedMicroWouldOverbook = Boolean(
+    projectIsolatedMicroSelectedSubcategory &&
+    projectMicroLimitAmount !== null &&
+    projectMicroLimitAmount > Number(projectIsolatedMicroSelectedHeadroom.headroom || 0)
+  );
+  
+  const projectIsolatedMicroNeedsTaxonomyCreate = projectMicroCategory && projectIsolatedMicroSubcategories.length === 0;
   const canAdvanceProjectWizard = isOverlayProjectDraft
     ? (
       projectWizardStep === 1 ? projectOverlayStepOneValid :
@@ -1175,6 +1216,7 @@ export default function Budgets() {
     : (
       projectWizardStep === 1 ? projectIsolatedStepOneValid :
       projectWizardStep === 2 ? projectIsolatedStepTwoValid :
+      projectWizardStep === 3 ? projectIsolatedStepThreeValid :
       true
     );
   const projectCurrentMonthReservationTotal = React.useMemo(
@@ -1199,6 +1241,7 @@ export default function Budgets() {
       t("projects.identityStep", { defaultValue: "Identity" }),
       t("projects.walletQuarantineStep", { defaultValue: "Wallets" }),
       t("projects.parentCategoriesStep", { defaultValue: "Categories" }),
+      t("projects.microStructureStep", { defaultValue: "Subcategories" }),
     ],
     [t],
   );
@@ -1887,6 +1930,7 @@ export default function Budgets() {
     setProjectMicroSubcategoryId("");
     setProjectMicroLimit("");
     setProjectSubcategoryReservations([]);
+    setProjectIsolatedSubcategoryAllocations([]);
     setReturnToOverlayWizardAfterSubcategories(false);
     setProjectOpen(true);
   };
@@ -1965,6 +2009,7 @@ export default function Budgets() {
           return rest;
         });
         setProjectSubcategoryReservations((items) => items.filter((item) => item.category !== category));
+        setProjectIsolatedSubcategoryAllocations((items) => items.filter((item) => item.category !== category));
         if (projectMicroCategory === category) {
           setProjectMicroCategory("");
           setProjectMicroSubcategoryId("");
@@ -2019,6 +2064,40 @@ export default function Budgets() {
 
   const removeProjectMicroReservation = (userSubcategoryId) => {
     setProjectSubcategoryReservations((items) =>
+      items.filter((item) => String(item.user_subcategory_id) !== String(userSubcategoryId))
+    );
+  };
+
+  const addProjectIsolatedMicroReservation = () => {
+    setActionError("");
+    if (!projectMicroCategory || !projectIsolatedMicroSelectedSubcategory) {
+      setActionError(t("projects.projectSubcategoryRequired", { defaultValue: "Please select a category and subcategory." }));
+      return;
+    }
+    const amount = parseBudgetAmountInput(projectMicroLimit);
+    if (!amount || amount <= 0) {
+      setActionError(t("projects.projectSubcategoryLimitInvalid", { defaultValue: "Project subcategory limit must be greater than zero" }));
+      return;
+    }
+    if (projectIsolatedMicroWouldOverbook) {
+      setActionError(t("projects.isolatedReservationOverbooked", { defaultValue: "Reservation exceeds available category funding." }));
+      return;
+    }
+    setProjectIsolatedSubcategoryAllocations((items) => [
+      ...items,
+      {
+        category: projectMicroCategory,
+        user_subcategory_id: Number(projectMicroSubcategoryId),
+        name: projectIsolatedMicroSelectedSubcategory.name,
+        limit_amount: amount,
+      },
+    ]);
+    setProjectMicroSubcategoryId("");
+    setProjectMicroLimit("");
+  };
+
+  const removeProjectIsolatedMicroReservation = (userSubcategoryId) => {
+    setProjectIsolatedSubcategoryAllocations((items) =>
       items.filter((item) => String(item.user_subcategory_id) !== String(userSubcategoryId))
     );
   };
@@ -2333,6 +2412,7 @@ export default function Budgets() {
         description: projectDescription,
         walletAllocations: projectWalletAllocationPayload,
         categoryAllocationRows: projectIsolatedCategoryAllocationRows,
+        subcategoryAllocations: projectIsolatedSubcategoryAllocations,
         startDate: projectStartDate,
         targetEndDate: projectTargetEndDate,
       }));
@@ -4624,7 +4704,7 @@ export default function Budgets() {
         dialogClassName="sm:max-w-[560px]"
       >
         <div className={cn("space-y-3", useBottomSheetForms && "pb-1")}>
-          <div className={cn("grid gap-2 text-xs", isOverlayProjectDraft ? "sm:grid-cols-4" : "sm:grid-cols-3")}>
+          <div className="grid gap-2 text-xs sm:grid-cols-4">
               {projectWizardSteps.map((label, index) => {
                 const step = index + 1;
                 return (
@@ -4661,7 +4741,7 @@ export default function Budgets() {
               onChange={(e) => setProjectDescription(e.target.value)}
             />
           </div>
-          {projectWizardStep === 1 || !isOverlayProjectDraft ? (
+          {projectWizardStep === 1 ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <label>{t("projects.mode", { defaultValue: "Mode" })}</label>
@@ -4693,26 +4773,28 @@ export default function Budgets() {
               )}
             </div>
           ) : null}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <label>{t("projects.startDate", { defaultValue: "Start date" })}</label>
-              <input
-                type="date"
-                className={inputBaseClass}
-                value={projectStartDate}
-                onChange={(e) => setProjectStartDate(e.target.value)}
-              />
+          {projectWizardStep === 1 ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label>{t("projects.startDate", { defaultValue: "Start date" })}</label>
+                <input
+                  type="date"
+                  className={inputBaseClass}
+                  value={projectStartDate}
+                  onChange={(e) => setProjectStartDate(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label>{t("projects.targetEndDate", { defaultValue: "Target end date" })}</label>
+                <input
+                  type="date"
+                  className={inputBaseClass}
+                  value={projectTargetEndDate}
+                  onChange={(e) => setProjectTargetEndDate(e.target.value)}
+                />
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <label>{t("projects.targetEndDate", { defaultValue: "Target end date" })}</label>
-              <input
-                type="date"
-                className={inputBaseClass}
-                value={projectTargetEndDate}
-                onChange={(e) => setProjectTargetEndDate(e.target.value)}
-              />
-            </div>
-          </div>
+          ) : null}
 
           {isOverlayProjectDraft && projectWizardStep === 1 ? (
             <div className="space-y-1.5">
@@ -4875,6 +4957,95 @@ export default function Budgets() {
                   {t("projects.isolatedCategoryOverAllocated", { defaultValue: "Category funding exceeds the derived project stash." })}
                 </p>
               ) : null}
+            </div>
+          ) : null}
+
+          {!isOverlayProjectDraft && projectWizardStep === 4 ? (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-border/70 p-3">
+                <p className="text-sm font-semibold">{t("projects.microStructure", { defaultValue: "Micro structure" })}</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_140px_auto]">
+                  <Select value={projectMicroCategory || undefined} onValueChange={(value) => {
+                    setProjectMicroCategory(value);
+                    setProjectMicroSubcategoryId("");
+                    setProjectMicroLimit("");
+                  }}>
+                    <SelectTrigger className={selectTriggerClass}>
+                      <SelectValue placeholder={t("projects.category", { defaultValue: "Category" })} />
+                    </SelectTrigger>
+                    <SelectContent className={selectContentClass}>
+                      {projectSelectedCategories.map((category) => (
+                        <SelectItem key={category} value={category}>{tCategory(category)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={projectMicroSubcategoryId || undefined}
+                    onValueChange={setProjectMicroSubcategoryId}
+                    disabled={!projectMicroCategory || projectIsolatedEligibleMicroSubcategories.length === 0}
+                  >
+                    <SelectTrigger className={selectTriggerClass}>
+                      <SelectValue placeholder={t("projects.subcategory", { defaultValue: "Subcategory" })} />
+                    </SelectTrigger>
+                    <SelectContent className={selectContentClass}>
+                      {projectIsolatedEligibleMicroSubcategories.map((subcategory) => (
+                        <SelectItem key={subcategory.id} value={String(subcategory.id)}>
+                          {subcategory.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={projectMicroLimit}
+                    inputMode="numeric"
+                    maxLength={maxBudgetAmountInputLength}
+                    onChange={(e) => setProjectMicroLimit(formatBudgetAmountInput(e.target.value))}
+                    placeholder="0"
+                    className={cn(projectIsolatedMicroWouldOverbook && "border-destructive focus-visible:ring-destructive/30")}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={addProjectIsolatedMicroReservation}
+                    disabled={!projectMicroCategory || !projectIsolatedMicroSelectedSubcategory || !projectMicroLimit || projectIsolatedMicroWouldOverbook}
+                  >
+                    {t("common.add", { defaultValue: "Add" })}
+                  </Button>
+                </div>
+                {projectIsolatedMicroNeedsTaxonomyCreate ? (
+                  <div className="mt-2 flex items-center justify-between rounded-lg bg-muted/30 p-2 text-sm text-muted-foreground">
+                    <span>
+                      {t("projects.subcategoryTaxonomyCreateHint", { defaultValue: "You have no available subcategories for this category." })}
+                    </span>
+                    <Button type="button" variant="outline" onClick={() => setViewMode("taxonomy")}>
+                      <ExternalLink className="mr-2 h-4 w-4" /> {t("budgets.manageSubcategories", { defaultValue: "Manage Subcategories" })}
+                    </Button>
+                  </div>
+                ) : null}
+                {projectIsolatedMicroSelectedSubcategory ? (
+                  <p className={cn("mt-2 text-xs", projectIsolatedMicroWouldOverbook ? "text-destructive" : "text-muted-foreground")}>
+                    {t("projects.availableHeadroom", {
+                      defaultValue: "{{amount}} available",
+                      amount: formatUzs(projectIsolatedMicroSelectedHeadroom.headroom || 0),
+                    })}
+                  </p>
+                ) : null}
+                {projectIsolatedSubcategoryAllocations.length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    {projectIsolatedSubcategoryAllocations.map((item) => (
+                      <div key={item.user_subcategory_id} className="flex items-center justify-between rounded-lg bg-muted/20 px-3 py-2 text-sm">
+                        <span>{tCategory(item.category)} - {item.name}</span>
+                        <span className="flex items-center gap-2">
+                          <CurrencyAmount value={item.limit_amount} format="compact" tooltip="compact" />
+                          <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => removeProjectIsolatedMicroReservation(item.user_subcategory_id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </div>
           ) : null}
 
