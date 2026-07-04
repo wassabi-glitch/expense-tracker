@@ -7,6 +7,7 @@ from sqlalchemy import and_, case, func
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
+from .category_policy import validate_active_expense_category
 from .goal_funding_service import get_wallet_goal_allocated_amount
 from .wallet_value_service import owned_balance
 
@@ -171,6 +172,352 @@ def validate_project_wallet_allocations(
             )
         validated.append((wallet, amount))
     return validated
+
+
+def apply_isolated_project_top_up(
+    db: Session,
+    owner_id: int,
+    project: models.Project,
+    allocations: list[schemas.ProjectWalletAllocationCreate],
+) -> None:
+    if project.project_type != models.ProjectType.ISOLATED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.isolated_required")
+    if project.status != models.ProjectStatus.ACTIVE:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.not_active")
+
+    validated = validate_project_wallet_allocations(db, owner_id, allocations)
+    requested_total = sum(amount for _, amount in validated)
+
+    from .budget_service import get_free_money_now
+
+    _, _, free_money_now = get_free_money_now(db, owner_id)
+    if requested_total > free_money_now:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "projects.top_up_exceeds_free_money_now",
+                "free_money_now": int(free_money_now),
+                "requested_amount": int(requested_total),
+            },
+        )
+
+    existing_by_wallet_id = {
+        int(allocation.wallet_id): allocation
+        for allocation in project.isolated_wallet_allocations
+    }
+    for wallet, amount in validated:
+        existing = existing_by_wallet_id.get(int(wallet.id))
+        if existing is None:
+            db.add(
+                models.IsolatedProjectWalletAllocation(
+                    project_id=project.id,
+                    owner_id=owner_id,
+                    wallet_id=wallet.id,
+                    amount=int(amount),
+                )
+            )
+        else:
+            existing.amount = int(existing.amount) + int(amount)
+
+
+def apply_isolated_project_category_allocation(
+    db: Session,
+    project: models.Project,
+    *,
+    category: models.ExpenseCategory,
+    allocated_amount: int,
+) -> None:
+    if project.project_type != models.ProjectType.ISOLATED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.isolated_required")
+    if project.status != models.ProjectStatus.ACTIVE:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.not_active")
+    validate_active_expense_category(
+        category,
+        error_detail="projects.validation.real_expense_category_required",
+    )
+
+    unallocated = get_project_unallocated_funding_amount(project)
+    if unallocated is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.category_allocations_require_funding")
+    if int(allocated_amount) > int(unallocated):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="projects.category_allocations_exceed_unassigned_funding",
+        )
+
+    existing = next((item for item in project.isolated_category_allocations if item.category == category), None)
+    if existing is None:
+        db.add(
+            models.IsolatedProjectCategoryAllocation(
+                project_id=project.id,
+                category=category,
+                limit_amount=int(allocated_amount),
+            )
+        )
+    else:
+        existing.limit_amount = int(existing.limit_amount) + int(allocated_amount)
+
+
+def get_isolated_project_subcategory_spent_amount(
+    db: Session,
+    owner_id: int,
+    project_id: int,
+    user_subcategory_id: int,
+    *,
+    exclude_event_id: int | None = None,
+) -> int:
+    signed_amount = _signed_posted_expense_amount()
+    query = (
+        db.query(func.coalesce(func.sum(signed_amount), 0))
+        .select_from(models.EntityLedger)
+        .join(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
+        .filter(
+            models.FinancialEvent.owner_id == owner_id,
+            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+            models.EntityLedger.project_id == project_id,
+            models.EntityLedger.subcategory_id == user_subcategory_id,
+            models.FinancialEvent.event_type.in_(
+                [models.TransactionType.EXPENSE, models.TransactionType.REFUND]
+            ),
+        )
+    )
+    if exclude_event_id is not None:
+        query = query.filter(models.FinancialEvent.id != exclude_event_id)
+    return int(query.scalar() or 0)
+
+
+def _resolve_user_subcategory(
+    db: Session,
+    owner_id: int,
+    *,
+    category: models.ExpenseCategory,
+    name: str | None,
+    user_subcategory_id: int | None,
+) -> models.UserSubcategory:
+    if user_subcategory_id is not None:
+        user_subcategory = (
+            db.query(models.UserSubcategory)
+            .filter(
+                models.UserSubcategory.id == int(user_subcategory_id),
+                models.UserSubcategory.owner_id == owner_id,
+                models.UserSubcategory.category == category,
+            )
+            .first()
+        )
+        if user_subcategory is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="projects.subcategory_not_found")
+        return user_subcategory
+
+    if name is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_identity_required")
+    name_clean = name.strip()
+    user_subcategory = (
+        db.query(models.UserSubcategory)
+        .filter(
+            models.UserSubcategory.owner_id == owner_id,
+            models.UserSubcategory.category == category,
+            func.lower(models.UserSubcategory.name) == name_clean.lower(),
+        )
+        .first()
+    )
+    if user_subcategory is not None:
+        return user_subcategory
+
+    user_subcategory = models.UserSubcategory(
+        owner_id=owner_id,
+        category=category,
+        name=name_clean,
+        is_active=True,
+    )
+    db.add(user_subcategory)
+    db.flush()
+    return user_subcategory
+
+
+def apply_isolated_project_subcategory_allocation(
+    db: Session,
+    owner_id: int,
+    project: models.Project,
+    *,
+    category: models.ExpenseCategory,
+    allocated_amount: int,
+    name: str | None = None,
+    user_subcategory_id: int | None = None,
+) -> None:
+    if project.project_type != models.ProjectType.ISOLATED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.isolated_required")
+    if project.status != models.ProjectStatus.ACTIVE:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.not_active")
+    validate_active_expense_category(
+        category,
+        error_detail="projects.validation.real_expense_category_required",
+    )
+
+    parent_alloc = next((item for item in project.isolated_category_allocations if item.category == category), None)
+    if parent_alloc is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="projects.isolated_subcategory_parent_category_not_allocated",
+        )
+
+    user_subcategory = _resolve_user_subcategory(
+        db,
+        owner_id,
+        category=category,
+        name=name,
+        user_subcategory_id=user_subcategory_id,
+    )
+    existing = (
+        db.query(models.IsolatedProjectSubcategoryAllocation)
+        .filter(
+            models.IsolatedProjectSubcategoryAllocation.project_id == project.id,
+            models.IsolatedProjectSubcategoryAllocation.user_subcategory_id == user_subcategory.id,
+            models.IsolatedProjectSubcategoryAllocation.archived_at.is_(None),
+        )
+        .first()
+    )
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_already_exists")
+
+    current_allocated = (
+        db.query(func.coalesce(func.sum(models.IsolatedProjectSubcategoryAllocation.allocated_amount), 0))
+        .filter(
+            models.IsolatedProjectSubcategoryAllocation.project_id == project.id,
+            models.IsolatedProjectSubcategoryAllocation.category == category,
+            models.IsolatedProjectSubcategoryAllocation.archived_at.is_(None),
+        )
+        .scalar()
+    )
+    if int(current_allocated or 0) + int(allocated_amount) > int(parent_alloc.limit_amount):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="projects.isolated_subcategory_limit_exceeds_category",
+        )
+
+    db.add(
+        models.IsolatedProjectSubcategoryAllocation(
+            project_id=project.id,
+            category_allocation_id=parent_alloc.id,
+            category=category,
+            user_subcategory_id=user_subcategory.id,
+            allocated_amount=int(allocated_amount),
+            is_active=True,
+        )
+    )
+
+
+def apply_isolated_project_rebalance(
+    db: Session,
+    owner_id: int,
+    project: models.Project,
+    payload: schemas.ProjectRebalanceRequest,
+) -> None:
+    if project.project_type != models.ProjectType.ISOLATED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.isolated_required")
+    if project.status != models.ProjectStatus.ACTIVE:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.not_active")
+
+    amount = int(payload.amount)
+    if payload.scope == "CATEGORY":
+        validate_active_expense_category(
+            payload.from_category,
+            error_detail="projects.validation.real_expense_category_required",
+        )
+        validate_active_expense_category(
+            payload.to_category,
+            error_detail="projects.validation.real_expense_category_required",
+        )
+        source = next(
+            (item for item in project.isolated_category_allocations if item.category == payload.from_category),
+            None,
+        )
+        if source is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="projects.category_limit_not_found")
+        destination = next(
+            (item for item in project.isolated_category_allocations if item.category == payload.to_category),
+            None,
+        )
+        if amount > int(source.limit_amount):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.rebalance_amount_exceeds_source")
+        next_source_amount = int(source.limit_amount) - amount
+        validate_isolated_project_category_allocation_covers_spending(
+            db,
+            owner_id,
+            project,
+            payload.from_category,
+            next_source_amount,
+        )
+        active_micro_allocated = int(
+            db.query(func.coalesce(func.sum(models.IsolatedProjectSubcategoryAllocation.allocated_amount), 0))
+            .filter(
+                models.IsolatedProjectSubcategoryAllocation.project_id == project.id,
+                models.IsolatedProjectSubcategoryAllocation.category == payload.from_category,
+                models.IsolatedProjectSubcategoryAllocation.archived_at.is_(None),
+            )
+            .scalar()
+            or 0
+        )
+        if next_source_amount < active_micro_allocated:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="projects.subcategory_allocations_exceed_category",
+            )
+        if destination is None:
+            db.add(
+                models.IsolatedProjectCategoryAllocation(
+                    project_id=project.id,
+                    category=payload.to_category,
+                    limit_amount=amount,
+                )
+            )
+        else:
+            destination.limit_amount = int(destination.limit_amount) + amount
+        if next_source_amount == 0:
+            db.delete(source)
+        else:
+            source.limit_amount = next_source_amount
+        return
+
+    source_subcategory = (
+        db.query(models.IsolatedProjectSubcategoryAllocation)
+        .filter(
+            models.IsolatedProjectSubcategoryAllocation.id == payload.from_subcategory_allocation_id,
+            models.IsolatedProjectSubcategoryAllocation.project_id == project.id,
+            models.IsolatedProjectSubcategoryAllocation.archived_at.is_(None),
+        )
+        .first()
+    )
+    destination_subcategory = (
+        db.query(models.IsolatedProjectSubcategoryAllocation)
+        .filter(
+            models.IsolatedProjectSubcategoryAllocation.id == payload.to_subcategory_allocation_id,
+            models.IsolatedProjectSubcategoryAllocation.project_id == project.id,
+            models.IsolatedProjectSubcategoryAllocation.archived_at.is_(None),
+        )
+        .first()
+    )
+    if source_subcategory is None or destination_subcategory is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="projects.subcategory_not_found")
+    if source_subcategory.category != destination_subcategory.category:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_category_mismatch")
+    if amount > int(source_subcategory.allocated_amount):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.rebalance_amount_exceeds_source")
+
+    next_source_amount = int(source_subcategory.allocated_amount) - amount
+    spent = get_isolated_project_subcategory_spent_amount(
+        db,
+        owner_id,
+        int(project.id),
+        int(source_subcategory.user_subcategory_id),
+    )
+    if next_source_amount < spent:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_allocation_below_spent")
+
+    destination_subcategory.allocated_amount = int(destination_subcategory.allocated_amount) + amount
+    if next_source_amount == 0:
+        db.delete(source_subcategory)
+    else:
+        source_subcategory.allocated_amount = next_source_amount
 
 
 def project_wallet_allocation_out(

@@ -2863,6 +2863,66 @@ class ProjectWalletAllocationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ProjectTopUpRequest(BaseModel):
+    wallet_allocations: List[ProjectWalletAllocationCreate] = Field(min_length=1, max_length=50)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ProjectCategoryAllocationRequest(BaseModel):
+    category: ExpenseCategory
+    allocated_amount: int = Field(gt=0, le=999999999999)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ProjectSubcategoryAllocationRequest(BaseModel):
+    category: ExpenseCategory
+    allocated_amount: int = Field(gt=0, le=999999999999)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    user_subcategory_id: Optional[int] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("name")
+    @classmethod
+    def validate_subcategory_allocation_name(cls, value: Optional[str]):
+        if value is None:
+            return value
+        return value.strip()
+
+    @model_validator(mode="after")
+    def validate_subcategory_identity(self):
+        if (self.name is None) == (self.user_subcategory_id is None):
+            raise ValueError("projects.subcategory_identity_required")
+        return self
+
+
+class ProjectRebalanceRequest(BaseModel):
+    scope: str = Field(pattern="^(CATEGORY|SUBCATEGORY)$")
+    amount: int = Field(gt=0, le=999999999999)
+    from_category: Optional[ExpenseCategory] = None
+    to_category: Optional[ExpenseCategory] = None
+    from_subcategory_allocation_id: Optional[int] = None
+    to_subcategory_allocation_id: Optional[int] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def validate_rebalance_shape(self):
+        if self.scope == "CATEGORY":
+            if self.from_category is None or self.to_category is None:
+                raise ValueError("projects.rebalance_categories_required")
+            if self.from_category == self.to_category:
+                raise ValueError("projects.rebalance_distinct_buckets_required")
+        if self.scope == "SUBCATEGORY":
+            if self.from_subcategory_allocation_id is None or self.to_subcategory_allocation_id is None:
+                raise ValueError("projects.rebalance_subcategories_required")
+            if self.from_subcategory_allocation_id == self.to_subcategory_allocation_id:
+                raise ValueError("projects.rebalance_distinct_buckets_required")
+        return self
+
+
 class ProjectIsolatedFinancialOut(BaseModel):
     funding_limit: Optional[int] = None
     allocated_funding: int = 0

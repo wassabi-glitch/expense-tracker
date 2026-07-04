@@ -1871,6 +1871,44 @@ def get_project_budget_summaries(
     overlay_subcategories_by_project: dict[int, list[models.OverlayProjectSubcategoryReservation]] = defaultdict(list)
     for row in overlay_subcategory_rows:
         overlay_subcategories_by_project[int(row.project_id)].append(row)
+    isolated_subcategory_rows = (
+        db.query(models.IsolatedProjectSubcategoryAllocation)
+        .join(models.Project, models.Project.id == models.IsolatedProjectSubcategoryAllocation.project_id)
+        .join(models.UserSubcategory, models.UserSubcategory.id == models.IsolatedProjectSubcategoryAllocation.user_subcategory_id)
+        .filter(
+            models.Project.owner_id == owner_id,
+            models.Project.project_type == models.ProjectType.ISOLATED,
+        )
+        .order_by(models.IsolatedProjectSubcategoryAllocation.project_id.asc(), models.UserSubcategory.name.asc())
+        .all()
+    )
+    isolated_subcategories_by_project: dict[int, list[models.IsolatedProjectSubcategoryAllocation]] = defaultdict(list)
+    for row in isolated_subcategory_rows:
+        isolated_subcategories_by_project[int(row.project_id)].append(row)
+    isolated_subcategory_spend_rows = (
+        db.query(
+            models.EntityLedger.project_id,
+            models.EntityLedger.subcategory_id,
+            func.coalesce(func.sum(signed_amount), 0),
+        )
+        .join(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
+        .filter(
+            models.FinancialEvent.owner_id == owner_id,
+            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+            models.EntityLedger.project_id.isnot(None),
+            models.EntityLedger.subcategory_id.isnot(None),
+            models.FinancialEvent.event_type.in_(
+                [models.TransactionType.EXPENSE, models.TransactionType.REFUND]
+            ),
+        )
+        .group_by(models.EntityLedger.project_id, models.EntityLedger.subcategory_id)
+        .all()
+    )
+    spent_by_isolated_subcategory = {
+        (int(project_id), int(subcategory_id)): int(amount or 0)
+        for project_id, subcategory_id, amount in isolated_subcategory_spend_rows
+        if project_id is not None and subcategory_id is not None
+    }
     project_subcategory_rows = (
         db.query(
             models.EntityLedger.project_subcategory_id,
@@ -1901,27 +1939,29 @@ def get_project_budget_summaries(
         spent = int(spent_by_project.get(project.id, 0))
         subcategories_by_category: dict[models.ExpenseCategory, list[schemas.ProjectSubcategoryOut]] = {}
         if is_isolated:
-            for subcategory in project.legacy_subcategories:
-                spent_subcategory = int(spent_by_project_subcategory.get(int(subcategory.id), 0))
-                remaining_subcategory = (
-                    int(subcategory.limit_amount) - spent_subcategory
-                    if subcategory.limit_amount is not None
-                    else None
+            for allocation in isolated_subcategories_by_project.get(int(project.id), []):
+                spent_subcategory = int(
+                    spent_by_isolated_subcategory.get(
+                        (int(allocation.project_id), int(allocation.user_subcategory_id)),
+                        0,
+                    )
                 )
-                subcategories_by_category.setdefault(subcategory.category, []).append(
+                remaining_subcategory = int(allocation.allocated_amount) - spent_subcategory
+                subcategories_by_category.setdefault(allocation.category, []).append(
                     schemas.ProjectSubcategoryOut(
-                        id=subcategory.id,
-                        project_id=subcategory.project_id,
-                        category=subcategory.category,
-                        name=subcategory.name,
-                        is_active=bool(subcategory.is_active),
-                        limit_amount=int(subcategory.limit_amount) if subcategory.limit_amount is not None else None,
-                        allocated_amount=int(subcategory.limit_amount) if subcategory.limit_amount is not None else None,
+                        id=allocation.id,
+                        project_id=allocation.project_id,
+                        category=allocation.category,
+                        name=allocation.user_subcategory.name,
+                        is_active=bool(allocation.is_active),
+                        user_subcategory_id=int(allocation.user_subcategory_id),
+                        limit_amount=int(allocation.allocated_amount),
+                        allocated_amount=int(allocation.allocated_amount),
                         spent=spent_subcategory,
                         remaining=remaining_subcategory,
-                        is_over_limit=remaining_subcategory is not None and remaining_subcategory < 0,
-                        created_at=subcategory.created_at,
-                        updated_at=subcategory.updated_at,
+                        is_over_limit=remaining_subcategory < 0,
+                        created_at=allocation.created_at,
+                        updated_at=allocation.updated_at,
                     )
                 )
         else:
@@ -2178,13 +2218,27 @@ def validate_project_budget(
     spent_total = int(total_query.scalar() or 0)
     funding_limit = get_project_funding_limit(project)
     if funding_limit is not None and spent_total + amount > funding_limit:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="budgets.project_limit_exceeded")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "projects.top_up_required",
+                "repair": "TOP_UP_PROJECT",
+                "funding_limit": int(funding_limit),
+                "spent": spent_total,
+                "requested_amount": int(amount),
+            },
+        )
 
     category_limit = next((item for item in project.isolated_category_allocations if item.category == category), None)
     if category_limit is None:
-        if project_subcategory is not None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.category_limit_required_for_subcategories")
-        return
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "projects.assign_unassigned_funding_required",
+                "repair": "ASSIGN_UNASSIGNED_FUNDING",
+                "category": category.value,
+            },
+        )
 
     category_query = (
         db.query(func.coalesce(func.sum(signed_amount), 0))
@@ -2204,7 +2258,25 @@ def validate_project_budget(
         category_query = category_query.filter(models.FinancialEvent.id != exclude_event_id)
     spent_category = int(category_query.scalar() or 0)
     if spent_category + amount > int(category_limit.limit_amount):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="budgets.project_category_limit_exceeded")
+        unallocated = get_project_unallocated_funding_amount(project)
+        repair = "ASSIGN_UNASSIGNED_FUNDING" if unallocated and unallocated > 0 else "REBALANCE_OR_TOP_UP"
+        code = (
+            "projects.assign_unassigned_funding_required"
+            if repair == "ASSIGN_UNASSIGNED_FUNDING"
+            else "projects.rebalance_or_top_up_required"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": code,
+                "repair": repair,
+                "category": category.value,
+                "allocated_amount": int(category_limit.limit_amount),
+                "spent": spent_category,
+                "requested_amount": int(amount),
+                "unallocated_funding": int(unallocated or 0),
+            },
+        )
 
     if project_subcategory is None:
         return
@@ -2237,5 +2309,15 @@ def validate_project_budget(
         subcategory_query = subcategory_query.filter(models.FinancialEvent.id != exclude_event_id)
     spent_subcategory = int(subcategory_query.scalar() or 0)
     if spent_subcategory + amount > int(project_subcategory.limit_amount):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_limit_exceeded")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "projects.rebalance_or_top_up_required",
+                "repair": "REBALANCE_OR_TOP_UP",
+                "category": category.value,
+                "allocated_amount": int(project_subcategory.limit_amount),
+                "spent": spent_subcategory,
+                "requested_amount": int(amount),
+            },
+        )
 

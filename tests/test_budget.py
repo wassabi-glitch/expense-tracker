@@ -2051,6 +2051,7 @@ def test_isolated_project_expense_does_not_require_or_hit_monthly_budget(client,
             "is_isolated": True,
             "total_limit": 1_000_000,
             "start_date": today.isoformat(),
+            "category_allocations": [{"category": "Housing", "limit_amount": 1_000_000}],
         },
         headers=headers,
     )

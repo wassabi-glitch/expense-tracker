@@ -242,36 +242,42 @@ The expense should bypass normal monthly budget reservation math, remain categor
 
 ---
 
-## Issue 5: Support Cascading Project Top-Ups and Internal Rebalancing
+## Issue 5: Support Project Top-Ups Into Unassigned Stash and Internal Allocation
 
 **Type:** AFK
 
 ### Parent
 
-[Epic 6 - Isolated Projects & YNAB Envelopes](../../epics/epic-6-isolated-projects.md), [G28 - Isolated Project Wizard](../../prd/g28-isolated-project-wizard.md)
+[Epic 6 - Isolated Projects & YNAB Envelopes](../../epics/epic-6-isolated-projects.md), [G28 - Isolated Project Wizard](../../prd/g28-isolated-project-wizard.md), [G37 - Isolated Project Top-Ups and Unassigned Allocation](../../prd/g37-isolated-project-topups-and-unassigned-allocation.md)
 
 ### What to build
 
-Give users the repair tools needed when an isolated project changes in real life. A user should be able to top up project funding from a selected wallet and have the money flow through the proper cascade: wallet lock, total project stash, parent category, and optional micro-subcategory. They should also be able to rebalance already-locked project funding between categories or micro-subcategories without touching wallet balances.
+Give users the repair tools needed when an isolated project changes in real life. A user should be able to top up an active isolated project from one or more eligible wallets, with the new funding landing in unassigned project stash first. From there, the user can deliberately allocate unassigned project money into parent categories and micro-subcategories, or rebalance already-assigned project funding without touching wallet balances.
 
-This keeps isolated projects strict without trapping users when contractor prices, travel costs, or event needs change.
+This keeps isolated projects strict without making top-up perform a hidden category decision. Unassigned project money increases total project funding, but it cannot be spent directly because isolated project expenses still require allocated category or micro-subcategory funding.
 
 ### Acceptance criteria
 
-- [ ] The backend exposes a cascading top-up action for active isolated projects.
-- [ ] A top-up requires a funding wallet owned by the user and an amount that is available to allocate.
-- [ ] A top-up can target the project stash only, a parent category allocation, or a micro-subcategory allocation.
-- [ ] A targeted micro-subcategory top-up also increases the matching parent category allocation and total project stash in the same transaction.
-- [ ] A targeted parent category top-up also increases the total project stash in the same transaction.
-- [ ] Project wallet-allocation rows are created or increased as the source-of-truth lock for new top-up funding.
-- [ ] Top-ups fail with stable validation errors when they exceed wallet free-to-allocate money or global Free Money Now.
-- [ ] The backend exposes an internal rebalance action that moves already-locked funding between project categories or micro-subcategories without changing project wallet allocations.
-- [ ] Rebalancing cannot make any source category or micro-subcategory negative after actual spending is considered.
-- [ ] Top-up and rebalance actions are blocked for completed or archived isolated projects.
-- [ ] Project details show top-up and rebalance actions near isolated funding summaries, with live before/after totals.
-- [ ] Resolution UX from isolated expense overruns can route the user into top-up or rebalance and then retry or continue the original workflow.
-- [ ] Backend tests cover stash-only top-up, category top-up, micro-subcategory cascade, wallet availability, ownership isolation, transaction rollback, rebalance guards, and completed/archived blocking.
-- [ ] Frontend tests cover top-up/rebalance forms, before/after previews, over-allocation errors, resolution flow handoff, cache invalidation, and localized errors.
+- [x] The backend exposes a project top-up action for active isolated projects.
+- [x] A top-up can accept one or more funding wallets owned by the user.
+- [x] Each top-up wallet amount must be available to allocate after existing wallet locks and protected money are considered.
+- [x] Top-ups fail with stable validation errors when they exceed wallet free-to-allocate money or global Free Money Now.
+- [x] Top-ups create or increase isolated project wallet-allocation rows as the source-of-truth lock for new funding.
+- [x] Top-ups increase the derived total project stash and unassigned project funding without directly changing parent category or micro-subcategory allocations.
+- [x] Project details expose total stash, assigned funding, unassigned funding, spent, remaining funding, category availability, and micro-subcategory availability.
+- [x] The backend exposes an allocation action that assigns unassigned project funding into parent categories.
+- [x] The backend exposes an allocation action that assigns available parent-category room into micro-subcategories.
+- [x] Allocation cannot make assigned parent-category funding exceed the derived total project stash.
+- [x] Micro-subcategory allocation cannot make assigned micro-subcategory funding exceed its parent category allocation.
+- [x] The backend exposes an internal rebalance action that moves already-assigned funding between parent categories or between micro-subcategories without changing project wallet allocations.
+- [x] Rebalancing cannot reduce any source category or micro-subcategory below actual non-voided spending already posted against it.
+- [x] Isolated project expenses cannot spend directly from unassigned project funding; the selected parent category and optional micro-subcategory must have enough allocated availability.
+- [x] Stable resolution errors distinguish "top up project", "assign unassigned funding", and "rebalance existing funding" repair paths.
+- [x] Top-up, allocation, and rebalance actions are blocked for completed or archived isolated projects.
+- [ ] Project details show top-up, allocation, and rebalance actions near isolated funding summaries, with live before/after totals.
+- [ ] Resolution UX from isolated expense overruns can route the user into top-up, allocation, or rebalance and then retry or continue the original workflow.
+- [ ] Backend tests cover multi-wallet top-up, wallet availability, ownership isolation, global Free Money Now guards, derived unassigned funding, allocation guards, micro-subcategory guards, unassigned-spend blocking, transaction rollback, rebalance guards, and completed/archived blocking.
+- [ ] Frontend tests cover top-up/allocation/rebalance forms, before/after previews, unassigned-money guidance, over-allocation errors, resolution flow handoff, cache invalidation, mobile layout, and localized errors.
 - [ ] Docker verification passes for focused backend tests and frontend build.
 
 ### Blocked by
@@ -313,7 +319,7 @@ This prevents EC-171's premature graduation double-funding trap and keeps Goal v
 ### Blocked by
 
 - Issue 1: Create Isolated Projects from Wallet-Backed Funding
-- Issue 5: Support Cascading Project Top-Ups and Internal Rebalancing
+- Issue 5: Support Project Top-Ups Into Unassigned Stash and Internal Allocation
 
 ---
 
@@ -350,7 +356,7 @@ The completed slice should make the mini-YNAB behavior visible without turning i
 ### Blocked by
 
 - Issue 4: Post Isolated Project Expenses Through the Pooled Vault
-- Issue 5: Support Cascading Project Top-Ups and Internal Rebalancing
+- Issue 5: Support Project Top-Ups Into Unassigned Stash and Internal Allocation
 - Issue 6: Graduate Fund Project Goals into Isolated Projects Without Double Funding
 
 ---

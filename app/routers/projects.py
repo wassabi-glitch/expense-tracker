@@ -34,6 +34,10 @@ from ..services.project_service import (
     validate_overlay_project_deletion_target,
 )
 from ..services.isolated_project_service import (
+    apply_isolated_project_category_allocation,
+    apply_isolated_project_rebalance,
+    apply_isolated_project_subcategory_allocation,
+    apply_isolated_project_top_up,
     get_isolated_project_category_spent_amount,
     get_project_funding_limit,
     validate_isolated_project_category_allocation_covers_spending,
@@ -438,6 +442,83 @@ def get_project(
         budget_month,
         default_budget_date=today_in_tz(user_tz),
     )
+
+
+@router.post("/{project_id}/top-ups", response_model=schemas.ProjectBudgetOut)
+def top_up_isolated_project(
+    project_id: int,
+    payload: schemas.ProjectTopUpRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
+):
+    _apply_headers(response, enforce_project_write_rate_limit(current_user.id))
+    project = get_owned_project_or_404(db, current_user.id, project_id)
+    apply_isolated_project_top_up(db, current_user.id, project, payload.wallet_allocations)
+    db.commit()
+    return _project_detail_out(db, current_user.id, project.id, default_budget_date=today_in_tz(user_tz))
+
+
+@router.post("/{project_id}/category-allocations", response_model=schemas.ProjectBudgetOut, status_code=status.HTTP_201_CREATED)
+def allocate_isolated_project_category_funding(
+    project_id: int,
+    payload: schemas.ProjectCategoryAllocationRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
+):
+    _apply_headers(response, enforce_project_write_rate_limit(current_user.id))
+    project = get_owned_project_or_404(db, current_user.id, project_id)
+    apply_isolated_project_category_allocation(
+        db,
+        project,
+        category=payload.category,
+        allocated_amount=payload.allocated_amount,
+    )
+    db.commit()
+    return _project_detail_out(db, current_user.id, project.id, default_budget_date=today_in_tz(user_tz))
+
+
+@router.post("/{project_id}/subcategory-allocations", response_model=schemas.ProjectBudgetOut, status_code=status.HTTP_201_CREATED)
+def allocate_isolated_project_subcategory_funding(
+    project_id: int,
+    payload: schemas.ProjectSubcategoryAllocationRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
+):
+    _apply_headers(response, enforce_project_write_rate_limit(current_user.id))
+    project = get_owned_project_or_404(db, current_user.id, project_id)
+    apply_isolated_project_subcategory_allocation(
+        db,
+        current_user.id,
+        project,
+        category=payload.category,
+        allocated_amount=payload.allocated_amount,
+        name=payload.name,
+        user_subcategory_id=payload.user_subcategory_id,
+    )
+    db.commit()
+    return _project_detail_out(db, current_user.id, project.id, default_budget_date=today_in_tz(user_tz))
+
+
+@router.post("/{project_id}/rebalances", response_model=schemas.ProjectBudgetOut)
+def rebalance_isolated_project_funding(
+    project_id: int,
+    payload: schemas.ProjectRebalanceRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
+):
+    _apply_headers(response, enforce_project_write_rate_limit(current_user.id))
+    project = get_owned_project_or_404(db, current_user.id, project_id)
+    apply_isolated_project_rebalance(db, current_user.id, project, payload)
+    db.commit()
+    return _project_detail_out(db, current_user.id, project.id, default_budget_date=today_in_tz(user_tz))
 
 
 @router.get("/{project_id}/delete-preview", response_model=schemas.ProjectDeletionPreviewOut)

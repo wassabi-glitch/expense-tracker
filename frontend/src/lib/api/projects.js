@@ -79,6 +79,26 @@ export async function createProjectCategoryLimit(projectId, payload) {
     return response.data;
 }
 
+export async function topUpIsolatedProject(projectId, payload) {
+    const response = await apiClient.post(`/projects/${projectId}/top-ups`, payload);
+    return response.data;
+}
+
+export async function allocateIsolatedProjectCategory(projectId, payload) {
+    const response = await apiClient.post(`/projects/${projectId}/category-allocations`, payload);
+    return response.data;
+}
+
+export async function allocateIsolatedProjectSubcategory(projectId, payload) {
+    const response = await apiClient.post(`/projects/${projectId}/subcategory-allocations`, payload);
+    return response.data;
+}
+
+export async function rebalanceIsolatedProject(projectId, payload) {
+    const response = await apiClient.post(`/projects/${projectId}/rebalances`, payload);
+    return response.data;
+}
+
 export async function updateProjectCategoryLimit(projectId, category, payload) {
     const response = await apiClient.put(`/projects/${projectId}/category-limits/${encodeURIComponent(category)}`, payload);
     return response.data;
