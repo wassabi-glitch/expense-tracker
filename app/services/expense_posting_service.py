@@ -15,6 +15,7 @@ from app.services.budget_service import (
 )
 from app.services.category_policy import validate_active_expense_category
 from app.services.goal_funding_service import validate_wallet_goal_protection_for_outflow
+from app.services.isolated_project_service import validate_isolated_project_wallet_spend
 from app.services.project_service import is_isolated_project
 from app.services.session_draft_service import validate_session_item_links
 from app.services.wallet_service import WalletService
@@ -186,6 +187,16 @@ def post_expense_event(
         project_id,
         project_subcategory_id,
     )
+    legacy_project_subcategory = (
+        project_subcategory
+        if isinstance(project_subcategory, models.LegacyProjectSubcategory)
+        else None
+    )
+    isolated_project_subcategory = (
+        project_subcategory
+        if isinstance(project_subcategory, models.IsolatedProjectSubcategoryAllocation)
+        else None
+    )
 
     budget = None
     if project is None or not is_isolated_project(project):
@@ -201,6 +212,13 @@ def post_expense_event(
             expense_date,
             project_subcategory=project_subcategory,
         )
+        if is_isolated_project(project):
+            validate_isolated_project_wallet_spend(
+                db,
+                user_id,
+                project,
+                resolved_wallet_allocations,
+            )
 
     event = models.FinancialEvent(
         owner_id=user_id,
@@ -244,7 +262,12 @@ def post_expense_event(
             budget_id=budget.id if budget is not None else None,
             subcategory_id=subcategory.id if subcategory is not None else None,
             project_id=project.id if project is not None else None,
-            project_subcategory_id=project_subcategory.id if project_subcategory is not None else None,
+            project_subcategory_id=legacy_project_subcategory.id if legacy_project_subcategory is not None else None,
+            isolated_project_subcategory_id=(
+                isolated_project_subcategory.id
+                if isolated_project_subcategory is not None
+                else None
+            ),
             debt_id=debt_id,
             payment_plan_id=payment_plan_id,
             payment_plan_payment_id=payment_plan_payment_id,

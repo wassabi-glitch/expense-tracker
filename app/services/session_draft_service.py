@@ -15,6 +15,7 @@ from ..services.budget_service import (
     validate_project_budget,
 )
 from ..services.goal_funding_service import validate_wallet_goal_protection_for_outflow
+from ..services.isolated_project_service import validate_isolated_project_wallet_spend
 from ..services.project_service import is_isolated_project
 from ..services.debt_service import create_debt_ledger_entry
 from ..services.wallet_service import WalletService
@@ -134,7 +135,11 @@ def validate_session_item_links(
     subcategory_id: int | None,
     project_id: int | None,
     project_subcategory_id: int | None = None,
-) -> tuple[models.UserSubcategory | None, models.Project | None, models.LegacyProjectSubcategory | None]:
+) -> tuple[
+    models.UserSubcategory | None,
+    models.Project | None,
+    models.LegacyProjectSubcategory | models.IsolatedProjectSubcategoryAllocation | None,
+]:
     subcategory = None
     if subcategory_id is not None:
         subcategory = get_owned_subcategory_or_404(db, owner_id, subcategory_id)
@@ -151,9 +156,29 @@ def validate_session_item_links(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_project_required")
         if subcategory_id is not None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_modes_conflict")
+        if is_isolated_project(project):
+            isolated_allocation = (
+                db.query(models.IsolatedProjectSubcategoryAllocation)
+                .join(
+                    models.UserSubcategory,
+                    models.UserSubcategory.id == models.IsolatedProjectSubcategoryAllocation.user_subcategory_id,
+                )
+                .filter(
+                    models.IsolatedProjectSubcategoryAllocation.id == project_subcategory_id,
+                    models.IsolatedProjectSubcategoryAllocation.project_id == project.id,
+                    models.IsolatedProjectSubcategoryAllocation.archived_at.is_(None),
+                    models.UserSubcategory.owner_id == owner_id,
+                )
+                .first()
+            )
+            if isolated_allocation is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="projects.subcategory_not_found")
+            if isolated_allocation.category != category:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_category_mismatch")
+            if not isolated_allocation.is_active:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_inactive")
+            return isolated_allocation.user_subcategory, project, isolated_allocation
         project_subcategory = get_owned_project_subcategory_or_404(db, owner_id, project.id, project_subcategory_id)
-        if not is_isolated_project(project):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategories_isolated_only")
         if project_subcategory.category != category:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_category_mismatch")
         if not project_subcategory.is_active:
@@ -246,7 +271,7 @@ def build_session_draft_out(draft: models.ExpenseSessionDraft) -> schemas.Sessio
                 category=item.category,
                 subcategory_id=item.subcategory_id,
                 project_id=item.project_id,
-                project_subcategory_id=item.project_subcategory_id,
+                project_subcategory_id=item.isolated_project_subcategory_id or item.project_subcategory_id,
                 sort_order=int(item.sort_order or 0),
                 created_at=item.created_at,
                 updated_at=item.updated_at,
@@ -340,6 +365,7 @@ def finalize_session_draft(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expenses.splits_exceed_total")
 
     wallet_currency: str | None = None
+    resolved_wallet_allocations: list[tuple[models.Wallet, int]] = []
     for allocation in draft.wallet_allocations:
         wallet = allocation.wallet
         if wallet is None:
@@ -367,6 +393,7 @@ def finalize_session_draft(
             int(allocation.amount),
             outflow_type="session_expense",
         )
+        resolved_wallet_allocations.append((wallet, int(allocation.amount)))
 
     validated_items: list[
         tuple[
@@ -426,6 +453,15 @@ def finalize_session_draft(
             project_subcategory=project_subcategory,
         )
 
+    for project in projects.values():
+        if is_isolated_project(project):
+            validate_isolated_project_wallet_spend(
+                db,
+                owner_id,
+                project,
+                resolved_wallet_allocations,
+            )
+
     event = models.FinancialEvent(
         owner_id=owner_id,
         title=draft.title,
@@ -455,6 +491,16 @@ def finalize_session_draft(
     budget_ids: set[int] = set()
     has_discount = original_total != adjusted_total
     for item, adjusted_amount, subcategory, project, project_subcategory, budget in validated_items:
+        legacy_project_subcategory = (
+            project_subcategory
+            if isinstance(project_subcategory, models.LegacyProjectSubcategory)
+            else None
+        )
+        isolated_project_subcategory = (
+            project_subcategory
+            if isinstance(project_subcategory, models.IsolatedProjectSubcategoryAllocation)
+            else None
+        )
         if budget is not None:
             budget_ids.add(int(budget.id))
         db.add(
@@ -466,7 +512,12 @@ def finalize_session_draft(
                 category=item.category,
                 subcategory_id=subcategory.id if subcategory is not None else None,
                 project_id=project.id if project is not None else None,
-                project_subcategory_id=project_subcategory.id if project_subcategory is not None else None,
+                project_subcategory_id=legacy_project_subcategory.id if legacy_project_subcategory is not None else None,
+                isolated_project_subcategory_id=(
+                    isolated_project_subcategory.id
+                    if isolated_project_subcategory is not None
+                    else None
+                ),
                 budget_id=budget.id if budget is not None else None,
             )
         )

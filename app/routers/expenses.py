@@ -136,6 +136,11 @@ def _expense_event_query(db: Session, owner_id: int):
             selectinload(models.FinancialEvent.merge_group),
             selectinload(models.FinancialEvent.wallet_legs).selectinload(models.WalletLedger.wallet),
             selectinload(models.FinancialEvent.entity_legs).selectinload(models.EntityLedger.budget),
+            selectinload(models.FinancialEvent.entity_legs).selectinload(models.EntityLedger.project),
+            selectinload(models.FinancialEvent.entity_legs).selectinload(models.EntityLedger.project_subcategory),
+            selectinload(models.FinancialEvent.entity_legs)
+            .selectinload(models.EntityLedger.isolated_project_subcategory)
+            .selectinload(models.IsolatedProjectSubcategoryAllocation.user_subcategory),
         )
         .filter(
             models.FinancialEvent.owner_id == owner_id,
@@ -176,6 +181,20 @@ def _wallet_allocations_out(event: models.FinancialEvent) -> list[schemas.Expens
             )
         )
     return allocations
+
+
+def _entity_project_subcategory_id(leg: models.EntityLedger) -> int | None:
+    if leg.isolated_project_subcategory_id is not None:
+        return int(leg.isolated_project_subcategory_id)
+    return int(leg.project_subcategory_id) if leg.project_subcategory_id is not None else None
+
+
+def _entity_project_subcategory_name(leg: models.EntityLedger) -> str | None:
+    if leg.isolated_project_subcategory and leg.isolated_project_subcategory.user_subcategory:
+        return leg.isolated_project_subcategory.user_subcategory.name
+    if leg.project_subcategory:
+        return leg.project_subcategory.name
+    return None
 
 
 def _single_wallet_leg_or_400(event: models.FinancialEvent) -> models.WalletLedger:
@@ -248,7 +267,7 @@ def _split_items_out(event: models.FinancialEvent) -> list[schemas.ExpenseSplitI
                 category=leg.category,
                 subcategory_id=leg.subcategory_id,
                 project_id=leg.project_id,
-                project_subcategory_id=leg.project_subcategory_id,
+                project_subcategory_id=_entity_project_subcategory_id(leg),
                 budget_id=leg.budget_id,
             )
         )
@@ -282,7 +301,9 @@ def _build_expense_out(
         wallet=schemas.WalletOut.model_validate(wallet) if wallet else None,
         subcategory_id=entity_leg.subcategory_id,
         project_id=entity_leg.project_id,
-        project_subcategory_id=entity_leg.project_subcategory_id,
+        project_subcategory_id=_entity_project_subcategory_id(entity_leg),
+        project_title=entity_leg.project.title if entity_leg.project else None,
+        project_subcategory_name=_entity_project_subcategory_name(entity_leg),
         transaction_type=event.event_type,
         reference_type=event.reference_type,
         created_at=event.created_at,
@@ -391,9 +412,9 @@ def _build_expense_detail_out(
     )
 
     return schemas.ExpenseDetailOut(
-        **base.model_dump(),
+        **base.model_dump(exclude={"project_title", "project_subcategory_name"}),
         subcategory_name=entity_leg.subcategory.name if entity_leg and entity_leg.subcategory else None,
-        project_subcategory_name=entity_leg.project_subcategory.name if entity_leg and entity_leg.project_subcategory else None,
+        project_subcategory_name=_entity_project_subcategory_name(entity_leg) if entity_leg else None,
         project_title=entity_leg.project.title if entity_leg and entity_leg.project else None,
         budget_year=budget.budget_year if budget is not None else None,
         budget_month=budget.budget_month if budget is not None else None,
@@ -451,6 +472,11 @@ def _get_owned_event_any_status_or_404(
             selectinload(models.FinancialEvent.merge_group),
             selectinload(models.FinancialEvent.wallet_legs).selectinload(models.WalletLedger.wallet),
             selectinload(models.FinancialEvent.entity_legs).selectinload(models.EntityLedger.budget),
+            selectinload(models.FinancialEvent.entity_legs).selectinload(models.EntityLedger.project),
+            selectinload(models.FinancialEvent.entity_legs).selectinload(models.EntityLedger.project_subcategory),
+            selectinload(models.FinancialEvent.entity_legs)
+            .selectinload(models.EntityLedger.isolated_project_subcategory)
+            .selectinload(models.IsolatedProjectSubcategoryAllocation.user_subcategory),
         )
         .filter(
             models.FinancialEvent.owner_id == user_id,
@@ -1319,13 +1345,23 @@ def add_session_draft_item(
 
     draft = get_owned_session_draft_or_404(db, current_user.id, draft_id)
     ensure_draft_editable(draft)
-    validate_session_item_links(
+    _, _, project_subcategory = validate_session_item_links(
         db,
         current_user.id,
         payload.category,
         payload.subcategory_id,
         payload.project_id,
         payload.project_subcategory_id,
+    )
+    legacy_project_subcategory_id = (
+        project_subcategory.id
+        if isinstance(project_subcategory, models.LegacyProjectSubcategory)
+        else None
+    )
+    isolated_project_subcategory_id = (
+        project_subcategory.id
+        if isinstance(project_subcategory, models.IsolatedProjectSubcategoryAllocation)
+        else None
     )
 
     db.add(
@@ -1337,7 +1373,8 @@ def add_session_draft_item(
             category=payload.category,
             subcategory_id=payload.subcategory_id,
             project_id=payload.project_id,
-            project_subcategory_id=payload.project_subcategory_id,
+            project_subcategory_id=legacy_project_subcategory_id,
+            isolated_project_subcategory_id=isolated_project_subcategory_id,
             sort_order=payload.sort_order,
         )
     )
@@ -1368,9 +1405,9 @@ def update_session_draft_item(
     project_subcategory_id = (
         payload.project_subcategory_id
         if "project_subcategory_id" in payload.model_fields_set
-        else item.project_subcategory_id
+        else item.isolated_project_subcategory_id or item.project_subcategory_id
     )
-    validate_session_item_links(
+    _, _, project_subcategory = validate_session_item_links(
         db,
         current_user.id,
         category,
@@ -1378,10 +1415,24 @@ def update_session_draft_item(
         project_id,
         project_subcategory_id,
     )
+    legacy_project_subcategory_id = (
+        project_subcategory.id
+        if isinstance(project_subcategory, models.LegacyProjectSubcategory)
+        else None
+    )
+    isolated_project_subcategory_id = (
+        project_subcategory.id
+        if isinstance(project_subcategory, models.IsolatedProjectSubcategoryAllocation)
+        else None
+    )
 
     update_data = payload.model_dump(exclude_unset=True)
     if "label" in update_data and update_data["label"] is not None:
         update_data["label"] = update_data["label"].strip()
+    if "project_subcategory_id" in update_data:
+        update_data.pop("project_subcategory_id")
+        item.project_subcategory_id = legacy_project_subcategory_id
+        item.isolated_project_subcategory_id = isolated_project_subcategory_id
     for field, value in update_data.items():
         setattr(item, field, value)
 
@@ -1988,6 +2039,7 @@ def delete_expense(
                 subcategory_id=entity_leg.subcategory_id,
                 project_id=entity_leg.project_id,
                 project_subcategory_id=entity_leg.project_subcategory_id,
+                isolated_project_subcategory_id=entity_leg.isolated_project_subcategory_id,
                 budget_id=entity_leg.budget_id,
             )
         )
@@ -2359,6 +2411,11 @@ def refund_expense(
         transaction_date=now_in_tz(user_tz).date(),
         linked_event_id=original_event.id,
     )
+    for refund_entity_leg in refund_event.entity_legs:
+        refund_entity_leg.subcategory_id = entity_leg.subcategory_id
+        refund_entity_leg.project_id = entity_leg.project_id
+        refund_entity_leg.project_subcategory_id = entity_leg.project_subcategory_id
+        refund_entity_leg.isolated_project_subcategory_id = entity_leg.isolated_project_subcategory_id
 
     if entity_leg.debt_id:
         create_debt_ledger_entry(

@@ -82,6 +82,122 @@ def get_wallet_project_allocated_amount(
     return int(query.scalar() or 0)
 
 
+def get_isolated_project_wallet_funding_amount(
+    db: Session,
+    owner_id: int,
+    project_id: int,
+    wallet_id: int,
+) -> int:
+    return int(
+        db.query(func.coalesce(func.sum(models.IsolatedProjectWalletAllocation.amount), 0))
+        .filter(
+            models.IsolatedProjectWalletAllocation.owner_id == owner_id,
+            models.IsolatedProjectWalletAllocation.project_id == project_id,
+            models.IsolatedProjectWalletAllocation.wallet_id == wallet_id,
+        )
+        .scalar()
+        or 0
+    )
+
+
+def get_isolated_project_wallet_spent_amount(
+    db: Session,
+    owner_id: int,
+    project_id: int,
+    wallet_id: int,
+    *,
+    exclude_event_id: int | None = None,
+) -> int:
+    project_event_ids = (
+        db.query(models.EntityLedger.event_id)
+        .filter(models.EntityLedger.project_id == project_id)
+        .distinct()
+        .subquery()
+    )
+    query = (
+        db.query(func.coalesce(func.sum(-models.WalletLedger.amount), 0))
+        .join(models.FinancialEvent, models.FinancialEvent.id == models.WalletLedger.event_id)
+        .join(project_event_ids, project_event_ids.c.event_id == models.FinancialEvent.id)
+        .filter(
+            models.FinancialEvent.owner_id == owner_id,
+            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+            models.FinancialEvent.event_type.in_(
+                [models.TransactionType.EXPENSE, models.TransactionType.REFUND]
+            ),
+            models.WalletLedger.owner_id == owner_id,
+            models.WalletLedger.wallet_id == wallet_id,
+        )
+    )
+    if exclude_event_id is not None:
+        query = query.filter(models.FinancialEvent.id != exclude_event_id)
+    return int(query.scalar() or 0)
+
+
+def get_isolated_project_wallet_remaining_amount(
+    db: Session,
+    owner_id: int,
+    project_id: int,
+    wallet_id: int,
+    *,
+    exclude_event_id: int | None = None,
+) -> tuple[int, int, int]:
+    funded = get_isolated_project_wallet_funding_amount(db, owner_id, project_id, wallet_id)
+    spent = get_isolated_project_wallet_spent_amount(
+        db,
+        owner_id,
+        project_id,
+        wallet_id,
+        exclude_event_id=exclude_event_id,
+    )
+    return funded, spent, max(funded - spent, 0)
+
+
+def validate_isolated_project_wallet_spend(
+    db: Session,
+    owner_id: int,
+    project: models.Project,
+    wallet_allocations: list[tuple[models.Wallet, int]],
+    *,
+    exclude_event_id: int | None = None,
+) -> None:
+    for wallet, amount in wallet_allocations:
+        funded, spent, remaining = get_isolated_project_wallet_remaining_amount(
+            db,
+            owner_id,
+            int(project.id),
+            int(wallet.id),
+            exclude_event_id=exclude_event_id,
+        )
+        if funded <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "projects.wallet_funding_required",
+                    "project_id": int(project.id),
+                    "wallet_id": int(wallet.id),
+                    "wallet_name": wallet.name,
+                    "requested_amount": int(amount),
+                    "funded_amount": funded,
+                    "spent_amount": spent,
+                    "remaining_amount": remaining,
+                },
+            )
+        if int(amount) > remaining:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "projects.wallet_funding_exceeded",
+                    "project_id": int(project.id),
+                    "wallet_id": int(wallet.id),
+                    "wallet_name": wallet.name,
+                    "requested_amount": int(amount),
+                    "funded_amount": funded,
+                    "spent_amount": spent,
+                    "remaining_amount": remaining,
+                },
+            )
+
+
 def get_wallet_free_to_allocate_for_projects(
     db: Session,
     owner_id: int,

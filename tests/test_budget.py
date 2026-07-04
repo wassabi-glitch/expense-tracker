@@ -2043,13 +2043,15 @@ def test_isolated_project_expense_does_not_require_or_hit_monthly_budget(client,
     email = "budgetisolated@example.com"
     headers = create_user_and_token(client, "budgetisolated", email, "Password123!")
     today = user_timezone_today()
+    user = _get_user(session, email)
+    wallet = _default_wallet(session, user.id)
 
     project = client.post(
         "/projects",
         json={
             "title": "Home renovation",
             "is_isolated": True,
-            "total_limit": 1_000_000,
+            "wallet_allocations": [{"wallet_id": wallet.id, "amount": 1_000_000}],
             "start_date": today.isoformat(),
         },
         headers=headers,

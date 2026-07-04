@@ -25,6 +25,12 @@ def _make_goal_funding_wallet(client, headers, *, name="Goal Wallet", initial_ba
     return response.json()["id"]
 
 
+def _default_wallet_id(client, headers):
+    response = client.get("/wallets", headers=headers)
+    assert response.status_code == 200, response.text
+    return response.json()[0]["id"]
+
+
 def _make_premium(client, headers):
     response = client.post("/users/me/toggle-premium", headers=headers)
     assert response.status_code == 200, response.text
@@ -391,12 +397,13 @@ def test_project_expense_tagging_uses_expense_date_not_current_date(client):
     headers = create_user_and_token(
         client, "expprojectdates", "expprojectdates@example.com", "Password123!"
     )
+    wallet_id = _default_wallet_id(client, headers)
     project = client.post(
         "/projects",
         json={
             "title": "Conference",
             "is_isolated": True,
-            "total_limit": 1_000_000,
+            "wallet_allocations": [{"wallet_id": wallet_id, "amount": 1_000_000}],
             "start_date": "2026-06-01",
             "target_end_date": "2026-06-10",
         },
@@ -438,12 +445,13 @@ def test_project_date_update_allows_expansion_and_blocks_orphaning_tagged_expens
     headers = create_user_and_token(
         client, "expprojectshrink", "expprojectshrink@example.com", "Password123!"
     )
+    wallet_id = _default_wallet_id(client, headers)
     project = client.post(
         "/projects",
         json={
             "title": "Renovation",
             "is_isolated": True,
-            "total_limit": 1_000_000,
+            "wallet_allocations": [{"wallet_id": wallet_id, "amount": 1_000_000}],
             "start_date": "2026-06-01",
             "target_end_date": "2026-06-30",
         },
@@ -498,12 +506,13 @@ def test_completed_project_rejects_edits_and_expense_tagging_until_reopen(client
     headers = create_user_and_token(
         client, "expprojectlocked", "expprojectlocked@example.com", "Password123!"
     )
+    wallet_id = _default_wallet_id(client, headers)
     project = client.post(
         "/projects",
         json={
             "title": "Wedding",
             "is_isolated": True,
-            "total_limit": 1_000_000,
+            "wallet_allocations": [{"wallet_id": wallet_id, "amount": 1_000_000}],
             "start_date": "2026-06-01",
             "target_end_date": "2026-06-30",
         },

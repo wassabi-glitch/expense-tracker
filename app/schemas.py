@@ -1701,6 +1701,8 @@ class ExpenseOut(ExpenseBase):
     wallet_allocations: List[ExpenseWalletAllocationOut] = []
     split_items: List[ExpenseSplitItemOut] = []
     asset_id: Optional[int] = None
+    project_title: Optional[str] = None
+    project_subcategory_name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -188,6 +188,7 @@ function findExpenseAmountInCache(queryClient, expenseId) {
 async function invalidateExpenseDerivedQueries(queryClient) {
     await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["expenses"] }),
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] }),
         queryClient.invalidateQueries({ queryKey: ["wallets"] }),

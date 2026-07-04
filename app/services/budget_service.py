@@ -2206,6 +2206,35 @@ def validate_project_budget(
     if spent_category + amount > int(category_limit.limit_amount):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="budgets.project_category_limit_exceeded")
 
+    if isinstance(project_subcategory, models.IsolatedProjectSubcategoryAllocation):
+        if project_subcategory.project_id != project.id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_project_mismatch")
+        if project_subcategory.category != category:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_category_mismatch")
+        if not project_subcategory.is_active or project_subcategory.archived_at is not None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_inactive")
+
+        subcategory_query = (
+            db.query(func.coalesce(func.sum(signed_amount), 0))
+            .select_from(models.EntityLedger)
+            .join(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
+            .filter(
+                models.FinancialEvent.owner_id == owner_id,
+                models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+                models.EntityLedger.project_id == project.id,
+                models.EntityLedger.isolated_project_subcategory_id == project_subcategory.id,
+                models.FinancialEvent.event_type.in_(
+                    [models.TransactionType.EXPENSE, models.TransactionType.REFUND]
+                ),
+            )
+        )
+        if exclude_event_id is not None:
+            subcategory_query = subcategory_query.filter(models.FinancialEvent.id != exclude_event_id)
+        spent_subcategory = int(subcategory_query.scalar() or 0)
+        if spent_subcategory + amount > int(project_subcategory.allocated_amount):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_limit_exceeded")
+        return
+
     if project_subcategory is None:
         return
     if project_subcategory.project_id != project.id:
