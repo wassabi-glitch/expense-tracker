@@ -523,8 +523,8 @@ def test_completed_project_rejects_edits_and_expense_tagging_until_reopen(client
         json={"category": "Family & Events", "name": "Venue", "limit_amount": 500_000},
         headers=headers,
     )
-    assert subcategory.status_code == 201, subcategory.text
-    subcategory_id = subcategory.json()["category_breakdown"][0]["subcategories"][0]["id"]
+    assert subcategory.status_code == 501
+    assert subcategory.json()["detail"] == "projects.isolated_subcategory_allocations_issue3_required"
 
     completed = client.post(
         f"/projects/{project_id}/complete",
@@ -550,13 +550,13 @@ def test_completed_project_rejects_edits_and_expense_tagging_until_reopen(client
     assert limit_edit.status_code == 400
     assert limit_edit.json()["detail"] == "projects.completed_read_only"
 
-    subcategory_edit = client.put(
-        f"/projects/{project_id}/subcategories/{subcategory_id}",
-        json={"name": "Venue final"},
+    subcategory_create_after_completion = client.post(
+        f"/projects/{project_id}/subcategories",
+        json={"category": "Family & Events", "name": "Venue final", "limit_amount": 500_000},
         headers=headers,
     )
-    assert subcategory_edit.status_code == 400
-    assert subcategory_edit.json()["detail"] == "projects.completed_read_only"
+    assert subcategory_create_after_completion.status_code == 400
+    assert subcategory_create_after_completion.json()["detail"] == "projects.completed_read_only"
 
     tagged_expense = client.post(
         "/expenses/",
@@ -566,7 +566,6 @@ def test_completed_project_rejects_edits_and_expense_tagging_until_reopen(client
             "category": "Family & Events",
             "date": "2026-06-10",
             "project_id": project_id,
-            "project_subcategory_id": subcategory_id,
         },
         headers=headers,
     )
@@ -594,7 +593,6 @@ def test_completed_project_rejects_edits_and_expense_tagging_until_reopen(client
             "category": "Family & Events",
             "date": "2026-06-10",
             "project_id": project_id,
-            "project_subcategory_id": subcategory_id,
         },
         headers=headers,
     )
