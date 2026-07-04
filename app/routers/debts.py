@@ -3,7 +3,9 @@ from datetime import date, datetime, timezone, tzinfo
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+# pyrefly: ignore [missing-import]
 from sqlalchemy import func, or_
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session, joinedload
 
 from app.timezone import get_effective_user_timezone, today_in_tz

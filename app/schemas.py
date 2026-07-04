@@ -2917,6 +2917,7 @@ class ProjectBase(BaseModel):
     origin_goal_id: Optional[int] = None
     wallet_allocations: List[ProjectWalletAllocationCreate] = Field(default_factory=list, max_length=50)
     category_allocations: List[ProjectCategoryAllocationCreate] = Field(default_factory=list, max_length=20)
+    subcategory_allocations: List["ProjectSubcategoryCreate"] = Field(default_factory=list, max_length=100)
 
     model_config = ConfigDict(extra="forbid")
 
