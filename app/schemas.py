@@ -2842,6 +2842,11 @@ class ProjectWalletAllocationCreate(BaseModel):
     amount: int = Field(gt=0, le=999999999999)
 
 
+class ProjectCategoryAllocationCreate(BaseModel):
+    category: ExpenseCategory
+    limit_amount: int = Field(gt=0, le=999999999999)
+
+
 class ProjectWalletAllocationOut(BaseModel):
     id: int
     project_id: int
@@ -2856,6 +2861,8 @@ class ProjectWalletAllocationOut(BaseModel):
 
 class ProjectIsolatedFinancialOut(BaseModel):
     funding_limit: Optional[int] = None
+    allocated_funding: int = 0
+    unallocated_funding: Optional[int] = None
     released_funding: Optional[int] = None
     remaining_funding: Optional[int] = None
     funding_shortfall: int = 0
@@ -2905,6 +2912,7 @@ class ProjectBase(BaseModel):
     target_end_date: Optional[date] = None
     origin_goal_id: Optional[int] = None
     wallet_allocations: List[ProjectWalletAllocationCreate] = Field(default_factory=list, max_length=50)
+    category_allocations: List[ProjectCategoryAllocationCreate] = Field(default_factory=list, max_length=20)
 
     model_config = ConfigDict(extra="forbid")
 

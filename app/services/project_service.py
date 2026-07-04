@@ -50,6 +50,17 @@ def get_project_wallet_allocated_amount(project: models.Project) -> int:
     return int(sum(int(item.amount or 0) for item in project.wallet_allocations))
 
 
+def get_project_category_allocated_amount(project: models.Project) -> int:
+    return int(sum(int(item.limit_amount or 0) for item in project.category_limits))
+
+
+def get_project_unallocated_funding_amount(project: models.Project) -> int | None:
+    funding_limit = get_project_funding_limit(project)
+    if funding_limit is None:
+        return None
+    return max(int(funding_limit) - get_project_category_allocated_amount(project), 0)
+
+
 def get_wallet_project_allocated_amount(
     db: Session,
     owner_id: int,
@@ -661,6 +672,49 @@ def validate_project_limit_sum(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.category_limits_exceed_total")
 
 
+def get_isolated_project_category_spent_amount(
+    db: Session,
+    owner_id: int,
+    project_id: int,
+    category: models.ExpenseCategory,
+    *,
+    exclude_event_id: int | None = None,
+) -> int:
+    signed_amount = _signed_posted_expense_amount()
+    query = (
+        db.query(func.coalesce(func.sum(signed_amount), 0))
+        .select_from(models.EntityLedger)
+        .join(models.FinancialEvent, models.FinancialEvent.id == models.EntityLedger.event_id)
+        .filter(
+            models.FinancialEvent.owner_id == owner_id,
+            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
+            models.EntityLedger.project_id == project_id,
+            models.EntityLedger.category == category,
+            models.FinancialEvent.event_type.in_(
+                [models.TransactionType.EXPENSE, models.TransactionType.REFUND]
+            ),
+        )
+    )
+    if exclude_event_id is not None:
+        query = query.filter(models.FinancialEvent.id != exclude_event_id)
+    return int(query.scalar() or 0)
+
+
+def validate_isolated_project_category_allocation_covers_spending(
+    db: Session,
+    owner_id: int,
+    project: models.Project,
+    category: models.ExpenseCategory,
+    limit_amount: int,
+) -> None:
+    spent = get_isolated_project_category_spent_amount(db, owner_id, int(project.id), category)
+    if int(limit_amount) < spent:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="projects.category_allocation_below_spent",
+        )
+
+
 def get_owned_project_subcategory_or_404(
     db: Session,
     owner_id: int,
@@ -1007,8 +1061,15 @@ def build_project_detail(
     overlay = None
     isolated = None
     if is_isolated:
+        allocated_funding = get_project_category_allocated_amount(project)
         isolated = schemas.ProjectIsolatedFinancialOut(
             funding_limit=funding_limit,
+            allocated_funding=allocated_funding,
+            unallocated_funding=(
+                max(int(funding_limit) - allocated_funding, 0)
+                if funding_limit is not None
+                else None
+            ),
             released_funding=int(released_funding) if released_funding is not None else None,
             remaining_funding=remaining_funding,
             funding_shortfall=funding_shortfall,

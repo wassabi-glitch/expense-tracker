@@ -20,8 +20,10 @@ from .obligation_source_service import (
 )
 from .project_service import (
     OVERLAY_RESERVATION_HOLDING_STATUSES,
+    get_project_category_allocated_amount,
     get_project_funding_limit,
     get_project_target_estimate,
+    get_project_unallocated_funding_amount,
     get_project_type,
     get_project_wallet_allocated_amount,
     is_isolated_project,
@@ -2008,6 +2010,8 @@ def get_project_budget_summaries(
         if is_isolated:
             isolated = schemas.ProjectIsolatedFinancialOut(
                 funding_limit=funding_limit,
+                allocated_funding=get_project_category_allocated_amount(project),
+                unallocated_funding=get_project_unallocated_funding_amount(project),
                 released_funding=released_funding,
                 remaining_funding=remaining_funding,
                 funding_shortfall=funding_shortfall,
