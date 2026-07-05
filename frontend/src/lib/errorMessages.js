@@ -353,6 +353,21 @@ export function localizeApiError(message, t) {
   if (msg === "goals.archived_read_only") {
     return t("savings.goals.archivedReadOnly");
   }
+  if (msg === "goals.graduated_read_only") {
+    return t("savings.goals.graduatedReadOnly", {
+      defaultValue: "This goal has become a project. Add future funding through the project top-up flow.",
+    });
+  }
+  if (msg === "goals.graduation_requires_fund_project") {
+    return t("savings.goals.graduationRequiresFundProject", {
+      defaultValue: "Only Project Fund goals can be turned into isolated projects.",
+    });
+  }
+  if (msg === "goals.fund_project_cannot_complete") {
+    return t("savings.goals.fundProjectCannotComplete", {
+      defaultValue: "Project Fund goals cannot be completed. Create the project or archive the goal instead.",
+    });
+  }
   if (msg === "goals.active_limit_reached") {
     return t("savings.goals.activeLimitReached");
   }
