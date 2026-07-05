@@ -478,6 +478,166 @@ def test_goal_allocation_uses_wallet_available_without_changing_wallet_balance(c
     assert summary.json()["allocated_to_goals"] == 800_000
 
 
+def test_fund_project_goal_cannot_be_completed_through_update(client):
+    headers = create_user_and_token(
+        client, "fundprojectcomplete", "fundprojectcomplete@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={"title": "Studio", "target_amount": 1_000_000, "intent": "FUND_PROJECT"},
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    goal_id = created.json()["id"]
+
+    completed = client.patch(
+        f"/goals/{goal_id}",
+        json={"status": "COMPLETED"},
+        headers=headers,
+    )
+    assert completed.status_code == 400
+    assert completed.json()["detail"] == "goals.fund_project_cannot_complete"
+
+    listed = client.get("/goals/", headers=headers)
+    assert listed.status_code == 200, listed.text
+    stored_goal = next(item for item in listed.json() if item["id"] == goal_id)
+    assert stored_goal["status"] == "ACTIVE"
+
+
+def test_only_fund_project_goals_can_graduate_and_past_target_date_stays_derived(client):
+    headers = create_user_and_token(
+        client, "fundprojectguards", "fundprojectguards@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers, initial_balance=1_000_000)
+    today = user_timezone_today()
+
+    planned_purchase = client.post(
+        "/goals/",
+        json={"title": "Laptop", "target_amount": 500_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    assert planned_purchase.status_code == 201, planned_purchase.text
+    blocked = client.post(
+        f"/goals/{planned_purchase.json()['id']}/graduate",
+        json={"project_title": "Laptop project", "start_date": today.isoformat(), "is_isolated": True},
+        headers=headers,
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"] == "goals.graduation_requires_fund_project"
+
+    fund_project = client.post(
+        "/goals/",
+        json={
+            "title": "Workshop",
+            "target_amount": 700_000,
+            "target_date": (today - timedelta(days=10)).isoformat(),
+            "intent": "FUND_PROJECT",
+        },
+        headers=headers,
+    )
+    assert fund_project.status_code == 201, fund_project.text
+    goal_id = fund_project.json()["id"]
+
+    allocation = client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 300_000},
+        headers=headers,
+    )
+    assert allocation.status_code == 200, allocation.text
+
+    listed_before = client.get("/goals/", headers=headers)
+    assert listed_before.status_code == 200, listed_before.text
+    overdue_goal = next(item for item in listed_before.json() if item["id"] == goal_id)
+    assert overdue_goal["status"] == "ACTIVE"
+    assert overdue_goal["time_state"] == "overdue"
+
+    graduated = client.post(
+        f"/goals/{goal_id}/graduate",
+        json={"project_title": "Workshop project", "start_date": today.isoformat(), "is_isolated": True},
+        headers=headers,
+    )
+    assert graduated.status_code == 201, graduated.text
+    assert graduated.json()["total_limit"] == 300_000
+
+    listed_after = client.get("/goals/", headers=headers)
+    assert listed_after.status_code == 200, listed_after.text
+    stored_goal = next(item for item in listed_after.json() if item["id"] == goal_id)
+    assert stored_goal["status"] == "GRADUATED"
+    assert stored_goal["time_state"] is None
+
+
+def test_goal_graduation_is_owner_scoped(client):
+    owner_headers = create_user_and_token(
+        client, "fundprojectowner", "fundprojectowner@example.com", "Password123!"
+    )
+    other_headers = create_user_and_token(
+        client, "fundprojectother", "fundprojectother@example.com", "Password123!"
+    )
+    _make_premium(client, owner_headers)
+    _make_premium(client, other_headers)
+    today = user_timezone_today()
+
+    goal = client.post(
+        "/goals/",
+        json={"title": "Kitchen", "target_amount": 1_000_000, "intent": "FUND_PROJECT"},
+        headers=owner_headers,
+    )
+    assert goal.status_code == 201, goal.text
+
+    response = client.post(
+        f"/goals/{goal.json()['id']}/graduate",
+        json={"project_title": "Kitchen project", "start_date": today.isoformat(), "is_isolated": True},
+        headers=other_headers,
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "goals.not_found"
+
+
+def test_goal_graduation_validation_failure_leaves_no_partial_project(client, session):
+    headers = create_user_and_token(
+        client, "fundprojectrollback", "fundprojectrollback@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers, initial_balance=1_000_000)
+    today = user_timezone_today()
+
+    goal = client.post(
+        "/goals/",
+        json={"title": "Patio", "target_amount": 800_000, "intent": "FUND_PROJECT"},
+        headers=headers,
+    )
+    assert goal.status_code == 201, goal.text
+    goal_id = goal.json()["id"]
+
+    allocation = client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 300_000},
+        headers=headers,
+    )
+    assert allocation.status_code == 200, allocation.text
+
+    wallet = session.get(models.Wallet, wallet_id)
+    wallet.currency = "USD"
+    session.commit()
+
+    response = client.post(
+        f"/goals/{goal_id}/graduate",
+        json={"project_title": "Patio project", "start_date": today.isoformat(), "is_isolated": True},
+        headers=headers,
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "goals.currency_mismatch"
+    assert (
+        session.query(models.Project)
+        .filter(models.Project.origin_goal_id == goal_id)
+        .first()
+        is None
+    )
+    session.expire_all()
+    assert session.get(models.Goals, goal_id).status == models.GoalStatus.ACTIVE
+
+
 def test_fund_project_goal_graduates_early_with_funded_stash_and_reports_shortfall(client):
     headers = create_user_and_token(
         client, "goalfundproject", "goalfundproject@example.com", "Password123!"
@@ -522,21 +682,58 @@ def test_fund_project_goal_graduates_early_with_funded_stash_and_reports_shortfa
     project_id = project["id"]
     assert project["origin_goal_id"] == goal_id
     assert project["is_isolated"] is True
-    assert project["total_limit"] == 1_000_000
+    assert project["total_limit"] == 400_000
     assert project["released_funding"] == 400_000
     assert project["remaining_funding"] == 400_000
     assert project["progress_direction"] == "tick_down"
     assert project["funding_shortfall"] == 0
+    assert project["isolated"]["funding_limit"] == 400_000
+    assert project["isolated"]["allocated_funding"] == 0
+    assert project["isolated"]["unallocated_funding"] == 400_000
+    assert [
+        (item["wallet_id"], item["amount"])
+        for item in project["isolated"]["wallet_allocations"]
+    ] == [(wallet_id, 400_000)]
 
     listed_goals = client.get("/goals/", headers=headers)
     assert listed_goals.status_code == 200, listed_goals.text
     linked_goal = next(item for item in listed_goals.json() if item["id"] == goal_id)
+    assert linked_goal["status"] == "GRADUATED"
+    assert linked_goal["funded_amount"] == 400_000
     assert linked_goal["released_amount"] == 400_000
+    assert linked_goal["unreleased_amount"] == 0
     assert linked_goal["linked_project_id"] == project_id
+
+    post_graduation_allocation = client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 100_000},
+        headers=headers,
+    )
+    assert post_graduation_allocation.status_code == 400
+    assert post_graduation_allocation.json()["detail"] == "goals.graduated_read_only"
+
+    summary_after_graduation = client.get(
+        f"/budgets/month-summary?budget_year={today.year}&budget_month={today.month}",
+        headers=headers,
+    )
+    assert summary_after_graduation.status_code == 200, summary_after_graduation.text
+    assert summary_after_graduation.json()["free_money_now"] == 1_600_000
+
+    top_up = client.post(
+        f"/projects/{project_id}/top-ups",
+        json={"wallet_allocations": [{"wallet_id": wallet_id, "amount": 100_000}]},
+        headers=headers,
+    )
+    assert top_up.status_code == 200, top_up.text
+    assert top_up.json()["isolated"]["funding_limit"] == 500_000
+    assert [
+        (item["wallet_id"], item["amount"])
+        for item in top_up.json()["isolated"]["wallet_allocations"]
+    ] == [(wallet_id, 500_000)]
 
     category_limit = client.post(
         f"/projects/{project_id}/category-limits",
-        json={"category": "Family & Events", "limit_amount": 1_000_000},
+        json={"category": "Family & Events", "limit_amount": 400_000},
         headers=headers,
     )
     assert category_limit.status_code == 201, category_limit.text
@@ -545,7 +742,7 @@ def test_fund_project_goal_graduates_early_with_funded_stash_and_reports_shortfa
         "/expenses/",
         json={
             "title": "Venue deposit",
-            "amount": 600_000,
+            "amount": 300_000,
             "category": "Family & Events",
             "date": today.isoformat(),
             "project_id": project_id,
@@ -557,10 +754,10 @@ def test_fund_project_goal_graduates_early_with_funded_stash_and_reports_shortfa
     project_after_spend = client.get(f"/projects/{project_id}", headers=headers)
     assert project_after_spend.status_code == 200, project_after_spend.text
     spent_project = project_after_spend.json()
-    assert spent_project["spent"] == 600_000
+    assert spent_project["spent"] == 300_000
     assert spent_project["released_funding"] == 400_000
-    assert spent_project["remaining_funding"] == -200_000
-    assert spent_project["funding_shortfall"] == 200_000
+    assert spent_project["remaining_funding"] == 200_000
+    assert spent_project["funding_shortfall"] == 0
     assert spent_project["progress_direction"] == "tick_down"
 
     summary = client.get(
@@ -568,8 +765,8 @@ def test_fund_project_goal_graduates_early_with_funded_stash_and_reports_shortfa
         headers=headers,
     )
     assert summary.status_code == 200, summary.text
-    assert summary.json()["free_money_now"] == 1_000_000
-    assert summary.json()["backing_total"] == 1_000_000
+    assert summary.json()["free_money_now"] == 1_200_000
+    assert summary.json()["backing_total"] == 1_200_000
 
 
 def test_goal_allocation_cannot_exceed_target_amount(client):

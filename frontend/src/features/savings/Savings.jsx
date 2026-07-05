@@ -45,6 +45,7 @@ import {
   useContributeToGoalMutation,
   useCreateGoalMutation,
   useDeleteGoalMutation,
+  useGraduateGoalMutation,
   useMoveGoalFundingMutation,
   useRecordGoalDebtPaymentMutation,
   useRecordGoalPurchaseMutation,
@@ -407,6 +408,7 @@ export default function Savings() {
   const recordPurchaseMutation = useRecordGoalPurchaseMutation();
   const recordDebtPaymentMutation = useRecordGoalDebtPaymentMutation();
   const moveGoalFundingMutation = useMoveGoalFundingMutation();
+  const graduateGoalMutation = useGraduateGoalMutation();
   const archiveMutation = useArchiveGoalMutation();
   const restoreMutation = useRestoreGoalMutation();
   const deleteMutation = useDeleteGoalMutation();
@@ -453,6 +455,7 @@ export default function Savings() {
   const [moveFundingError, setMoveFundingError] = useState("");
   const [moveFundingConfirmOpen, setMoveFundingConfirmOpen] = useState(false);
   const [activityGoal, setActivityGoal] = useState(null);
+  const [graduateTarget, setGraduateTarget] = useState(null);
   const [archiveTarget, setArchiveTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const activityQuery = useGoalActivityQuery(activityGoal?.id, isPremium && Boolean(activityGoal?.id));
@@ -1411,7 +1414,7 @@ export default function Savings() {
       return;
     }
     if (goal.intent === "FUND_PROJECT") {
-      navigate("/budgets", { state });
+      setGraduateTarget(goal);
     }
   };
 
@@ -2951,10 +2954,10 @@ export default function Savings() {
                       </div>
                       <FundingSources goal={goal} />
                       <div className="flex flex-wrap gap-2">
-                        <Button size="sm" onClick={() => openFunding(goal, "allocate")} disabled={!eligibleWallets.length}>
+                        <Button size="sm" onClick={() => openFunding(goal, "allocate")} disabled={goal.status !== "ACTIVE" || !eligibleWallets.length}>
                           <Plus className="mr-2 h-4 w-4" /> Reserve money
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => openFunding(goal, "return")} disabled={!goal.funding_sources?.length}>
+                        <Button size="sm" variant="outline" onClick={() => openFunding(goal, "return")} disabled={goal.status !== "ACTIVE" || !goal.funding_sources?.length}>
                           <RotateCcw className="mr-2 h-4 w-4" /> Unreserve
                         </Button>
                         {(goal.intent === "PLANNED_PURCHASE" || goal.intent === "PAY_OBLIGATION" || goal.intent === "RESERVE") && goal.status === "ACTIVE" ? (
@@ -2980,7 +2983,8 @@ export default function Savings() {
                               (goal.intent === "PLANNED_PURCHASE" && goal.status === "COMPLETED" && Boolean(goal.linked_expense_event_id)) ||
                               (goal.intent === "PLANNED_PURCHASE" && Number(goal.unreleased_amount || 0) <= 0) ||
                               (goal.intent === "RESERVE" && Number(goal.unreleased_amount || 0) <= 0) ||
-                              (goal.intent === "PAY_OBLIGATION" && (goal.status !== "ACTIVE" || Number(goal.unreleased_amount || 0) <= 0))
+                              (goal.intent === "PAY_OBLIGATION" && (goal.status !== "ACTIVE" || Number(goal.unreleased_amount || 0) <= 0)) ||
+                              (goal.intent === "FUND_PROJECT" && goal.status !== "ACTIVE")
                             }
                           >
                             <ActionIcon className="mr-2 h-4 w-4" /> {actionLabel}
@@ -3382,6 +3386,37 @@ export default function Savings() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={Boolean(graduateTarget)}
+        onOpenChange={(open) => !open && setGraduateTarget(null)}
+        title="Create project from goal"
+        description="This turns the goal into a historical saving record. Its current reserved money becomes the isolated project stash, and future additions belong in project top-ups."
+        confirmText="Create project"
+        cancelText="Cancel"
+        confirmVariant="default"
+        isConfirming={graduateGoalMutation.isPending}
+        onConfirm={async () => {
+          const project = await graduateGoalMutation.mutateAsync({
+            goalId: graduateTarget.id,
+            payload: {
+              project_title: graduateTarget.title,
+              start_date: todayISO,
+              target_end_date: graduateTarget.target_date || null,
+              is_isolated: true,
+            },
+          });
+          setGraduateTarget(null);
+          navigate("/budgets", { state: { projectId: project.id, originGoalId: graduateTarget.id } });
+        }}
+      >
+        <div className="rounded-md border border-border bg-muted/20 p-3 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted-foreground">Project stash</span>
+            <span className="font-medium">{money(graduateTarget?.unreleased_amount || 0)}</span>
+          </div>
+        </div>
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={Boolean(archiveTarget)}

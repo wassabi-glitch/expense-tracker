@@ -293,7 +293,7 @@ This keeps isolated projects strict without making top-up perform a hidden categ
 
 ### Parent
 
-[Epic 6 - Isolated Projects & YNAB Envelopes](../../epics/epic-6-isolated-projects.md), [G28 - Isolated Project Wizard](../../prd/g28-isolated-project-wizard.md), [G7 - Projects and Goal Deployment](../../prd/g7-projects-and-goal-deployment.md)
+[Epic 6 - Isolated Projects & YNAB Envelopes](../../epics/epic-6-isolated-projects.md), [G28 - Isolated Project Wizard](../../prd/g28-isolated-project-wizard.md), [G7 - Projects and Goal Deployment](../../prd/g7-projects-and-goal-deployment.md), [G38 - Fund Project Intent Guards and Graduation Baton Pass](../../prd/g38-fund-project-intent-guards-and-graduation-baton-pass.md)
 
 ### What to build
 
@@ -303,18 +303,29 @@ This prevents EC-171's premature graduation double-funding trap and keeps Goal v
 
 ### Acceptance criteria
 
-- [ ] Graduating a FUND_PROJECT goal creates an isolated project with stable references back to the origin goal.
-- [ ] The graduated project receives wallet-allocation rows that match the goal's released locked funding.
-- [ ] The origin goal is moved to its terminal graduated state and cannot accept new contributions, withdrawals, or funding edits.
-- [ ] Future funding increases for the project use the isolated project top-up action, not the origin goal.
-- [ ] Partial or premature graduation records the released funded amount as the initial project stash without creating a fake fully-funded target.
-- [ ] Goal graduation does not create duplicate wallet locks or double-count protected money.
-- [ ] Project category and micro-subcategory allocation can be completed during graduation or immediately after using the isolated project funding flow.
-- [ ] Project and goal detail responses make the relationship explicit without requiring the project to behave like an active goal.
-- [ ] UI copy explains that the goal has become a project execution stash and future additions belong to the project.
-- [ ] Backend tests cover full graduation, partial graduation, wallet allocation transfer, frozen goal behavior, no double counting, ownership isolation, and transaction rollback.
+- [x] Graduating a FUND_PROJECT goal creates an isolated project with stable references back to the origin goal.
+- [x] The graduated project receives wallet-allocation rows that match the goal's released locked funding.
+- [x] The origin goal is moved to its terminal graduated state and cannot accept new contributions, withdrawals, or funding edits.
+- [x] Future funding increases for the project use the isolated project top-up action, not the origin goal.
+- [x] Partial or premature graduation records the released funded amount as the initial project stash without creating a fake fully-funded target.
+- [x] Goal graduation does not create duplicate wallet locks or double-count protected money.
+- [x] Project category and micro-subcategory allocation can be completed during graduation or immediately after using the isolated project funding flow.
+- [x] Project and goal detail responses make the relationship explicit without requiring the project to behave like an active goal.
+- [x] UI copy explains that the goal has become a project execution stash and future additions belong to the project.
+- [x] Backend tests cover full graduation, partial graduation, wallet allocation transfer, frozen goal behavior, no double counting, ownership isolation, and transaction rollback.
 - [ ] Frontend tests cover the graduation flow, project funding setup continuation, frozen-goal copy, and project top-up routing.
-- [ ] Docker verification passes for focused backend tests and frontend build.
+- [x] Docker verification passes for focused backend tests and frontend build.
+
+### Additional acceptance checkpoints from G38
+
+- [x] `FUND_PROJECT` is the only goal intent allowed to use the graduation route; non-Fund intents are rejected with a stable validation error.
+- [x] `FUND_PROJECT` goals cannot enter `COMPLETED` through any public goal mutation path; their terminal saving-phase lifecycle is `GRADUATED` or `ARCHIVED`.
+- [x] A Fund Project goal remains stored as `ACTIVE` when its target date passes unless the user explicitly graduates or archives it.
+- [x] Time-derived "past target date" or similar warning state for a Fund Project goal is derived at read time and does not mutate stored database lifecycle state.
+- [x] A passed target date does not block Fund Project graduation.
+- [x] After graduation, any goal allocation, return, consume, or equivalent saving-phase mutation route rejects further writes against the graduated goal.
+- [x] Goal and project detail responses expose enough relationship data and copy hooks for the UI to explain the baton pass from goal incubator to project execution stash.
+- [x] After graduation, the UI routes future funding additions toward isolated project top-up rather than reopening the origin goal flow.
 
 ### Blocked by
 

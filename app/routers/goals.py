@@ -147,6 +147,19 @@ def _get_owned_goal_or_404(db: Session, user_id: int, goal_id: int) -> models.Go
     return goal
 
 
+def _raise_if_goal_saving_phase_read_only(goal: models.Goals) -> None:
+    if goal.status == models.GoalStatus.ARCHIVED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="goals.archived_read_only",
+        )
+    if goal.status == models.GoalStatus.GRADUATED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="goals.graduated_read_only",
+        )
+
+
 def _get_goal_with_progress(
     db: Session,
     user_id: int,
@@ -1559,6 +1572,8 @@ def update_goal(
 
     today = today_in_tz(user_tz)
     goal = _get_owned_goal_or_404(db, current_user.id, goal_id)
+    if goal.status == models.GoalStatus.GRADUATED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.graduated_read_only")
     funded_amount = get_goal_funded_amount(db, current_user.id, goal.id)
     normalized_debt_goal_mode = (
         payload.debt_goal_tracking_mode
@@ -1580,6 +1595,12 @@ def update_goal(
         if "intent" in payload.model_fields_set and payload.intent is not None
         else goal.intent
     )
+    if (
+        "status" in payload.model_fields_set
+        and payload.status == models.GoalStatus.COMPLETED
+        and next_intent == models.GoalIntent.FUND_PROJECT
+    ):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.fund_project_cannot_complete")
     next_debt_id = (
         payload.linked_debt_id
         if "linked_debt_id" in payload.model_fields_set
@@ -1798,11 +1819,7 @@ def allocate_to_goal(
         response.headers[key] = value
 
     goal = _get_owned_goal_or_404(db, current_user.id, goal_id)
-    if goal.status == models.GoalStatus.ARCHIVED:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="goals.archived_read_only",
-        )
+    _raise_if_goal_saving_phase_read_only(goal)
 
     funded_before = get_goal_funded_amount(db, current_user.id, goal.id)
     allocation_total = sum(int(item.amount) for item in payload.allocations)
@@ -1889,8 +1906,7 @@ def move_goal_funding_to_wallet(
         response.headers[key] = value
 
     goal = _get_owned_goal_or_404(db, current_user.id, goal_id)
-    if goal.status == models.GoalStatus.ARCHIVED:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.archived_read_only")
+    _raise_if_goal_saving_phase_read_only(goal)
     if goal.status == models.GoalStatus.COMPLETED:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.completed_read_only")
 
@@ -2636,16 +2652,23 @@ def graduate_goal_to_project(
     goal = _get_owned_goal_or_404(db, current_user.id, goal_id)
     if goal.status == models.GoalStatus.ARCHIVED:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.archived_read_only")
+    if goal.status == models.GoalStatus.GRADUATED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.graduated_read_only")
+    if goal.intent != models.GoalIntent.FUND_PROJECT:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.graduation_requires_fund_project")
     if _get_goal_project_or_none(db, current_user.id, goal.id) is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="goals.project_already_exists")
+    if not payload.is_isolated:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.isolated_required")
+    if payload.total_limit is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.isolated_wallet_funded_total_limit_not_allowed")
 
-    if not payload.is_isolated and payload.total_limit is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.overlay_total_limit_not_allowed")
-
-    project_type = models.ProjectType.ISOLATED if payload.is_isolated else models.ProjectType.OVERLAY
-    project_total_limit = (
-        payload.total_limit if payload.total_limit is not None else int(goal.target_amount)
-    ) if project_type == models.ProjectType.ISOLATED else None
+    release_sources = [
+        source
+        for source in get_goal_funding_sources(db, current_user.id, goal.id)
+        if int(source.unreleased_amount) > 0
+    ]
+    project_type = models.ProjectType.ISOLATED
     project = models.Project(
         owner_id=current_user.id,
         title=(payload.project_title or goal.title).strip(),
@@ -2663,76 +2686,39 @@ def graduate_goal_to_project(
             models.ProjectIsolatedDetail(
                 project_id=project.id,
                 owner_id=current_user.id,
-                funding_limit=project_total_limit,
-            )
-        )
-    else:
-        db.add(
-            models.ProjectOverlayDetail(
-                project_id=project.id,
-                owner_id=current_user.id,
-                target_estimate=None,
+                funding_limit=None,
             )
         )
 
     funded_amount = get_goal_funded_amount(db, current_user.id, goal.id)
     released_amount = get_goal_released_amount(db, current_user.id, goal.id)
-    if payload.initial_release_amount is not None:
-        if payload.initial_release_wallet_id is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.release_wallet_required")
-        validate_wallet_for_goal_release(db, current_user.id, goal, payload.initial_release_wallet_id)
-        available_to_release = max(int(funded_amount) - int(released_amount), 0)
-        if payload.initial_release_amount > available_to_release:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.release_exceeds_unreleased")
-        wallet_funded_amount = get_goal_wallet_funded_amount(
-            db,
-            current_user.id,
-            goal.id,
-            payload.initial_release_wallet_id,
-        )
-        wallet_released_amount = get_goal_wallet_released_amount(
-            db,
-            current_user.id,
-            goal.id,
-            payload.initial_release_wallet_id,
-        )
-        if payload.initial_release_amount > max(wallet_funded_amount - wallet_released_amount, 0):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.release_exceeds_wallet_unreleased")
-        funding_limit = project_total_limit
-        if funding_limit is not None and int(payload.initial_release_amount) > funding_limit:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.release_exceeds_total_limit")
+    available_to_release = max(int(funded_amount) - int(released_amount), 0)
+    if sum(int(source.unreleased_amount) for source in release_sources) != available_to_release:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.release_source_mismatch")
+
+    for source in release_sources:
+        release_amount = int(source.unreleased_amount)
+        validate_wallet_for_goal_release(db, current_user.id, goal, source.wallet_id)
         db.add(
             models.GoalProjectRelease(
                 owner_id=current_user.id,
                 goal_id=goal.id,
                 project_id=project.id,
-                wallet_id=payload.initial_release_wallet_id,
-                amount=payload.initial_release_amount,
+                wallet_id=source.wallet_id,
+                amount=release_amount,
                 released_at=payload.start_date,
                 note="Initial release on project graduation",
             )
         )
-    elif goal.intent == models.GoalIntent.FUND_PROJECT and is_isolated_project(project):
-        available_to_release = max(int(funded_amount) - int(released_amount), 0)
-        funding_limit = project_total_limit
-        if funding_limit is not None and available_to_release > funding_limit:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.release_exceeds_total_limit")
-        for source in get_goal_funding_sources(db, current_user.id, goal.id):
-            release_amount = int(source.unreleased_amount)
-            if release_amount <= 0:
-                continue
-            validate_wallet_for_goal_release(db, current_user.id, goal, source.wallet_id)
-            db.add(
-                models.GoalProjectRelease(
-                    owner_id=current_user.id,
-                    goal_id=goal.id,
-                    project_id=project.id,
-                    wallet_id=source.wallet_id,
-                    amount=release_amount,
-                    released_at=payload.start_date,
-                    note="Initial release on project graduation",
-                )
+        db.add(
+            models.IsolatedProjectWalletAllocation(
+                project_id=project.id,
+                owner_id=current_user.id,
+                wallet_id=source.wallet_id,
+                amount=release_amount,
             )
+        )
+    goal.status = models.GoalStatus.GRADUATED
 
     db.commit()
     return _get_project_summary_or_404(
@@ -2758,8 +2744,7 @@ def release_goal_to_project(
         response.headers[key] = value
 
     goal = _get_owned_goal_or_404(db, current_user.id, goal_id)
-    if goal.status == models.GoalStatus.ARCHIVED:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.archived_read_only")
+    _raise_if_goal_saving_phase_read_only(goal)
     project = _get_goal_project_or_404(db, current_user.id, goal.id)
     if project.status != models.ProjectStatus.ACTIVE:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.not_active")
@@ -2824,11 +2809,7 @@ def return_goal_allocation(
         response.headers[key] = value
 
     goal = _get_owned_goal_or_404(db, current_user.id, goal_id)
-    if goal.status == models.GoalStatus.ARCHIVED:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="goals.archived_read_only",
-        )
+    _raise_if_goal_saving_phase_read_only(goal)
 
     funded_amount = get_goal_funded_amount(db, current_user.id, goal.id)
     released_amount = get_goal_released_amount(db, current_user.id, goal.id)
@@ -2899,11 +2880,7 @@ def consume_goal_allocation(
         response.headers[key] = value
 
     goal = _get_owned_goal_or_404(db, current_user.id, goal_id)
-    if goal.status == models.GoalStatus.ARCHIVED:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="goals.archived_read_only",
-        )
+    _raise_if_goal_saving_phase_read_only(goal)
     if goal.intent == models.GoalIntent.PLANNED_PURCHASE:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

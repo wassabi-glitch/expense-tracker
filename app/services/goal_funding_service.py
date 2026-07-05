@@ -157,7 +157,8 @@ def get_goal_payment_plan_target(
 
 def get_wallet_goal_allocated_amount(db: Session, user_id: int, wallet_id: int) -> int:
     total = sum(_contribution_delta(item) for item in _goal_contributions(db, user_id, wallet_id=wallet_id))
-    return max(int(total), 0)
+    released_amount = get_wallet_goal_released_amount(db, user_id, wallet_id)
+    return max(int(total) - int(released_amount), 0)
 
 
 def get_wallet_free_to_spend(db: Session, user_id: int, wallet: models.Wallet) -> int:
@@ -357,6 +358,19 @@ def get_goal_wallet_released_amount(db: Session, user_id: int, goal_id: int, wal
         .filter(
             models.GoalProjectRelease.owner_id == user_id,
             models.GoalProjectRelease.goal_id == goal_id,
+            models.GoalProjectRelease.wallet_id == wallet_id,
+        )
+        .all()
+    )
+    return max(int(released_total), 0)
+
+
+def get_wallet_goal_released_amount(db: Session, user_id: int, wallet_id: int) -> int:
+    released_total = sum(
+        int(item.amount or 0)
+        for item in db.query(models.GoalProjectRelease)
+        .filter(
+            models.GoalProjectRelease.owner_id == user_id,
             models.GoalProjectRelease.wallet_id == wallet_id,
         )
         .all()
