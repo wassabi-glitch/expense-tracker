@@ -13073,7 +13073,7 @@ The system must not allow rogue string tags. The user must use the G21 Global Ta
 
 ---
 
-## EC-166: Cascading Top-Ups & Wallet Hierarchy
+## EC-166: Top-Ups, Unassigned Funding, and Wallet Hierarchy
 
 **Status:** ARCHITECTED  
 **Severity:** S1  
@@ -13081,10 +13081,10 @@ The system must not allow rogue string tags. The user must use the G21 Global Ta
 **Discovered on:** 2026-06-18  
 
 ### Scenario
-A user is 500k short in their "GPU" project subcategory. They click a UI button to "Top Up GPU by 500k" from their global Free Money.
+A user is 500k short in their "GPU" project subcategory. They top up the isolated project by 500k from real wallet money, then decide whether to assign that new unassigned funding into the GPU subcategory or rebalance existing project funding.
 
 ### Expected Behavior
-The system cannot magically inject Free Money. Free Money is an abstract math result. The UI must intercept: "Which physical wallet is this 500k coming from?" Once a wallet is selected, the system executes a Cascading Top-Up: (1) Lock 500k in the wallet, (2) Add 500k to the Project Stash, (3) Add 500k to the Parent Category limit, (4) Add 500k to the GPU Subcategory limit.
+The system cannot magically inject Free Money. Free Money is an abstract math result. The UI must intercept: "Which physical wallet or wallets is this 500k coming from?" Once the wallet funding is selected, the system locks 500k into the isolated project stash and exposes it as unassigned project funding. The money cannot be spent directly until the user explicitly allocates it into a parent category and, if needed, a micro-subcategory.
 
 ---
 
@@ -13267,7 +13267,7 @@ The system must not allow rogue string tags. The user must use the G21 Global Ta
 
 ---
 
-## EC-166: Cascading Top-Ups & Wallet Hierarchy
+## EC-166: Top-Ups, Unassigned Funding, and Wallet Hierarchy
 
 **Status:** ARCHITECTED  
 **Severity:** S1  
@@ -13275,10 +13275,10 @@ The system must not allow rogue string tags. The user must use the G21 Global Ta
 **Discovered on:** 2026-06-18  
 
 ### Scenario
-A user is 500k short in their "GPU" project subcategory. They click a UI button to "Top Up GPU by 500k" from their global Free Money.
+A user is 500k short in their "GPU" project subcategory. They top up the isolated project by 500k from real wallet money, then decide whether to assign that new unassigned funding into the GPU subcategory or rebalance existing project funding.
 
 ### Expected Behavior
-The system cannot magically inject Free Money. Free Money is an abstract math result. The UI must intercept: "Which physical wallet is this 500k coming from?" Once a wallet is selected, the system executes a Cascading Top-Up: (1) Lock 500k in the wallet, (2) Add 500k to the Project Stash, (3) Add 500k to the Parent Category limit, (4) Add 500k to the GPU Subcategory limit.
+The system cannot magically inject Free Money. Free Money is an abstract math result. The UI must intercept: "Which physical wallet or wallets is this 500k coming from?" Once the wallet funding is selected, the system locks 500k into the isolated project stash and exposes it as unassigned project funding. The money cannot be spent directly until the user explicitly allocates it into a parent category and, if needed, a micro-subcategory.
 
 ---
 

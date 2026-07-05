@@ -405,6 +405,13 @@ def test_project_expense_tagging_uses_expense_date_not_current_date(client):
     assert project.status_code == 201, project.text
     project_id = project.json()["id"]
 
+    category_limit = client.post(
+        f"/projects/{project_id}/category-limits",
+        json={"category": "Family & Events", "limit_amount": 1_000_000},
+        headers=headers,
+    )
+    assert category_limit.status_code == 201, category_limit.text
+
     accepted_late_entry = client.post(
         "/expenses/",
         json={
@@ -451,6 +458,13 @@ def test_project_date_update_allows_expansion_and_blocks_orphaning_tagged_expens
     )
     assert project.status_code == 201, project.text
     project_id = project.json()["id"]
+
+    category_limit = client.post(
+        f"/projects/{project_id}/category-limits",
+        json={"category": "Housing", "limit_amount": 1_000_000},
+        headers=headers,
+    )
+    assert category_limit.status_code == 201, category_limit.text
 
     expense = client.post(
         "/expenses/",

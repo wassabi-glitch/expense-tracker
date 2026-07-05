@@ -19,8 +19,8 @@ Implement a 3-Step Creation Wizard for Direct Isolated Projects that forces user
 4. As a project user, I want to break my total project stash down into Global Parent Categories (e.g., Food, Entertainment), so that my project spending perfectly rolls up into my end-of-year global analytics.
 5. As a project user, I want to optionally create hyper-granular Subcategories using the Global Taxonomy Hub (G21 Combobox), so that my one-off tags (e.g., "Drywall") remain organized and can be archived later without polluting my daily budget dropdowns.
 6. As a project user, I want to pay for a project expense from any linked project wallet without worrying about which wallet is tied to which category, so that I have total flexibility at the checkout counter (The Pooled Vault).
-7. As a project user, I want the system to prevent me from overspending an internal project subcategory by forcing me to either rebalance internally or top-up externally, so that I maintain strict zero-based control.
-8. As a project user, I want to execute a "Cascading Top-Up" when I add Free Money to a subcategory, so that the money mathematically flows through a specific wallet, the total project stash, the parent category, and into the subcategory simultaneously.
+7. As a project user, I want the system to prevent me from overspending an internal project subcategory by forcing me to either assign unassigned funding, rebalance internally, or top up externally, so that I maintain strict zero-based control.
+8. As a project user, I want mid-project top-ups to land in unassigned project funding first, so that adding money from wallets stays separate from deciding the internal category split.
 9. As a project user, I want to set a Target End Date for my isolated project so that the system can prompt me to sweep any leftover funds back into my Free Money once the date passes.
 
 ## Implementation Decisions
@@ -30,7 +30,7 @@ Implement a 3-Step Creation Wizard for Direct Isolated Projects that forces user
 - **Step 3: The Internal Sub-Stashes (Taxonomy)**: The user allocates the total stash into Global Categories.
 - **Step 4: Micro Structure**: The user uses the G21 Combobox to create or link Global Subcategories.
 - **The Pooled Vault Architecture**: Wallets are NOT directly mapped to Categories. Wallets fund the total stash. Categories draw from the total stash.
-- **The Cascading Top-Up**: When injecting new Free Money directly into a project subcategory, the system must prompt the user to select the funding wallet, and then execute the ledger updates sequentially: Wallet -> Project Stash -> Parent Category -> Subcategory.
+- **Top-Ups and Unassigned Funding**: When injecting new Free Money into an active isolated project, the system must prompt the user to select the funding wallet or wallets, lock that money into the derived project stash, and leave the new amount unassigned until the user explicitly allocates it into parent categories and micro-subcategories.
 - **Over-Planned Enforcement**: If a project expense forces the project stash below 0, the system must absorb the shock by draining global `Free Money Now`. If this drops below 0, the monthly plan state becomes `Over-Planned`.
 - **Single Table Project Architecture**: Overlay and Isolated projects will share a single `projects` table using a `project_type` Enum (`OVERLAY`, `ISOLATED`). The differing mechanics are enforced by their relation tables: Overlay uses month-scoped reservation storage, while Isolated uses isolated project wallet allocation storage for physical cash quarantine.
 - **The Isolated Project Wallet Allocation Table**: A database table mapping `project_id`, `wallet_id`, and `amount` acts as the single source of truth for an Isolated Project's total stash (which is mathematically derived as `SUM(amount)`). G36 supersedes the older generic `ProjectWalletAllocation` naming.
@@ -39,7 +39,7 @@ Implement a 3-Step Creation Wizard for Direct Isolated Projects that forces user
 
 - **Seams for Testing**:
   - The API endpoints for project creation: verify that the wallet allocations properly lock funds and deduct from Free Money Now.
-  - The "Cascading Top-Up" endpoint: verify that injecting 500k into a subcategory successfully links to a selected wallet and increments all parent scopes appropriately.
+  - The top-up and allocation endpoints: verify that injecting 500k from selected wallets increases the project stash and unassigned funding first, then requires explicit allocation before category or micro-subcategory spending can use it.
   - The Project Expense routing: verify that a 5M expense recorded against a project category correctly checks the pooled wallet reserves, rather than demanding a 1:1 wallet-to-category map.
 - Good tests will focus on the zero-based math: validating that moving cash into a project correctly impacts the global Budget Plan status when Free Money is exhausted.
 

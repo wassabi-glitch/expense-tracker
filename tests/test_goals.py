@@ -534,6 +534,13 @@ def test_fund_project_goal_graduates_early_with_funded_stash_and_reports_shortfa
     assert linked_goal["released_amount"] == 400_000
     assert linked_goal["linked_project_id"] == project_id
 
+    category_limit = client.post(
+        f"/projects/{project_id}/category-limits",
+        json={"category": "Family & Events", "limit_amount": 1_000_000},
+        headers=headers,
+    )
+    assert category_limit.status_code == 201, category_limit.text
+
     expense = client.post(
         "/expenses/",
         json={

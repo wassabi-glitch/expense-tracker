@@ -26,8 +26,8 @@ The internals of Isolated Projects are complex. The following edge cases, logged
   - Wallets fund the total stash. Categories draw from the total stash. Wallets are never mapped directly to categories.
 - **EC-165: Project Taxonomy Enforcement via G21 Hub**
   - Project subcategories (e.g., "Wedding DJ") must use the global Taxonomy Hub to prevent string tag fragmentation.
-- **EC-166: Cascading Top-Ups & Wallet Hierarchy**
-  - Injecting free money mid-project must cascade sequentially: Wallet -> Project Stash -> Parent Category -> Subcategory.
+- **EC-166: Top-Ups, Unassigned Funding, and Wallet Hierarchy**
+  - Injecting free money mid-project must first lock real wallet money into the isolated project stash. New funding remains unassigned until the user explicitly allocates it into a parent category and, optionally, a micro-subcategory.
 - **EC-167: Target End Dates as Sweep Triggers**
   - Isolated projects don't slice by month. The End Date is an alarm clock to trigger sweeping leftover funds back to Free Money.
 - **EC-168: The Emergent Mini-YNAB Behavior**

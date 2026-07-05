@@ -80,3 +80,83 @@ export function buildIsolatedProjectPayload({
   };
 }
 
+export function getIsolatedTopUpPreview({
+  fundingLimit,
+  allocatedFunding,
+  walletAllocations,
+}) {
+  const topUpAmount = (walletAllocations || []).reduce(
+    (sum, row) => sum + Number(row.amount || 0),
+    0,
+  );
+  const nextFundingLimit = Number(fundingLimit || 0) + topUpAmount;
+  const nextUnallocatedFunding = nextFundingLimit - Number(allocatedFunding || 0);
+  return {
+    topUpAmount,
+    nextFundingLimit,
+    nextUnallocatedFunding,
+  };
+}
+
+export function buildIsolatedTopUpPayload({ walletAllocations }) {
+  return {
+    wallet_allocations: (walletAllocations || [])
+      .filter((row) => Number(row.amount || 0) > 0)
+      .map((row) => ({
+        wallet_id: Number(row.wallet_id),
+        amount: Number(row.amount),
+      })),
+  };
+}
+
+export function buildIsolatedCategoryAllocationPayload({ category, allocatedAmount }) {
+  return {
+    category,
+    allocated_amount: Number(allocatedAmount),
+  };
+}
+
+export function buildIsolatedSubcategoryAllocationPayload({
+  category,
+  allocatedAmount,
+  name,
+  userSubcategoryId,
+}) {
+  const payload = {
+    category,
+    allocated_amount: Number(allocatedAmount),
+  };
+  if (userSubcategoryId) {
+    payload.user_subcategory_id = Number(userSubcategoryId);
+  } else {
+    payload.name = name.trim();
+  }
+  return payload;
+}
+
+export function buildIsolatedCategoryRebalancePayload({
+  fromCategory,
+  toCategory,
+  amount,
+}) {
+  return {
+    scope: "CATEGORY",
+    from_category: fromCategory,
+    to_category: toCategory,
+    amount: Number(amount),
+  };
+}
+
+export function buildIsolatedSubcategoryRebalancePayload({
+  fromSubcategoryAllocationId,
+  toSubcategoryAllocationId,
+  amount,
+}) {
+  return {
+    scope: "SUBCATEGORY",
+    from_subcategory_allocation_id: Number(fromSubcategoryAllocationId),
+    to_subcategory_allocation_id: Number(toSubcategoryAllocationId),
+    amount: Number(amount),
+  };
+}
+
