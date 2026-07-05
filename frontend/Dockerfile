@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y python3 make g++
 
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 COPY . .
 
 # Vite env vars must exist at build-time (npm run build), not only runtime.
