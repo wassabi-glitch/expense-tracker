@@ -99,15 +99,15 @@ This slice establishes the shared accounting contract that later UI flows call.
 
 ### Acceptance criteria
 
-- [ ] Automatic reimbursement/settlement helper logic is removed or made unreachable from active goal payment flows.
-- [ ] Off-wallet goal payment flows create zero wallet-to-wallet transfer ledger entries unless the user explicitly performs a transfer.
-- [ ] `post_expense_event` or the active expense posting seam honors `enforce_monthly_budget_limits=False`.
-- [ ] Planned Purchase off-wallet completion can record an expense without hitting monthly budget aggregates.
-- [ ] Reserve and isolated-project flows can choose whether monthly budget aggregates are hit according to intent-specific rules.
-- [ ] Spending reports still include expenses even when those expenses bypass monthly budget pressure.
-- [ ] Ledger/history copy distinguishes "paid from wallet" from "released protected money".
-- [ ] Backend tests prove no ghost transfers, budget bypass correctness, wallet reality preservation, and reporting visibility.
-- [ ] Docker backend tests pass for goal payment and expense posting slices.
+- [x] Automatic reimbursement/settlement helper logic is removed or made unreachable from active goal payment flows.
+- [x] Off-wallet goal payment flows create zero wallet-to-wallet transfer ledger entries unless the user explicitly performs a transfer.
+- [x] `post_expense_event` or the active expense posting seam honors `enforce_monthly_budget_limits=False`.
+- [x] Planned Purchase off-wallet completion can record an expense without hitting monthly budget aggregates.
+- [x] Reserve and isolated-project flows can choose whether monthly budget aggregates are hit according to intent-specific rules.
+- [x] Spending reports still include expenses even when those expenses bypass monthly budget pressure.
+- [x] Ledger/history copy distinguishes "paid from wallet" from "released protected money".
+- [x] Backend tests prove no ghost transfers, budget bypass correctness, wallet reality preservation, and reporting visibility.
+- [x] Docker backend tests pass for goal payment and expense posting slices.
 
 ### Blocked by
 

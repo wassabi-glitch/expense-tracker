@@ -1700,7 +1700,7 @@ def test_planned_purchase_is_categorized_but_excluded_from_normal_monthly_budget
     assert event.reference_type == models.ReferenceType.GOAL_PLANNED_PURCHASE
     assert event.entity_legs[0].category == models.ExpenseCategory.ELECTRONICS
     assert event.entity_legs[0].subcategory_id == subcategory.json()["id"]
-    assert event.entity_legs[0].budget_id == budget.json()["id"]
+    assert event.entity_legs[0].budget_id is None
 
     budget_after = client.get(
         f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Electronics",
@@ -2337,6 +2337,56 @@ def test_move_goal_funding_transfers_money_and_moves_only_selected_goal_label(cl
     assert get_goal_wallet_funded_amount(session, owner_id, laptop_id, target_id) == 600_000
 
 
+def test_fund_project_goal_cannot_prepare_payment_directly(client, session):
+    headers = create_user_and_token(
+        client, "fundprojectnoprep", "fundprojectnoprep@example.com", "Password123!"
+    )
+    _make_premium(client, headers)
+    source_id = _create_wallet(client, headers, name="ProjectIncubator", initial_balance=1_000_000)
+    target_id = _create_wallet(
+        client,
+        headers,
+        name="ProjectCheckout",
+        wallet_type="DEBIT",
+        initial_balance=0,
+        can_fund_goals=False,
+    )
+
+    goal = client.post(
+        "/goals/",
+        json={"title": "Kitchen remodel", "target_amount": 1_000_000, "intent": "FUND_PROJECT"},
+        headers=headers,
+    )
+    assert goal.status_code == 201, goal.text
+    goal_id = goal.json()["id"]
+    assert client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": source_id, "amount": 1_000_000},
+        headers=headers,
+    ).status_code == 200
+
+    blocked = client.post(
+        f"/goals/{goal_id}/allocations/move",
+        json={
+            "source_wallet_id": source_id,
+            "target_wallet_id": target_id,
+            "amount": 500_000,
+            "date": user_timezone_today().isoformat(),
+        },
+        headers=headers,
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"] == "goals.prepare_payment_intent_not_supported"
+
+    session.expire_all()
+    source_wallet = session.query(models.Wallet).filter(models.Wallet.id == source_id).first()
+    owner_id = source_wallet.owner_id
+    assert _wallet_by_id(client, headers, source_id)["current_balance"] == 1_000_000
+    assert _wallet_by_id(client, headers, target_id)["current_balance"] == 0
+    assert get_goal_wallet_funded_amount(session, owner_id, goal_id, source_id) == 1_000_000
+    assert get_goal_wallet_funded_amount(session, owner_id, goal_id, target_id) == 0
+
+
 def test_move_goal_funding_with_fee_records_linked_bank_fee(client, session):
     headers = create_user_and_token(
         client, "goalmovefee", "goalmovefee@example.com", "Password123!"
@@ -2906,7 +2956,7 @@ def test_reserve_direct_use_from_same_wallet_consumes_without_completing_goal(cl
     assert _wallet_by_id(client, headers, savings_id)["current_balance"] == 750_000
 
 
-def test_reserve_reimbursement_consumes_reserve_and_reimburses_payment_wallet(client):
+def test_reserve_off_wallet_use_can_consume_reserve_without_budget_pressure_or_transfer(client, session):
     headers = create_user_and_token(
         client, "goaluse5", "goaluse5@example.com", "Password123!"
     )
@@ -2942,6 +2992,7 @@ def test_reserve_reimbursement_consumes_reserve_and_reimburses_payment_wallet(cl
             "category": "Health",
             "date": user_timezone_today().isoformat(),
             "settlement_mode": "REIMBURSE_PAYMENT_WALLET",
+            "enforce_monthly_budget_limits": False,
         },
         headers=headers,
     )
@@ -2951,9 +3002,37 @@ def test_reserve_reimbursement_consumes_reserve_and_reimburses_payment_wallet(cl
     assert payload["goal"]["status"] == "ACTIVE"
     assert payload["goal"]["linked_expense_event_id"] is None
     assert payload["goal"]["funded_amount"] == 700_000
-    assert len(payload["transfer_event_ids"]) == 1
-    assert _wallet_by_id(client, headers, savings_id)["current_balance"] == 700_000
-    assert _wallet_by_id(client, headers, debit_id)["current_balance"] == 1_000_000
+    assert payload["transfer_event_ids"] == []
+    assert _wallet_by_id(client, headers, savings_id)["current_balance"] == 1_000_000
+    assert _wallet_by_id(client, headers, debit_id)["current_balance"] == 700_000
+
+    today = user_timezone_today()
+    budget_after = client.get(
+        f"/budgets/item?budget_year={today.year}&budget_month={today.month}&category=Health",
+        headers=headers,
+    )
+    assert budget_after.status_code == 200
+    assert budget_after.json()["spent"] == 0
+    assert budget_after.json()["remaining"] == 1_000_000
+
+    expenses = client.get("/expenses/", headers=headers)
+    assert expenses.status_code == 200
+    assert any(
+        item["expense"]["id"] == payload["expense_event_id"]
+        for item in expenses.json()["items"]
+        if item["expense"] is not None
+    )
+
+    event = session.get(models.FinancialEvent, payload["expense_event_id"])
+    assert event.reference_type == models.ReferenceType.GOAL_CONSUME
+    assert event.entity_legs[0].budget_id is None
+
+    activity = client.get(f"/goals/{goal_id}/activity", headers=headers)
+    assert activity.status_code == 200
+    used_item = next(item for item in activity.json()["items"] if item["type"] == "GOAL_MONEY_USED")
+    wallets_by_role = {wallet["role"]: wallet for wallet in used_item["wallets"]}
+    assert wallets_by_role["paid_from"]["wallet_id"] == debit_id
+    assert wallets_by_role["released_from"]["wallet_id"] == savings_id
 
 
 def test_update_goal_rejects_target_below_funded_amount(client):

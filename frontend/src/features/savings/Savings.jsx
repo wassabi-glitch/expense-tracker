@@ -332,6 +332,7 @@ function activityRoleLabel(role) {
   if (role === "from") return "From";
   if (role === "to") return "To";
   if (role === "paid_from") return "Paid from";
+  if (role === "released_from") return "Released from";
   return "Wallet";
 }
 
