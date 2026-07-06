@@ -140,8 +140,7 @@ export function useUseReserveGoalMutation() {
       toast.success(
         t("toasts.goal.reserveUsed", { defaultValue: "Reserve use recorded" }),
         t("toasts.goal.reserveUsed_detail", {
-          defaultValue: "{{amount}} was paid and {{covered}} was covered by reserved money.",
-          amount: formatUzs(data.consumed_amount + data.outside_goal_amount),
+          defaultValue: "{{covered}} was covered by reserved money.",
           covered: formatUzs(data.consumed_amount),
         })
       );
@@ -161,17 +160,17 @@ export function useRecordGoalPurchaseMutation() {
     mutationFn: ({ goalId, payload }) => recordGoalPurchase(goalId, payload),
     onSuccess: async (data) => {
       await invalidateGoalQueries(queryClient);
-      const outsideReservedFunds = data.goal?.completion_mode === "ACHIEVED_OUTSIDE_RESERVED_FUNDS";
+      const covered = data.consumed_amount || 0;
       toast.success(
         t("toasts.goal.purchaseRecorded", { defaultValue: "Purchase recorded" }),
-        outsideReservedFunds
-          ? t("toasts.goal.purchaseRecordedOutsideFunds_detail", {
-              defaultValue: "The planned purchase was completed and {{released}} was unreserved.",
-              released: formatUzs(data.released_amount),
-            })
-          : t("toasts.goal.purchaseRecorded_detail", {
+        covered > 0
+          ? t("toasts.goal.purchaseRecorded_detail", {
               defaultValue: "{{covered}} was covered by goal money.",
-              covered: formatUzs(data.consumed_amount),
+              covered: formatUzs(covered),
+            })
+          : t("toasts.goal.purchaseRecordedReleased_detail", {
+              defaultValue: "The planned purchase was completed and {{released}} was released.",
+              released: formatUzs(data.released_amount),
             })
       );
     },

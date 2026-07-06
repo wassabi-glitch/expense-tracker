@@ -1,0 +1,4 @@
+interface:
+  display_name: "Execute Clean Code"
+  short_description: "Clean, modular implementation guardrails."
+  default_prompt: "Execute this implementation with senior engineering discipline: inspect the existing patterns, keep changes scoped and modular, minimize bugs, preserve behavior, add focused tests, and verify through the repo's required commands."

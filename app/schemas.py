@@ -11,7 +11,6 @@ from .models import (
     ExpenseSessionDraftSource,
     ExpenseSessionDraftStatus,
     GoalContributionType,
-    GoalCompletionMode,
     DebtGoalTrackingMode,
     GoalIntent,
     GoalStatus,
@@ -89,8 +88,7 @@ class DebtBalanceCorrectionComponent(str, Enum):
 
 class GoalSettlementMode(str, Enum):
     DIRECT = "DIRECT"
-    REIMBURSE_PAYMENT_WALLET = "REIMBURSE_PAYMENT_WALLET"
-    PAID_OUTSIDE_GOAL_FUNDS = "PAID_OUTSIDE_GOAL_FUNDS"
+    GOAL_BACKED_OFF_WALLET_PAYMENT = "GOAL_BACKED_OFF_WALLET_PAYMENT"
 
 
 class PlannedPurchaseResultType(str, Enum):
@@ -1301,7 +1299,6 @@ class GoalPurchasePaymentPlanCreate(BaseModel):
 
 
 class GoalUsePlannedPurchaseCreate(GoalUseBase):
-    completion_mode: GoalCompletionMode = GoalCompletionMode.GOAL_FUNDED
     result_type: PlannedPurchaseResultType = PlannedPurchaseResultType.EXPENSE_ONLY
     asset_title: Optional[str] = Field(
         default=None, min_length=1, max_length=100)
@@ -1437,7 +1434,6 @@ class GoalOut(GoalBase):
     id: int
     owner_id: int
     status: GoalStatus
-    completion_mode: Optional[GoalCompletionMode] = None
     linked_debt_transaction_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime

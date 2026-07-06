@@ -155,13 +155,12 @@ export const goalUseFormSchema = z.object({
     .optional()
     .nullable()
     .refine((v) => !v || v <= toISODateInTimeZone(), "expenses.dateFuture"),
-  settlement_mode: z.enum(["DIRECT", "REIMBURSE_PAYMENT_WALLET", "PAID_OUTSIDE_GOAL_FUNDS"]),
-  completion_mode: z.enum(["GOAL_FUNDED", "ACHIEVED_OUTSIDE_RESERVED_FUNDS"]).optional(),
+  settlement_mode: z.enum(["DIRECT", "GOAL_BACKED_OFF_WALLET_PAYMENT"]),
   result_type: z.enum(["EXPENSE_ONLY", "ASSET_PURCHASE"]).optional(),
   asset_title: z.string().trim().optional(),
   adjust_target_to_purchase_amount: z.boolean().optional(),
 }).superRefine((data, ctx) => {
-  if (data.completion_mode && data.payment_allocations.length > MAX_PLANNED_PURCHASE_PAYMENT_WALLETS) {
+  if (data.payment_allocations.length > MAX_PLANNED_PURCHASE_PAYMENT_WALLETS) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["payment_allocations"],

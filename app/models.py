@@ -193,11 +193,6 @@ class GoalStatus(str, enum.Enum):
     ARCHIVED = "ARCHIVED"
 
 
-class GoalCompletionMode(str, enum.Enum):
-    GOAL_FUNDED = "GOAL_FUNDED"
-    ACHIEVED_OUTSIDE_RESERVED_FUNDS = "ACHIEVED_OUTSIDE_RESERVED_FUNDS"
-
-
 class DebtGoalTrackingMode(str, enum.Enum):
     FULL_REMAINING_DEBT = "FULL_REMAINING_DEBT"
     FIXED_DEBT_AMOUNT = "FIXED_DEBT_AMOUNT"
@@ -1274,7 +1269,6 @@ class Goals(Base):
     target_date = Column(Date, nullable=True)
     status = Column(Enum(GoalStatus), nullable=False,
                     default=GoalStatus.ACTIVE)
-    completion_mode = Column(Enum(GoalCompletionMode), nullable=True)
     debt_goal_tracking_mode = Column(Enum(DebtGoalTrackingMode), nullable=True)
     linked_asset_id = Column(Integer, ForeignKey("assets.id", ondelete="SET NULL"), nullable=True, index=True)
     linked_debt_id = Column(Integer, ForeignKey("debts.id", ondelete="SET NULL"), nullable=True, index=True)

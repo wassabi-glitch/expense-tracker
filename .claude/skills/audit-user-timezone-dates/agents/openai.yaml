@@ -1,0 +1,4 @@
+interface:
+  display_name: "Audit User Timezone Dates"
+  short_description: "Find user-facing date logic that ignores the user's timezone."
+  default_prompt: "Audit the backend and frontend for user-facing date code that does not respect the user's timezone. Report each issue clearly with a real-life example and a fix."

@@ -1720,7 +1720,7 @@ def test_planned_purchase_is_categorized_but_excluded_from_normal_monthly_budget
     assert detail.json()["subcategories"][0]["spent"] == 0
 
 
-def test_planned_purchase_achieved_outside_reserved_funds_is_excluded_from_normal_monthly_budget(client):
+def test_planned_purchase_goal_backed_off_wallet_is_excluded_from_normal_monthly_budget(client):
     headers = create_user_and_token(
         client, "goalbudgetoutside", "goalbudgetoutside@example.com", "Password123!"
     )
@@ -1775,7 +1775,7 @@ def test_planned_purchase_achieved_outside_reserved_funds_is_excluded_from_norma
             "payment_allocations": [{"wallet_id": debit_id, "amount": 1_000_000}],
             "category": "Electronics",
             "date": today.isoformat(),
-            "completion_mode": "ACHIEVED_OUTSIDE_RESERVED_FUNDS",
+            "settlement_mode": "GOAL_BACKED_OFF_WALLET_PAYMENT",
         },
         headers=headers,
     )
@@ -1889,7 +1889,7 @@ def test_planned_purchase_lower_price_requires_target_adjustment_and_releases_le
     assert _wallet_by_id(client, headers, wallet_id)["current_balance"] == 1_200_000
 
 
-def test_planned_purchase_achieved_outside_reserved_funds_releases_goal_money(client, session):
+def test_planned_purchase_goal_backed_off_wallet_consumes_funding_and_completes_goal(client, session):
     headers = create_user_and_token(
         client, "goaluse2", "goaluse2@example.com", "Password123!"
     )
@@ -1924,27 +1924,23 @@ def test_planned_purchase_achieved_outside_reserved_funds_releases_goal_money(cl
             "payment_allocations": [{"wallet_id": debit_id, "amount": 1_000_000}],
             "category": "Electronics",
             "date": user_timezone_today().isoformat(),
-            "completion_mode": "ACHIEVED_OUTSIDE_RESERVED_FUNDS",
+            "settlement_mode": "GOAL_BACKED_OFF_WALLET_PAYMENT",
         },
         headers=headers,
     )
     assert used.status_code == 200
     payload = used.json()
-    assert payload["consumed_amount"] == 0
-    assert payload["released_amount"] == 1_000_000
-    assert payload["outside_goal_amount"] == 1_000_000
-    assert payload["transfer_event_ids"] == []
+    assert payload["consumed_amount"] == 1_000_000
     assert payload["goal"]["status"] == "COMPLETED"
-    assert payload["goal"]["completion_mode"] == "ACHIEVED_OUTSIDE_RESERVED_FUNDS"
-    assert payload["goal"]["funded_amount"] == 0
+    assert payload["transfer_event_ids"] == []
     assert _wallet_by_id(client, headers, savings_id)["current_balance"] == 1_000_000
     assert _wallet_by_id(client, headers, debit_id)["current_balance"] == 0
 
     event = session.get(models.FinancialEvent, payload["expense_event_id"])
-    assert event.reference_type == models.ReferenceType.GOAL_ACHIEVED_OUTSIDE_FUNDS
+    assert event.reference_type == models.ReferenceType.GOAL_PLANNED_PURCHASE
 
 
-def test_planned_purchase_achieved_outside_supports_multi_wallet_payment_allocations(client, session):
+def test_planned_purchase_goal_backed_off_wallet_two_payment_wallets(client, session):
     headers = create_user_and_token(
         client, "goaluse2multi", "goaluse2multi@example.com", "Password123!"
     )
@@ -1990,15 +1986,13 @@ def test_planned_purchase_achieved_outside_supports_multi_wallet_payment_allocat
             ],
             "category": "Housing",
             "date": user_timezone_today().isoformat(),
-            "completion_mode": "ACHIEVED_OUTSIDE_RESERVED_FUNDS",
+            "settlement_mode": "GOAL_BACKED_OFF_WALLET_PAYMENT",
         },
         headers=headers,
     )
     assert used.status_code == 200
     payload = used.json()
-    assert payload["consumed_amount"] == 0
-    assert payload["released_amount"] == 1_000_000
-    assert payload["outside_goal_amount"] == 1_000_000
+    assert payload["consumed_amount"] == 1_000_000
     assert payload["transfer_event_ids"] == []
     assert _wallet_by_id(client, headers, savings_id)["current_balance"] == 1_000_000
     assert _wallet_by_id(client, headers, cash_id)["current_balance"] == 600_000
@@ -2053,7 +2047,7 @@ def test_planned_purchase_rejects_more_than_three_payment_wallets(client):
             ],
             "category": "Electronics",
             "date": user_timezone_today().isoformat(),
-            "completion_mode": "ACHIEVED_OUTSIDE_RESERVED_FUNDS",
+            "settlement_mode": "GOAL_BACKED_OFF_WALLET_PAYMENT",
         },
         headers=headers,
     )
@@ -2061,7 +2055,7 @@ def test_planned_purchase_rejects_more_than_three_payment_wallets(client):
     assert blocked.json()["detail"] == "goals.payment_allocation_limit_exceeded"
 
 
-def test_planned_purchase_achieved_outside_allows_credit_card_truthfully(client):
+def test_planned_purchase_goal_backed_off_wallet_allows_credit_card_truthfully(client):
     headers = create_user_and_token(
         client, "goaluse2credit", "goaluse2credit@example.com", "Password123!"
     )
@@ -2102,14 +2096,13 @@ def test_planned_purchase_achieved_outside_allows_credit_card_truthfully(client)
             "payment_allocations": [{"wallet_id": credit_id, "amount": 1_000_000}],
             "category": "Electronics",
             "date": user_timezone_today().isoformat(),
-            "completion_mode": "ACHIEVED_OUTSIDE_RESERVED_FUNDS",
+            "settlement_mode": "GOAL_BACKED_OFF_WALLET_PAYMENT",
         },
         headers=headers,
     )
     assert used.status_code == 200, used.text
     payload = used.json()
-    assert payload["goal"]["completion_mode"] == "ACHIEVED_OUTSIDE_RESERVED_FUNDS"
-    assert payload["released_amount"] == 1_000_000
+    assert payload["consumed_amount"] == 1_000_000
     assert _wallet_by_id(client, headers, savings_id)["current_balance"] == 1_000_000
     assert _wallet_by_id(client, headers, credit_id)["current_balance"] == -1_000_000
 
@@ -2161,7 +2154,7 @@ def test_planned_purchase_goal_funded_rejects_credit_card_even_if_legacy_allocat
             "payment_allocations": [{"wallet_id": credit_id, "amount": 1_000_000}],
             "category": "Electronics",
             "date": user_timezone_today().isoformat(),
-            "completion_mode": "GOAL_FUNDED",
+            "settlement_mode": "DIRECT",
         },
         headers=headers,
     )
@@ -2169,7 +2162,7 @@ def test_planned_purchase_goal_funded_rejects_credit_card_even_if_legacy_allocat
     assert blocked.json()["detail"] == "goals.goal_funded_payment_wallet_must_be_owned_money"
 
 
-def test_planned_purchase_achieved_outside_releases_multi_wallet_goal_funding(client):
+def test_planned_purchase_goal_backed_off_wallet_releases_leftover_multi_wallet(client):
     headers = create_user_and_token(
         client, "goaluse2matrix", "goaluse2matrix@example.com", "Password123!"
     )
@@ -2221,24 +2214,21 @@ def test_planned_purchase_achieved_outside_releases_multi_wallet_goal_funding(cl
             ],
             "category": "Electronics",
             "date": user_timezone_today().isoformat(),
-            "completion_mode": "ACHIEVED_OUTSIDE_RESERVED_FUNDS",
+            "settlement_mode": "GOAL_BACKED_OFF_WALLET_PAYMENT",
         },
         headers=headers,
     )
     assert used.status_code == 200
     payload = used.json()
-    assert payload["consumed_amount"] == 0
-    assert payload["released_amount"] == 1_000_000
-    assert payload["outside_goal_amount"] == 1_000_000
+    assert payload["consumed_amount"] == 1_000_000
     assert payload["transfer_event_ids"] == []
-    assert payload["goal"]["funded_amount"] == 0
     assert _wallet_by_id(client, headers, savings_id)["current_balance"] == 1_000_000
     assert _wallet_by_id(client, headers, cash_id)["current_balance"] == 1_000_000
     assert _wallet_by_id(client, headers, debit_one_id)["current_balance"] == 800_000
     assert _wallet_by_id(client, headers, debit_two_id)["current_balance"] == 200_000
 
 
-def test_planned_purchase_achieved_outside_rejects_goal_funding_payment_wallet(client):
+def test_planned_purchase_off_wallet_rejects_goal_funding_payment_wallet(client):
     headers = create_user_and_token(
         client, "goaluse2outsidebad", "goaluse2outsidebad@example.com", "Password123!"
     )
@@ -2265,12 +2255,12 @@ def test_planned_purchase_achieved_outside_rejects_goal_funding_payment_wallet(c
             "payment_allocations": [{"wallet_id": savings_id, "amount": 1_000_000}],
             "category": "Electronics",
             "date": user_timezone_today().isoformat(),
-            "completion_mode": "ACHIEVED_OUTSIDE_RESERVED_FUNDS",
+            "settlement_mode": "GOAL_BACKED_OFF_WALLET_PAYMENT",
         },
         headers=headers,
     )
     assert blocked.status_code == 400
-    assert blocked.json()["detail"] == "goals.achieved_outside_requires_non_funding_wallet"
+    assert blocked.json()["detail"] == "goals.goal_backed_off_wallet_requires_non_funding_wallet"
     assert _wallet_by_id(client, headers, savings_id)["current_balance"] == 1_000_000
 
 
@@ -2703,7 +2693,7 @@ def test_planned_purchase_can_be_goal_funded_after_moving_goal_money_to_payment_
             "payment_allocations": [{"wallet_id": target_id, "amount": 1_000_000}],
             "category": "Electronics",
             "date": user_timezone_today().isoformat(),
-            "completion_mode": "GOAL_FUNDED",
+            "settlement_mode": "DIRECT",
         },
         headers=headers,
     )
@@ -2715,7 +2705,7 @@ def test_planned_purchase_can_be_goal_funded_after_moving_goal_money_to_payment_
     assert _wallet_by_id(client, headers, target_id)["current_balance"] == 0
 
 
-def test_planned_purchase_goal_funded_mode_rejects_reimbursement_transfer(client):
+def test_planned_purchase_goal_backed_off_wallet_single_wallet(client, session):
     headers = create_user_and_token(
         client, "goaluse3multi", "goaluse3multi@example.com", "Password123!"
     )
@@ -2743,24 +2733,30 @@ def test_planned_purchase_goal_funded_mode_rejects_reimbursement_transfer(client
         headers=headers,
     ).status_code == 200
 
-    blocked = client.post(
+    used = client.post(
         f"/goals/{goal_id}/record-purchase",
         json={
             "amount": 1_000_000,
             "payment_allocations": [
-                {"wallet_id": cash_id, "amount": 400_000},
-                {"wallet_id": debit_id, "amount": 600_000},
+                {"wallet_id": debit_id, "amount": 1_000_000},
             ],
             "category": "Housing",
             "date": user_timezone_today().isoformat(),
-            "settlement_mode": "REIMBURSE_PAYMENT_WALLET",
+            "settlement_mode": "GOAL_BACKED_OFF_WALLET_PAYMENT",
         },
         headers=headers,
     )
-    assert blocked.status_code == 400
-    assert blocked.json()["detail"] == "goals.planned_purchase_goal_funded_requires_direct_payment"
+    assert used.status_code == 200, used.text
+    payload = used.json()
+    assert payload["consumed_amount"] == 1_000_000
+    assert payload["goal"]["status"] == "COMPLETED"
+    assert payload["transfer_event_ids"] == []
     assert _wallet_by_id(client, headers, cash_id)["current_balance"] == 1_000_000
-    assert _wallet_by_id(client, headers, debit_id)["current_balance"] == 1_000_000
+    assert _wallet_by_id(client, headers, debit_id)["current_balance"] == 0
+
+    event = session.get(models.FinancialEvent, payload["expense_event_id"])
+    assert event is not None
+    assert event.reference_type == models.ReferenceType.GOAL_PLANNED_PURCHASE
 
 
 def test_planned_purchase_direct_settlement_rejects_payment_wallet_that_did_not_fund_goal(client):
@@ -2806,7 +2802,7 @@ def test_planned_purchase_direct_settlement_rejects_payment_wallet_that_did_not_
     assert blocked.json()["detail"] == "goals.payment_wallet_not_funding_source"
 
 
-def test_planned_purchase_outside_completion_still_rejects_second_purchase(client):
+def test_planned_purchase_off_wallet_still_rejects_second_purchase(client):
     headers = create_user_and_token(
         client, "goaluse3", "goaluse3@example.com", "Password123!"
     )
@@ -2841,7 +2837,7 @@ def test_planned_purchase_outside_completion_still_rejects_second_purchase(clien
             "payment_allocations": [{"wallet_id": debit_id, "amount": 1_000_000}],
             "category": "Electronics",
             "date": user_timezone_today().isoformat(),
-            "completion_mode": "ACHIEVED_OUTSIDE_RESERVED_FUNDS",
+            "settlement_mode": "GOAL_BACKED_OFF_WALLET_PAYMENT",
         },
         headers=headers,
     )
@@ -2854,7 +2850,7 @@ def test_planned_purchase_outside_completion_still_rejects_second_purchase(clien
             "payment_allocations": [{"wallet_id": debit_id, "amount": 1_000_000}],
             "category": "Electronics",
             "date": user_timezone_today().isoformat(),
-            "completion_mode": "ACHIEVED_OUTSIDE_RESERVED_FUNDS",
+            "settlement_mode": "GOAL_BACKED_OFF_WALLET_PAYMENT",
         },
         headers=headers,
     )
@@ -2864,7 +2860,7 @@ def test_planned_purchase_outside_completion_still_rejects_second_purchase(clien
     assert _wallet_by_id(client, headers, debit_id)["current_balance"] == 0
 
 
-def test_reserve_paid_outside_goal_funds_leaves_reserve_allocation_intact(client):
+def test_reserve_off_wallet_payment_consumes_reserve_allocation(client):
     headers = create_user_and_token(
         client, "goaluse4", "goaluse4@example.com", "Password123!"
     )
@@ -2899,16 +2895,15 @@ def test_reserve_paid_outside_goal_funds_leaves_reserve_allocation_intact(client
             "payment_allocations": [{"wallet_id": debit_id, "amount": 300_000}],
             "category": "Health",
             "date": user_timezone_today().isoformat(),
-            "settlement_mode": "PAID_OUTSIDE_GOAL_FUNDS",
+            "settlement_mode": "GOAL_BACKED_OFF_WALLET_PAYMENT",
         },
         headers=headers,
     )
     assert used.status_code == 200
     payload = used.json()
-    assert payload["consumed_amount"] == 0
+    assert payload["consumed_amount"] == 300_000
     assert payload["goal"]["status"] == "ACTIVE"
-    assert payload["goal"]["linked_expense_event_id"] is None
-    assert payload["goal"]["funded_amount"] == 1_000_000
+    assert payload["goal"]["funded_amount"] == 700_000
     assert _wallet_by_id(client, headers, savings_id)["current_balance"] == 1_000_000
     assert _wallet_by_id(client, headers, debit_id)["current_balance"] == 700_000
 
@@ -2991,7 +2986,7 @@ def test_reserve_off_wallet_use_can_consume_reserve_without_budget_pressure_or_t
             "payment_allocations": [{"wallet_id": debit_id, "amount": 300_000}],
             "category": "Health",
             "date": user_timezone_today().isoformat(),
-            "settlement_mode": "REIMBURSE_PAYMENT_WALLET",
+            "settlement_mode": "GOAL_BACKED_OFF_WALLET_PAYMENT",
             "enforce_monthly_budget_limits": False,
         },
         headers=headers,
