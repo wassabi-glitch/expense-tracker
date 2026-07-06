@@ -302,11 +302,11 @@ export function localizeApiError(message, t) {
   if (msg === "goals.planned_purchase_goal_funded_requires_direct_payment") {
     return t("savings.goals.plannedPurchaseGoalFundedRequiresDirectPayment", { defaultValue: "Goal-funded purchase means the reserved wallet money paid directly. Choose the outside-funds option if different money paid." });
   }
-  if (msg === "goals.achieved_outside_requires_non_funding_wallet") {
-    return t("savings.goals.achievedOutsideRequiresNonFundingWallet", { defaultValue: "Different-wallet purchase cannot use a wallet that reserved this goal. Choose goal-funded mode if a reserved wallet paid." });
+  if (msg === "goals.goal_backed_off_wallet_requires_non_funding_wallet") {
+    return t("savings.goals.goalBackedOffWalletRequiresNonFundingWallet", { defaultValue: "Off-wallet purchase cannot use a wallet that reserved this goal. Choose goal-funded mode if a reserved wallet paid." });
   }
-  if (msg === "goals.completion_mode_invalid") {
-    return t("savings.goals.completionModeInvalid", { defaultValue: "Choose how this planned purchase was completed." });
+  if (msg === "goals.settlement_mode_invalid") {
+    return t("savings.goals.settlementModeInvalid", { defaultValue: "Invalid settlement mode. Choose either goal-funded or goal-backed off-wallet payment." });
   }
   if (msg === "goals.purchase_target_adjustment_required") {
     return t("savings.goals.purchaseTargetAdjustmentRequired", { defaultValue: "Confirm the target update before completing this planned purchase." });

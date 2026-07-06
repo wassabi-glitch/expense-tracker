@@ -1,0 +1,4 @@
+interface:
+  display_name: "Explain Issue Impact"
+  short_description: "Explain completed work in practical terms"
+  default_prompt: "Use $explain-issue-impact to explain what this issue solved and why it matters."

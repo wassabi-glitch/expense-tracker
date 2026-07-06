@@ -99,26 +99,12 @@ const RESERVE_GOAL_TYPES = [
   { id: "custom", title: "Custom", description: "Name your own reason for setting money aside." },
 ];
 
-const PLANNED_PURCHASE_COMPLETION_OPTIONS = [
-  {
-    value: "GOAL_FUNDED",
-    label: "I paid from the prepared goal wallet(s)",
-    description: "Choose this when checkout used the wallet money prepared for this goal. If needed, use Prepare payment before buying.",
-  },
-  {
-    value: "ACHIEVED_OUTSIDE_RESERVED_FUNDS",
-    label: "I bought it with an unplanned wallet/card",
-    description: "Choose this when the real purchase already happened from a wallet or card that was not prepared for this goal.",
-  },
-];
-
 const PURCHASE_STEPS = {
   CONFIRM_PURCHASE: 1,
-  COMPLETION_MEANING: 2,
-  PAYMENT: 3,
-  CLASSIFICATION: 4,
-  PAYMENT_PLAN: 5,
-  REVIEW: 6,
+  PAYMENT: 2,
+  CLASSIFICATION: 3,
+  PAYMENT_PLAN: 4,
+  REVIEW: 5,
 };
 
 const PAYMENT_PLAN_FREQUENCIES = [
@@ -294,9 +280,6 @@ function goalPrimaryMetric(goal) {
     };
   }
   if (goal.status === "COMPLETED" && goal.intent === "PLANNED_PURCHASE") {
-    if (goal.completion_mode === "ACHIEVED_OUTSIDE_RESERVED_FUNDS") {
-      return { label: "achieved", amount: Number(goal.target_amount || 0), percent: 100 };
-    }
     return { label: "used", amount: Number(goal.consumed_amount || goal.target_amount || 0), percent: 100 };
   }
   return {
@@ -410,7 +393,6 @@ export default function Savings() {
     subcategory_id: "",
     date: "",
     settlement_mode: "DIRECT",
-    completion_mode: "GOAL_FUNDED",
     result_type: "EXPENSE_ONLY",
     asset_title: "",
     adjust_target_to_purchase_amount: false,
@@ -522,31 +504,29 @@ export default function Savings() {
   const paymentWallets = summary.wallets;
   const paymentRows = useForm.payment_allocations || [];
   const paymentTotal = paymentRows.reduce((sum, row) => sum + parseAmountInput(row.amount), 0);
+  const isPlannedPurchase = selectedUseGoal?.intent === "PLANNED_PURCHASE";
+  const isDebtGoalPayment = selectedUseGoal?.intent === "PAY_OBLIGATION";
+  const isReserveUse = selectedUseGoal?.intent === "RESERVE";
+  const goalFundingPaymentWalletIds = new Set((selectedUseGoal?.funding_sources || []).map((source) => String(source.wallet_id)));
   const paymentWalletsAllFundingSources = paymentRows.length > 0 && paymentRows.every((row) =>
     (selectedUseGoal?.funding_sources || []).some((source) => String(source.wallet_id) === String(row.wallet_id))
   );
+  const paymentWalletsAllNonFundingSources = !isPlannedPurchase || useForm.settlement_mode !== "GOAL_BACKED_OFF_WALLET_PAYMENT" || paymentRows.every((row) =>
+    !goalFundingPaymentWalletIds.has(String(row.wallet_id))
+  );
   const paymentWalletIds = paymentRows.map((row) => String(row.wallet_id || ""));
   const paymentWalletRowsUnique = paymentWalletIds.length === new Set(paymentWalletIds).size;
-  const isGoalFundedPurchase = selectedUseGoal?.intent === "PLANNED_PURCHASE" && useForm.completion_mode === "GOAL_FUNDED";
-  const isOutsideReservedFundsPurchase = selectedUseGoal?.intent === "PLANNED_PURCHASE" &&
-    useForm.completion_mode === "ACHIEVED_OUTSIDE_RESERVED_FUNDS";
-  const isDebtGoalPayment = selectedUseGoal?.intent === "PAY_OBLIGATION";
-  const isReserveUse = selectedUseGoal?.intent === "RESERVE";
-  const isGoalFundedWalletPayment = isGoalFundedPurchase || isDebtGoalPayment || isReserveUse;
-  const goalFundingPaymentWalletIds = new Set((selectedUseGoal?.funding_sources || []).map((source) => String(source.wallet_id)));
+  const isUseFromFundingSources = !isPlannedPurchase || useForm.settlement_mode === "DIRECT";
   const goalFundingAmountByWalletId = new Map(
     (selectedUseGoal?.funding_sources || []).map((source) => [String(source.wallet_id), Number(source.unreleased_amount || 0)])
   );
-  const paymentWalletsAllNonFundingSources = !isOutsideReservedFundsPurchase || paymentRows.every((row) =>
-    !goalFundingPaymentWalletIds.has(String(row.wallet_id))
-  );
-  const paymentRowsWithinFundingAmounts = !isGoalFundedWalletPayment || paymentRows.every((row) => (
+  const paymentRowsWithinFundingAmounts = !isUseFromFundingSources || paymentRows.every((row) => (
     parseAmountInput(row.amount) <= Number(goalFundingAmountByWalletId.get(String(row.wallet_id)) || 0)
   ));
   const paymentWalletOptions = selectedUseGoal?.intent === "PLANNED_PURCHASE" || selectedUseGoal?.intent === "PAY_OBLIGATION" || selectedUseGoal?.intent === "RESERVE"
     ? paymentWallets.filter((wallet) => {
       const isFundingWallet = goalFundingPaymentWalletIds.has(String(wallet.wallet_id));
-      return isGoalFundedWalletPayment
+      return isUseFromFundingSources
         ? isFundingWallet && isOwnedPaymentWalletForCurrency(wallet, selectedUseGoal.currency)
         : !isFundingWallet;
     })
@@ -727,7 +707,6 @@ export default function Savings() {
       subcategory_id: "",
       date: "",
       settlement_mode: "DIRECT",
-      completion_mode: "GOAL_FUNDED",
       result_type: goal.intent === "PLANNED_PURCHASE" ? "EXPENSE_ONLY" : undefined,
       asset_title: "",
       adjust_target_to_purchase_amount: false,
@@ -773,20 +752,14 @@ export default function Savings() {
     });
   };
 
-  const setPlannedPurchaseCompletionMode = (mode) => {
+  const setPlannedPurchaseSettlementMode = (mode) => {
     const defaultAmount = formatAmountInput(String(useAmount || selectedUseGoal?.target_amount || selectedUseGoal?.unreleased_amount || ""));
-    const fallbackWallet = paymentWallets.find((wallet) => (
-      mode === "GOAL_FUNDED"
-        ? goalFundingPaymentWalletIds.has(String(wallet.wallet_id))
-        : !goalFundingPaymentWalletIds.has(String(wallet.wallet_id))
-    ));
-    const nextRows = mode === "GOAL_FUNDED"
+    const nextRows = mode === "DIRECT"
       ? plannedPurchaseFundingRows(selectedUseGoal)
-      : fallbackWallet ? [{ wallet_id: String(fallbackWallet.wallet_id), amount: defaultAmount }] : [];
+      : paymentWallets.filter((w) => !goalFundingPaymentWalletIds.has(String(w.wallet_id))).slice(0, 1).map((w) => ({ wallet_id: String(w.wallet_id), amount: defaultAmount }));
     setUseForm((prev) => ({
       ...prev,
-      completion_mode: mode,
-      settlement_mode: "DIRECT",
+      settlement_mode: mode,
       payment_allocations: nextRows,
       amount: formatAmountInput(String(nextRows.reduce((sum, row) => sum + parseAmountInput(row.amount), 0))),
     }));
@@ -1294,15 +1267,15 @@ export default function Savings() {
         return;
       }
     }
-    if (selectedUseGoal.intent === "PLANNED_PURCHASE" && useForm.completion_mode === "GOAL_FUNDED" && !paymentWalletsAllFundingSources) {
-      setUseError("Prepared goal purchase means every payment wallet must be one of this goal's prepared wallets.");
+    if (selectedUseGoal.intent === "PLANNED_PURCHASE" && useForm.settlement_mode === "DIRECT" && !paymentWalletsAllFundingSources) {
+      setUseError("Goal-funded purchase means every payment wallet must be a wallet that reserved money for this goal.");
       return;
     }
-    if (selectedUseGoal.intent === "PLANNED_PURCHASE" && useForm.completion_mode === "ACHIEVED_OUTSIDE_RESERVED_FUNDS" && !paymentWalletsAllNonFundingSources) {
-      setUseError("Unplanned-wallet purchase cannot use a wallet that was prepared for this goal.");
+    if (selectedUseGoal.intent === "PLANNED_PURCHASE" && useForm.settlement_mode === "GOAL_BACKED_OFF_WALLET_PAYMENT" && !paymentWalletsAllNonFundingSources) {
+      setUseError("Off-wallet purchase cannot use a wallet that was prepared for this goal.");
       return;
     }
-    if (selectedUseGoal.intent === "PLANNED_PURCHASE" && useForm.completion_mode === "GOAL_FUNDED" && !paymentRowsWithinFundingAmounts) {
+    if (selectedUseGoal.intent === "PLANNED_PURCHASE" && useForm.settlement_mode === "DIRECT" && !paymentRowsWithinFundingAmounts) {
       setUseError("One payment wallet amount is larger than the goal money reserved in that wallet.");
       return;
     }
@@ -1323,7 +1296,7 @@ export default function Savings() {
       amount: parsed.data.amount,
       payment_allocations: parsed.data.payment_allocations,
       category: parsed.data.category,
-      settlement_mode: selectedUseGoal.intent === "RESERVE" ? "DIRECT" : parsed.data.settlement_mode,
+      settlement_mode: parsed.data.settlement_mode || "DIRECT",
     };
     if (parsed.data.subcategory_id) payload.subcategory_id = parsed.data.subcategory_id;
     if (parsed.data.date) payload.date = parsed.data.date;
@@ -1346,8 +1319,6 @@ export default function Savings() {
         }
         payload.result_type = parsed.data.result_type || "EXPENSE_ONLY";
         payload.adjust_target_to_purchase_amount = Boolean(parsed.data.adjust_target_to_purchase_amount);
-        payload.completion_mode = parsed.data.completion_mode || "GOAL_FUNDED";
-        payload.settlement_mode = "DIRECT";
         if (payload.result_type === "ASSET_PURCHASE" && parsed.data.asset_title?.trim()) {
           payload.asset_title = parsed.data.asset_title.trim();
         }
@@ -1395,8 +1366,8 @@ export default function Savings() {
     paymentTotal > 0 &&
     paymentWalletRowsUnique &&
     paymentWalletRowsWithinLimit &&
-    (!isGoalFundedWalletPayment || (paymentWalletsAllFundingSources && paymentRowsWithinFundingAmounts)) &&
-    (!isOutsideReservedFundsPurchase || paymentWalletsAllNonFundingSources);
+    (!isUseFromFundingSources || (paymentWalletsAllFundingSources && paymentRowsWithinFundingAmounts)) &&
+    (!isPlannedPurchase || useForm.settlement_mode !== "GOAL_BACKED_OFF_WALLET_PAYMENT" || paymentWalletsAllNonFundingSources);
   const canContinueClassificationStep = !purchaseAmountDiffersFromTarget || Boolean(useForm.adjust_target_to_purchase_amount);
   const canContinuePaymentPlanStep = !payment_planBridgeSelected || (
     payment_planTotalPrice > paymentTotal &&
@@ -1817,17 +1788,17 @@ export default function Savings() {
             : "Add each payment wallet only once."}
         </p>
       ) : null}
-      {isGoalFundedWalletPayment && !paymentRowsWithinFundingAmounts ? (
+      {isUseFromFundingSources && !paymentRowsWithinFundingAmounts ? (
         <p className="text-xs text-destructive">
           One row is higher than the goal money still reserved in that wallet.
         </p>
       ) : null}
-      {isOutsideReservedFundsPurchase && !paymentWalletsAllNonFundingSources ? (
+      {isPlannedPurchase && useForm.settlement_mode === "GOAL_BACKED_OFF_WALLET_PAYMENT" && !paymentWalletsAllNonFundingSources ? (
         <p className="text-xs text-destructive">
-          Different-wallet mode cannot use a wallet that reserved this goal. Choose goal-funded mode if a reserved wallet paid.
+          Off-wallet mode cannot use a wallet that reserved this goal. Choose goal-funded mode if a reserved wallet paid.
         </p>
       ) : null}
-      {isGoalFundedPurchase ? (
+      {isPlannedPurchase && useForm.settlement_mode === "DIRECT" ? (
         <p className="text-xs text-muted-foreground">
           Goal-funded purchases only show prepared owned-money wallets for this goal. Credit cards and unplanned wallets are excluded.
         </p>
@@ -1842,12 +1813,12 @@ export default function Savings() {
           Reserve use only shows wallets currently holding this reserve. Prepare payment first if a different wallet will pay.
         </p>
       ) : null}
-      {isOutsideReservedFundsPurchase ? (
+      {isPlannedPurchase && useForm.settlement_mode === "GOAL_BACKED_OFF_WALLET_PAYMENT" ? (
         <p className="text-xs text-muted-foreground">
-          Unplanned-wallet purchases hide the prepared goal wallets. Sarflog will complete the goal off-plan and release the reserved money.
+          Off-wallet purchases hide the prepared goal wallets. Sarflog will complete the goal and consume the reserved money.
         </p>
       ) : null}
-      {isOutsideReservedFundsPurchase && !paymentWalletOptions.length ? (
+      {isPlannedPurchase && useForm.settlement_mode === "GOAL_BACKED_OFF_WALLET_PAYMENT" && !paymentWalletOptions.length ? (
         <p className="text-xs text-destructive">
           No different payment wallet is available. Choose goal-funded mode, or add another wallet first.
         </p>
@@ -2440,40 +2411,39 @@ export default function Savings() {
       );
     }
 
-    if (purchaseStep === PURCHASE_STEPS.COMPLETION_MEANING) {
-      return (
-        <div className="space-y-4">
-          <div>
-            <p className="text-sm font-medium">How did this purchase use the reserved goal money?</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              This answer decides which wallets Sarflog should offer in the payment step.
-            </p>
-          </div>
-          <div className="grid gap-2">
-            {PLANNED_PURCHASE_COMPLETION_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={cn(
-                  "rounded-md border p-3 text-left transition-colors",
-                  useForm.completion_mode === option.value
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-background hover:bg-muted/50"
-                )}
-                onClick={() => setPlannedPurchaseCompletionMode(option.value)}
-              >
-                <span className="block text-sm font-medium">{option.label}</span>
-                <span className="mt-1 block text-xs text-muted-foreground">{option.description}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      );
-    }
-
     if (purchaseStep === PURCHASE_STEPS.PAYMENT) {
       return (
         <div className="space-y-4">
+          {isPlannedPurchase ? (
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                className={cn(
+                  "rounded-md border p-2 text-left text-xs transition-colors",
+                  useForm.settlement_mode === "DIRECT"
+                    ? "border-primary bg-primary/10"
+                    : "border-border bg-background hover:bg-muted/50"
+                )}
+                onClick={() => setPlannedPurchaseSettlementMode("DIRECT")}
+              >
+                <span className="block text-sm font-medium">I paid from goal wallet(s)</span>
+                <span className="mt-0.5 block text-muted-foreground">The real checkout used goal wallets.</span>
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "rounded-md border p-2 text-left text-xs transition-colors",
+                  useForm.settlement_mode === "GOAL_BACKED_OFF_WALLET_PAYMENT"
+                    ? "border-primary bg-primary/10"
+                    : "border-border bg-background hover:bg-muted/50"
+                )}
+                onClick={() => setPlannedPurchaseSettlementMode("GOAL_BACKED_OFF_WALLET_PAYMENT")}
+              >
+                <span className="block text-sm font-medium">I paid from another wallet/card</span>
+                <span className="mt-0.5 block text-muted-foreground">Goal money still backs the purchase.</span>
+              </button>
+            </div>
+          ) : null}
           <div>
             <p className="text-sm font-medium">Which wallet or cash paid at checkout?</p>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -2490,7 +2460,7 @@ export default function Savings() {
             />
           </div>
           {renderPaymentWalletRows({ showFinalPrice: true })}
-          {isGoalFundedPurchase && !paymentWalletsAllFundingSources ? (
+          {isPlannedPurchase && useForm.settlement_mode === "DIRECT" && !paymentWalletsAllFundingSources ? (
             <p className="text-xs text-destructive">
               Goal-funded purchase means every payment wallet must be one of the wallets that reserved money for this goal.
             </p>
@@ -2752,7 +2722,7 @@ export default function Savings() {
           <div className="flex justify-between gap-3">
             <span className="text-muted-foreground">Goal money</span>
             <span className="font-medium">
-              {useForm.completion_mode === "GOAL_FUNDED" ? "Prepared goal wallets paid" : "Unplanned wallet paid; goal money will be released"}
+              {useForm.settlement_mode === "DIRECT" ? "Goal wallets paid" : "Goal-backed off-wallet payment"}
             </span>
           </div>
           <div className="flex justify-between gap-3">
@@ -2790,7 +2760,7 @@ export default function Savings() {
       return (
         <DialogFooter>
           <Button variant="outline" onClick={() => setUseDialog(null)}>Not yet</Button>
-          <Button onClick={() => setPurchaseStep(PURCHASE_STEPS.COMPLETION_MEANING)}>Yes, I bought it</Button>
+          <Button onClick={() => setPurchaseStep(PURCHASE_STEPS.PAYMENT)}>Yes, I bought it</Button>
         </DialogFooter>
       );
     }

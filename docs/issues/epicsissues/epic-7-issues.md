@@ -115,34 +115,46 @@ None - can start immediately.
 
 ---
 
-## Issue 4: Build Explicit Off-Wallet Goal Payment Flows for Planned Purchases and Reserves
+## Issue 4: Simplify Goal Settlement and Build Goal-Backed Off-Wallet Payments
 
 **Type:** AFK
 
 ### Parent
 
-[Epic 7 - Goal Deployment & Protection](../../epics/epic-7-goal-deployment.md), [G11 - Goal Payment Philosophy & Auto-Reimbursement Deprecation](../../prd/g11-goal-payment-philosophy.md)
+[Epic 7 - Goal Deployment & Protection](../../epics/epic-7-goal-deployment.md), [G11 - Goal Payment Philosophy & Auto-Reimbursement Deprecation](../../prd/g11-goal-payment-philosophy.md), [G39 - Goal Settlement Mode Simplification](../../prd/g39-goal-settlement-mode-simplification.md)
 
 ### What to build
 
-Add user-facing "already paid from wrong wallet" flows for goal spending. A user who paid for a Planned Purchase or Reserve need from a wallet that did not fund the goal should be able to record the real payment wallet, release matching protected money, and apply the correct monthly-budget behavior.
+Implement the G39 simplification of goal settlement. Goal purchase/use flows should only represent cases where user money left a real wallet and protected goal money backs the spending.
 
-For Reserve goals, the UI must expose the budget toggle because reserve spending may be ordinary visibility-worthy spending or catastrophic/non-routine spending.
+Keep only two active settlement modes: `DIRECT` and the renamed `GOAL_BACKED_OFF_WALLET_PAYMENT`. Remove the user-facing and API-active `PAID_OUTSIDE_GOAL_FUNDS` path, and remove the now-redundant `GoalCompletionMode` contract. Gift, company-paid, family-paid, and other no-user-wallet-outflow cases should not be recorded as expenses in this flow; users can use existing unreserve/archive/delete behavior when a goal is no longer needed.
+
+For Planned Purchase goals, off-wallet payment means the saved goal money still backs the purchase even though another wallet/card paid the merchant. For Reserve goals, off-wallet use means the reserve covers the need even though another wallet/card paid. Both flows must preserve wallet reality, consume protected goal funding, and create no automatic wallet-to-wallet transfer.
 
 ### Acceptance criteria
 
-- [ ] Planned Purchase goals expose an off-wallet completion path distinct from same-wallet goal-funded purchase.
-- [ ] Planned Purchase off-wallet completion records the real payment wallet and does not hit the monthly budget.
-- [ ] Reserve goals expose an off-wallet use path that records the real payment wallet.
-- [ ] Reserve off-wallet use defaults to hitting the monthly budget for visibility.
-- [ ] Reserve off-wallet use includes a clear toggle to bypass monthly budget pressure for exceptional/catastrophic cases.
-- [ ] The toggle affects budget aggregates but never hides the expense from spending reports.
-- [ ] The UI explains that protected money is being released and no wallet transfer is being created.
-- [ ] Multi-wallet payment rows are supported where the existing expense payment model supports them.
-- [ ] API and UI errors preserve wallet reality and do not leave partial goal releases behind.
-- [ ] Backend tests cover Planned Purchase off-wallet, Reserve default budget-hit, Reserve budget-bypass, multi-wallet payment, and transaction rollback.
-- [ ] Frontend tests cover both flows, the Reserve toggle, payloads, disabled states, localized errors, and stale-query refresh.
-- [ ] Docker backend tests and frontend build pass.
+- [x] Backend settlement validation accepts only `DIRECT` and `GOAL_BACKED_OFF_WALLET_PAYMENT` as active goal settlement modes.
+- [x] The old reimbursement-style mode is renamed to `GOAL_BACKED_OFF_WALLET_PAYMENT` in backend schemas, frontend schemas, API payloads, and UI copy.
+- [x] `PAID_OUTSIDE_GOAL_FUNDS` is removed from user-facing flows and rejected or safely migrated away from active API behavior.
+- [x] `GoalCompletionMode` is removed from active backend/frontend contracts and persisted goal state after a safe migration.
+- [x] Planned Purchase record-purchase flows no longer send or require `completion_mode`.
+- [x] Planned Purchase record-purchase requires enough unreleased goal funding to back the purchase amount.
+- [x] Planned Purchase same-wallet purchase uses `DIRECT`.
+- [x] Planned Purchase off-wallet purchase uses `GOAL_BACKED_OFF_WALLET_PAYMENT`, records the real payment wallet, consumes protected goal funding, creates no wallet-to-wallet transfer, and does not hit monthly budget pressure.
+- [x] Planned Purchase off-wallet purchase still appears in spending reports.
+- [x] Reserve same-wallet use uses `DIRECT`.
+- [x] Reserve off-wallet use uses `GOAL_BACKED_OFF_WALLET_PAYMENT`, records the real payment wallet, consumes protected reserve funding, and creates no wallet-to-wallet transfer.
+- [x] Reserve off-wallet use defaults to hitting the monthly budget for visibility.
+- [x] Reserve off-wallet use includes a clear toggle to bypass monthly budget pressure for exceptional/catastrophic cases.
+- [x] The Reserve toggle affects budget aggregates but never hides the expense from spending reports.
+- [x] The UI explains goal-backed off-wallet payment without using "outside goal funds" or "reimbursement" language.
+- [x] Gift, company-paid, family-paid, and other no-user-wallet-outflow cases are not represented as goal expenses.
+- [x] Existing unreserve, archive, and delete behavior remains available for goals that are no longer needed.
+- [x] Multi-wallet payment rows are supported where the existing expense payment model supports them.
+- [x] API and UI errors preserve wallet reality and do not leave partial goal releases behind.
+- [x] Backend tests cover settlement-mode validation, removed completion mode, Planned Purchase direct/off-wallet, insufficient goal funding, Reserve default budget-hit, Reserve budget-bypass, multi-wallet payment, migration safety, reports visibility, and transaction rollback.
+- [ ] Frontend tests cover the two goal-backed choices, copy, payloads, removed completion mode, Reserve toggle, disabled states, localized errors, and stale-query refresh.
+- [x] Docker backend tests and frontend build pass.
 
 ### Blocked by
 

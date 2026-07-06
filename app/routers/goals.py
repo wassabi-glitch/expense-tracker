@@ -1282,7 +1282,6 @@ def _pay_linked_payment_plan_from_goal(
     reserved_after = get_goal_funded_amount(db, user_id, goal.id)
     if plan.status == models.PaymentPlanStatus.PAID:
         goal.status = models.GoalStatus.COMPLETED
-        goal.completion_mode = models.GoalCompletionMode.GOAL_FUNDED
     else:
         sync_goal_status(goal, reserved_after)
 
@@ -2067,7 +2066,7 @@ def use_reserve_goal(
             plan,
             linked_event_id=event.id,
         )
-    elif payload.settlement_mode == schemas.GoalSettlementMode.REIMBURSE_PAYMENT_WALLET:
+    elif payload.settlement_mode == schemas.GoalSettlementMode.GOAL_BACKED_OFF_WALLET_PAYMENT:
         plan = _build_goal_funding_plan(
             db,
             current_user.id,
@@ -2083,8 +2082,6 @@ def use_reserve_goal(
             plan,
             linked_event_id=event.id,
         )
-    elif payload.settlement_mode == schemas.GoalSettlementMode.PAID_OUTSIDE_GOAL_FUNDS:
-        consumed_amount = 0
     else:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.settlement_mode_invalid")
 
@@ -2164,134 +2161,23 @@ def record_planned_purchase_goal(
     effective_date = payload.date or local_today
     title = payload.title or goal.title
 
-    completion_mode = payload.completion_mode
+    if int(payload.amount) > unreleased_total:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.insufficient_unreleased_balance")
 
-    if completion_mode == models.GoalCompletionMode.ACHIEVED_OUTSIDE_RESERVED_FUNDS:
+    if payload.settlement_mode == schemas.GoalSettlementMode.DIRECT:
+        payment_wallet_ids = {int(wallet.id) for wallet, _amount in payment_allocations}
+        if not payment_wallet_ids.issubset(goal_funding_wallet_ids):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.payment_wallet_not_funding_source")
+        _validate_goal_funded_payment_wallets_are_owned_money(payment_allocations)
+    elif payload.settlement_mode == schemas.GoalSettlementMode.GOAL_BACKED_OFF_WALLET_PAYMENT:
         payment_wallet_ids = {int(wallet.id) for wallet, _amount in payment_allocations}
         if payment_wallet_ids & goal_funding_wallet_ids:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="goals.achieved_outside_requires_non_funding_wallet",
+                detail="goals.goal_backed_off_wallet_requires_non_funding_wallet",
             )
-        release_plan = _build_goal_funding_plan(
-            db,
-            current_user.id,
-            goal,
-            amount=999_999_999_999,
-            require_full_coverage=False,
-        )
-        released_amount, release_entries = _return_goal_funding_plan_entries(
-            db,
-            current_user.id,
-            goal,
-            release_plan,
-            linked_event_id=None,
-        )
-
-        event = _create_goal_expense_event(
-            db,
-            current_user.id,
-            wallet_allocations=payment_allocations,
-            amount=payload.amount,
-            category=payload.category,
-            expense_date=effective_date,
-            local_today=local_today,
-            title=title,
-            description=payload.description,
-            subcategory_id=payload.subcategory_id,
-            project_id=payload.project_id,
-            project_subcategory_id=payload.project_subcategory_id,
-            reference_type=models.ReferenceType.GOAL_ACHIEVED_OUTSIDE_FUNDS,
-            enforce_goal_protection=True,
-            enforce_monthly_budget_limits=False,
-        )
-        for entry in release_entries:
-            entry.linked_event_id = event.id
-
-        asset = None
-        asset_purchase_value = int(payload.payment_plan.total_price) if payload.payment_plan else int(payload.amount)
-        if payload.result_type == schemas.PlannedPurchaseResultType.ASSET_PURCHASE:
-            asset = models.Asset(
-                owner_id=current_user.id,
-                title=(payload.asset_title or title).strip(),
-                description=payload.asset_description if payload.asset_description is not None else payload.description,
-                origin_event_id=event.id,
-                purchase_value=asset_purchase_value,
-                current_value=int(payload.asset_current_value) if payload.asset_current_value is not None else asset_purchase_value,
-                status="owned",
-            )
-            db.add(asset)
-            db.flush()
-
-        goal.linked_expense_event_id = event.id
-        goal.completion_mode = models.GoalCompletionMode.ACHIEVED_OUTSIDE_RESERVED_FUNDS
-        if asset is not None:
-            goal.linked_asset_id = asset.id
-        goal.status = models.GoalStatus.COMPLETED
-        db.flush()
-
-        payment_plan, next_payment_goal = _create_payment_plan_bridge_from_goal_purchase(
-            db,
-            current_user.id,
-            goal=goal,
-            payload=payload,
-            event=event,
-            asset=asset,
-            title=title,
-            effective_date=effective_date,
-            user_tz=user_tz,
-        )
-
-        db.commit()
-        db.refresh(goal)
-        if payment_plan is not None:
-            db.refresh(payment_plan)
-        if next_payment_goal is not None:
-            db.refresh(next_payment_goal)
-        return schemas.GoalUseResultOut(
-            goal=build_goal_with_progress(
-                db,
-                current_user.id,
-                goal,
-                get_goal_funded_amount(db, current_user.id, goal.id),
-                released_amount=get_goal_released_amount(db, current_user.id, goal.id),
-                linked_project_id=get_goal_linked_project_id(db, current_user.id, goal.id),
-                today=today_in_tz(user_tz),
-            ),
-            expense_event_id=event.id,
-            asset_id=asset.id if asset is not None else None,
-            transfer_event_ids=[],
-            consumed_amount=0,
-            released_amount=released_amount,
-            outside_goal_amount=int(payload.amount),
-            payment_plan=(
-                schemas.PaymentPlanWithPaymentsOut.model_validate(payment_plan)
-                if payment_plan is not None
-                else None
-            ),
-            next_payment_goal=(
-                build_goal_with_progress(
-                    db,
-                    current_user.id,
-                    next_payment_goal,
-                    get_goal_funded_amount(db, current_user.id, next_payment_goal.id),
-                    released_amount=get_goal_released_amount(db, current_user.id, next_payment_goal.id),
-                    linked_project_id=get_goal_linked_project_id(db, current_user.id, next_payment_goal.id),
-                    today=today_in_tz(user_tz),
-                )
-                if next_payment_goal is not None
-                else None
-            ),
-        )
-
-    if completion_mode != models.GoalCompletionMode.GOAL_FUNDED:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.completion_mode_invalid")
-
-    if payload.settlement_mode != schemas.GoalSettlementMode.DIRECT:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.planned_purchase_goal_funded_requires_direct_payment")
-    if int(payload.amount) > unreleased_total:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.insufficient_unreleased_balance")
-    _validate_goal_funded_payment_wallets_are_owned_money(payment_allocations)
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.settlement_mode_invalid")
 
     event = _create_goal_expense_event(
         db,
@@ -2314,20 +2200,36 @@ def record_planned_purchase_goal(
     transfer_event_ids: list[int] = []
     consumed_amount = 0
     released_amount = 0
-    plan = _build_direct_payment_funding_plan(
-        db=db,
-        user_id=current_user.id,
-        goal=goal,
-        payment_plan=payment_plan,
-        require_full_coverage=True,
-    )
-    consumed_amount = _consume_goal_funding_plan(
-        db,
-        current_user.id,
-        goal,
-        plan,
-        linked_event_id=event.id,
-    )
+    if payload.settlement_mode == schemas.GoalSettlementMode.DIRECT:
+        plan = _build_direct_payment_funding_plan(
+            db=db,
+            user_id=current_user.id,
+            goal=goal,
+            payment_plan=payment_plan,
+            require_full_coverage=True,
+        )
+        consumed_amount = _consume_goal_funding_plan(
+            db,
+            current_user.id,
+            goal,
+            plan,
+            linked_event_id=event.id,
+        )
+    else:
+        plan = _build_goal_funding_plan(
+            db,
+            current_user.id,
+            goal,
+            payload.amount,
+            require_full_coverage=True,
+        )
+        consumed_amount = _consume_goal_funding_plan(
+            db,
+            current_user.id,
+            goal,
+            plan,
+            linked_event_id=event.id,
+        )
 
     remaining_plan = _build_goal_funding_plan(
         db,
@@ -2360,7 +2262,6 @@ def record_planned_purchase_goal(
         db.flush()
 
     goal.linked_expense_event_id = event.id
-    goal.completion_mode = models.GoalCompletionMode.GOAL_FUNDED
     if asset is not None:
         goal.linked_asset_id = asset.id
     goal.status = models.GoalStatus.COMPLETED
@@ -2534,7 +2435,6 @@ def pay_linked_debt_from_goal(
     reserved_after = get_goal_funded_amount(db, current_user.id, goal.id)
     if int(consumed_after) >= int(goal.target_amount or 0) or int(debt.remaining_amount or 0) == 0:
         goal.status = models.GoalStatus.COMPLETED
-        goal.completion_mode = models.GoalCompletionMode.GOAL_FUNDED
         goal.linked_debt_transaction_id = debt_transaction.id
     else:
         sync_goal_status(goal, reserved_after)

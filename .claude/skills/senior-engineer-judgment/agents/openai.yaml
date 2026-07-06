@@ -1,0 +1,4 @@
+interface:
+  display_name: "Senior Engineer Judgment"
+  short_description: "Get candid senior-level reasoning and feedback"
+  default_prompt: "Use $senior-engineer-judgment to give senior engineer reasoning, tradeoffs, and practical feedback."
