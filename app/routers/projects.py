@@ -39,7 +39,7 @@ from ..services.isolated_project_service import (
     apply_isolated_project_subcategory_allocation,
     apply_isolated_project_top_up,
     get_isolated_project_category_spent_amount,
-    get_isolated_project_wrap_up_summary,
+    get_isolated_project_wrap_up_summary as build_isolated_project_wrap_up_summary,
     get_project_funding_limit,
     sweep_isolated_project_wallet_allocations,
     validate_isolated_project_category_allocation_covers_spending,
@@ -750,7 +750,7 @@ def complete_project(
 
 
 @router.get("/{project_id}/wrap-up-summary", response_model=schemas.ProjectWrapUpSummaryOut)
-def get_isolated_project_wrap_up_summary(
+def get_project_wrap_up_summary(
     project_id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
@@ -761,7 +761,7 @@ def get_isolated_project_wrap_up_summary(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="projects.isolated_required",
         )
-    return get_isolated_project_wrap_up_summary(db, current_user.id, project)
+    return build_isolated_project_wrap_up_summary(db, current_user.id, project)
 
 
 @router.post("/{project_id}/archive", response_model=schemas.ProjectBudgetOut)
