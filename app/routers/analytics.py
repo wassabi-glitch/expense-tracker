@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from app import models, oauth2, schemas
 from app.savings_balances import get_net_position, get_total_balance
-from app.services.budget_service import get_budget_spent_amount, normal_monthly_budget_impact_filters
+from app.services.budget_service import get_budget_spent_amount
+from app.services.obligation_source_service import exclude_legacy_payment_plan_debt_duplicate_filter
 from app.session import get_db
 from app.timezone import get_effective_user_timezone, today_in_tz
 
@@ -52,6 +53,12 @@ def _expense_base_query(db: Session, user_id: int):
             ]),
             models.EntityLedger.category.isnot(None),
         )
+    )
+
+
+def spending_report_filters():
+    return (
+        exclude_legacy_payment_plan_debt_duplicate_filter(),
     )
 
 
@@ -107,7 +114,7 @@ def get_this_month_stats(
             models.FinancialEvent.date >= current_month_start,
             models.FinancialEvent.date < next_month_start,
             models.EntityLedger.category.isnot(None),
-            *normal_monthly_budget_impact_filters(),
+            *spending_report_filters(),
         )
         .first()
     )
@@ -200,7 +207,7 @@ def get_dashboard_summary(
             models.FinancialEvent.date >= current_month_start,
             models.FinancialEvent.date <= today,
             models.EntityLedger.category.isnot(None),
-            *normal_monthly_budget_impact_filters(),
+            *spending_report_filters(),
         )
         .scalar()
         or 0
@@ -248,7 +255,7 @@ def get_historical_stats(
                 models.TransactionType.REFUND,
             ]),
             models.EntityLedger.category.isnot(None),
-            *normal_monthly_budget_impact_filters(),
+            *spending_report_filters(),
         )
         .first()
     )
@@ -317,7 +324,7 @@ def _daily_amounts(
             models.FinancialEvent.date >= start_date,
             models.FinancialEvent.date <= end_date,
             models.EntityLedger.category.isnot(None),
-            *normal_monthly_budget_impact_filters(),
+            *spending_report_filters(),
         )
         .group_by(models.FinancialEvent.date)
         .order_by(models.FinancialEvent.date.asc())
@@ -416,7 +423,7 @@ def get_category_breakdown(
             models.FinancialEvent.date >= start_date,
             models.FinancialEvent.date <= end_date,
             models.EntityLedger.category.isnot(None),
-            *normal_monthly_budget_impact_filters(),
+            *spending_report_filters(),
         )
         .group_by(models.EntityLedger.category)
         .order_by(func.coalesce(func.sum(signed_amount), 0).desc())
