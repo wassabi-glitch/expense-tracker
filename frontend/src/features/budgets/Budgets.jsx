@@ -48,6 +48,7 @@ import { budgetCreateFormSchema, budgetDeleteFormSchema,  budgetUpdateFormSchema
 } from "./budgetSchemas";
 import { localizeApiError } from "@/lib/errorMessages";
 import { EditProjectDialog } from "./components/EditProjectDialog";
+import { IsolatedProjectCard } from "./components/IsolatedProjectCard";
 import { categoryIconMap, CATEGORIES } from "@/lib/category";
 import { formatUzs, formatCompactUzs, formatAmountInput, formatMonthYear, formatDisplayDate, getFallbackMonthsLong, getDateLocale } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
@@ -3119,6 +3120,20 @@ export default function Budgets() {
                       const projectIsOverdue = Boolean(project.target_end_date && project.target_end_date < todayIso);
                       const projectReadyToWrap = projectCanComplete && projectIsOverdue;
 
+                      if (projectIsIsolated) {
+                        return (
+                          <IsolatedProjectCard
+                            key={project.id}
+                            project={project}
+                            onEditProperties={setEditProjectModalProject}
+                            onManageStructure={openProjectStructure}
+                            onReopen={(projectId) => reopenProjectMutation.mutate(projectId)}
+                            todayIso={todayIso}
+                            disabled={isProjectLifecyclePending}
+                          />
+                        );
+                      }
+
                       return (
                         <Card key={project.id} className="border border-border/70 bg-background/70 shadow-sm">
                           <CardHeader className="space-y-3 pb-3">
@@ -3128,9 +3143,7 @@ export default function Budgets() {
                                   <span className="block truncate">{project.title}</span>
                                 </CardTitle>
                                 <CardDescription className="mt-1">
-                                  {projectIsIsolated
-                                    ? t("projects.isolatedHelp", { defaultValue: "Isolated projects keep this spending out of monthly budget pressure." })
-                                    : t("projects.overlayHelp", { defaultValue: "Overlay projects still count against monthly category budgets." })}
+                                  {t("projects.overlayHelp", { defaultValue: "Overlay projects still count against monthly category budgets." })}
                                 </CardDescription>
                               </div>
                               <div className="flex shrink-0 items-start gap-2">
@@ -3139,9 +3152,7 @@ export default function Budgets() {
                                     {getProjectStatusLabel(projectStatus, t)}
                                   </span>
                                   <span className="rounded-full border border-border/60 bg-muted/30 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-foreground">
-                                    {projectIsIsolated
-                                      ? t("projects.isolated", { defaultValue: "Isolated" })
-                                      : t("projects.overlay", { defaultValue: "Overlay" })}
+                                    {t("projects.overlay", { defaultValue: "Overlay" })}
                                   </span>
                                 </div>
                                 <DropdownMenu>

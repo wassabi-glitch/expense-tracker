@@ -173,7 +173,6 @@ These checkpoints clarify the intended finish line. Because this project is not 
 
 ### What to build
 
-
 ### What to build
 
 Let isolated projects optionally break parent category funding into project-specific micro subcategories, while still using the G21 Taxonomy Hub as the controlled naming and selection surface. A user can create or link one-off project tags such as "Drywall" or "Wedding DJ" without fragmenting free-text labels across the ledger.
@@ -334,7 +333,7 @@ This prevents EC-171's premature graduation double-funding trap and keeps Goal v
 
 ---
 
-## Issue 7: Render Isolated Project Spend-Down Reporting
+## Issue 7: Redesign Isolated Project Cards and Action Menu Around Spend-Down Funding
 
 **Type:** AFK
 
@@ -344,25 +343,161 @@ This prevents EC-171's premature graduation double-funding trap and keeps Goal v
 
 ### What to build
 
-Make isolated project reporting feel like a dedicated stash being spent down. Budget cards, project cards, project details, dashboard summaries, and analytics should clearly distinguish isolated funding from overlay reservations, showing how much funding was locked, spent, remaining, topped up, or overrun.
+Redesign isolated project cards so they communicate the core mini-YNAB mental model at a glance: an isolated project is a protected stash of real wallet-backed funding that spends down over time. The card should stay lightweight and hand deeper breakdowns to future detail/reporting work.
 
-The completed slice should make the mini-YNAB behavior visible without turning isolated project funding into monthly budget permission.
+This issue is now card-first. It should make the isolated project card answer:
+
+```text
+How much protected project funding is left?
+How much has been spent from the funded stash?
+Does the project need a funding action?
+What action can I take from the card menu?
+```
+
+Overlay project cards must continue to behave like monthly permission/limit cards, while isolated project cards invert the psychology: overlay bars fill up toward a limit; isolated bars tick down as remaining funding shrinks.
+
+```text
+Overlay Project
+
+Monthly budget permission
+        |
+        v
+Project reserves selected-month scope
+        |
+        v
+Progress fills up as spending approaches the limit
+
+Card language:
+limit, reservation, selected-month headroom, reserved scope
+```
+
+```text
+Isolated Project
+
+Wallet-backed funding
+        |
+        v
+Protected project stash
+        |
+        v
+Internal project categories and micro-subcategories
+        |
+        v
+Progress drains down as spending uses the stash
+
+Card language:
+funding, stash, spent, remaining funding, top-up, allocate, rebalance, sweep
+```
+
+Recommended active isolated card shape:
+
+```text
++------------------------------------------------+
+| Kitchen Renovation        [Isolated] [Active]  |
+| Protected project stash                        |
+|                                                |
+| 300K UZS remaining                             |
+| 200K spent of 500K funded                      |
+|                                                |
+| [remaining funding bar ticking down]           |
+|                                                |
+| Ends Jul 29, 2026          [View details]      |
++------------------------------------------------+
+```
+
+Recommended completed isolated card shape:
+
+```text
++------------------------------------------------+
+| PC Build               [Isolated] [Completed]  |
+| Final project stash                            |
+|                                                |
+| 300K UZS remaining at completion               |
+| 4.7M spent of 5M funded                        |
+|                                                |
+| [read-only completed funding bar]              |
+|                                                |
+| Completed Jul 30, 2026     [View report]       |
++------------------------------------------------+
+```
+
+### Action menu strategy
+
+Expose isolated-project actions using isolated funding language. Actions that already have backend support should be wired when the frontend flow can safely collect the required payload. Actions that belong to the product direction but are not backend-complete yet may appear as disabled/placeholder action words only when that helps preserve the menu vocabulary for Issue 8 and future details/reporting work.
+
+```text
+Top-up
+= add real wallet-backed money into the isolated project stash
+
+Allocate
+= move unassigned project funding into an internal parent category or micro-subcategory
+
+Rebalance
+= move already assigned project funding between internal project buckets
+
+Manage structure
+= maintain the category and micro-subcategory layout
+
+Archive
+= retire/hide the project without destroying financial history
+
+Wrap up / sweep
+= finish the project and return unused funding to Free Money, planned for Issue 8
+```
+
+Recommended isolated project action matrix:
+
+```text
++------------------+------------------------------+-------------------------+
+| Project state    | Enabled actions              | Disabled/future labels  |
++------------------+------------------------------+-------------------------+
+| Active           | Edit properties              | View details            |
+|                  | Add top-up                   | Wrap up and sweep       |
+|                  | Allocate unassigned funding  | View funding report     |
+|                  | Rebalance funding            |                         |
+|                  | Manage structure             |                         |
+|                  | Archive                      |                         |
++------------------+------------------------------+-------------------------+
+| Active, no       | Edit properties              | Allocate unassigned     |
+| unassigned funds | Add top-up                   | funding                 |
+|                  | Rebalance funding            | Wrap up and sweep       |
+|                  | Manage structure             | View details            |
+|                  | Archive                      | View funding report     |
++------------------+------------------------------+-------------------------+
+| Completed        | Reopen / restore             | View report             |
+|                  | Archive                      | Wrap up and sweep       |
++------------------+------------------------------+-------------------------+
+| Archived         | Restore                      | View report             |
++------------------+------------------------------+-------------------------+
+```
+
+Do not show ordinary Delete for isolated projects in this slice unless the backend explicitly supports isolated deletion semantics. Current isolated project history, wallet locks, expenses, and future sweep behavior need a more careful deletion policy than overlay projects.
+
+### Out of scope for this slice
+
+The previous Issue 7 scope included project details, dashboard summaries, analytics grouping, and full funding reports. Those remain important, but they are no longer the core mission of this issue. This slice should not build the details page yet. It should leave clean copy, menu labels, API helper seams, and card-state hooks for later detail/reporting slices.
 
 ### Acceptance criteria
 
-- [ ] Isolated project cards use funding, stash, spent, remaining funding, top-up, and sweep language.
-- [ ] Overlay project cards continue to use limit, reservation, selected-month headroom, and reserved-scope language.
-- [ ] Isolated project progress displays as a spend-down from available funding for the G28 wallet-backed funding path.
-- [ ] Project details show wallet allocations, parent category allocations, micro-subcategory allocations, actual spending, remaining funding, and overrun states.
-- [ ] Dashboard and budget surfaces do not count isolated funding as overlay reserved scope or monthly budget permission.
-- [ ] Analytics can group isolated project spending by global parent category and taxonomy-governed micro-subcategory without losing the project context.
-- [ ] Funding summaries include direct isolated projects and goal-graduated isolated projects without double counting origin goal funding.
-- [ ] Empty, loading, error, mobile, and desktop states are supported.
-- [ ] Completed isolated projects remain readable but visibly read-only.
-- [ ] API responses expose enough type-specific data for the frontend to render isolated reporting without inferring from nullable overlay fields.
-- [ ] Backend tests cover funding summary math, top-up math, refund/reversal reductions, origin-goal relationships, and no overlay reservation leakage.
-- [ ] Frontend tests cover card language, progress direction, detail breakdowns, dashboard/budget isolation, analytics labels, mobile layout, and stale-query refresh.
-- [ ] Docker verification passes for focused backend tests and frontend build.
+- [x] Isolated project cards use funding, stash, spent, remaining funding, top-up, allocate, rebalance, and sweep language.
+- [x] Overlay project cards continue to use limit, reservation, selected-month headroom, and reserved-scope language.
+- [x] Isolated project card progress displays as a spend-down bar: the filled portion represents `remaining_funding / funding_limit`, not `spent / funding_limit`.
+- [x] Overlay project progress continues to fill up using selected-month spent versus selected-month reserved scope.
+- [x] The isolated card's hero metric is remaining funding; the secondary line is spent of funded.
+- [x] The isolated card avoids details-page density: no wallet allocation rows, full category allocation tables, micro-subcategory tables, top-up history, ledger rows, or sweep previews on the card.
+- [x] The isolated card can show compact action states such as unassigned funding, goal-graduated origin, ready-to-wrap placeholder, completed read-only, or archived read-only without turning the card into a report.
+- [x] Active isolated project 3-dot actions include Edit properties, Add top-up, Allocate unassigned funding when applicable, Rebalance funding, Manage structure, and Archive where the backend route/flow is available.
+- [x] Isolated project menu labels include the future product actions View details, Wrap up and sweep, and View funding report as disabled/placeholder actions only if the corresponding backend/UI flow is not implemented yet.
+- [x] Completed isolated project cards remain readable but visibly read-only, with mutation actions hidden or disabled except supported restore/archive-style lifecycle actions.
+- [x] Archived isolated project cards expose restore behavior and avoid ordinary edit/top-up/allocation/rebalance actions.
+- [x] Ordinary Delete is hidden or disabled for isolated projects unless isolated-specific deletion semantics are implemented; overlay deletion behavior remains unchanged.
+- [x] Dashboard and budget surfaces do not count isolated funding as overlay reserved scope or monthly budget permission.
+- [x] The card handles direct isolated projects and goal-graduated isolated projects without double-counting origin goal funding.
+- [x] Empty, loading, error, mobile, and desktop states are supported.
+- [x] API responses expose enough type-specific data for the frontend to render card-level isolated reporting without inferring from nullable overlay fields.
+- [x] Backend tests cover card-summary funding math, top-up math needed by the card, refund/reversal reductions that affect remaining funding, origin-goal relationships, and no overlay reservation leakage.
+- [x] Frontend tests cover isolated card language, progress direction, action-menu visibility by status, disabled future action labels, hidden isolated delete behavior, mobile layout, and stale-query refresh after wired actions.
+- [x] Docker verification passes for focused backend tests and frontend build.
 
 ### Blocked by
 
@@ -388,22 +523,22 @@ This slice must preserve user agency: no automatic completion, no surprise locko
 
 ### Acceptance criteria
 
-- [ ] The ready-to-wrap state is derived from active status plus target end date being past in the user's effective timezone.
-- [ ] Projects are not automatically completed or locked when the target end date passes.
-- [ ] Expense posting remains allowed through the full target end date in the user's effective timezone.
-- [ ] A wrap-up summary endpoint returns total locked funding, total top-ups, actual spent, remaining funding, overrun amount where applicable, top parent categories, top micro-subcategories, and burn-down data.
-- [ ] Wrap-up summary metrics are ownership-scoped and exclude voided or unrelated ledger activity.
+- [x] The ready-to-wrap state is derived from active status plus target end date being past in the user's effective timezone.
+- [x] Projects are not automatically completed or locked when the target end date passes.
+- [x] Expense posting remains allowed through the full target end date in the user's effective timezone.
+- [x] A wrap-up summary endpoint returns total locked funding, total top-ups, actual spent, remaining funding, overrun amount where applicable, top parent categories, top micro-subcategories, and burn-down data.
+- [x] Wrap-up summary metrics are ownership-scoped and exclude voided or unrelated ledger activity.
 - [ ] The isolated wrap-up modal renders planned funding, actual spending, remaining funding, heavy hitters, and burn-down data using isolated funding language.
 - [ ] The final wrap-up step previews the amount of unused funding that will be swept back to Free Money.
-- [ ] Completing with sweep releases remaining locked project funding from wallet allocations without changing historical expense ledger truth.
-- [ ] Sweep math is balanced for direct isolated projects and goal-graduated isolated projects.
-- [ ] Completing an overrun project does not create phantom returned money; it clearly reports the overrun and completes without a positive sweep.
-- [ ] Completion marks the project completed, stores the user's local completion business date, and prevents further ordinary edits or expenses.
-- [ ] Completion and sweep run transactionally or leave the project active with funding locks unchanged.
-- [ ] Completed project details remain readable for historical reporting.
-- [ ] Backend tests cover derived ready-to-wrap state, inclusive target-end-date posting, summary metrics, direct sweep, goal-graduated sweep, overrun completion, transaction rollback, local completion date, and ownership isolation.
+- [x] Completing with sweep releases remaining locked project funding from wallet allocations without changing historical expense ledger truth.
+- [x] Sweep math is balanced for direct isolated projects and goal-graduated isolated projects.
+- [x] Completing an overrun project does not create phantom returned money; it clearly reports the overrun and completes without a positive sweep.
+- [x] Completion marks the project completed, stores the user's local completion business date, and prevents further ordinary edits or expenses.
+- [x] Completion and sweep run transactionally or leave the project active with funding locks unchanged.
+- [x] Completed project details remain readable for historical reporting.
+- [x] Backend tests cover derived ready-to-wrap state, inclusive target-end-date posting, summary metrics, direct sweep, goal-graduated sweep, overrun completion, transaction rollback, local completion date, and ownership isolation.
 - [ ] Frontend tests cover prompt display, summary modal, sweep preview, confirmation, completed read-only state, mobile layout, API failure handling, and localized errors.
-- [ ] Docker verification passes for focused backend tests and frontend build.
+- [x] Docker verification passes for focused backend tests and frontend build.
 
 ### Blocked by
 
