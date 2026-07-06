@@ -1257,7 +1257,7 @@ class GoalUseBase(BaseModel):
 
 
 class GoalUseReserveCreate(GoalUseBase):
-    pass
+    enforce_monthly_budget_limits: bool = True
 
 
 class GoalPurchasePaymentPlanCreate(BaseModel):

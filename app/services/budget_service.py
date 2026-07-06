@@ -120,6 +120,7 @@ def _normal_monthly_budget_impact_filter():
 
 def normal_monthly_budget_impact_filters():
     return (
+        models.EntityLedger.budget_id.isnot(None),
         _isolated_project_spend_filter(),
         _normal_monthly_budget_impact_filter(),
         exclude_legacy_payment_plan_debt_duplicate_filter(),

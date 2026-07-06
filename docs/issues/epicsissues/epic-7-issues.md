@@ -32,16 +32,16 @@ This slice closes the current UI hole where the backend supports `FUND_PROJECT` 
 
 ### Acceptance criteria
 
-- [ ] The goal creation wizard offers a Fund Project choice with project-oriented copy.
-- [ ] Creating a Fund Project goal sends `intent: FUND_PROJECT` to the existing goal creation API.
-- [ ] Fund Project goals render with a distinct label, description, progress state, and saving-phase language.
-- [ ] Fund Project goals allow normal saving-phase funding actions while active: reserve money and unreserve money.
-- [ ] Fund Project goals do not show Planned Purchase, Reserve, or Pay Obligation actions that do not apply.
-- [ ] Fund Project goals cannot be completed from the UI; the terminal success path is graduation into a project.
-- [ ] Empty, loading, error, mobile, and desktop states remain stable in the Savings page.
-- [ ] Backend behavior tests remain green for Fund Project creation and lifecycle guards.
-- [ ] Frontend tests cover the new wizard choice, create payload, card label/action visibility, and disabled invalid actions.
-- [ ] Docker frontend build passes.
+- [x] The goal creation wizard offers a Fund Project choice with project-oriented copy.
+- [x] Creating a Fund Project goal sends `intent: FUND_PROJECT` to the existing goal creation API.
+- [x] Fund Project goals render with a distinct label, description, progress state, and saving-phase language.
+- [x] Fund Project goals allow normal saving-phase funding actions while active: reserve money and unreserve money.
+- [x] Fund Project goals do not show Planned Purchase, Reserve, or Pay Obligation actions that do not apply.
+- [x] Fund Project goals cannot be completed from the UI; the terminal success path is graduation into a project.
+- [x] Empty, loading, error, mobile, and desktop states remain stable in the Savings page.
+- [x] Backend behavior tests remain green for Fund Project creation and lifecycle guards.
+- [x] Frontend tests cover the new wizard choice, create payload, card label/action visibility, and disabled invalid actions.
+- [x] Docker frontend build passes.
 
 ### Blocked by
 
@@ -65,17 +65,17 @@ After graduation, the origin goal should become read-only saving history. Future
 
 ### Acceptance criteria
 
-- [ ] Active Fund Project cards expose a primary project-graduation action when the backend can graduate the goal.
-- [ ] The graduation confirmation explains that reserved goal money becomes isolated project stash.
-- [ ] Graduation sends `is_isolated: true`, project title, start date, and target end date using the user's local date helpers.
-- [ ] Successful graduation navigates to the Budgets/Projects surface and highlights or opens the created project.
-- [ ] The origin goal card shows a graduated/read-only state with a link or route to the project.
-- [ ] Graduated goals block reserve, unreserve, consume, purchase, and completion actions in the UI.
-- [ ] Copy explains that future funding belongs in project top-ups.
-- [ ] API errors such as not Fund Project, archived, already graduated, project already exists, or premium required render as localized actionable messages.
-- [ ] Backend tests remain green for partial graduation, owner scoping, rollback, and no double funding.
-- [ ] Frontend tests cover graduation modal, API payload, success navigation, read-only graduated state, and stale-query refresh.
-- [ ] Docker frontend build passes.
+- [x] Active Fund Project cards expose a primary project-graduation action when the backend can graduate the goal.
+- [x] The graduation confirmation explains that reserved goal money becomes isolated project stash.
+- [x] Graduation sends `is_isolated: true`, project title, start date, and target end date using the user's local date helpers.
+- [x] Successful graduation navigates to the Budgets/Projects surface and highlights or opens the created project.
+- [x] The origin goal card shows a graduated/read-only state with a link or route to the project.
+- [x] Graduated goals block reserve, unreserve, consume, purchase, and completion actions in the UI.
+- [x] Copy explains that future funding belongs in project top-ups.
+- [x] API errors such as not Fund Project, archived, already graduated, project already exists, or premium required render as localized actionable messages.
+- [x] Backend tests remain green for partial graduation, owner scoping, rollback, and no double funding.
+- [x] Frontend tests cover graduation modal, API payload, success navigation, read-only graduated state, and stale-query refresh.
+- [x] Docker frontend build passes.
 
 ### Blocked by
 
@@ -99,15 +99,15 @@ This slice establishes the shared accounting contract that later UI flows call.
 
 ### Acceptance criteria
 
-- [ ] Automatic reimbursement/settlement helper logic is removed or made unreachable from active goal payment flows.
-- [ ] Off-wallet goal payment flows create zero wallet-to-wallet transfer ledger entries unless the user explicitly performs a transfer.
-- [ ] `post_expense_event` or the active expense posting seam honors `enforce_monthly_budget_limits=False`.
-- [ ] Planned Purchase off-wallet completion can record an expense without hitting monthly budget aggregates.
-- [ ] Reserve and isolated-project flows can choose whether monthly budget aggregates are hit according to intent-specific rules.
-- [ ] Spending reports still include expenses even when those expenses bypass monthly budget pressure.
-- [ ] Ledger/history copy distinguishes "paid from wallet" from "released protected money".
-- [ ] Backend tests prove no ghost transfers, budget bypass correctness, wallet reality preservation, and reporting visibility.
-- [ ] Docker backend tests pass for goal payment and expense posting slices.
+- [x] Automatic reimbursement/settlement helper logic is removed or made unreachable from active goal payment flows.
+- [x] Off-wallet goal payment flows create zero wallet-to-wallet transfer ledger entries unless the user explicitly performs a transfer.
+- [x] `post_expense_event` or the active expense posting seam honors `enforce_monthly_budget_limits=False`.
+- [x] Planned Purchase off-wallet completion can record an expense without hitting monthly budget aggregates.
+- [x] Reserve and isolated-project flows can choose whether monthly budget aggregates are hit according to intent-specific rules.
+- [x] Spending reports still include expenses even when those expenses bypass monthly budget pressure.
+- [x] Ledger/history copy distinguishes "paid from wallet" from "released protected money".
+- [x] Backend tests prove no ghost transfers, budget bypass correctness, wallet reality preservation, and reporting visibility.
+- [x] Docker backend tests pass for goal payment and expense posting slices.
 
 ### Blocked by
 

@@ -353,9 +353,19 @@ def _build_goal_activity(
         if consumes:
             amount = sum(int(row.amount or 0) for row in consumes)
             title = "Used from reserve" if goal.intent == models.GoalIntent.RESERVE else "Goal money used"
-            wallets = [
+            payment_wallets = [
                 _activity_wallet(
                     role="paid_from",
+                    wallet=wallets_by_id.get(int(leg.wallet_id)),
+                    wallet_id=int(leg.wallet_id),
+                    amount=abs(int(leg.amount or 0)),
+                )
+                for leg in wallet_legs_by_event_id.get(event_id, [])
+                if int(leg.amount or 0) < 0
+            ]
+            funding_wallets = [
+                _activity_wallet(
+                    role="released_from",
                     wallet=wallets_by_id.get(int(row.wallet_id)),
                     wallet_id=int(row.wallet_id),
                     amount=int(row.amount or 0),
@@ -373,7 +383,7 @@ def _build_goal_activity(
                     date=activity_date,
                     time_label=_goal_activity_time_from_created_at(created_at, user_tz),
                     created_at=created_at,
-                    wallets=wallets,
+                    wallets=payment_wallets + funding_wallets,
                     linked_event_id=event_id,
                     event_type=event.event_type if event else None,
                     reference_type=event.reference_type if event else None,
@@ -450,7 +460,7 @@ def _build_goal_activity(
         else:
             activity_type = "GOAL_MONEY_USED"
             title = "Used from reserve" if goal.intent == models.GoalIntent.RESERVE else "Goal money used"
-            role = "paid_from"
+            role = "released_from"
 
         items.append(
             schemas.GoalActivityItemOut(
@@ -1028,15 +1038,6 @@ def _build_goal_funding_plan(
     return plan
 
 
-def _amounts_by_wallet(plan: list[tuple[int, int]]) -> dict[int, int]:
-    totals: dict[int, int] = {}
-    for wallet_id, amount in plan:
-        if amount <= 0:
-            continue
-        totals[int(wallet_id)] = totals.get(int(wallet_id), 0) + int(amount)
-    return totals
-
-
 def _build_direct_payment_funding_plan(
     db: Session,
     user_id: int,
@@ -1061,22 +1062,6 @@ def _build_direct_payment_funding_plan(
         if use_amount > 0:
             plan.append((int(wallet_id), int(use_amount)))
     return plan
-
-
-def _covered_payment_plan(
-    payment_plan: list[tuple[int, int]],
-    covered_amount: int,
-) -> list[tuple[int, int]]:
-    remaining = int(covered_amount)
-    covered_plan: list[tuple[int, int]] = []
-    for wallet_id, payment_amount in payment_plan:
-        if remaining <= 0:
-            break
-        use_amount = min(int(payment_amount), remaining)
-        if use_amount > 0:
-            covered_plan.append((int(wallet_id), int(use_amount)))
-            remaining -= use_amount
-    return covered_plan
 
 
 def _consume_goal_funding_plan(
@@ -1365,68 +1350,6 @@ def _return_goal_funding_plan(
         linked_event_id=linked_event_id,
     )
     return total
-
-
-def _settle_goal_funding_to_payment_wallets(
-    db: Session,
-    user_id: int,
-    *,
-    payment_plan: list[tuple[int, int]],
-    funding_plan: list[tuple[int, int]],
-    transaction_date: date,
-    description: str,
-) -> list[int]:
-    funding_by_wallet = _amounts_by_wallet(funding_plan)
-    covered_by_wallet = _amounts_by_wallet(
-        _covered_payment_plan(payment_plan, sum(funding_by_wallet.values()))
-    )
-
-    wallet_ids = set(funding_by_wallet) | set(covered_by_wallet)
-    senders = sorted(
-        [
-            [wallet_id, funding_by_wallet.get(wallet_id, 0) - covered_by_wallet.get(wallet_id, 0)]
-            for wallet_id in wallet_ids
-            if funding_by_wallet.get(wallet_id, 0) > covered_by_wallet.get(wallet_id, 0)
-        ],
-        key=lambda item: item[0],
-    )
-    receivers = sorted(
-        [
-            [wallet_id, covered_by_wallet.get(wallet_id, 0) - funding_by_wallet.get(wallet_id, 0)]
-            for wallet_id in wallet_ids
-            if covered_by_wallet.get(wallet_id, 0) > funding_by_wallet.get(wallet_id, 0)
-        ],
-        key=lambda item: item[0],
-    )
-
-    transfer_event_ids: list[int] = []
-    sender_index = 0
-    receiver_index = 0
-    while sender_index < len(senders) and receiver_index < len(receivers):
-        funding_wallet_id, sender_remaining = senders[sender_index]
-        receiver_wallet_id, receiver_remaining = receivers[receiver_index]
-        amount = min(int(sender_remaining), int(receiver_remaining))
-        if amount <= 0:
-            break
-        transfer_event = WalletService.transfer_funds(
-            db=db,
-            owner_id=user_id,
-            from_wallet_id=int(funding_wallet_id),
-            to_wallet_id=int(receiver_wallet_id),
-            amount=amount,
-            description=description,
-            transaction_date=transaction_date,
-        )
-        transfer_event_ids.append(int(transfer_event.id))
-
-        senders[sender_index][1] -= amount
-        receivers[receiver_index][1] -= amount
-        if senders[sender_index][1] <= 0:
-            sender_index += 1
-        if receivers[receiver_index][1] <= 0:
-            receiver_index += 1
-
-    return transfer_event_ids
 
 
 def _archive_goal_and_release_funds(
@@ -1908,6 +1831,15 @@ def move_goal_funding_to_wallet(
     _raise_if_goal_saving_phase_read_only(goal)
     if goal.status == models.GoalStatus.COMPLETED:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.completed_read_only")
+    if goal.intent not in (
+        models.GoalIntent.PLANNED_PURCHASE,
+        models.GoalIntent.PAY_OBLIGATION,
+        models.GoalIntent.RESERVE,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="goals.prepare_payment_intent_not_supported",
+        )
 
     try:
         move_records = []
@@ -2115,6 +2047,7 @@ def use_reserve_goal(
         subcategory_id=payload.subcategory_id,
         project_id=payload.project_id,
         project_subcategory_id=payload.project_subcategory_id,
+        enforce_monthly_budget_limits=payload.enforce_monthly_budget_limits,
     )
 
     transfer_event_ids: list[int] = []
@@ -2142,14 +2075,6 @@ def use_reserve_goal(
             payload.amount,
             preferred_wallet_ids=[wallet_id for wallet_id, _ in payment_plan],
             require_full_coverage=True,
-        )
-        transfer_event_ids = _settle_goal_funding_to_payment_wallets(
-            db,
-            current_user.id,
-            payment_plan=payment_plan,
-            funding_plan=plan,
-            transaction_date=effective_date,
-            description=f"Goal reserve reimbursement for {goal.title}",
         )
         consumed_amount = _consume_goal_funding_plan(
             db,

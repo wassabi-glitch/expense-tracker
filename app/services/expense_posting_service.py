@@ -188,7 +188,7 @@ def post_expense_event(
     )
 
     budget = None
-    if project is None or not is_isolated_project(project):
+    if enforce_monthly_budget_limits and (project is None or not is_isolated_project(project)):
         budget = resolve_expense_budget(db, user_id, category, expense_date)
 
     if project is not None:

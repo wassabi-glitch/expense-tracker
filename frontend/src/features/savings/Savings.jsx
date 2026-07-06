@@ -38,6 +38,14 @@ import { localizeApiError } from "@/lib/errorMessages";
 import { formatAmountInput, formatDisplayDate, formatDisplayDateTime, formatUzs, parseAmountInput } from "@/lib/format";
 import { toISODateInTimeZone } from "@/lib/date";
 import { goalActionAmountSchema, goalAllocationsFormSchema, goalCreateFormSchema, goalDebtPaymentFormSchema, goalUseFormSchema } from "./savingsSchemas";
+import {
+  GOAL_CREATE_CHOICE_COPY,
+  GOAL_INTENT_LABELS,
+  buildFundProjectGraduationPayload,
+  buildFundProjectNavigationState,
+  buildGoalCreatePayload,
+  getGoalCardUiState,
+} from "./goalUiState";
 import { useSavingsSummaryQuery } from "./hooks/useSavingsQueries";
 import { useGoalActivityQuery, useGoalsQuery } from "./hooks/useGoalsQueries";
 import {
@@ -54,40 +62,18 @@ import {
   useUseReserveGoalMutation,
 } from "./hooks/useGoalsMutations";
 
-const GOAL_INTENT_LABELS = {
-  RESERVE: "Reserve fund",
-  PLANNED_PURCHASE: "Planned purchase",
-  PAY_OBLIGATION: "Debt savings",
-  FUND_PROJECT: "Project fund",
+const GOAL_CREATE_ICONS = {
+  RESERVE: ShieldAlert,
+  PLANNED_PURCHASE: Target,
+  PAY_OBLIGATION: ArrowRightLeft,
+  FUND_PROJECT: BriefcaseBusiness,
 };
 
-const GOAL_INTENT_DESCRIPTIONS = {
-  RESERVE: "Keep money protected for later.",
-  PLANNED_PURCHASE: "Save for one specific purchase.",
-  PAY_OBLIGATION: "Save toward a debt you owe.",
-  FUND_PROJECT: "Save for a multi-expense mission.",
+const GOAL_ACTION_ICONS = {
+  "make-payment": CircleDollarSign,
+  "graduate-project": BriefcaseBusiness,
+  "open-project": BriefcaseBusiness,
 };
-
-const GOAL_CREATE_CHOICES = [
-  {
-    intent: "RESERVE",
-    title: "Set money aside",
-    description: "Protect money for emergencies, cushions, or other flexible needs.",
-    icon: ShieldAlert,
-  },
-  {
-    intent: "PLANNED_PURCHASE",
-    title: "Buy something",
-    description: "Save for one specific thing you plan to buy.",
-    icon: Target,
-  },
-  {
-    intent: "PAY_OBLIGATION",
-    title: "Save toward a debt",
-    description: "Prepare money for a debt you owe someone.",
-    icon: ArrowRightLeft,
-  },
-];
 
 const OBLIGATION_CREATE_CHOICES = [
   {
@@ -278,14 +264,6 @@ function intentLabel(intent) {
   return GOAL_INTENT_LABELS[intent] || String(intent || "RESERVE").replaceAll("_", " ").toLowerCase();
 }
 
-function goalActionLabel(intent) {
-  if (intent === "RESERVE") return "Use reserve";
-  if (intent === "PLANNED_PURCHASE") return "Record purchase";
-  if (intent === "PAY_OBLIGATION") return "Make payment";
-  if (intent === "FUND_PROJECT") return "Open fund";
-  return "";
-}
-
 function formatGoalPercent(value) {
   const number = Number(value || 0);
   if (!Number.isFinite(number)) return 0;
@@ -354,6 +332,7 @@ function activityRoleLabel(role) {
   if (role === "from") return "From";
   if (role === "to") return "To";
   if (role === "paid_from") return "Paid from";
+  if (role === "released_from") return "Released from";
   return "Wallet";
 }
 
@@ -1089,6 +1068,7 @@ export default function Savings() {
       if (goalForm.intent === "RESERVE") return "What kind of money are you setting aside?";
       if (goalForm.intent === "PLANNED_PURCHASE") return "What are you planning to buy?";
       if (goalForm.intent === "PAY_OBLIGATION") return "What kind of obligation is this?";
+      if (goalForm.intent === "FUND_PROJECT") return "What project are you funding?";
       return "Tell us more";
     }
     if (createGoalStep === 3) {
@@ -1180,13 +1160,7 @@ export default function Savings() {
       return;
     }
 
-    const payload = {
-      ...parsed.data,
-      currency: "UZS",
-    };
-    if (goalForm.intent === "PAY_OBLIGATION" && goalForm.linked_debt_id) {
-      payload.linked_debt_id = Number(goalForm.linked_debt_id);
-    }
+    const payload = buildGoalCreatePayload(parsed.data, { linkedDebtId: goalForm.linked_debt_id });
 
     try {
       setGoalFormError("");
@@ -1408,12 +1382,11 @@ export default function Savings() {
       openUseGoal(goal);
       return;
     }
-    const state = { goalFunding: { goalId: goal.id, title: goal.title, amount: goal.unreleased_amount } };
-    if (goal.intent === "PLANNED_PURCHASE") {
-      navigate("/expenses", { state });
-      return;
-    }
     if (goal.intent === "FUND_PROJECT") {
+      if (goal.status === "GRADUATED" && goal.linked_project_id) {
+        navigate("/budgets", { state: { projectId: goal.linked_project_id, originGoalId: goal.id } });
+        return;
+      }
       setGraduateTarget(goal);
     }
   };
@@ -1434,9 +1407,9 @@ export default function Savings() {
   const renderCreateGoalStep = () => {
     if (createGoalStep === 1) {
       return (
-        <div className="grid gap-3 md:grid-cols-3">
-          {GOAL_CREATE_CHOICES.map((choice) => {
-            const Icon = choice.icon;
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {GOAL_CREATE_CHOICE_COPY.map((choice) => {
+            const Icon = GOAL_CREATE_ICONS[choice.intent] || Target;
             const selected = goalForm.intent === choice.intent;
             return (
               <button
@@ -1501,6 +1474,23 @@ export default function Savings() {
             className="h-11 rounded-md text-base"
           />
           <p className="text-xs text-muted-foreground">This goal is for one planned purchase. You will record the real purchase later.</p>
+        </div>
+      );
+    }
+
+    if (createGoalStep === 2 && goalForm.intent === "FUND_PROJECT") {
+      return (
+        <div className="space-y-2">
+          <label className="text-sm font-medium">What project are you preparing for?</label>
+          <Input
+            value={goalForm.title}
+            onChange={(event) => setGoalForm((prev) => ({ ...prev, title: event.target.value }))}
+            placeholder="Wedding, renovation, launch..."
+            className="h-11 rounded-md text-base"
+          />
+          <p className="text-xs text-muted-foreground">
+            This is the saving phase. When you are ready to begin, create an isolated project and the reserved money becomes its stash.
+          </p>
         </div>
       );
     }
@@ -1609,6 +1599,8 @@ export default function Savings() {
           />
           {goalForm.intent === "RESERVE" ? (
             <p className="text-xs text-muted-foreground">Reaching this amount means the money is fully set aside. The goal can stay open.</p>
+          ) : goalForm.intent === "FUND_PROJECT" ? (
+            <p className="text-xs text-muted-foreground">Use the amount you want to prepare before this becomes an isolated project stash.</p>
           ) : (
             <p className="text-xs text-muted-foreground">Use the amount you expect to need for this purchase.</p>
           )}
@@ -2896,8 +2888,12 @@ export default function Savings() {
               ) : activeGoals.map((goal) => {
                 const metric = goalPrimaryMetric(goal);
                 const cardStats = goalCardStats(goal);
-                const actionLabel = goalActionLabel(goal.intent);
-                const ActionIcon = goal.intent === "PAY_OBLIGATION" ? CircleDollarSign : ArrowRightLeft;
+                const goalUi = getGoalCardUiState(goal, {
+                  eligibleWalletCount: eligibleWallets.length,
+                  canPreparePayment: hasPreparePaymentRoute(goal),
+                });
+                const actionLabel = goalUi.primaryAction?.label;
+                const ActionIcon = GOAL_ACTION_ICONS[goalUi.primaryAction?.kind] || ArrowRightLeft;
                 const isReserveGoal = goal.intent === "RESERVE";
                 return (
                   <Card key={goal.id} className="border-border">
@@ -2907,7 +2903,7 @@ export default function Savings() {
                           <div className="flex flex-wrap items-center gap-2">
                             <CardTitle className="text-lg">{goal.title}</CardTitle>
                             <span className="rounded-full border border-border bg-muted/40 px-2 py-1 text-xs capitalize text-muted-foreground">
-                              {intentLabel(goal.intent)}
+                              {goalUi.intentLabel}
                             </span>
                             <span className={cn(
                               "rounded-full border px-2 py-1 text-xs",
@@ -2917,13 +2913,14 @@ export default function Savings() {
                                   ? "border-amber-500/35 bg-amber-500/10 text-amber-300"
                                   : "border-border bg-muted/40 text-muted-foreground"
                             )}>
-                              {isReserveGoal ? metric.label : goal.status}
+                              {isReserveGoal ? metric.label : goalUi.statusLabel}
                             </span>
                           </div>
                           <CardDescription>
                             Target {money(goal.target_amount)}
                             {goal.target_date ? ` / ${formatDisplayDate(goal.target_date, appLang)}` : ""}
                           </CardDescription>
+                          <p className="mt-1 text-xs text-muted-foreground">{goalUi.intentDescription}</p>
                           {goal.payment_plan_target ? (
                             <p className="mt-1 text-xs text-muted-foreground">
                               Saving for payment {goal.payment_plan_target.payment_number} of {goal.payment_plan_target.total_payments}
@@ -2953,11 +2950,16 @@ export default function Savings() {
                         ))}
                       </div>
                       <FundingSources goal={goal} />
+                      {goalUi.isReadOnly ? (
+                        <div className="rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+                          This goal is read-only saving history. Add future funding through project top-ups.
+                        </div>
+                      ) : null}
                       <div className="flex flex-wrap gap-2">
-                        <Button size="sm" onClick={() => openFunding(goal, "allocate")} disabled={goal.status !== "ACTIVE" || !eligibleWallets.length}>
+                        <Button size="sm" onClick={() => openFunding(goal, "allocate")} disabled={!goalUi.canReserve}>
                           <Plus className="mr-2 h-4 w-4" /> Reserve money
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => openFunding(goal, "return")} disabled={goal.status !== "ACTIVE" || !goal.funding_sources?.length}>
+                        <Button size="sm" variant="outline" onClick={() => openFunding(goal, "return")} disabled={!goalUi.canUnreserve}>
                           <RotateCcw className="mr-2 h-4 w-4" /> Unreserve
                         </Button>
                         {(goal.intent === "PLANNED_PURCHASE" || goal.intent === "PAY_OBLIGATION" || goal.intent === "RESERVE") && goal.status === "ACTIVE" ? (
@@ -2965,11 +2967,7 @@ export default function Savings() {
                             size="sm"
                             variant="outline"
                             onClick={() => openPreparePayment(goal)}
-                            disabled={
-                              Number(goal.unreleased_amount || 0) <= 0 ||
-                              !goal.funding_sources?.length ||
-                              !hasPreparePaymentRoute(goal)
-                            }
+                            disabled={!goalUi.canPreparePayment}
                           >
                             <ArrowRightLeft className="mr-2 h-4 w-4" /> Prepare payment
                           </Button>
@@ -2979,25 +2977,19 @@ export default function Savings() {
                             size="sm"
                             variant="outline"
                             onClick={() => handleIntentAction(goal)}
-                            disabled={
-                              (goal.intent === "PLANNED_PURCHASE" && goal.status === "COMPLETED" && Boolean(goal.linked_expense_event_id)) ||
-                              (goal.intent === "PLANNED_PURCHASE" && Number(goal.unreleased_amount || 0) <= 0) ||
-                              (goal.intent === "RESERVE" && Number(goal.unreleased_amount || 0) <= 0) ||
-                              (goal.intent === "PAY_OBLIGATION" && (goal.status !== "ACTIVE" || Number(goal.unreleased_amount || 0) <= 0)) ||
-                              (goal.intent === "FUND_PROJECT" && goal.status !== "ACTIVE")
-                            }
+                            disabled={goalUi.primaryAction.disabled}
                           >
                             <ActionIcon className="mr-2 h-4 w-4" /> {actionLabel}
                           </Button>
                         ) : null}
-                        {isReserveGoal ? (
-                          <Button size="sm" variant="outline" onClick={() => setActivityGoal(goal)}>
-                            <History className="mr-2 h-4 w-4" /> View activity
+                        <Button size="sm" variant="outline" onClick={() => setActivityGoal(goal)}>
+                          <History className="mr-2 h-4 w-4" /> View activity
+                        </Button>
+                        {goalUi.canArchive ? (
+                          <Button size="sm" variant="ghost" onClick={() => setArchiveTarget(goal)}>
+                            <Archive className="mr-2 h-4 w-4" /> Archive
                           </Button>
                         ) : null}
-                        <Button size="sm" variant="ghost" onClick={() => setArchiveTarget(goal)}>
-                          <Archive className="mr-2 h-4 w-4" /> Archive
-                        </Button>
                       </div>
                     </CardContent>
                   </Card>
@@ -3397,17 +3389,13 @@ export default function Savings() {
         confirmVariant="default"
         isConfirming={graduateGoalMutation.isPending}
         onConfirm={async () => {
+          const originGoal = graduateTarget;
           const project = await graduateGoalMutation.mutateAsync({
-            goalId: graduateTarget.id,
-            payload: {
-              project_title: graduateTarget.title,
-              start_date: todayISO,
-              target_end_date: graduateTarget.target_date || null,
-              is_isolated: true,
-            },
+            goalId: originGoal.id,
+            payload: buildFundProjectGraduationPayload(originGoal, todayISO),
           });
           setGraduateTarget(null);
-          navigate("/budgets", { state: { projectId: project.id, originGoalId: graduateTarget.id } });
+          navigate("/budgets", { state: buildFundProjectNavigationState(project, originGoal) });
         }}
       >
         <div className="rounded-md border border-border bg-muted/20 p-3 text-sm">

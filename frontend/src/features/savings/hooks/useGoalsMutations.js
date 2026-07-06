@@ -19,21 +19,7 @@ import {
 import { useToast } from "@/lib/context/ToastContext";
 import { formatUzs } from "@/lib/format";
 import { localizeApiError } from "@/lib/errorMessages";
-
-async function invalidateGoalQueries(queryClient) {
-  await Promise.all([
-    queryClient.invalidateQueries({ queryKey: ["goals"] }),
-    queryClient.invalidateQueries({ queryKey: ["debts"] }),
-    queryClient.invalidateQueries({ queryKey: ["payment_plans"] }),
-    queryClient.invalidateQueries({ queryKey: ["wallets"] }),
-    queryClient.invalidateQueries({ queryKey: ["projects"] }),
-    queryClient.invalidateQueries({ queryKey: ["budgets"] }),
-    queryClient.invalidateQueries({ queryKey: ["users", "me"] }),
-    queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-    queryClient.invalidateQueries({ queryKey: ["analytics"] }),
-    queryClient.invalidateQueries({ queryKey: ["notifications"] }),
-  ]);
-}
+import { invalidateGoalQueries } from "../goalQueryInvalidation";
 
 export function useCreateGoalMutation() {
   const { t } = useTranslation();
