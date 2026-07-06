@@ -201,7 +201,7 @@ class WalletCreate(WalletBase):
                     raise ValueError("wallets.validation.balanceExceedsLimit")
                 if mag > self.overdraft_limit:
                     raise ValueError("wallets.validation.balanceExceedsLimit")
-            else: # CASH, PRELOADED, SAVINGS
+            else:  # CASH, PRELOADED, SAVINGS
                 raise ValueError("wallets.validation.balanceExceedsLimit")
         return self
 
@@ -241,6 +241,7 @@ class WalletQuickActionRequest(BaseModel):
     action_type: Optional[str] = None
     amount: int = Field(gt=0)
     note: Optional[str] = Field(None, max_length=150)
+
 
 class WalletReconciliationRequest(BaseModel):
     """Payload for submitting the actual physical balance for Math reconciliation"""
@@ -337,8 +338,6 @@ class UserProfileOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-
-
 class UserOut(UserBase):
     id: int
     created_at: datetime
@@ -409,7 +408,8 @@ class IncomeEntryBase(BaseModel):
     note: Optional[str] = None
     source_id: Optional[int] = None
     wallet_id: Optional[int] = None
-    wallet_allocations: List[IncomeWalletAllocationIn] = Field(default_factory=list)
+    wallet_allocations: List[IncomeWalletAllocationIn] = Field(
+        default_factory=list)
 
     @field_validator("amount")
     @classmethod
@@ -557,7 +557,8 @@ class ExpectedIncomeMarkReceivedCreate(BaseModel):
     date: Optional[dt.date] = None
     note: Optional[str] = Field(default=None, max_length=200)
     wallet_id: Optional[int] = None
-    wallet_allocations: List[IncomeWalletAllocationIn] = Field(default_factory=list)
+    wallet_allocations: List[IncomeWalletAllocationIn] = Field(
+        default_factory=list)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -654,10 +655,13 @@ class ExpectedInflowRealizeCreate(BaseModel):
     actual_amount: int = Field(gt=0, le=MAX_INCOME_AMOUNT)
     received_date: Optional[date] = None
     wallet_allocations: List[IncomeWalletAllocationIn]
-    schedule_allocations: List[ExpectedInflowScheduleAllocationCreate] = Field(default_factory=list)
-    expectation_allocations: List[ExpectedInflowExpectationAllocationCreate] = Field(default_factory=list)
+    schedule_allocations: List[ExpectedInflowScheduleAllocationCreate] = Field(
+        default_factory=list)
+    expectation_allocations: List[ExpectedInflowExpectationAllocationCreate] = Field(
+        default_factory=list)
     note: Optional[str] = Field(default=None, max_length=200)
-    idempotency_key: Optional[str] = Field(default=None, min_length=8, max_length=64)
+    idempotency_key: Optional[str] = Field(
+        default=None, min_length=8, max_length=64)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -683,7 +687,8 @@ class ExpectedInflowRescheduleAllocationCreate(BaseModel):
 
 class ExpectedInflowRescheduleCreate(BaseModel):
     source_schedule_id: Optional[int] = None
-    allocations: List[ExpectedInflowRescheduleAllocationCreate] = Field(min_length=1, max_length=24)
+    allocations: List[ExpectedInflowRescheduleAllocationCreate] = Field(
+        min_length=1, max_length=24)
     note: Optional[str] = Field(default=None, max_length=200)
 
     model_config = ConfigDict(extra="forbid")
@@ -699,7 +704,8 @@ class ExpectedInflowWriteOffCreate(BaseModel):
     amount: int = Field(gt=0, le=MAX_INCOME_AMOUNT)
     reason: str = Field(min_length=1, max_length=200)
     written_off_date: Optional[date] = None
-    schedule_allocations: List[ExpectedInflowScheduleAllocationCreate] = Field(default_factory=list)
+    schedule_allocations: List[ExpectedInflowScheduleAllocationCreate] = Field(
+        default_factory=list)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -793,7 +799,8 @@ class ExpectedInflowPromiseOut(BaseModel):
     note: Optional[str] = None
     realization_event_ids: List[int] = Field(default_factory=list)
     schedules: List[ExpectedInflowScheduleOut] = Field(default_factory=list)
-    realizations: List[ExpectedInflowRealizationOut] = Field(default_factory=list)
+    realizations: List[ExpectedInflowRealizationOut] = Field(
+        default_factory=list)
     write_offs: List[ExpectedInflowWriteOffOut] = Field(default_factory=list)
     activity: List[ExpectedInflowActivityOut] = Field(default_factory=list)
     created_at: datetime
@@ -1170,12 +1177,14 @@ class GoalFundingMoveCreate(BaseModel):
             raise ValueError("goals.prepare_payment_moves_required")
         if len(self.moves) > MAX_GOAL_PAYMENT_PREPARATION_MOVE_ROWS:
             raise ValueError("goals.prepare_payment_move_limit_exceeded")
-        pairs = [(move.source_wallet_id, move.target_wallet_id) for move in self.moves]
+        pairs = [(move.source_wallet_id, move.target_wallet_id)
+                 for move in self.moves]
         if len(pairs) != len(set(pairs)):
             raise ValueError("goals.prepare_payment_duplicate_move")
         target_wallet_ids = {move.target_wallet_id for move in self.moves}
         if len(target_wallet_ids) > MAX_GOAL_PAYMENT_PREPARATION_TARGET_WALLETS:
-            raise ValueError("goals.prepare_payment_target_wallet_limit_exceeded")
+            raise ValueError(
+                "goals.prepare_payment_target_wallet_limit_exceeded")
         return self
 
 
@@ -1193,7 +1202,8 @@ class GoalPaymentAllocationCreate(BaseModel):
 
 class GoalUseBase(BaseModel):
     amount: int = Field(gt=0)
-    payment_allocations: List[GoalPaymentAllocationCreate] = Field(min_length=1)
+    payment_allocations: List[GoalPaymentAllocationCreate] = Field(
+        min_length=1)
     category: ExpenseCategory
     subcategory_id: Optional[int] = None
     project_id: Optional[int] = None
@@ -1252,14 +1262,16 @@ class GoalUseReserveCreate(GoalUseBase):
 
 class GoalPurchasePaymentPlanCreate(BaseModel):
     total_price: int = Field(gt=0)
-    item_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    item_name: Optional[str] = Field(
+        default=None, min_length=1, max_length=100)
     store_or_bank_name: Optional[str] = Field(default=None, max_length=100)
     plan_type: PaymentPlanType = PaymentPlanType.STORE_INSTALLMENT
     months: int = Field(gt=0)
     frequency: PaymentPlanFrequency = PaymentPlanFrequency.MONTHLY
     start_date: Optional[dt.date] = None
     create_next_payment_goal: bool = True
-    next_goal_title: Optional[str] = Field(default=None, min_length=3, max_length=32)
+    next_goal_title: Optional[str] = Field(
+        default=None, min_length=3, max_length=32)
     next_goal_target_date: Optional[dt.date] = None
 
     model_config = ConfigDict(extra="forbid")
@@ -1291,7 +1303,8 @@ class GoalPurchasePaymentPlanCreate(BaseModel):
 class GoalUsePlannedPurchaseCreate(GoalUseBase):
     completion_mode: GoalCompletionMode = GoalCompletionMode.GOAL_FUNDED
     result_type: PlannedPurchaseResultType = PlannedPurchaseResultType.EXPENSE_ONLY
-    asset_title: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    asset_title: Optional[str] = Field(
+        default=None, min_length=1, max_length=100)
     asset_description: Optional[str] = Field(default=None, max_length=500)
     asset_current_value: Optional[int] = Field(default=None, ge=0)
     release_unused_goal_funding: bool = False
@@ -1317,15 +1330,18 @@ class GoalUsePlannedPurchaseCreate(GoalUseBase):
         if self.payment_plan is None:
             return self
         if self.payment_plan.total_price <= int(self.amount):
-            raise ValueError("goals.payment_plan_total_must_exceed_down_payment")
+            raise ValueError(
+                "goals.payment_plan_total_must_exceed_down_payment")
         if self.payment_plan.plan_type == PaymentPlanType.BANK_LOAN:
-            raise ValueError("goals.payment_plan_bridge_bank_loan_not_supported")
+            raise ValueError(
+                "goals.payment_plan_bridge_bank_loan_not_supported")
         return self
 
 
 class GoalDebtPaymentCreate(BaseModel):
     amount: int = Field(gt=0)
-    payment_allocations: List[GoalPaymentAllocationCreate] = Field(min_length=1)
+    payment_allocations: List[GoalPaymentAllocationCreate] = Field(
+        min_length=1)
     date: Optional[dt.date] = None
     note: Optional[str] = Field(default=None, max_length=500)
     income_source_id: Optional[int] = None
@@ -1582,7 +1598,8 @@ class GoalProjectReleaseCreate(BaseModel):
 
 
 class GoalGraduateCreate(BaseModel):
-    project_title: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    project_title: Optional[str] = Field(
+        default=None, min_length=1, max_length=100)
     description: Optional[str] = Field(default=None, max_length=500)
     start_date: date
     target_end_date: Optional[date] = None
@@ -2079,7 +2096,8 @@ class SessionDraftSplitCreate(BaseModel):
 
 
 class SessionDraftSplitUpdate(BaseModel):
-    contact_name: Optional[str] = Field(default=None, min_length=1, max_length=32)
+    contact_name: Optional[str] = Field(
+        default=None, min_length=1, max_length=32)
     amount: Optional[int] = Field(default=None, gt=0)
 
     model_config = ConfigDict(extra="forbid")
@@ -2314,7 +2332,8 @@ class RecurringOccurrenceWalletAllocationIn(BaseModel):
 class RecurringOccurrenceConfirmIn(BaseModel):
     actual_amount: int = Field(gt=0)
     actual_date: date
-    wallet_allocations: List[RecurringOccurrenceWalletAllocationIn] = Field(default_factory=list)
+    wallet_allocations: List[RecurringOccurrenceWalletAllocationIn] = Field(
+        default_factory=list)
     update_template_amount: bool = False
 
     @field_validator("actual_amount")
@@ -2323,6 +2342,7 @@ class RecurringOccurrenceConfirmIn(BaseModel):
         if v > MAX_EXPENSE_AMOUNT:
             raise ValueError("expenses.amount_too_large")
         return v
+
 
 class RecurringOccurrenceSkipIn(BaseModel):
     actual_date: date
@@ -2346,7 +2366,8 @@ class RecurringProjectionHorizonIn(BaseModel):
 
 
 class RecurringProjectionHorizonListIn(BaseModel):
-    horizons: List[RecurringProjectionHorizonIn] = Field(default_factory=list, max_length=12)
+    horizons: List[RecurringProjectionHorizonIn] = Field(
+        default_factory=list, max_length=12)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -2864,7 +2885,8 @@ class ProjectWalletAllocationOut(BaseModel):
 
 
 class ProjectTopUpRequest(BaseModel):
-    wallet_allocations: List[ProjectWalletAllocationCreate] = Field(min_length=1, max_length=50)
+    wallet_allocations: List[ProjectWalletAllocationCreate] = Field(
+        min_length=1, max_length=50)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -2914,12 +2936,14 @@ class ProjectRebalanceRequest(BaseModel):
             if self.from_category is None or self.to_category is None:
                 raise ValueError("projects.rebalance_categories_required")
             if self.from_category == self.to_category:
-                raise ValueError("projects.rebalance_distinct_buckets_required")
+                raise ValueError(
+                    "projects.rebalance_distinct_buckets_required")
         if self.scope == "SUBCATEGORY":
             if self.from_subcategory_allocation_id is None or self.to_subcategory_allocation_id is None:
                 raise ValueError("projects.rebalance_subcategories_required")
             if self.from_subcategory_allocation_id == self.to_subcategory_allocation_id:
-                raise ValueError("projects.rebalance_distinct_buckets_required")
+                raise ValueError(
+                    "projects.rebalance_distinct_buckets_required")
         return self
 
 
@@ -2930,7 +2954,8 @@ class ProjectIsolatedFinancialOut(BaseModel):
     released_funding: Optional[int] = None
     remaining_funding: Optional[int] = None
     funding_shortfall: int = 0
-    wallet_allocations: List[ProjectWalletAllocationOut] = Field(default_factory=list)
+    wallet_allocations: List[ProjectWalletAllocationOut] = Field(
+        default_factory=list)
 
 
 class ProjectBudgetOut(BaseModel):
@@ -2975,9 +3000,12 @@ class ProjectBase(BaseModel):
     start_date: date
     target_end_date: Optional[date] = None
     origin_goal_id: Optional[int] = None
-    wallet_allocations: List[ProjectWalletAllocationCreate] = Field(default_factory=list, max_length=50)
-    category_allocations: List[ProjectCategoryAllocationCreate] = Field(default_factory=list, max_length=20)
-    subcategory_allocations: List["ProjectSubcategoryCreate"] = Field(default_factory=list, max_length=100)
+    wallet_allocations: List[ProjectWalletAllocationCreate] = Field(
+        default_factory=list, max_length=50)
+    category_allocations: List[ProjectCategoryAllocationCreate] = Field(
+        default_factory=list, max_length=20)
+    subcategory_allocations: List["ProjectSubcategoryCreate"] = Field(
+        default_factory=list, max_length=100)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -3366,7 +3394,8 @@ class DebtInitialWalletAllocationIn(BaseModel):
 class DebtCreate(DebtBase):
     is_money_transferred: bool = False
     initial_wallet_id: Optional[int] = None
-    initial_wallet_allocations: List[DebtInitialWalletAllocationIn] = Field(default_factory=list)
+    initial_wallet_allocations: List[DebtInitialWalletAllocationIn] = Field(
+        default_factory=list)
     expense_category: Optional[ExpenseCategory] = None
     expense_subcategory_id: Optional[int] = None
     project_id: Optional[int] = None
@@ -3457,7 +3486,8 @@ class DebtPaymentCreate(BaseModel):
     amount: int = Field(gt=0)
     date: Optional[dt.date] = None
     note: Optional[str] = None
-    wallet_allocations: List[DebtTransactionWalletAllocationIn] = Field(default_factory=list)
+    wallet_allocations: List[DebtTransactionWalletAllocationIn] = Field(
+        default_factory=list)
     income_source_id: Optional[int] = None
 
 
@@ -3714,7 +3744,8 @@ class PaymentPlanBase(BaseModel):
 
 
 class PaymentPlanCreate(PaymentPlanBase):
-    wallet_allocations: List[PaymentPlanWalletAllocationIn] = Field(default_factory=list)
+    wallet_allocations: List[PaymentPlanWalletAllocationIn] = Field(
+        default_factory=list)
     category: ExpenseCategory = ExpenseCategory.PAYMENT_PLANS_DEBT
     track_as_asset: bool = False
     asset_current_value: Optional[int] = Field(default=None, ge=0)
@@ -3849,9 +3880,9 @@ class PaymentPlanSummaryOut(BaseModel):
 class PaymentPlanPaymentRecordCreate(BaseModel):
     amount: int = Field(gt=0)
     paid_date: Optional[dt.date] = None
-    wallet_allocations: List[PaymentPlanWalletAllocationIn] = Field(default_factory=list)
+    wallet_allocations: List[PaymentPlanWalletAllocationIn] = Field(
+        default_factory=list)
     note: Optional[str] = Field(default=None, max_length=200)
-
 
 
 class PaymentPlanActivityItemOut(BaseModel):
@@ -3868,14 +3899,16 @@ class PaymentPlanActivityItemOut(BaseModel):
     is_reversible: bool
     is_reversed: bool = False
     reverses_entry_id: Optional[int] = None
-    
+
     class Config:
         from_attributes = True
+
 
 class PaymentPlanActionDecisionOut(BaseModel):
     action: str
     allowed: bool
     reason_code: Optional[str] = None
+
 
 class PaymentPlanDetailsOut(BaseModel):
     plan: PaymentPlanWithPaymentsOut
@@ -3885,7 +3918,8 @@ class PaymentPlanDetailsOut(BaseModel):
 
 class MarkPaidIn(BaseModel):
     paid_date: Optional[date] = None
-    wallet_allocations: List[PaymentPlanWalletAllocationIn] = Field(default_factory=list)
+    wallet_allocations: List[PaymentPlanWalletAllocationIn] = Field(
+        default_factory=list)
     category: Optional[ExpenseCategory] = None
     note: Optional[str] = None
 
@@ -3894,7 +3928,8 @@ class PaymentPlanChargeCreate(BaseModel):
     charge_type: str
     amount: int = Field(gt=0)
     date: Optional[dt.date] = None
-    wallet_allocations: List[PaymentPlanWalletAllocationIn] = Field(default_factory=list)
+    wallet_allocations: List[PaymentPlanWalletAllocationIn] = Field(
+        default_factory=list)
     category: ExpenseCategory = ExpenseCategory.DEBT_CHARGES
     note: Optional[str] = None
 
@@ -3948,6 +3983,8 @@ class TimelineEventList(BaseModel):
     items: List[TimelineEvent]
 
 # --- Subcategories ---
+
+
 class UserSubcategoryOut(BaseModel):
     id: int
     category: ExpenseCategory
@@ -3959,25 +3996,63 @@ class UserSubcategoryOut(BaseModel):
         "from_attributes": True
     }
 
+
 class SubcategoryLifetimeStatsOut(BaseModel):
     first_used: Optional[dt.date] = None
     last_used: Optional[dt.date] = None
     tx_count: int
     lifetime_spent: int
 
+
 class SubcategoryTaxonomyOut(UserSubcategoryOut):
     scorecard: SubcategoryLifetimeStatsOut
+
 
 class SubcategoryUpdateIn(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     is_active: Optional[bool] = None
 
+
 class SubcategoryCreateIn(BaseModel):
     category: ExpenseCategory
     name: str = Field(..., min_length=1, max_length=100)
+
 
 class SubcategoryMergeIn(BaseModel):
     target_id: int
     source_ids: List[int] = Field(..., min_length=1)
 
 
+class ProjectWrapUpCategoryOut(BaseModel):
+    category: str
+    allocated_amount: int
+    spent_amount: int
+    remaining: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProjectWrapUpSubcategoryOut(BaseModel):
+    id: int
+    category: str
+    name: str
+    allocated_amount: int
+    spent_amount: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProjectWrapUpSummaryOut(BaseModel):
+    project_id: int
+    project_title: str
+    total_funding: int
+    total_top_ups: int
+    total_spent: int
+    remaining_funding: int
+    overrun_amount: int
+    sweep_amount: int
+    is_overrun: bool
+    top_categories: List[ProjectWrapUpCategoryOut]
+    top_subcategories: List[ProjectWrapUpSubcategoryOut]
+
+    model_config = ConfigDict(from_attributes=True)

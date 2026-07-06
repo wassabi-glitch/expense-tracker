@@ -39,7 +39,9 @@ from ..services.isolated_project_service import (
     apply_isolated_project_subcategory_allocation,
     apply_isolated_project_top_up,
     get_isolated_project_category_spent_amount,
+    get_isolated_project_wrap_up_summary as build_isolated_project_wrap_up_summary,
     get_project_funding_limit,
+    sweep_isolated_project_wallet_allocations,
     validate_isolated_project_category_allocation_covers_spending,
     validate_project_limit_sum,
     validate_project_wallet_allocations,
@@ -90,9 +92,11 @@ def _apply_headers(response: Response, headers: dict[str, str]) -> None:
 
 
 def _get_owned_goal_or_404(db: Session, user_id: int, goal_id: int) -> models.Goals:
-    goal = db.query(models.Goals).filter(models.Goals.id == goal_id, models.Goals.owner_id == user_id).first()
+    goal = db.query(models.Goals).filter(models.Goals.id ==
+                                         goal_id, models.Goals.owner_id == user_id).first()
     if not goal:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="goals.not_found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="goals.not_found")
     return goal
 
 
@@ -129,7 +133,8 @@ def _overlay_reservation_month(
     if budget_year is None and budget_month is None:
         return int(project.start_date.year), int(project.start_date.month)
     if budget_year is None or budget_month is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.reservation_month_required")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="projects.reservation_month_required")
     return int(budget_year), int(budget_month)
 
 
@@ -146,13 +151,16 @@ def _validate_isolated_category_allocations(
             error_detail="projects.validation.real_expense_category_required",
         )
         if item.category in seen_categories:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="projects.category_limit_exists")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="projects.category_limit_exists")
         seen_categories.add(item.category)
         running_total += int(item.limit_amount)
     if allocations and funding_limit is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.category_allocations_require_funding")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="projects.category_allocations_require_funding")
     if funding_limit is not None and running_total > int(funding_limit):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.category_limits_exceed_total")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="projects.category_limits_exceed_total")
     return allocations
 
 
@@ -177,14 +185,18 @@ def create_project(
             .first()
         )
         if existing:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="goals.project_already_exists")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="goals.project_already_exists")
 
     if not payload.is_isolated and "total_limit" in payload.model_fields_set:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.overlay_total_limit_not_allowed")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="projects.overlay_total_limit_not_allowed")
     if not payload.is_isolated and payload.wallet_allocations:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.overlay_wallet_allocations_not_allowed")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="projects.overlay_wallet_allocations_not_allowed")
     if not payload.is_isolated and payload.category_allocations:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.overlay_category_allocations_not_allowed")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="projects.overlay_category_allocations_not_allowed")
     if payload.is_isolated and payload.wallet_allocations and "total_limit" in payload.model_fields_set:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -192,7 +204,8 @@ def create_project(
         )
 
     wallet_allocations = (
-        validate_project_wallet_allocations(db, current_user.id, payload.wallet_allocations)
+        validate_project_wallet_allocations(
+            db, current_user.id, payload.wallet_allocations)
         if payload.is_isolated and payload.wallet_allocations
         else []
     )
@@ -255,23 +268,29 @@ def create_project(
             subcat_sums = {}
             for sub_payload in payload.subcategory_allocations:
                 if sub_payload.category not in category_allocs_map:
-                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.isolated_subcategory_parent_category_not_allocated")
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                        detail="projects.isolated_subcategory_parent_category_not_allocated")
                 if sub_payload.limit_amount is None:
-                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_limit_required")
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_limit_required")
                 if sub_payload.name is None:
-                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_name_required")
-                
-                subcat_sums[sub_payload.category] = subcat_sums.get(sub_payload.category, 0) + sub_payload.limit_amount
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_name_required")
+
+                subcat_sums[sub_payload.category] = subcat_sums.get(
+                    sub_payload.category, 0) + sub_payload.limit_amount
                 if subcat_sums[sub_payload.category] > category_allocs_map[sub_payload.category].limit_amount:
-                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.isolated_subcategory_limit_exceeds_category")
-                
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                        detail="projects.isolated_subcategory_limit_exceeds_category")
+
                 name_clean = sub_payload.name.strip()
                 user_subcat = (
                     db.query(models.UserSubcategory)
                     .filter(
                         models.UserSubcategory.owner_id == current_user.id,
                         models.UserSubcategory.category == sub_payload.category,
-                        func.lower(models.UserSubcategory.name) == name_clean.lower()
+                        func.lower(
+                            models.UserSubcategory.name) == name_clean.lower()
                     )
                     .first()
                 )
@@ -284,7 +303,7 @@ def create_project(
                     )
                     db.add(user_subcat)
                     db.flush()
-                
+
                 db.add(models.IsolatedProjectSubcategoryAllocation(
                     project_id=project.id,
                     category_allocation_id=category_allocs_map[sub_payload.category].id,
@@ -338,7 +357,8 @@ def create_overlay_project(
             error_detail="projects.validation.real_expense_category_required",
         )
         if item.category in seen_categories:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="projects.category_limit_exists")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="projects.category_limit_exists")
         seen_categories.add(item.category)
 
     seen_subcategories: set[int] = set()
@@ -348,7 +368,8 @@ def create_overlay_project(
             error_detail="projects.validation.real_expense_category_required",
         )
         if item.user_subcategory_id in seen_subcategories:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="projects.subcategory_exists")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="projects.subcategory_exists")
         seen_subcategories.add(item.user_subcategory_id)
 
     project = models.Project(
@@ -455,7 +476,8 @@ def top_up_isolated_project(
 ):
     _apply_headers(response, enforce_project_write_rate_limit(current_user.id))
     project = get_owned_project_or_404(db, current_user.id, project_id)
-    apply_isolated_project_top_up(db, current_user.id, project, payload.wallet_allocations)
+    apply_isolated_project_top_up(
+        db, current_user.id, project, payload.wallet_allocations)
     db.commit()
     return _project_detail_out(db, current_user.id, project.id, default_budget_date=today_in_tz(user_tz))
 
@@ -561,7 +583,8 @@ def resolve_project_deletion(
 
     if payload.action == schemas.ProjectDeletionAction.ARCHIVE:
         if project.status == models.ProjectStatus.ARCHIVED:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.already_archived")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="projects.already_archived")
         project.status = models.ProjectStatus.ARCHIVED
         db.commit()
         return _project_detail_out(db, current_user.id, project.id, default_budget_date=today_in_tz(user_tz))
@@ -572,7 +595,8 @@ def resolve_project_deletion(
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     if payload.confirm_title != project.title:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.confirm_title_mismatch")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="projects.confirm_title_mismatch")
     cascade_void_project_expenses_and_delete(
         db,
         current_user.id,
@@ -605,7 +629,8 @@ def update_project(
         else models.ProjectType.OVERLAY
     ) if "is_isolated" in update_data else current_project_type
     if next_project_type == models.ProjectType.OVERLAY and "total_limit" in payload.model_fields_set:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.overlay_total_limit_not_allowed")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="projects.overlay_total_limit_not_allowed")
     if (
         next_project_type == models.ProjectType.ISOLATED
         and "total_limit" in payload.model_fields_set
@@ -616,16 +641,20 @@ def update_project(
             detail="projects.isolated_wallet_funded_total_limit_not_allowed",
         )
     if next_project_type == models.ProjectType.ISOLATED and "target_estimate" in payload.model_fields_set:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.isolated_target_estimate_not_allowed")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="projects.isolated_target_estimate_not_allowed")
 
-    next_funding_limit = update_data.get("total_limit", get_project_funding_limit(project))
+    next_funding_limit = update_data.get(
+        "total_limit", get_project_funding_limit(project))
     next_start_date = update_data.get("start_date", project.start_date)
-    next_target_end_date = update_data.get("target_end_date", project.target_end_date)
+    next_target_end_date = update_data.get(
+        "target_end_date", project.target_end_date)
     validate_project_update_rules(
         db,
         project,
         next_project_type=next_project_type,
-        next_funding_limit=int(next_funding_limit) if next_funding_limit is not None else None,
+        next_funding_limit=int(
+            next_funding_limit) if next_funding_limit is not None else None,
         next_start_date=next_start_date,
         next_target_end_date=next_target_end_date,
     )
@@ -640,10 +669,11 @@ def update_project(
         project.isolated_detail.funding_limit = payload.total_limit if payload.total_limit is not None else None
     if next_project_type == models.ProjectType.OVERLAY and "target_estimate" in payload.model_fields_set:
         project.overlay_detail.target_estimate = payload.target_estimate if payload.target_estimate is not None else None
-        
+
     if is_overlay_project(project):
-        migrate_overlay_project_slices(db, project, next_start_date, next_target_end_date)
-        
+        migrate_overlay_project_slices(
+            db, project, next_start_date, next_target_end_date)
+
     db.commit()
     return _project_detail_out(db, current_user.id, project.id, default_budget_date=today_in_tz(user_tz))
 
@@ -659,7 +689,8 @@ def stop_project(
     _apply_headers(response, enforce_project_write_rate_limit(current_user.id))
     project = get_owned_project_or_404(db, current_user.id, project_id)
     if project.status != models.ProjectStatus.ACTIVE:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.stop_invalid_state")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="projects.stop_invalid_state")
     project.status = models.ProjectStatus.STOPPED
     db.commit()
     return _project_detail_out(db, current_user.id, project.id, default_budget_date=today_in_tz(user_tz))
@@ -676,7 +707,8 @@ def resume_project(
     _apply_headers(response, enforce_project_write_rate_limit(current_user.id))
     project = get_owned_project_or_404(db, current_user.id, project_id)
     if project.status != models.ProjectStatus.STOPPED:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.resume_invalid_state")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="projects.resume_invalid_state")
     project.status = models.ProjectStatus.ACTIVE
     db.commit()
     return _project_detail_out(db, current_user.id, project.id, default_budget_date=today_in_tz(user_tz))
@@ -694,22 +726,42 @@ def complete_project(
     _apply_headers(response, enforce_project_write_rate_limit(current_user.id))
     project = get_owned_project_or_404(db, current_user.id, project_id)
     if project.status not in (models.ProjectStatus.ACTIVE, models.ProjectStatus.STOPPED):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.complete_invalid_state")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="projects.complete_invalid_state")
     effective_date = payload.effective_date or today_in_tz(user_tz)
     validate_project_completion_date(project, effective_date)
     latest_linked = latest_project_event_date(db, project.id)
     if latest_linked is not None and effective_date < latest_linked:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.completed_before_linked_expense")
-    sweep_overlay_project_reservations(
-        db,
-        current_user.id,
-        project,
-        anchor_date=effective_date,
-    )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="projects.completed_before_linked_expense")
+    if is_isolated_project(project):
+        sweep_isolated_project_wallet_allocations(db, current_user.id, project)
+    else:
+        sweep_overlay_project_reservations(
+            db,
+            current_user.id,
+            project,
+            anchor_date=effective_date,
+        )
     project.status = models.ProjectStatus.COMPLETED
     project.completed_at = effective_date
     db.commit()
     return _project_detail_out(db, current_user.id, project.id, default_budget_date=today_in_tz(user_tz))
+
+
+@router.get("/{project_id}/wrap-up-summary", response_model=schemas.ProjectWrapUpSummaryOut)
+def get_project_wrap_up_summary(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+):
+    project = get_owned_project_or_404(db, current_user.id, project_id)
+    if not is_isolated_project(project):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="projects.isolated_required",
+        )
+    return build_isolated_project_wrap_up_summary(db, current_user.id, project)
 
 
 @router.post("/{project_id}/archive", response_model=schemas.ProjectBudgetOut)
@@ -723,7 +775,8 @@ def archive_project(
     _apply_headers(response, enforce_project_write_rate_limit(current_user.id))
     project = get_owned_project_or_404(db, current_user.id, project_id)
     if project.status == models.ProjectStatus.ARCHIVED:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.already_archived")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="projects.already_archived")
     project.status = models.ProjectStatus.ARCHIVED
     db.commit()
     return _project_detail_out(db, current_user.id, project.id, default_budget_date=today_in_tz(user_tz))
@@ -740,7 +793,8 @@ def reopen_project(
     _apply_headers(response, enforce_project_write_rate_limit(current_user.id))
     project = get_owned_project_or_404(db, current_user.id, project_id)
     if project.status == models.ProjectStatus.ACTIVE:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.already_active")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="projects.already_active")
     project.status = models.ProjectStatus.ACTIVE
     project.completed_at = None
     db.commit()
@@ -766,9 +820,11 @@ def create_project_category_limit(
     selected_budget_year = payload.budget_year
     selected_budget_month = payload.budget_month
     if is_isolated_project(project):
-        existing = next((item for item in project.isolated_category_allocations if item.category == payload.category), None)
+        existing = next(
+            (item for item in project.isolated_category_allocations if item.category == payload.category), None)
         if existing:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="projects.category_limit_exists")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="projects.category_limit_exists")
         validate_project_limit_sum(
             get_project_funding_limit(project),
             list(project.isolated_category_allocations),
@@ -789,7 +845,8 @@ def create_project_category_limit(
             )
         )
     else:
-        budget_year, budget_month = _overlay_reservation_month(project, payload.budget_year, payload.budget_month)
+        budget_year, budget_month = _overlay_reservation_month(
+            project, payload.budget_year, payload.budget_month)
         selected_budget_year = budget_year
         selected_budget_month = budget_month
         existing = next(
@@ -803,7 +860,8 @@ def create_project_category_limit(
             None,
         )
         if existing:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="projects.category_limit_exists")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="projects.category_limit_exists")
         validate_overlay_project_category_reservation(
             db,
             current_user.id,
@@ -849,9 +907,11 @@ def update_project_category_limit(
     budget_year = payload.budget_year
     budget_month = payload.budget_month
     if is_isolated_project(project):
-        limit_row = next((item for item in project.isolated_category_allocations if item.category == category), None)
+        limit_row = next(
+            (item for item in project.isolated_category_allocations if item.category == category), None)
     else:
-        budget_year, budget_month = _overlay_reservation_month(project, payload.budget_year, payload.budget_month)
+        budget_year, budget_month = _overlay_reservation_month(
+            project, payload.budget_year, payload.budget_month)
         limit_row = next(
             (
                 item
@@ -863,7 +923,8 @@ def update_project_category_limit(
             None,
         )
     if limit_row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="projects.category_limit_not_found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="projects.category_limit_not_found")
     if is_isolated_project(project):
         validate_project_limit_sum(
             get_project_funding_limit(project),
@@ -916,9 +977,11 @@ def delete_project_category_limit(
     project = get_owned_project_or_404(db, current_user.id, project_id)
     validate_project_editable(project)
     if is_isolated_project(project):
-        limit_row = next((item for item in project.isolated_category_allocations if item.category == category), None)
+        limit_row = next(
+            (item for item in project.isolated_category_allocations if item.category == category), None)
     else:
-        budget_year, budget_month = _overlay_reservation_month(project, budget_year, budget_month)
+        budget_year, budget_month = _overlay_reservation_month(
+            project, budget_year, budget_month)
         limit_row = next(
             (
                 item
@@ -930,11 +993,14 @@ def delete_project_category_limit(
             None,
         )
     if limit_row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="projects.category_limit_not_found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="projects.category_limit_not_found")
     if is_isolated_project(project) and any(item.category == category for item in project.legacy_subcategories):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.category_limit_has_subcategories")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="projects.category_limit_has_subcategories")
     if is_isolated_project(project):
-        spent = get_isolated_project_category_spent_amount(db, current_user.id, project.id, category)
+        spent = get_isolated_project_category_spent_amount(
+            db, current_user.id, project.id, category)
         if spent > 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -994,7 +1060,8 @@ def list_project_category_limits(
             )
         return rows
     if budget_year is not None or budget_month is not None:
-        budget_year, budget_month = _overlay_reservation_month(project, budget_year, budget_month)
+        budget_year, budget_month = _overlay_reservation_month(
+            project, budget_year, budget_month)
     rows = list(project.overlay_category_reservations)
     if budget_year is not None and budget_month is not None:
         rows = [
@@ -1032,8 +1099,10 @@ def list_project_subcategories(
             .filter(models.IsolatedProjectSubcategoryAllocation.project_id == project_id)
         )
         if category is not None:
-            query = query.filter(models.IsolatedProjectSubcategoryAllocation.category == category)
-        rows = query.order_by(models.IsolatedProjectSubcategoryAllocation.category.asc(), models.UserSubcategory.name.asc()).all()
+            query = query.filter(
+                models.IsolatedProjectSubcategoryAllocation.category == category)
+        rows = query.order_by(models.IsolatedProjectSubcategoryAllocation.category.asc(
+        ), models.UserSubcategory.name.asc()).all()
 
         from app.services.budget_service import _signed_expense_amount
         signed_amount = _signed_expense_amount()
@@ -1048,7 +1117,8 @@ def list_project_subcategories(
                 models.FinancialEvent.owner_id == current_user.id,
                 models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
                 models.EntityLedger.project_id == project_id,
-                models.FinancialEvent.event_type.in_([models.TransactionType.EXPENSE, models.TransactionType.REFUND])
+                models.FinancialEvent.event_type.in_(
+                    [models.TransactionType.EXPENSE, models.TransactionType.REFUND])
             )
             .group_by(models.EntityLedger.project_id, models.EntityLedger.subcategory_id)
             .all()
@@ -1058,10 +1128,11 @@ def list_project_subcategories(
             for row in spend_rows
             if row.project_id is not None and row.subcategory_id is not None
         }
-        
+
         output = []
         for item in rows:
-            spent = int(spent_by_subcategory.get((int(item.project_id), int(item.user_subcategory_id)), 0))
+            spent = int(spent_by_subcategory.get(
+                (int(item.project_id), int(item.user_subcategory_id)), 0))
             remaining = int(item.allocated_amount) - spent
             output.append(
                 schemas.ProjectSubcategoryOut(
@@ -1082,7 +1153,8 @@ def list_project_subcategories(
             )
         return output
 
-    budget_year, budget_month = _overlay_reservation_month(project, budget_year, budget_month)
+    budget_year, budget_month = _overlay_reservation_month(
+        project, budget_year, budget_month)
     query = (
         db.query(models.OverlayProjectSubcategoryReservation)
         .join(models.UserSubcategory, models.UserSubcategory.id == models.OverlayProjectSubcategoryReservation.user_subcategory_id)
@@ -1093,17 +1165,20 @@ def list_project_subcategories(
         )
     )
     if category is not None:
-        query = query.filter(models.OverlayProjectSubcategoryReservation.category == category)
+        query = query.filter(
+            models.OverlayProjectSubcategoryReservation.category == category)
     spent_by_subcategory = get_overlay_project_spent_by_project_subcategory(
         db,
         current_user.id,
         budget_year,
         budget_month,
     )
-    rows = query.order_by(models.OverlayProjectSubcategoryReservation.category.asc(), models.UserSubcategory.name.asc()).all()
+    rows = query.order_by(models.OverlayProjectSubcategoryReservation.category.asc(
+    ), models.UserSubcategory.name.asc()).all()
     output = []
     for item in rows:
-        spent = int(spent_by_subcategory.get((int(item.project_id), int(item.user_subcategory_id)), 0))
+        spent = int(spent_by_subcategory.get(
+            (int(item.project_id), int(item.user_subcategory_id)), 0))
         remaining = int(item.limit_amount) - spent
         output.append(
             schemas.ProjectSubcategoryOut(
@@ -1145,9 +1220,11 @@ def create_project_subcategory(
     validate_project_editable(project)
     if is_isolated_project(project):
         if payload.name is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_name_required")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="projects.subcategory_name_required")
         if payload.limit_amount is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_limit_required")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="projects.subcategory_limit_required")
 
         # Get parent category allocation
         parent_alloc = (
@@ -1159,7 +1236,8 @@ def create_project_subcategory(
             .first()
         )
         if not parent_alloc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.isolated_subcategory_parent_category_not_allocated")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="projects.isolated_subcategory_parent_category_not_allocated")
 
         # Reuse or create UserSubcategory
         name_clean = payload.name.strip()
@@ -1188,25 +1266,30 @@ def create_project_subcategory(
             .filter(
                 models.IsolatedProjectSubcategoryAllocation.project_id == project.id,
                 models.IsolatedProjectSubcategoryAllocation.user_subcategory_id == user_subcat.id,
-                models.IsolatedProjectSubcategoryAllocation.archived_at.is_(None)
+                models.IsolatedProjectSubcategoryAllocation.archived_at.is_(
+                    None)
             )
             .first()
         )
         if existing:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_already_exists")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="projects.subcategory_already_exists")
 
         # Check over-allocation
         current_allocated = (
-            db.query(func.coalesce(func.sum(models.IsolatedProjectSubcategoryAllocation.allocated_amount), 0))
+            db.query(func.coalesce(
+                func.sum(models.IsolatedProjectSubcategoryAllocation.allocated_amount), 0))
             .filter(
                 models.IsolatedProjectSubcategoryAllocation.project_id == project.id,
                 models.IsolatedProjectSubcategoryAllocation.category == payload.category,
-                models.IsolatedProjectSubcategoryAllocation.archived_at.is_(None)
+                models.IsolatedProjectSubcategoryAllocation.archived_at.is_(
+                    None)
             )
             .scalar()
         )
         if current_allocated + payload.limit_amount > parent_alloc.limit_amount:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.isolated_subcategory_limit_exceeds_category")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="projects.isolated_subcategory_limit_exceeds_category")
 
         allocation = models.IsolatedProjectSubcategoryAllocation(
             project_id=project.id,
@@ -1214,17 +1297,21 @@ def create_project_subcategory(
             category=payload.category,
             user_subcategory_id=user_subcat.id,
             allocated_amount=int(payload.limit_amount),
-            is_active=bool(payload.is_active) if payload.is_active is not None else True,
+            is_active=bool(
+                payload.is_active) if payload.is_active is not None else True,
         )
         db.add(allocation)
         selected_budget_year = None
         selected_budget_month = None
     else:
         if payload.user_subcategory_id is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.global_subcategory_required")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="projects.global_subcategory_required")
         if payload.limit_amount is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_limit_required")
-        selected_budget_year, selected_budget_month = _overlay_reservation_month(project, payload.budget_year, payload.budget_month)
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="projects.subcategory_limit_required")
+        selected_budget_year, selected_budget_month = _overlay_reservation_month(
+            project, payload.budget_year, payload.budget_month)
         validate_overlay_project_subcategory_reservation(
             db,
             current_user.id,
@@ -1275,16 +1362,20 @@ def update_project_subcategory(
             .filter(
                 models.IsolatedProjectSubcategoryAllocation.id == subcategory_id,
                 models.IsolatedProjectSubcategoryAllocation.project_id == project.id,
-                models.IsolatedProjectSubcategoryAllocation.archived_at.is_(None)
+                models.IsolatedProjectSubcategoryAllocation.archived_at.is_(
+                    None)
             )
             .first()
         )
         if not allocation:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="projects.subcategory_not_found")
-        
-        next_limit_amount = payload.limit_amount if "limit_amount" in payload.model_fields_set else int(allocation.allocated_amount)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="projects.subcategory_not_found")
+
+        next_limit_amount = payload.limit_amount if "limit_amount" in payload.model_fields_set else int(
+            allocation.allocated_amount)
         if next_limit_amount is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_limit_required")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="projects.subcategory_limit_required")
 
         if "name" in payload.model_fields_set and payload.name is not None:
             name_clean = payload.name.strip()
@@ -1294,7 +1385,8 @@ def update_project_subcategory(
                     .filter(
                         models.UserSubcategory.owner_id == current_user.id,
                         models.UserSubcategory.category == allocation.category,
-                        func.lower(models.UserSubcategory.name) == name_clean.lower()
+                        func.lower(
+                            models.UserSubcategory.name) == name_clean.lower()
                     )
                     .first()
                 )
@@ -1312,17 +1404,20 @@ def update_project_subcategory(
         # Check over-allocation
         parent_alloc = allocation.category_allocation
         current_allocated = (
-            db.query(func.coalesce(func.sum(models.IsolatedProjectSubcategoryAllocation.allocated_amount), 0))
+            db.query(func.coalesce(
+                func.sum(models.IsolatedProjectSubcategoryAllocation.allocated_amount), 0))
             .filter(
                 models.IsolatedProjectSubcategoryAllocation.project_id == project.id,
                 models.IsolatedProjectSubcategoryAllocation.category == allocation.category,
-                models.IsolatedProjectSubcategoryAllocation.archived_at.is_(None),
+                models.IsolatedProjectSubcategoryAllocation.archived_at.is_(
+                    None),
                 models.IsolatedProjectSubcategoryAllocation.id != allocation.id
             )
             .scalar()
         )
         if current_allocated + next_limit_amount > parent_alloc.limit_amount:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.isolated_subcategory_limit_exceeds_category")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="projects.isolated_subcategory_limit_exceeds_category")
 
         # Note: actually this checks category level, we need subcategory level!
         # For now, it's fine or we should fetch subcategory spent. Let's do it properly:
@@ -1336,12 +1431,14 @@ def update_project_subcategory(
                 models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
                 models.EntityLedger.project_id == project.id,
                 models.EntityLedger.subcategory_id == allocation.user_subcategory_id,
-                models.FinancialEvent.event_type.in_([models.TransactionType.EXPENSE, models.TransactionType.REFUND])
+                models.FinancialEvent.event_type.in_(
+                    [models.TransactionType.EXPENSE, models.TransactionType.REFUND])
             )
             .scalar()
         )
         if next_limit_amount < spent_subcat:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_allocation_below_spent")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="projects.subcategory_allocation_below_spent")
 
         allocation.allocated_amount = next_limit_amount
         if "is_active" in payload.model_fields_set and payload.is_active is not None:
@@ -1362,11 +1459,15 @@ def update_project_subcategory(
             if "user_subcategory_id" in payload.model_fields_set and payload.user_subcategory_id is not None
             else reservation.user_subcategory_id
         )
-        next_budget_year = payload.budget_year if payload.budget_year is not None else int(reservation.budget_year)
-        next_budget_month = payload.budget_month if payload.budget_month is not None else int(reservation.budget_month)
-        next_limit_amount = payload.limit_amount if "limit_amount" in payload.model_fields_set else int(reservation.limit_amount)
+        next_budget_year = payload.budget_year if payload.budget_year is not None else int(
+            reservation.budget_year)
+        next_budget_month = payload.budget_month if payload.budget_month is not None else int(
+            reservation.budget_month)
+        next_limit_amount = payload.limit_amount if "limit_amount" in payload.model_fields_set else int(
+            reservation.limit_amount)
         if next_limit_amount is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.subcategory_limit_required")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="projects.subcategory_limit_required")
         validate_overlay_project_subcategory_reservation(
             db,
             current_user.id,
@@ -1414,13 +1515,15 @@ def delete_project_subcategory(
             .filter(
                 models.IsolatedProjectSubcategoryAllocation.id == subcategory_id,
                 models.IsolatedProjectSubcategoryAllocation.project_id == project.id,
-                models.IsolatedProjectSubcategoryAllocation.archived_at.is_(None)
+                models.IsolatedProjectSubcategoryAllocation.archived_at.is_(
+                    None)
             )
             .first()
         )
         if not allocation:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="projects.subcategory_not_found")
-        
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="projects.subcategory_not_found")
+
         from app.services.budget_service import _signed_expense_amount
         spent_subcat = (
             db.query(func.coalesce(func.sum(_signed_expense_amount()), 0))
@@ -1431,17 +1534,18 @@ def delete_project_subcategory(
                 models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
                 models.EntityLedger.project_id == project.id,
                 models.EntityLedger.subcategory_id == allocation.user_subcategory_id,
-                models.FinancialEvent.event_type.in_([models.TransactionType.EXPENSE, models.TransactionType.REFUND])
+                models.FinancialEvent.event_type.in_(
+                    [models.TransactionType.EXPENSE, models.TransactionType.REFUND])
             )
             .scalar()
         )
-        
+
         if spent_subcat > 0:
             allocation.archived_at = func.now()
             allocation.is_active = False
         else:
             db.delete(allocation)
-            
+
         selected_budget_year = None
         selected_budget_month = None
     else:
@@ -1464,4 +1568,3 @@ def delete_project_subcategory(
         selected_budget_month,
         default_budget_date=today_in_tz(user_tz),
     )
-

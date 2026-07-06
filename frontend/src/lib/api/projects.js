@@ -135,3 +135,8 @@ export async function deleteProjectSubcategory(projectId, subcategoryId) {
     const response = await apiClient.delete(`/projects/${projectId}/subcategories/${subcategoryId}`);
     return response.data;
 }
+
+export async function getProjectWrapUpSummary(projectId) {
+    const response = await apiClient.get(`/projects/${projectId}/wrap-up-summary`);
+    return response.data;
+}
