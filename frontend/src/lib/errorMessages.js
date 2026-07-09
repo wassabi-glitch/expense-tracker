@@ -58,6 +58,9 @@ export function localizeApiError(message, t) {
   if (msg === "expenses.date_in_future") {
     return t("expenses.dateFuture");
   }
+  if (msg === "expenses.date_before_current_month") {
+    return t("expenses.datePastMonth");
+  }
   if (msg === "expenses.date_too_early") {
     return t("expenses.dateTooEarly");
   }
@@ -235,6 +238,15 @@ export function localizeApiError(message, t) {
   }
   if (msg === "income.date_outside_current_month") {
     return t("income.dateCurrentMonthOnly");
+  }
+  if (msg === "income.date_in_future") {
+    return t("income.dateFuture");
+  }
+  if (msg === "income.date_before_current_month") {
+    return t("income.dateCurrentMonthOnly");
+  }
+  if (msg === "income.entry_not_posted") {
+    return t("income.alreadyDeleted");
   }
   if (msg === "income.amount_too_large") {
     return t("income.amountTooLarge");

@@ -382,7 +382,7 @@ def test_income_entry_rejects_date_outside_current_month(client):
         headers=headers,
     )
     assert res.status_code == 400
-    assert "income.date_outside_current_month" in res.text
+    assert "income.date_before_current_month" in res.text
 
 
 def test_income_source_toggle_active_and_delete(client):
@@ -536,3 +536,235 @@ def test_income_entry_write_rate_limit_blocks_burst(client):
     assert blocked.status_code == 429
     assert blocked.json()["detail"] == "income.entries_write_rate_limited"
     assert "Retry-After" in blocked.headers
+
+
+# ---------------------------------------------------------------------------
+# Ticket 3: Income date validation — distinct error messages
+# ---------------------------------------------------------------------------
+
+
+def test_income_entry_rejects_future_date_with_distinct_message(client):
+    """Ticket 3: Future-dated income entries are rejected with a distinct
+    error detail ('income.date_in_future') rather than the generic
+    'date_outside_current_month'."""
+    headers = create_user_and_token(
+        client, "inctz3future", "inctz3future@example.com", "Password123!"
+    )
+    source = client.post("/income/sources", json={"name": "Salary"}, headers=headers)
+    assert source.status_code == 201
+    source_id = source.json()["id"]
+
+    today = user_timezone_today()
+    future_date = today + timedelta(days=1)
+
+    res = client.post(
+        "/income/entries",
+        json={
+            "amount": 100000,
+            "source_id": source_id,
+            "date": future_date.isoformat(),
+            "note": "future",
+        },
+        headers=headers,
+    )
+    assert res.status_code == 400
+    assert res.json()["detail"] == "income.date_in_future"
+
+
+# ---------------------------------------------------------------------------
+# Ticket 4: Income delete → void/reversal
+# ---------------------------------------------------------------------------
+
+
+def test_income_delete_preserves_original_and_creates_reversal(client, session):
+    """Ticket 4: Deleting posted standalone income preserves the original
+    FinancialEvent (VOIDED) and appends a REVERSAL event with
+    counter-balancing wallet and entity ledger effects."""
+    headers = create_user_and_token(
+        client, "incdelvoid1", "incdelvoid1@example.com", "Password123!"
+    )
+
+    source = client.post("/income/sources", json={"name": "Freelance"}, headers=headers)
+    assert source.status_code == 201
+    source_id = source.json()["id"]
+
+    # Create the income entry
+    created = client.post(
+        "/income/entries",
+        json={
+            "amount": 500000,
+            "source_id": source_id,
+            "note": "Delete me",
+            "date": user_timezone_today().isoformat(),
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    entry_id = created.json()["id"]
+    wallet_id = created.json()["wallet_allocations"][0]["wallet_id"]
+
+    # Capture wallet balance before delete
+    session.expire_all()
+    wallet_before = session.query(models.Wallet).filter(models.Wallet.id == wallet_id).first()
+    balance_before = wallet_before.current_balance
+
+    # Delete the income entry
+    deleted = client.delete(f"/income/entries/{entry_id}", headers=headers)
+    assert deleted.status_code == 204
+
+    # Original event must still exist and be VOIDED
+    session.expire_all()
+    original = session.query(models.FinancialEvent).filter(
+        models.FinancialEvent.id == entry_id,
+    ).first()
+    assert original is not None, "Original income event must still exist"
+    assert original.status == models.FinancialEventStatus.VOIDED
+    assert original.void_reversal_event_id is not None
+    assert original.void_reason == "Deleted by user"
+
+    # A reversal event must have been created
+    reversal = session.query(models.FinancialEvent).filter(
+        models.FinancialEvent.id == original.void_reversal_event_id,
+    ).first()
+    assert reversal is not None
+    assert reversal.status == models.FinancialEventStatus.REVERSAL
+    assert reversal.reverses_event_id == original.id
+    assert reversal.reference_type == models.ReferenceType.VOID_REVERSAL
+    assert reversal.event_type == models.TransactionType.INCOME
+    assert reversal.linked_event_id == original.id
+
+    # Reversal wallet legs must negate the original amounts
+    assert len(reversal.wallet_legs) == 1
+    assert reversal.wallet_legs[0].wallet_id == wallet_id
+    assert reversal.wallet_legs[0].amount == -500000
+
+    # Reversal entity legs must negate the original amounts
+    assert len(reversal.entity_legs) == 1
+    assert reversal.entity_legs[0].amount == -500000
+    assert reversal.entity_legs[0].income_source_id == source_id
+
+    # Wallet balance must return to the pre-income value
+    wallet_after = session.query(models.Wallet).filter(models.Wallet.id == wallet_id).first()
+    assert wallet_after.current_balance == balance_before - 500000
+
+    # The original event must not appear in the income entries list (only POSTED)
+    listed = client.get("/income/entries?limit=10&skip=0", headers=headers)
+    assert listed.status_code == 200
+    assert all(item["id"] != entry_id for item in listed.json()["items"])
+
+
+def test_income_delete_already_voided_rejected(client, session):
+    """Ticket 4: Deleting already-voided income is rejected with a clear
+    error, not a misleading 404."""
+    headers = create_user_and_token(
+        client, "incdelvoid2", "incdelvoid2@example.com", "Password123!"
+    )
+
+    source = client.post("/income/sources", json={"name": "Salary"}, headers=headers)
+    assert source.status_code == 201
+    source_id = source.json()["id"]
+
+    created = client.post(
+        "/income/entries",
+        json={
+            "amount": 200000,
+            "source_id": source_id,
+            "date": user_timezone_today().isoformat(),
+            "note": "Delete me twice",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    entry_id = created.json()["id"]
+
+    # First delete should succeed
+    del1 = client.delete(f"/income/entries/{entry_id}", headers=headers)
+    assert del1.status_code == 204
+
+    # Second delete should be rejected
+    del2 = client.delete(f"/income/entries/{entry_id}", headers=headers)
+    assert del2.status_code == 400
+    assert del2.json()["detail"] == "income.entry_not_posted"
+
+
+def test_income_delete_multi_wallet_void_and_reversal(client, session):
+    """Ticket 4: Deleting multi-wallet income correctly reverses all wallet
+    allocations and preserves the original event."""
+    email = "incdelvoid3@example.com"
+    headers = create_user_and_token(
+        client, "incdelvoid3", email, "Password123!"
+    )
+
+    # Grab the user and create a second wallet
+    user = session.query(models.User).filter(models.User.email == email).first()
+    assert user is not None
+
+    default_wallet = session.query(models.Wallet).filter(
+        models.Wallet.owner_id == user.id, models.Wallet.is_default,
+    ).first()
+    second_wallet = models.Wallet(
+        owner_id=user.id,
+        name="Side Wallet",
+        wallet_type=models.WalletType.DEBIT,
+        accounting_type=models.AccountingType.ASSET,
+        initial_balance=1_000_000,
+        current_balance=1_000_000,
+        is_default=False,
+    )
+    session.add(second_wallet)
+    session.commit()
+    session.refresh(second_wallet)
+
+    source = client.post("/income/sources", json={"name": "Salary"}, headers=headers)
+    assert source.status_code == 201
+    source_id = source.json()["id"]
+
+    created = client.post(
+        "/income/entries",
+        json={
+            "amount": 600_000,
+            "source_id": source_id,
+            "date": user_timezone_today().isoformat(),
+            "note": "Split income",
+            "wallet_allocations": [
+                {"wallet_id": default_wallet.id, "amount": 200_000},
+                {"wallet_id": second_wallet.id, "amount": 400_000},
+            ],
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    entry_id = created.json()["id"]
+
+    # Record balances before delete
+    session.expire_all()
+    dw_before = session.query(models.Wallet).filter(models.Wallet.id == default_wallet.id).first().current_balance
+    sw_before = session.query(models.Wallet).filter(models.Wallet.id == second_wallet.id).first().current_balance
+
+    # Delete
+    deleted = client.delete(f"/income/entries/{entry_id}", headers=headers)
+    assert deleted.status_code == 204
+
+    # Verify original is VOIDED
+    session.expire_all()
+    original = session.query(models.FinancialEvent).filter(
+        models.FinancialEvent.id == entry_id,
+    ).first()
+    assert original.status == models.FinancialEventStatus.VOIDED
+
+    # Verify reversal has correct wallet legs (negated)
+    reversal = session.query(models.FinancialEvent).filter(
+        models.FinancialEvent.id == original.void_reversal_event_id,
+    ).first()
+    assert reversal is not None
+    assert sorted((leg.wallet_id, leg.amount) for leg in reversal.wallet_legs) == [
+        (default_wallet.id, -200_000),
+        (second_wallet.id, -400_000),
+    ]
+    assert reversal.entity_legs[0].amount == -600_000
+
+    # Verify wallet balances returned to pre-income state
+    dw_after = session.query(models.Wallet).filter(models.Wallet.id == default_wallet.id).first().current_balance
+    sw_after = session.query(models.Wallet).filter(models.Wallet.id == second_wallet.id).first().current_balance
+    assert dw_after == dw_before - 200_000
+    assert sw_after == sw_before - 400_000

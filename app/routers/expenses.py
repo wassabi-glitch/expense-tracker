@@ -846,7 +846,13 @@ def create_expense(
     for k, v in rate_headers.items():
         response.headers[k] = v
 
+    # Enforce user-timezone normal logging boundary: reject past-dated entries
     current_month_start = local_today.replace(day=1)
+    if expense_date < current_month_start:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="expenses.date_before_current_month",
+        )
     month_expense_count = (
         db.query(func.count(models.FinancialEvent.id))
         .filter(

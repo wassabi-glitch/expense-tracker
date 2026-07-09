@@ -81,14 +81,14 @@ These tickets build the minimum immutable-ledger foundation before deeper Epicsp
 
 **Blocked by:** Ticket 2: Enforce wallet epoch boundaries for wallet-touching money flows.
 
-- [ ] Normal expense logging uses the user's effective timezone for today's date.
-- [ ] Normal income logging uses the user's effective timezone for today's date.
-- [ ] Future-dated normal expense and income entries are rejected according to the user's local date.
-- [ ] Past-dated normal expense and income entries are rejected or routed to the reconciliation path according to the product rule.
-- [ ] Existing request timezone behavior is preserved.
-- [ ] Tests cover a timezone boundary where server date and user date could differ.
-- [ ] Tests use the project's timezone helpers rather than server-local dates.
-- [ ] Error messages distinguish future-date rejection from past-date/reconciliation guidance.
+- [x] Normal expense logging uses the user's effective timezone for today's date.
+- [x] Normal income logging uses the user's effective timezone for today's date.
+- [x] Future-dated normal expense and income entries are rejected according to the user's local date.
+- [x] Past-dated normal expense and income entries are rejected or routed to the reconciliation path according to the product rule.
+- [x] Existing request timezone behavior is preserved.
+- [x] Tests cover a timezone boundary where server date and user date could differ.
+- [x] Tests use the project's timezone helpers rather than server-local dates.
+- [x] Error messages distinguish future-date rejection from past-date/reconciliation guidance.
 
 ## Ticket 4: Convert Standalone Income Delete To Void And Reversal
 
@@ -100,15 +100,15 @@ These tickets build the minimum immutable-ledger foundation before deeper Epicsp
 - Ticket 2: Enforce wallet epoch boundaries for wallet-touching money flows.
 - Ticket 3: Enforce user-timezone normal logging boundaries.
 
-- [ ] Deleting posted standalone income no longer hard-deletes the posted financial event.
-- [ ] Deleting posted standalone income appends a reversal event.
-- [ ] The original income event is marked voided.
-- [ ] Wallet ledger effects are counter-balanced exactly once.
-- [ ] Entity/source ledger history remains explainable after delete.
-- [ ] Deleting already-voided income is rejected or idempotent with clear behavior.
-- [ ] Debt or expected-inflow links affected by the income reversal remain consistent.
-- [ ] Tests prove the original income event remains queryable.
-- [ ] Tests prove the wallet balance after income delete matches the balance before the income was created.
+- [x] Deleting posted standalone income no longer hard-deletes the posted financial event.
+- [x] Deleting posted standalone income appends a reversal event.
+- [x] The original income event is marked voided.
+- [x] Wallet ledger effects are counter-balanced exactly once.
+- [x] Entity/source ledger history remains explainable after delete.
+- [x] Deleting already-voided income is rejected or idempotent with clear behavior.
+- [x] Debt or expected-inflow links affected by the income reversal remain consistent.
+- [x] Tests prove the original income event remains queryable.
+- [x] Tests prove the wallet balance after income delete matches the balance before the income was created.
 
 ## Ticket 5: Convert Standalone Income Financial Edits To Correction Reposts
 
