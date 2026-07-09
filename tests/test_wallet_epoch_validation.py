@@ -6,9 +6,6 @@ creation date, same-day activity is allowed, and the rule is per-wallet.
 
 from datetime import date, datetime, timezone
 
-from fastapi import HTTPException
-from zoneinfo import ZoneInfo
-
 from app import models
 from app.domains.ledger import (
     WalletEpochError,
@@ -16,8 +13,6 @@ from app.domains.ledger import (
 )
 from app.services.expense_posting_service import post_expense_event
 from tests.helpers import (
-    TEST_TIMEZONE,
-    TEST_WALLET_EPOCH,
     create_budget,
     create_user_and_token,
     user_timezone_today,
@@ -72,7 +67,7 @@ def test_same_day_activity_on_wallet_creation_date_is_allowed(client, session):
 
 def test_pre_epoch_date_is_rejected(client, session):
     """Ticket 2: Money movement dated before the wallet epoch is rejected."""
-    headers = create_user_and_token(
+    create_user_and_token(
         client, "epochreject1", "epochreject1@example.com", "Password123!"
     )
     user = session.query(models.User).filter(models.User.email == "epochreject1@example.com").first()
@@ -82,7 +77,6 @@ def test_pre_epoch_date_is_rejected(client, session):
         .first()
     )
 
-    known_epoch = date(2025, 6, 15)
     wallet.created_at = datetime(2025, 6, 15, 0, 0, 0, tzinfo=timezone.utc)
     session.commit()
 
@@ -105,7 +99,7 @@ def test_pre_epoch_date_is_rejected(client, session):
 def test_user_facing_error_explains_epoch_boundary(client, session):
     """Ticket 2: User-facing errors explain that the requested date is
     before the wallet's tracking start."""
-    headers = create_user_and_token(
+    create_user_and_token(
         client, "epochexplain", "epochexplain@example.com", "Password123!"
     )
     user = session.query(models.User).filter(models.User.email == "epochexplain@example.com").first()
@@ -136,7 +130,7 @@ def test_user_facing_error_explains_epoch_boundary(client, session):
 def test_epoch_rule_is_per_wallet_not_global(client, session):
     """Ticket 2: The wallet epoch rule is per wallet, not global per user.
     A newer wallet does not restrict an older wallet."""
-    headers = create_user_and_token(
+    create_user_and_token(
         client, "epochperwallet", "epochperwallet@example.com", "Password123!"
     )
     user = session.query(models.User).filter(models.User.email == "epochperwallet@example.com").first()
@@ -150,7 +144,6 @@ def test_epoch_rule_is_per_wallet_not_global(client, session):
     old_wallet.created_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
 
     # New wallet (epoch: yesterday)
-    today = user_timezone_today()
     from datetime import timedelta
     new_wallet = models.Wallet(
         owner_id=user.id,
@@ -239,7 +232,7 @@ def test_multi_wallet_money_movement_validates_every_touched_wallet(client, sess
 def test_cash_and_credit_wallets_follow_same_epoch_principle(client, session):
     """Ticket 2: Cash wallets and credit wallets follow the same epoch
     principle."""
-    headers = create_user_and_token(
+    create_user_and_token(
         client, "epochcredit", "epochcredit@example.com", "Password123!"
     )
     user = session.query(models.User).filter(models.User.email == "epochcredit@example.com").first()
@@ -326,7 +319,7 @@ def test_reconciliation_adjustment_rejected_before_target_wallet_epoch(client, s
     route always uses today's date."""
     from app.services.wallet_service import WalletService
 
-    headers = create_user_and_token(
+    create_user_and_token(
         client, "epochrecon", "epochrecon@example.com", "Password123!"
     )
     user = session.query(models.User).filter(models.User.email == "epochrecon@example.com").first()

@@ -20,10 +20,9 @@ the domain service that calls into this module.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, tzinfo
 from typing import Any
 
-from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app import models

@@ -144,7 +144,6 @@ def test_transfer_updates_both_wallet_balances(client, session):
 def test_transfer_date_is_user_local(client, session):
     """Transfer dates are explicit user-provided dates, not server-local
     defaults."""
-    from datetime import datetime, timezone as dt_timezone
     from tests.helpers import TEST_WALLET_EPOCH
 
     headers = create_user_and_token(
