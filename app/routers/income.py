@@ -14,6 +14,7 @@ from ..services.financial_event_ledger_service import (
     PostEntityLeg,
     PostWalletLeg,
     post_financial_event,
+    validate_wallet_epochs,
 )
 from ..services.wallet_service import WalletService
 from .wallets import _get_owned_wallet_or_404
@@ -726,6 +727,14 @@ def create_income_entry(
         amount=int(payload.amount),
         wallet_id=payload.wallet_id,
         wallet_allocations=payload.wallet_allocations,
+    )
+
+    # Enforce per-wallet epoch boundaries
+    touched_wallet_ids = {wallet.id for wallet, _ in wallet_allocations}
+    validate_wallet_epochs(
+        db,
+        wallet_ids=touched_wallet_ids,
+        event_date=payload.date,
     )
 
     entry = _record_income_event(

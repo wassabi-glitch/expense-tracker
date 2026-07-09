@@ -10,6 +10,10 @@ TEST_CATEGORY_MAP = {
     "Other": "Utilities",
 }
 TEST_TIMEZONE = "Asia/Tashkent"
+# A date far enough in the past that existing tests with backdated expense dates
+# are not blocked by wallet-epoch validation.  Dedicated epoch tests create
+# wallets with explicit recent creation dates to control the boundary.
+TEST_WALLET_EPOCH = datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
 
 
 def _normalize_test_category(category: str) -> str:
@@ -46,7 +50,8 @@ def create_user_and_token(client, username, email, password):
                     accounting_type=models.AccountingType.ASSET,
                     initial_balance=10_000_000, # Give them some test money
                     current_balance=10_000_000,
-                    is_default=True
+                    is_default=True,
+                    created_at=TEST_WALLET_EPOCH,
                 )
                 db.add(default_wallet)
                 db.commit()

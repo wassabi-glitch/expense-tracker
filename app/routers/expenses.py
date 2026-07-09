@@ -29,6 +29,7 @@ from ..services.financial_event_ledger_service import (
     PostEntityLeg,
     PostWalletLeg,
     post_financial_event,
+    void_financial_event,
 )
 from ..services.session_draft_service import (
     build_session_draft_out,
@@ -1951,54 +1952,13 @@ def delete_expense(
 
     budget_ids = {leg.budget_id for leg in event.entity_legs if leg.budget_id}
 
-    void_date = today_in_tz(user_tz)
-
-    # Build counter-balancing wallet and entity legs from the original event
-    reversal_wallet_legs = [
-        PostWalletLeg(
-            wallet_id=leg.wallet_id,
-            amount=-int(leg.amount),
-        )
-        for leg in event.wallet_legs
-    ]
-    reversal_entity_legs = [
-        PostEntityLeg(
-            label=leg.label,
-            amount=-int(leg.amount),
-            original_amount=(
-                -int(leg.original_amount)
-                if leg.original_amount is not None
-                else None
-            ),
-            category=leg.category,
-            budget_id=leg.budget_id,
-            subcategory_id=leg.subcategory_id,
-            project_id=leg.project_id,
-            project_subcategory_id=leg.project_subcategory_id,
-        )
-        for leg in event.entity_legs
-    ]
-
-    reversal = post_financial_event(
+    void_financial_event(
         db,
+        event=event,
         owner_id=current_user.id,
-        title=f"Void {event.title}",
-        event_type=event.event_type,
-        date=void_date,
-        status=models.FinancialEventStatus.REVERSAL,
-        description=f"Reversal for voided expense #{event.id}",
-        reference_type=models.ReferenceType.VOID_REVERSAL,
-        linked_event_id=event.id,
-        reverses_event_id=event.id,
-        entity_category=None,
-        wallet_legs=reversal_wallet_legs,
-        entity_legs=reversal_entity_legs,
+        user_tz=user_tz,
+        void_reason="Deleted by user",
     )
-
-    event.status = models.FinancialEventStatus.VOIDED
-    event.voided_at = datetime.now(timezone.utc)
-    event.void_reason = "Deleted by user"
-    event.void_reversal_event_id = reversal.id
 
     db.commit()
 

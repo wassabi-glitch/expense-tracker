@@ -20,13 +20,45 @@ the domain service that calls into this module.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone, tzinfo
+from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app import models
 from app.services.wallet_service import WalletService
 from app.services.wallet_value_service import classify_outflow
+from app.timezone import today_in_tz
+
+
+# ---------------------------------------------------------------------------
+# Domain exceptions
+# ---------------------------------------------------------------------------
+
+
+class LedgerError(Exception):
+    """Base exception for ledger-domain invariants.
+
+    Callers in the web layer can catch this and translate to an HTTPException.
+    """
+
+    def __init__(self, detail: str | dict[str, Any]) -> None:
+        self.detail = detail
+        super().__init__(detail if isinstance(detail, str) else detail.get("code", ""))
+
+
+class EventNotPostedError(LedgerError):
+    """Raised when an operation requires a POSTED event but the event has
+    already been voided or is itself a reversal."""
+
+
+class WalletEpochError(LedgerError):
+    """Raised when a money-movement date is before the relevant wallet's
+    creation date.
+
+    The *detail* dict carries ``code``, ``wallet_id``, ``wallet_name``,
+    ``wallet_epoch``, ``requested_date``, and ``message``.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -215,3 +247,148 @@ def post_financial_event(
 
     db.flush()
     return event
+
+
+# ---------------------------------------------------------------------------
+# Void / reversal
+# ---------------------------------------------------------------------------
+
+
+def void_financial_event(
+    db: Session,
+    *,
+    event: models.FinancialEvent,
+    owner_id: int,
+    user_tz: tzinfo,
+    void_reason: str = "Deleted by user",
+) -> models.FinancialEvent:
+    """Void a posted FinancialEvent by creating a counter-balancing reversal.
+
+    This is the **single shared application-level seam** for voiding posted
+    financial events.  It preserves the original event, creates a linked
+    REVERSAL event with counter-balancing wallet and entity ledger legs, and
+    marks the original as VOIDED.
+
+    Callers are responsible for any domain-specific pre-checks (session
+    eligibility, refund/asset/dependency locks, archived-wallet checks, etc.).
+
+    Returns the newly created reversal FinancialEvent.
+
+    Raises
+    ------
+    EventNotPostedError
+        If *event* is not in POSTED status (second void attempt).
+    """
+    if event.status != models.FinancialEventStatus.POSTED:
+        raise EventNotPostedError("ledger.event_not_posted")
+
+    void_date = today_in_tz(user_tz)
+
+    # Build counter-balancing wallet legs (negate every amount)
+    reversal_wallet_legs: list[PostWalletLeg] = []
+    for leg in event.wallet_legs:
+        reversal_wallet_legs.append(
+            PostWalletLeg(
+                wallet_id=leg.wallet_id,
+                amount=-int(leg.amount),
+            )
+        )
+
+    # Build counter-balancing entity legs (negate amounts, preserve links)
+    reversal_entity_legs: list[PostEntityLeg] = []
+    for leg in event.entity_legs:
+        reversal_entity_legs.append(
+            PostEntityLeg(
+                label=leg.label,
+                amount=-int(leg.amount),
+                original_amount=(
+                    -int(leg.original_amount)
+                    if leg.original_amount is not None
+                    else None
+                ),
+                category=leg.category,
+                budget_id=leg.budget_id,
+                subcategory_id=leg.subcategory_id,
+                project_id=leg.project_id,
+                project_subcategory_id=leg.project_subcategory_id,
+                debt_id=leg.debt_id,
+                payment_plan_id=leg.payment_plan_id,
+                payment_plan_payment_id=leg.payment_plan_payment_id,
+                income_source_id=leg.income_source_id,
+            )
+        )
+
+    reversal = post_financial_event(
+        db,
+        owner_id=owner_id,
+        title=f"Void {event.title}",
+        event_type=event.event_type,
+        date=void_date,
+        status=models.FinancialEventStatus.REVERSAL,
+        description=f"Reversal for voided {event.event_type.value.lower()} #{event.id}",
+        reference_type=models.ReferenceType.VOID_REVERSAL,
+        linked_event_id=event.id,
+        reverses_event_id=event.id,
+        entity_category=None,
+        wallet_legs=reversal_wallet_legs,
+        entity_legs=reversal_entity_legs,
+    )
+
+    event.status = models.FinancialEventStatus.VOIDED
+    event.voided_at = datetime.now(timezone.utc)
+    event.void_reason = void_reason
+    event.void_reversal_event_id = reversal.id
+
+    return reversal
+
+
+# ---------------------------------------------------------------------------
+# Wallet epoch validation
+# ---------------------------------------------------------------------------
+
+
+def validate_wallet_epochs(
+    db: Session,
+    *,
+    wallet_ids: set[int],
+    event_date: date,
+) -> None:
+    """Validate that *event_date* is not before any wallet's creation date.
+
+    Wallet epochs are per-wallet: each wallet's ``created_at`` date is the
+    earliest allowed date for money movement touching that wallet.  Same-day
+    activity is allowed.
+
+    Raises
+    ------
+    WalletEpochError
+        If any wallet's epoch is after *event_date*, with a user-facing
+        message that names the wallet and explains the boundary.
+    """
+    if not wallet_ids:
+        return
+
+    wallets = (
+        db.query(models.Wallet)
+        .filter(models.Wallet.id.in_(wallet_ids))
+        .all()
+    )
+
+    for wallet in wallets:
+        if wallet.created_at is None:
+            continue
+        wallet_epoch = wallet.created_at.date()
+        if event_date < wallet_epoch:
+            raise WalletEpochError({
+                "code": "wallets.date_before_epoch",
+                "wallet_id": wallet.id,
+                "wallet_name": wallet.name,
+                "wallet_epoch": wallet_epoch.isoformat(),
+                "requested_date": event_date.isoformat(),
+                "message": (
+                    f"The date {event_date.isoformat()} is before "
+                    f"wallet '{wallet.name}' started tracking on "
+                    f"{wallet_epoch.isoformat()}. "
+                    f"Same-day activity is allowed."
+                ),
+            })

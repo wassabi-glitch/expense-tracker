@@ -555,6 +555,13 @@ def _execute_wallet_transfer(
         raise e
     except Exception as e:
         db.rollback()
+        # Preserve structured detail from LedgerError subclasses
+        from app.domains.ledger import LedgerError
+        if isinstance(e, LedgerError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=e.detail,
+            )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 

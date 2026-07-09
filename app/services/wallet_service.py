@@ -175,6 +175,15 @@ class WalletService:
             PostEntityLeg,
             PostWalletLeg,
             post_financial_event,
+            validate_wallet_epochs,
+        )
+
+        # Validate wallet epoch for reconciliation adjustments
+        reconcile_date = reconciliation_date or date.today()
+        validate_wallet_epochs(
+            db,
+            wallet_ids={wallet_id},
+            event_date=reconcile_date,
         )
 
         return post_financial_event(
@@ -182,7 +191,7 @@ class WalletService:
             owner_id=owner_id,
             title="Balance Adjustment",
             event_type=models.TransactionType.ADJUSTMENT,
-            date=reconciliation_date or date.today(),
+            date=reconcile_date,
             description=note,
             entity_category=None,
             wallet_legs=[
@@ -228,6 +237,14 @@ class WalletService:
             PostEntityLeg,
             PostWalletLeg,
             post_financial_event,
+            validate_wallet_epochs,
+        )
+
+        # Validate both source and destination wallet epochs
+        validate_wallet_epochs(
+            db,
+            wallet_ids={from_wallet_id, to_wallet_id},
+            event_date=transaction_date or dt_date.today(),
         )
 
         # Wallet legs sorted by wallet_id for deterministic lock ordering

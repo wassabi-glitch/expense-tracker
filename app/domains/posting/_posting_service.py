@@ -18,6 +18,7 @@ from app.domains.ledger._ledger_service import (
     PostEntityLeg,
     PostWalletLeg,
     post_financial_event,
+    validate_wallet_epochs,
 )
 from app.services.goal_funding_service import validate_wallet_goal_protection_for_outflow
 from app.services.session_draft_service import validate_session_item_links
@@ -144,6 +145,14 @@ def post_expense_event(
         amount=int(amount),
         wallet_id=wallet_id,
         wallet_allocations=wallet_allocations,
+    )
+
+    # Enforce per-wallet epoch boundaries before any money moves
+    touched_wallet_ids = {wallet.id for wallet, _ in resolved_wallet_allocations}
+    validate_wallet_epochs(
+        db,
+        wallet_ids=touched_wallet_ids,
+        event_date=expense_date,
     )
 
     if enforce_goal_protection:
