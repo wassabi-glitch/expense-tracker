@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from app import models
 from app.redis_rate_limiter import redis_client
-from tests.helpers import create_budget, create_expense, create_user_and_token, user_timezone_today
+from tests.helpers import TEST_WALLET_EPOCH, create_budget, create_expense, create_user_and_token, user_timezone_today
 
 
 def _get_user(session, email: str) -> models.User:
@@ -30,6 +30,7 @@ def _create_wallet(session, owner_id: int, name: str, balance: int = 1_000_000) 
         initial_balance=balance,
         current_balance=balance,
         is_default=False,
+        created_at=TEST_WALLET_EPOCH,
     )
     session.add(wallet)
     session.commit()

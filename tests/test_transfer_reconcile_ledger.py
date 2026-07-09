@@ -144,11 +144,21 @@ def test_transfer_updates_both_wallet_balances(client, session):
 def test_transfer_date_is_user_local(client, session):
     """Transfer dates are explicit user-provided dates, not server-local
     defaults."""
+    from datetime import datetime, timezone as dt_timezone
+    from tests.helpers import TEST_WALLET_EPOCH
+
     headers = create_user_and_token(
         client, "txregress4", "txregress4@example.com", "Password123!"
     )
     src = _default_wallet(client, headers)
     dst = _wallet(client, headers, name="Dest")
+
+    # Backdate wallet epochs so the transfer date 2026-06-15 is allowed.
+    # Wallets created via the API get server_default=func.now().
+    for wid in [src["id"], dst["id"]]:
+        w = session.query(models.Wallet).filter(models.Wallet.id == wid).first()
+        w.created_at = TEST_WALLET_EPOCH
+    session.commit()
 
     explicit_date = "2026-06-15"
     res = client.post(

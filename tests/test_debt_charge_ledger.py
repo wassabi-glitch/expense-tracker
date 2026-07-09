@@ -12,7 +12,7 @@ Verifies:
 """
 
 from app import models
-from tests.helpers import create_budget, create_user_and_token, user_timezone_today
+from tests.helpers import TEST_WALLET_EPOCH, create_budget, create_user_and_token, user_timezone_today
 
 
 def _default_wallet(client, headers):
@@ -30,6 +30,7 @@ def _create_wallet(session, user_id, name="Second Wallet", balance=2_000_000):
         initial_balance=balance,
         current_balance=balance,
         is_default=False,
+        created_at=TEST_WALLET_EPOCH,
     )
     session.add(wallet)
     session.commit()

@@ -18,6 +18,7 @@ from datetime import date, datetime, timezone
 from unittest import mock
 from zoneinfo import ZoneInfo
 
+from app import models
 from tests.helpers import (
     TEST_TIMEZONE,
     create_budget,
@@ -656,8 +657,10 @@ class TestIssue5RecurringTimezoneBoundary:
 class TestIssue5WalletTransferTimezoneBoundary:
     """Wallet transfer date behavior is explicit and user-local."""
 
-    def test_transfer_preserves_explicit_date(self, client):
+    def test_transfer_preserves_explicit_date(self, client, session):
         """Transfer with explicit date preserves it."""
+        from tests.helpers import TEST_WALLET_EPOCH
+
         headers = create_user_and_token(
             client, "tztran1", "tztran1@example.com", "Password123!"
         )
@@ -676,6 +679,13 @@ class TestIssue5WalletTransferTimezoneBoundary:
         )
         assert second.status_code == 201, second.text
         wallet_b = second.json()["id"]
+
+        # Backdate wallet epochs so the transfer date 2026-07-05 is allowed.
+        # Wallets created via API get server_default=func.now().
+        for wid in [wallet_a, wallet_b]:
+            w = session.query(models.Wallet).filter(models.Wallet.id == wid).first()
+            w.created_at = TEST_WALLET_EPOCH
+        session.commit()
 
         transfer_date = date(2026, 7, 5)
         res = client.post(

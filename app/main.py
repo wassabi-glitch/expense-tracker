@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, Request
 # pyrefly: ignore [missing-import]
 from fastapi.middleware.cors import CORSMiddleware
 # pyrefly: ignore [missing-import]
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 # pyrefly: ignore [missing-import]
 from sqlalchemy import text
 # pyrefly: ignore [missing-import]
@@ -17,6 +17,9 @@ from .models import ExpenseCategory
 from config import settings
 
 from contextlib import asynccontextmanager
+
+from app.domains.ledger import LedgerError
+
 logger = logging.getLogger(__name__)
 try:
     from app.scheduler import start_scheduler
@@ -96,6 +99,12 @@ async def add_security_headers(request: Request, call_next):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
     return response
+
+
+@app.exception_handler(LedgerError)
+async def ledger_error_handler(_request: Request, exc: LedgerError):
+    """Map domain-level LedgerError subclasses to HTTP 400 responses."""
+    return JSONResponse(status_code=400, content={"detail": exc.detail})
 
 
 @app.get("/", tags=["Root"])

@@ -9,10 +9,14 @@ from app.domains.ledger import (
     PostEntityLeg,
     PostWalletLeg,
     post_financial_event,
+    validate_wallet_epochs,
+    void_financial_event,
 )
 
 __all__ = [
     "post_financial_event",
+    "void_financial_event",
+    "validate_wallet_epochs",
     "PostWalletLeg",
     "PostEntityLeg",
 ]

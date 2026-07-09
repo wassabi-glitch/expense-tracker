@@ -2,7 +2,7 @@ from datetime import date
 
 from app import models
 from app.services.goal_funding_service import get_goal_funded_amount, get_goal_wallet_funded_amount
-from tests.helpers import create_user_and_token
+from tests.helpers import TEST_WALLET_EPOCH, create_user_and_token
 
 
 def _get_user(session, email: str) -> models.User:
@@ -29,6 +29,7 @@ def _create_wallet(
         current_balance=initial_balance,
         is_active=is_active,
         is_default=is_default,
+        created_at=TEST_WALLET_EPOCH,
     )
     session.add(wallet)
     session.commit()

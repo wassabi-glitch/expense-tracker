@@ -100,11 +100,18 @@ def test_isolated_project_subcategory_requires_allocated_parent(client, test_use
     assert subcat_resp.json()["detail"] == "projects.isolated_subcategory_parent_category_not_allocated"
 
 
-def test_isolated_project_subcategory_archive_on_delete_if_spent(client, test_user):
+def test_isolated_project_subcategory_archive_on_delete_if_spent(client, test_user, session):
     headers = test_user
 
     wallet_resp = client.post("/wallets", json={"name": "Cash", "initial_balance": 1000}, headers=headers)
     wallet_id = wallet_resp.json()["id"]
+
+    # Backdate wallet epoch so the expense date 2024-01-02 is allowed
+    from app import models as _models
+    from tests.helpers import TEST_WALLET_EPOCH
+    w = session.query(_models.Wallet).filter(_models.Wallet.id == wallet_id).first()
+    w.created_at = TEST_WALLET_EPOCH
+    session.commit()
 
     proj_resp = client.post("/projects", json={
         "title": "Kitchen",
