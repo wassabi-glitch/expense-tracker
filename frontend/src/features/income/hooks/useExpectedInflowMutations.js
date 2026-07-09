@@ -12,17 +12,13 @@ import {
   writeOffExpectedInflow,
 } from "@/lib/api";
 import { expectedInflowKeys } from "./useExpectedInflowQueries";
+import { invalidateExpectedInflowViews } from "@/lib/cacheInvalidation";
 
 
 async function invalidateExpectedInflowQueries(queryClient) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: expectedInflowKeys.all }),
-    queryClient.invalidateQueries({ queryKey: ["budgets"] }),
-    queryClient.invalidateQueries({ queryKey: ["money-in"] }),
-    queryClient.invalidateQueries({ queryKey: ["wallets"] }),
-    queryClient.invalidateQueries({ queryKey: ["debts"] }),
-    queryClient.invalidateQueries({ queryKey: ["assets"] }),
-    queryClient.invalidateQueries({ queryKey: ["expenses"] }),
+    invalidateExpectedInflowViews(queryClient),
   ]);
 }
 

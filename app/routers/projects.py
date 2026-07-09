@@ -33,7 +33,7 @@ from ..services.project_service import (
     validate_project_update_rules,
     validate_overlay_project_deletion_target,
 )
-from ..services.isolated_project_service import (
+from app.domains.projects._quarantine import (  # ADR-0022 quarantine
     apply_isolated_project_category_allocation,
     apply_isolated_project_rebalance,
     apply_isolated_project_subcategory_allocation,

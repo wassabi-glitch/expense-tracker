@@ -37,6 +37,9 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { localizeApiError } from "@/lib/errorMessages";
 import { formatAmountInput, parseAmountInput } from "@/lib/format";
 import { useToast } from "@/lib/context/ToastContext";
+import { isBudgetRequiredError, extractBudgetMonth } from "@/lib/budgetInterceptor";
+import { useBudgetRepair } from "@/features/budgets/hooks/useBudgetRepair";
+import { BudgetRepairDialog } from "@/features/budgets/components/BudgetRepairDialog";
 
 function ResponsiveSessionShell({ compact, open, onOpenChange, title, description, children, footer }) {
   if (compact) {
@@ -87,6 +90,17 @@ export default function SessionComposer({
   const toast = useToast();
   const queryClient = useQueryClient();
   const [actionError, setActionError] = React.useState("");
+  const [repairAmount, setRepairAmount] = React.useState("");
+  const budgetRepair = useBudgetRepair();
+
+  // Pre-fill repair amount when the dialog opens
+  React.useEffect(() => {
+    if (budgetRepair.prompt) {
+      setRepairAmount(formatAmountInput(String(budgetRepair.prompt.suggestedAmount || 0)));
+    } else {
+      setRepairAmount("");
+    }
+  }, [budgetRepair.prompt]);
 
   const [headerTitle, setHeaderTitle] = React.useState("");
   const [headerDescription, setHeaderDescription] = React.useState("");
@@ -450,7 +464,30 @@ export default function SessionComposer({
       toast.success(t("expenses.sessionFinalized", { defaultValue: "Session finalized" }));
       onOpenChange(false);
     },
-    onError: (error) => setActionError(localizeApiError(error.message, t) || error.message),
+    onError: (error) => {
+      if (isBudgetRequiredError(error)) {
+        // Extract category/date from the first draft item for repair context
+        const firstItem = draft?.items?.[0];
+        const category = firstItem?.category || "";
+        const date = firstItem?.date || headerDate || todayISO;
+        const amount = firstItem?.amount
+          ? Math.abs(Number(firstItem.amount))
+          : 0;
+        const { budgetYear, budgetMonth } = extractBudgetMonth(date);
+        budgetRepair.open({
+          category,
+          budgetYear,
+          budgetMonth,
+          suggestedAmount: amount,
+          date,
+          onReplay: async () => {
+            await finalizeSessionDraft(draft.id);
+          },
+        });
+        return;
+      }
+      setActionError(localizeApiError(error.message, t) || error.message);
+    },
   });
 
   const handleCreateDraft = async () => {
@@ -641,6 +678,7 @@ export default function SessionComposer({
   );
 
   return (
+    <>
     <ResponsiveSessionShell
       compact={compact}
       open={open}
@@ -1102,5 +1140,18 @@ export default function SessionComposer({
         </div>
       )}
     </ResponsiveSessionShell>
+
+      <BudgetRepairDialog
+        open={budgetRepair.isOpen}
+        onOpenChange={(open) => { if (!open) budgetRepair.close(); }}
+        repairPrompt={budgetRepair.prompt}
+        repairAmount={repairAmount}
+        onAmountChange={(raw) => setRepairAmount(formatAmountInput(raw))}
+        repairPending={budgetRepair.pending}
+        repairError={budgetRepair.error}
+        onClose={budgetRepair.close}
+        onCreateBudget={() => budgetRepair.createBudgetAndReplay(parseAmountInput(repairAmount))}
+      />
+    </>
   );
 }

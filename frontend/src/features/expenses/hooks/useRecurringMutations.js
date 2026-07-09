@@ -12,6 +12,10 @@ import {
 import { useToast } from "@/lib/context/ToastContext";
 import { formatUzs } from "@/lib/format";
 import { localizeApiError } from "@/lib/errorMessages";
+import {
+    invalidateRecurringViews,
+    invalidateRecurringConfirmationViews,
+} from "@/lib/cacheInvalidation";
 
 export function useCreateRecurringMutation() {
     const { t } = useTranslation();
@@ -21,11 +25,7 @@ export function useCreateRecurringMutation() {
     return useMutation({
         mutationFn: createRecurringExpense,
         onSuccess: async (data) => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["recurring", "list"] }),
-                queryClient.invalidateQueries({ queryKey: ["recurring", "occurrences"] }),
-                queryClient.invalidateQueries({ queryKey: ["dashboard", "recurring"] }),
-            ]);
+            await invalidateRecurringViews(queryClient);
             toast.success(
                 t("toasts.recurring.created"),
                 t("toasts.recurring.created_detail", { title: data.title, amount: formatUzs(data.amount) })
@@ -46,11 +46,7 @@ export function useUpdateRecurringMutation() {
     return useMutation({
         mutationFn: ({ id, payload }) => updateRecurringExpense(id, payload),
         onSuccess: async (data) => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["recurring", "list"] }),
-                queryClient.invalidateQueries({ queryKey: ["recurring", "occurrences"] }),
-                queryClient.invalidateQueries({ queryKey: ["dashboard", "recurring"] }),
-            ]);
+            await invalidateRecurringViews(queryClient);
             toast.success(
                 t("toasts.recurring.updated"),
                 t("toasts.recurring.updated_detail", { title: data.title, amount: formatUzs(data.amount) })
@@ -71,11 +67,7 @@ export function useDeleteRecurringMutation() {
     return useMutation({
         mutationFn: deleteRecurringExpense,
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["recurring", "list"] }),
-                queryClient.invalidateQueries({ queryKey: ["recurring", "occurrences"] }),
-                queryClient.invalidateQueries({ queryKey: ["dashboard", "recurring"] }),
-            ]);
+            await invalidateRecurringViews(queryClient);
             toast.success(t("toasts.recurring.deleted"));
         },
         onError: (error) => {
@@ -93,11 +85,7 @@ export function useToggleRecurringMutation() {
     return useMutation({
         mutationFn: ({ id, status }) => patchRecurringActive(id, status),
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["recurring", "list"] }),
-                queryClient.invalidateQueries({ queryKey: ["recurring", "occurrences"] }),
-                queryClient.invalidateQueries({ queryKey: ["dashboard", "recurring"] }),
-            ]);
+            await invalidateRecurringViews(queryClient);
         },
         onError: (error) => {
             const msg = localizeApiError(error.message, t) || error.message;
@@ -114,11 +102,7 @@ export function useSkipRecurringMutation() {
     return useMutation({
         mutationFn: ({ id, payload }) => skipRecurringOccurrence(id, payload),
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["recurring", "list"] }),
-                queryClient.invalidateQueries({ queryKey: ["recurring", "occurrences"] }),
-                queryClient.invalidateQueries({ queryKey: ["dashboard", "recurring"] }),
-            ]);
+            await invalidateRecurringViews(queryClient);
             toast.success(t("toasts.recurring.skipped"));
         },
         onError: (error) => {
@@ -137,9 +121,7 @@ export function useChangeRecurringWalletMutation() {
     return useMutation({
         mutationFn: ({ id, walletId }) => changeRecurringWallet(id, walletId),
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["recurring", "list"] }),
-            ]);
+            await invalidateRecurringViews(queryClient);
             toast.success(t("toasts.recurring.walletChanged"));
         },
         onError: (error) => {
@@ -157,13 +139,7 @@ export function useConfirmRecurringOccurrenceMutation() {
     return useMutation({
         mutationFn: ({ id, payload }) => confirmRecurringOccurrence(id, payload),
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["recurring", "occurrences"] }),
-                queryClient.invalidateQueries({ queryKey: ["recurring", "list"] }),
-                queryClient.invalidateQueries({ queryKey: ["dashboard", "recurring"] }),
-                queryClient.invalidateQueries({ queryKey: ["wallets"] }),
-                queryClient.invalidateQueries({ queryKey: ["expenses", "list"] }),
-            ]);
+            await invalidateRecurringConfirmationViews(queryClient);
             toast.success(t("toasts.recurring.confirmed"));
         },
         onError: (error) => {

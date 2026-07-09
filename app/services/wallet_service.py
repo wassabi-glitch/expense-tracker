@@ -149,53 +149,70 @@ class WalletService:
         owner_id: int,
         wallet_id: int,
         target_balance: int,
-        note: str | None = None
+        note: str | None = None,
+        reconciliation_date: date | None = None,
     ) -> models.FinancialEvent | None:
         """
         Calculates the delta between the ledger balance and the actual balance,
-        and logs a unified ADJUSTMENT transaction to sync them.
+        and posts an ADJUSTMENT FinancialEvent through the ledger seam to sync
+        them.
         """
         wallet = db.query(models.Wallet).filter(
-            models.Wallet.id == wallet_id, 
+            models.Wallet.id == wallet_id,
             models.Wallet.owner_id == owner_id
         ).with_for_update().first()
-        
+
         if not wallet:
             raise HTTPException(status_code=404, detail="Wallet not found")
 
         current_balance = wallet.current_balance
         delta = target_balance - current_balance
-        
+
         if delta == 0:
-            return None # Already synced
-            
-        return WalletService.record_transaction(
-            db=db,
+            return None  # Already synced
+
+        from .financial_event_ledger_service import (
+            PostEntityLeg,
+            PostWalletLeg,
+            post_financial_event,
+        )
+
+        return post_financial_event(
+            db,
             owner_id=owner_id,
-            wallet_id=wallet_id,
-            transaction_type=models.TransactionType.ADJUSTMENT,
-            amount_delta=delta,
             title="Balance Adjustment",
-            description=note
+            event_type=models.TransactionType.ADJUSTMENT,
+            date=reconciliation_date or date.today(),
+            description=note,
+            entity_category=None,
+            wallet_legs=[
+                PostWalletLeg(wallet_id=wallet_id, amount=delta),
+            ],
+            entity_legs=[
+                PostEntityLeg(amount=abs(delta)),
+            ],
         )
 
     @staticmethod
     def transfer_funds(
-        db: Session, 
-        owner_id: int, 
-        from_wallet_id: int, 
-        to_wallet_id: int, 
-        amount: int, 
+        db: Session,
+        owner_id: int,
+        from_wallet_id: int,
+        to_wallet_id: int,
+        amount: int,
         description: str | None = None,
         transaction_date: date | None = None
     ) -> models.FinancialEvent:
         """
-        Atomic Transfer Engine tracking a single Ledger row across two wallets.
+        Atomic Transfer Engine posting through the FinancialEventLedger seam.
+
+        Wallet rows are locked in sorted order before posting to prevent
+        deadlocks when concurrent transfers involve the same wallet pair.
         """
         if amount <= 0:
             raise HTTPException(status_code=400, detail="Transfer amount must be positive.")
 
-        # 1. Lock in consistent order to prevent Database Deadlocks
+        # Lock in consistent order to prevent Database Deadlocks
         first_id, second_id = sorted([from_wallet_id, to_wallet_id])
         locked_wallets_by_id: dict[int, models.Wallet] = {}
         for wallet_id in (first_id, second_id):
@@ -206,43 +223,33 @@ class WalletService:
         from_wallet = locked_wallets_by_id[from_wallet_id]
         to_wallet = locked_wallets_by_id[to_wallet_id]
 
-        # 2. Move the money mathematically
-        WalletService.adjust_balance(db, from_wallet_id, -amount)
-        WalletService.adjust_balance(db, to_wallet_id, amount)
-
-        # 3. Pile 1: Financial Event
         from datetime import date as dt_date
-        event = models.FinancialEvent(
+        from .financial_event_ledger_service import (
+            PostEntityLeg,
+            PostWalletLeg,
+            post_financial_event,
+        )
+
+        # Wallet legs sorted by wallet_id for deterministic lock ordering
+        # inside the ledger seam.
+        wallet_legs = sorted(
+            [
+                PostWalletLeg(wallet_id=from_wallet_id, amount=-amount),
+                PostWalletLeg(wallet_id=to_wallet_id, amount=amount),
+            ],
+            key=lambda leg: leg.wallet_id,
+        )
+
+        return post_financial_event(
+            db,
             owner_id=owner_id,
             title=f"{from_wallet.name} \u2192 {to_wallet.name}",
-            description=description,
             event_type=models.TransactionType.TRANSFER,
-            date=transaction_date or dt_date.today()
+            date=transaction_date or dt_date.today(),
+            description=description,
+            entity_category=None,
+            wallet_legs=wallet_legs,
+            entity_legs=[
+                PostEntityLeg(amount=amount),
+            ],
         )
-        db.add(event)
-        db.flush()
-
-        # 4. Pile 2: Wallet Ledger (2 Legs)
-        leg_out = models.WalletLedger(
-            owner_id=owner_id,
-            event_id=event.id,
-            wallet_id=from_wallet_id,
-            amount=-amount
-        )
-        leg_in = models.WalletLedger(
-            owner_id=owner_id,
-            event_id=event.id,
-            wallet_id=to_wallet_id,
-            amount=amount
-        )
-        db.add_all([leg_out, leg_in])
-        
-        # 5. Pile 3: Entity Ledger (Just indicating Transfer)
-        entity_ledger = models.EntityLedger(
-            event_id=event.id,
-            amount=amount
-        )
-        db.add(entity_ledger)
-        
-        db.flush()
-        return event

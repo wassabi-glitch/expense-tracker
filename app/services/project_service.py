@@ -389,7 +389,7 @@ def validate_project_update_rules(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="projects.end_before_linked_expense")
 
     if next_project_type == models.ProjectType.ISOLATED:
-        from .isolated_project_service import validate_project_limit_sum
+        from app.domains.projects._quarantine import validate_project_limit_sum  # ADR-0022 quarantine
 
         validate_project_limit_sum(next_funding_limit, list(project.isolated_category_allocations))
 
@@ -411,7 +411,7 @@ def build_project_detail(
 ) -> schemas.ProjectBudgetOut:
     project_type = get_project_type(project)
     is_isolated = project_type == models.ProjectType.ISOLATED
-    from .isolated_project_service import (
+    from app.domains.projects._quarantine import (  # ADR-0022 quarantine
         get_project_category_allocated_amount,
         get_project_funding_limit,
         get_project_wallet_allocated_amount,

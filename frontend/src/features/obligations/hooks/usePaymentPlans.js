@@ -16,24 +16,7 @@ import {
 } from "@/lib/api";
 import { useToast } from "@/lib/context/ToastContext";
 import { localizeApiError } from "@/lib/errorMessages";
-
-function invalidatePaymentPlanSideEffects(queryClient) {
-  return Promise.all([
-    queryClient.invalidateQueries({ queryKey: ["payment_plans"] }),
-    queryClient.invalidateQueries({ queryKey: ["payment-plans"] }),
-    queryClient.invalidateQueries({ queryKey: ["expenses"] }),
-    queryClient.invalidateQueries({ queryKey: ["budgets"] }),
-    queryClient.invalidateQueries({ queryKey: ["budgets", "timeline"] }),
-    queryClient.invalidateQueries({ queryKey: ["wallets"] }),
-    queryClient.invalidateQueries({ queryKey: ["goals"] }),
-    queryClient.invalidateQueries({ queryKey: ["assets"] }),
-    queryClient.invalidateQueries({ queryKey: ["users", "me"] }),
-    queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-    queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] }),
-    queryClient.invalidateQueries({ queryKey: ["analytics"] }),
-    queryClient.invalidateQueries({ queryKey: ["notifications"] }),
-  ]);
-}
+import { invalidatePaymentPlanViews } from "@/lib/cacheInvalidation";
 
 export function usePaymentPlanSummaryQuery() {
   return useQuery({
@@ -63,7 +46,7 @@ export function useCreatePaymentPlanMutation() {
   return useMutation({
     mutationFn: createPaymentPlan,
     onSuccess: async () => {
-      await invalidatePaymentPlanSideEffects(queryClient);
+      await invalidatePaymentPlanViews(queryClient);
     },
   });
 }
@@ -75,7 +58,7 @@ export function useUpdatePaymentPlanMutation() {
   return useMutation({
     mutationFn: ({ planId, payload }) => updatePaymentPlan(planId, payload),
     onSuccess: async (_data, variables) => {
-      await invalidatePaymentPlanSideEffects(queryClient);
+      await invalidatePaymentPlanViews(queryClient);
       if (variables?.planId) {
         await queryClient.invalidateQueries({ queryKey: ["payment_plans", "details", variables.planId] });
       }
@@ -95,7 +78,7 @@ export function useDeletePaymentPlanMutation() {
   return useMutation({
     mutationFn: (planId) => deletePaymentPlan(planId),
     onSuccess: async () => {
-      await invalidatePaymentPlanSideEffects(queryClient);
+      await invalidatePaymentPlanViews(queryClient);
       toast.success(t("payment_plans.toasts.deleted", { defaultValue: "Payment plan deleted" }));
     },
     onError: (error) => {
@@ -110,7 +93,7 @@ export function useRecordPaymentPlanPaymentMutation() {
   return useMutation({
     mutationFn: ({ planId, payload }) => recordPaymentPlanPayment(planId, payload),
     onSuccess: async (_data, variables) => {
-      await invalidatePaymentPlanSideEffects(queryClient);
+      await invalidatePaymentPlanViews(queryClient);
       if (variables?.planId) {
         await queryClient.invalidateQueries({ queryKey: ["payment_plans", "details", variables.planId] });
       }
@@ -123,7 +106,7 @@ export function useMarkPaymentPlanPaymentPaidMutation() {
   return useMutation({
     mutationFn: ({ paymentId, payload }) => markPaymentPlanPaymentPaid(paymentId, payload || {}),
     onSuccess: async () => {
-      await invalidatePaymentPlanSideEffects(queryClient);
+      await invalidatePaymentPlanViews(queryClient);
     },
   });
 }
@@ -133,7 +116,7 @@ export function useAddPaymentPlanChargeMutation() {
   return useMutation({
     mutationFn: ({ planId, payload }) => addPaymentPlanCharge(planId, payload),
     onSuccess: async (_data, variables) => {
-      await invalidatePaymentPlanSideEffects(queryClient);
+      await invalidatePaymentPlanViews(queryClient);
       if (variables?.planId) {
         await queryClient.invalidateQueries({ queryKey: ["payment_plans", "details", variables.planId] });
       }
@@ -146,7 +129,7 @@ export function useWriteOffPaymentPlanPaymentMutation() {
   return useMutation({
     mutationFn: (paymentId) => writeOffPaymentPlanPayment(paymentId),
     onSuccess: async () => {
-      await invalidatePaymentPlanSideEffects(queryClient);
+      await invalidatePaymentPlanViews(queryClient);
     },
   });
 }
@@ -156,7 +139,7 @@ export function useUndoPaymentPlanPaymentWriteOffMutation() {
   return useMutation({
     mutationFn: (paymentId) => undoPaymentPlanPaymentWriteOff(paymentId),
     onSuccess: async () => {
-      await invalidatePaymentPlanSideEffects(queryClient);
+      await invalidatePaymentPlanViews(queryClient);
     },
   });
 }
@@ -166,7 +149,7 @@ export function useUndoLatestPaymentPlanPaymentMutation() {
   return useMutation({
     mutationFn: (planId) => undoLatestPaymentPlanPayment(planId),
     onSuccess: async (_data, planId) => {
-      await invalidatePaymentPlanSideEffects(queryClient);
+      await invalidatePaymentPlanViews(queryClient);
       if (planId) {
         await queryClient.invalidateQueries({ queryKey: ["payment_plans", "details", planId] });
       }

@@ -12,18 +12,7 @@ import {
 import { useToast } from "@/lib/context/ToastContext";
 import { formatUzs } from "@/lib/format";
 import { localizeApiError } from "@/lib/errorMessages";
-
-async function invalidateIncomeDerivedQueries(queryClient) {
-    await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["income"] }),
-        queryClient.invalidateQueries({ queryKey: ["money-in"] }),
-        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-        queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] }),
-        queryClient.invalidateQueries({ queryKey: ["wallets"] }),
-        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
-        queryClient.invalidateQueries({ queryKey: ["notifications"] }),
-    ]);
-}
+import { invalidateIncomeViews } from "@/lib/cacheInvalidation";
 
 export function useCreateIncomeSourceMutation() {
     const { t } = useTranslation();
@@ -32,7 +21,7 @@ export function useCreateIncomeSourceMutation() {
     return useMutation({
         mutationFn: createIncomeSource,
         onSuccess: async (data) => {
-            await invalidateIncomeDerivedQueries(queryClient);
+            await invalidateIncomeViews(queryClient);
             toast.success(t("toasts.income.sourceCreated"), data.name);
         },
         onError: (error) => {
@@ -49,7 +38,7 @@ export function useUpdateIncomeSourceMutation() {
     return useMutation({
         mutationFn: ({ sourceId, payload }) => updateIncomeSource(sourceId, payload),
         onSuccess: async (data) => {
-            await invalidateIncomeDerivedQueries(queryClient);
+            await invalidateIncomeViews(queryClient);
             toast.success(t("toasts.income.sourceUpdated"), data.name);
         },
         onError: (error) => {
@@ -66,7 +55,7 @@ export function useDeleteIncomeSourceMutation() {
     return useMutation({
         mutationFn: (sourceId) => deleteIncomeSource(sourceId),
         onSuccess: async () => {
-            await invalidateIncomeDerivedQueries(queryClient);
+            await invalidateIncomeViews(queryClient);
             toast.success(t("toasts.income.sourceDeleted"));
         },
         onError: (error) => {
@@ -115,7 +104,7 @@ export function useToggleIncomeSourceActiveMutation() {
             toast.error(t("toasts.income.failedToToggleSource"), msg);
         },
         onSuccess: async () => {
-            await invalidateIncomeDerivedQueries(queryClient);
+            await invalidateIncomeViews(queryClient);
         },
     });
 }
@@ -127,7 +116,7 @@ export function useCreateIncomeEntryMutation() {
     return useMutation({
         mutationFn: createIncomeEntry,
         onSuccess: async (data) => {
-            await invalidateIncomeDerivedQueries(queryClient);
+            await invalidateIncomeViews(queryClient);
             toast.success(
                 t("toasts.income.entryCreated"),
                 t("toasts.income.entryCreated_detail", { amount: formatUzs(data.amount) })
@@ -147,7 +136,7 @@ export function useUpdateIncomeEntryMutation() {
     return useMutation({
         mutationFn: ({ entryId, payload }) => updateIncomeEntry(entryId, payload),
         onSuccess: async (data) => {
-            await invalidateIncomeDerivedQueries(queryClient);
+            await invalidateIncomeViews(queryClient);
             toast.success(
                 t("toasts.income.entryUpdated"),
                 t("toasts.income.entryUpdated_detail", { amount: formatUzs(data.amount) })
@@ -167,7 +156,7 @@ export function useDeleteIncomeEntryMutation() {
     return useMutation({
         mutationFn: (entryId) => deleteIncomeEntry(entryId),
         onSuccess: async () => {
-            await invalidateIncomeDerivedQueries(queryClient);
+            await invalidateIncomeViews(queryClient);
             toast.success(t("toasts.income.entryDeleted"));
         },
         onError: (error) => {

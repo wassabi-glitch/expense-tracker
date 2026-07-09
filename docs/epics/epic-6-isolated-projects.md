@@ -1,7 +1,15 @@
 # Epic 6: Isolated Projects & YNAB Envelopes
 
-**Status:** Not Started  
+**Status:** Frozen / Deferred  
 **Depends On:** Epic 5 (Overlay Projects) & Epic 3 (Taxonomy)
+
+## Freeze Notice
+
+Isolated Project work is frozen by [ADR 0022](../adr/0022-freeze-isolated-projects-and-fund-project.md).
+
+Do not execute new Isolated Project slices from this epic until the core Sarflog app philosophy is stable and the team explicitly decides whether to remove Isolated Projects or promote them into a first-class protected-stash ledger.
+
+Existing code and documents may remain, but this epic is no longer an active implementation target.
 
 ## Goal
 Introduce **Isolated Projects**, a fundamentally different beast from Overlay Projects. While Overlays draw from monthly category limits, Isolated Projects require upfront wallet locks ("quarantine") to fully fund a massive project on day one. This system acts as a perfect zero-based "mini-YNAB" engine within Sarflog, decoupling liquidity from intent via the Pooled Vault architecture.

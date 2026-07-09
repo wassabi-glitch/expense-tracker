@@ -10,16 +10,7 @@ import {
 } from "@/lib/api";
 import { useToast } from "@/lib/context/ToastContext";
 import { localizeApiError } from "@/lib/errorMessages";
-
-async function invalidateAssetQueries(queryClient) {
-  await Promise.all([
-    queryClient.invalidateQueries({ queryKey: ["assets"] }),
-    queryClient.invalidateQueries({ queryKey: ["wallets"] }),
-    queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] }),
-    queryClient.invalidateQueries({ queryKey: ["expenses"] }),
-    queryClient.invalidateQueries({ queryKey: ["income"] }),
-  ]);
-}
+import { invalidateAssetViews } from "@/lib/cacheInvalidation";
 
 export function useAssetMutations() {
   const queryClient = useQueryClient();
@@ -29,7 +20,7 @@ export function useAssetMutations() {
   const createMutation = useMutation({
     mutationFn: createAsset,
     onSuccess: async (data) => {
-      await invalidateAssetQueries(queryClient);
+      await invalidateAssetViews(queryClient);
       toast.success(
         t("assets.toastCreated", { defaultValue: "Asset created" }),
         data?.title || t("assets.title", { defaultValue: "Assets" })
@@ -46,7 +37,7 @@ export function useAssetMutations() {
   const updateMutation = useMutation({
     mutationFn: ({ id, payload }) => updateAsset(id, payload),
     onSuccess: async (data) => {
-      await invalidateAssetQueries(queryClient);
+      await invalidateAssetViews(queryClient);
       toast.success(
         t("assets.toastUpdated", { defaultValue: "Asset updated" }),
         data?.title || t("assets.title", { defaultValue: "Assets" })
@@ -63,7 +54,7 @@ export function useAssetMutations() {
   const sellMutation = useMutation({
     mutationFn: ({ id, payload }) => sellAsset(id, payload),
     onSuccess: async (data) => {
-      await invalidateAssetQueries(queryClient);
+      await invalidateAssetViews(queryClient);
       toast.success(
         t("assets.toastSold", { defaultValue: "Asset sold" }),
         data?.title || t("assets.title", { defaultValue: "Assets" })
@@ -80,7 +71,7 @@ export function useAssetMutations() {
   const giftMutation = useMutation({
     mutationFn: ({ id, payload }) => giftAsset(id, payload),
     onSuccess: async (data) => {
-      await invalidateAssetQueries(queryClient);
+      await invalidateAssetViews(queryClient);
       toast.success(
         t("assets.toastGifted", { defaultValue: "Asset gifted" }),
         data?.title || t("assets.title", { defaultValue: "Assets" })
@@ -97,7 +88,7 @@ export function useAssetMutations() {
   const disposeMutation = useMutation({
     mutationFn: ({ id, payload }) => disposeAsset(id, payload),
     onSuccess: async (data) => {
-      await invalidateAssetQueries(queryClient);
+      await invalidateAssetViews(queryClient);
       toast.success(
         t("assets.toastDisposed", { defaultValue: "Asset disposed" }),
         data?.title || t("assets.title", { defaultValue: "Assets" })
@@ -114,7 +105,7 @@ export function useAssetMutations() {
   const lostMutation = useMutation({
     mutationFn: ({ id, payload }) => markAssetLost(id, payload),
     onSuccess: async (data) => {
-      await invalidateAssetQueries(queryClient);
+      await invalidateAssetViews(queryClient);
       toast.success(
         t("assets.toastLost", { defaultValue: "Asset marked as lost" }),
         data?.title || t("assets.title", { defaultValue: "Assets" })

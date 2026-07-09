@@ -131,7 +131,7 @@ export function ExpectedInflowsPanel({ monthValue, onMonthChange, todayISO, crea
   const queryParams = useMemo(() => ({ budget_year: year, budget_month: month, view }), [month, view, year]);
   const inflowsQuery = useExpectedInflowsQuery(queryParams);
   const sourcesQuery = useQuery({ queryKey: ["income-sources", "expected"], queryFn: () => getIncomeSources({ include_inactive: true }) });
-  const debtsQuery = useQuery({ queryKey: ["debts", "expected"], queryFn: () => getDebts({ debt_type: "OWED", status: "ACTIVE", limit: 100 }) });
+  const debtsQuery = useQuery({ queryKey: ["debts", "expected"], queryFn: () => getDebts({ debt_type: "OWED", lifecycle_status: "OPEN", limit: 100 }) });
   const expensesQuery = useQuery({ queryKey: ["expenses", "expected"], queryFn: () => getExpenses({ limit: 100, skip: 0 }) });
   const assetsQuery = useQuery({ queryKey: ["assets", "expected"], queryFn: () => getAssets({ limit: 100, statusFilter: "owned" }) });
   const walletsQuery = useQuery({ queryKey: ["wallets"], queryFn: getWallets });

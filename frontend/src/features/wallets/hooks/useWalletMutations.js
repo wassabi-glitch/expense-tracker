@@ -1,16 +1,22 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/lib/context/ToastContext";
 import { useTranslation } from "react-i18next";
-import { 
-  createWallet, 
-  updateWallet, 
-  deleteWallet, 
+import {
+  createWallet,
+  updateWallet,
+  deleteWallet,
   transferFunds,
   setDefaultWallet,
   recordWalletFee,
   recordWalletInterest,
   reconcileWalletBalance
 } from "@/lib/api";
+import {
+  invalidateWalletCreate,
+  invalidateWalletMoneyMovement,
+  invalidateWalletTransaction,
+  invalidateWalletList,
+} from "@/lib/cacheInvalidation";
 
 export function useWalletMutations() {
   const queryClient = useQueryClient();
@@ -19,62 +25,34 @@ export function useWalletMutations() {
 
   const createMutation = useMutation({
     mutationFn: createWallet,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["wallets"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
-    },
+    onSuccess: () => invalidateWalletCreate(queryClient),
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, payload }) => updateWallet(id, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["wallets"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
-      queryClient.invalidateQueries({ queryKey: ["expenses"] });
-      queryClient.invalidateQueries({ queryKey: ["income"] });
-      queryClient.invalidateQueries({ queryKey: ["debts"] });
-    },
+    onSuccess: () => invalidateWalletMoneyMovement(queryClient),
   });
 
   const deleteMutation = useMutation({
     mutationFn: deleteWallet,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["wallets"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
-      queryClient.invalidateQueries({ queryKey: ["expenses"] });
-      queryClient.invalidateQueries({ queryKey: ["income"] });
-      queryClient.invalidateQueries({ queryKey: ["debts"] });
-    },
+    onSuccess: () => invalidateWalletMoneyMovement(queryClient),
   });
 
   const transferMutation = useMutation({
     mutationFn: transferFunds,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["wallets"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
-      queryClient.invalidateQueries({ queryKey: ["expenses"] });
-      queryClient.invalidateQueries({ queryKey: ["income"] });
-      queryClient.invalidateQueries({ queryKey: ["debts"] });
-    },
+    onSuccess: () => invalidateWalletMoneyMovement(queryClient),
   });
 
   const setDefaultMutation = useMutation({
     mutationFn: (id) => setDefaultWallet(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["wallets"] });
-    },
+    onSuccess: () => invalidateWalletList(queryClient),
   });
 
   const recordFeeMutation = useMutation({
     mutationFn: ({ id, payload }) => recordWalletFee(id, payload),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["wallets"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
-      queryClient.invalidateQueries({ queryKey: ["expenses"] });
-      queryClient.invalidateQueries({ queryKey: ["income"] });
-      queryClient.invalidateQueries({ queryKey: ["debts"] });
-      queryClient.invalidateQueries({ queryKey: ["budgets"] });
-      
+      invalidateWalletTransaction(queryClient);
+
       if (data?.warning) {
         toast.warning(t("common.warning"), t(data.warning));
       }
@@ -84,12 +62,7 @@ export function useWalletMutations() {
   const recordInterestMutation = useMutation({
     mutationFn: ({ id, payload }) => recordWalletInterest(id, payload),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["wallets"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
-      queryClient.invalidateQueries({ queryKey: ["expenses"] });
-      queryClient.invalidateQueries({ queryKey: ["income"] });
-      queryClient.invalidateQueries({ queryKey: ["debts"] });
-      queryClient.invalidateQueries({ queryKey: ["budgets"] });
+      invalidateWalletTransaction(queryClient);
 
       if (data?.warning) {
         toast.warning(t("common.warning"), t(data.warning));
@@ -99,13 +72,7 @@ export function useWalletMutations() {
 
   const reconcileMutation = useMutation({
     mutationFn: ({ id, payload }) => reconcileWalletBalance(id, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["wallets"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
-      queryClient.invalidateQueries({ queryKey: ["expenses"] });
-      queryClient.invalidateQueries({ queryKey: ["income"] });
-      queryClient.invalidateQueries({ queryKey: ["debts"] });
-    },
+    onSuccess: () => invalidateWalletMoneyMovement(queryClient),
   });
 
   return {

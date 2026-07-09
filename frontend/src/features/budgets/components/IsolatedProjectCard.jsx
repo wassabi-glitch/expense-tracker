@@ -60,6 +60,7 @@ export function IsolatedProjectCard({
   project,
   onEditProperties,
   onManageStructure,
+  onViewDetails,
   onReopen,
   todayIso,
   disabled = false,
@@ -214,7 +215,7 @@ export function IsolatedProjectCard({
 
                 {/* Placeholder actions for future slices */}
                 <DropdownMenuSeparator />
-                <DropdownMenuItem disabled className="text-muted-foreground/50">
+                <DropdownMenuItem onSelect={() => onViewDetails?.(project)}>
                   <Eye className="mr-2 h-4 w-4" />
                   {t("projects.viewDetails", { defaultValue: "View details" })}
                 </DropdownMenuItem>

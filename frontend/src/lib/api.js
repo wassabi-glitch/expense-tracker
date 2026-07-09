@@ -32,6 +32,7 @@ export {
 } from "./api/budgets";
 export {
     getProjects,
+    getProject,
     createProject,
     createOverlayProject,
     updateProject,

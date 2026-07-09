@@ -10,18 +10,22 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.timezone import get_effective_user_timezone, today_in_tz
 from app.utils import check_budget_alerts
+from app.domains.payment_plans import (
+    _add_months,
+    _add_years,
+    _create_payment_plan_expense_event,
+    _scheduled_due_date,
+)
 from .. import models, oauth2, schemas
 from ..redis_rate_limiter import consume_token_bucket
 from ..services.budget_service import (
-    materialize_budget_for_month,
     validate_budget_limit,
-    validate_project_budget,
     validate_subcategory_limit,
 )
 from ..services.debt_service import (
     reconcile_debt,
 )
-from ..services.goal_funding_service import validate_wallet_goal_protection_for_outflow
+from ..services.expense_posting_service import post_expense_event
 from ..services.session_draft_service import validate_session_item_links
 from ..services.wallet_service import WalletService
 from ..session import get_db
@@ -60,187 +64,6 @@ def enforce_payment_plans_write_rate_limit(user_id: int) -> dict[str, str]:
             headers=headers,
         )
     return headers
-
-
-def _add_months(sourcedate: date, months: int) -> date:
-    month = sourcedate.month - 1 + months
-    year = sourcedate.year + month // 12
-    month = month % 12 + 1
-    day = min(sourcedate.day, calendar.monthrange(year, month)[1])
-    return date(year, month, day)
-
-
-def _add_years(sourcedate: date, years: int) -> date:
-    try:
-        return sourcedate.replace(year=sourcedate.year + years)
-    except ValueError:
-        return sourcedate.replace(year=sourcedate.year + years, day=28)
-
-
-def _scheduled_due_date(start_date: date, frequency: models.PaymentPlanFrequency, index: int) -> date:
-    if frequency == models.PaymentPlanFrequency.WEEKLY:
-        return start_date + timedelta(weeks=index)
-    if frequency == models.PaymentPlanFrequency.BIWEEKLY:
-        return start_date + timedelta(weeks=index * 2)
-    if frequency == models.PaymentPlanFrequency.QUARTERLY:
-        return _add_months(start_date, index * 3)
-    if frequency == models.PaymentPlanFrequency.YEARLY:
-        return _add_years(start_date, index)
-    return _add_months(start_date, index)
-
-
-def _resolve_budget_for_payment_plan_month(
-    db: Session,
-    user_id: int,
-    category: models.ExpenseCategory,
-    expense_date: date,
-) -> models.Budget:
-    budget = (
-        db.query(models.Budget)
-        .filter(
-            models.Budget.owner_id == user_id,
-            models.Budget.category == category,
-            models.Budget.budget_year == expense_date.year,
-            models.Budget.budget_month == expense_date.month,
-        )
-        .with_for_update()
-        .first()
-    )
-
-    if not budget:
-        budget = materialize_budget_for_month(db, user_id, category, expense_date.year, expense_date.month)
-        if not budget:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="expenses.budget_required",
-            )
-
-    return budget
-
-
-def _validated_wallet_allocations(
-    db: Session,
-    owner_id: int,
-    allocations: list[schemas.PaymentPlanWalletAllocationIn],
-    expected_total: int,
-) -> list[tuple[models.Wallet, int]]:
-    if expected_total <= 0:
-        return []
-
-    if not allocations:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.wallet_allocations_required")
-
-    allocation_total = int(sum(int(item.amount) for item in allocations))
-    if allocation_total != int(expected_total):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.wallet_total_mismatch")
-
-    seen_wallet_ids: set[int] = set()
-    validated: list[tuple[models.Wallet, int]] = []
-    for allocation in allocations:
-        if allocation.wallet_id in seen_wallet_ids:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.wallet_duplicate")
-        seen_wallet_ids.add(allocation.wallet_id)
-        wallet = _get_owned_wallet_or_404(db, owner_id, allocation.wallet_id)
-        if not wallet.is_active:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="wallets.archived_locked")
-        validated.append((wallet, int(allocation.amount)))
-    return validated
-
-
-def _create_payment_plan_expense_event(
-    db: Session,
-    owner_id: int,
-    *,
-    title: str,
-    amount: int,
-    category: models.ExpenseCategory,
-    expense_date: date,
-    wallet_allocations: list[schemas.PaymentPlanWalletAllocationIn],
-    reference_type: str,
-    payment_plan_id: int,
-    payment_plan_payment_id: int | None = None,
-    subcategory_id: int | None = None,
-    project_id: int | None = None,
-    project_subcategory_id: int | None = None,
-    note: str | None = None,
-    user_tz: tzinfo,
-) -> models.FinancialEvent:
-    local_today = today_in_tz(user_tz)
-    if expense_date > local_today:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expenses.date_in_future")
-
-    validated_wallets = _validated_wallet_allocations(db, owner_id, wallet_allocations, amount)
-    budget = _resolve_budget_for_payment_plan_month(db, owner_id, category, expense_date)
-    subcategory, project, project_subcategory = validate_session_item_links(
-        db,
-        owner_id,
-        category,
-        subcategory_id,
-        project_id,
-        project_subcategory_id,
-    )
-    if project is not None:
-        validate_project_budget(
-            db,
-            owner_id,
-            project,
-            category,
-            amount,
-            expense_date,
-            project_subcategory=project_subcategory,
-        )
-    validate_budget_limit(db, owner_id, budget, amount, project=project)
-    if subcategory is not None:
-        validate_subcategory_limit(db, owner_id, subcategory, amount, expense_date, project=project)
-    for wallet, allocation_amount in validated_wallets:
-        validate_wallet_goal_protection_for_outflow(
-            db,
-            owner_id,
-            wallet,
-            allocation_amount,
-            outflow_type="payment_plan_payment",
-            error_code="wallets.goal_protection_conflict",
-        )
-
-    event = models.FinancialEvent(
-        owner_id=owner_id,
-        title=title,
-        description=note,
-        event_type=models.TransactionType.EXPENSE,
-        reference_type=reference_type,
-        date=expense_date,
-    )
-    db.add(event)
-    db.flush()
-
-    for wallet, allocation_amount in validated_wallets:
-        WalletService.adjust_balance(db, wallet.id, -allocation_amount, models.TransactionType.EXPENSE)
-        db.add(
-            models.WalletLedger(
-                owner_id=owner_id,
-                event_id=event.id,
-                wallet_id=wallet.id,
-                amount=-allocation_amount,
-            )
-        )
-
-    db.add(
-        models.EntityLedger(
-            event_id=event.id,
-            label=title,
-            amount=int(amount),
-            category=category,
-            budget_id=budget.id,
-            subcategory_id=subcategory.id if subcategory is not None else None,
-            project_id=project.id if project is not None else None,
-            project_subcategory_id=project_subcategory.id if project_subcategory is not None else None,
-            payment_plan_id=payment_plan_id,
-            payment_plan_payment_id=payment_plan_payment_id,
-        )
-    )
-    check_budget_alerts(db, budget)
-    db.flush()
-    return event
 
 
 def _get_owned_plan_or_404(db: Session, user_id: int, plan_id: int) -> models.PaymentPlan:

@@ -1,24 +1,14 @@
-from fastapi import HTTPException, status
+"""Compatibility re-export shim — see ``app.domains.posting`` for the canonical
+implementation.
 
-from app import models
+This file exists so that existing ``from app.services.category_policy
+import ...`` statements continue to work during the package transition.
+"""
 
+from app.domains.posting import (
+    validate_active_expense_category,
+)
 
-DEPRECATED_FINANCING_CONTEXT_CATEGORIES = {
-    models.ExpenseCategory.PAYMENT_PLANS_DEBT,
-}
-
-
-def is_deprecated_financing_context_category(category: models.ExpenseCategory) -> bool:
-    return category in DEPRECATED_FINANCING_CONTEXT_CATEGORIES
-
-
-def validate_active_expense_category(
-    category: models.ExpenseCategory,
-    *,
-    error_detail: str = "categories.validation.real_expense_category_required",
-) -> None:
-    if is_deprecated_financing_context_category(category):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_detail,
-        )
+__all__ = [
+    "validate_active_expense_category",
+]

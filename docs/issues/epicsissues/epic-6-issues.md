@@ -4,6 +4,12 @@ Parent: [Epic 6 - Isolated Projects & YNAB Envelopes](../../epics/epic-6-isolate
 Publish label: `ready-for-agent`  
 Epic prerequisite: Epic 5 Overlay Projects, especially typology decoupling, and Epic 3 Taxonomy Hub completion
 
+## Freeze Notice
+
+Epic 6 isolated-project work is frozen by [ADR 0022](../../adr/0022-freeze-isolated-projects-and-fund-project.md).
+
+Do not treat the issues in this file as active execution targets until the feature is revisited. The future decision must either remove Isolated Projects/Fund Project or promote Isolated Projects into a first-class protected-stash ledger.
+
 ## Issue 1: Create Isolated Projects from Wallet-Backed Funding
 
 **Type:** AFK

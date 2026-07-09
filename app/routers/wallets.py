@@ -12,7 +12,7 @@ from ..services.goal_funding_service import (
     release_wallet_goal_allocations,
     validate_wallet_goal_protection_for_outflow,
 )
-from ..services.isolated_project_service import get_wallet_project_allocated_amount
+from app.domains.projects._quarantine import get_wallet_project_allocated_amount  # ADR-0022 quarantine
 from ..services.wallet_fee_service import (
     get_owned_fee_wallet_or_404,
     record_linked_bank_fee_event,
@@ -317,7 +317,8 @@ def record_fee(
         title="Bank Fee",
         description=payload.note or "Bank Fee",
         budget_id=budget.id,
-        reference_type=models.ReferenceType.BANK_FEE
+        reference_type=models.ReferenceType.BANK_FEE,
+        transaction_date=today_in_tz(user_tz),
     )
     db.commit()
     db.refresh(wallet)
@@ -368,7 +369,8 @@ def record_interest(
         title="Bank Interest",
         description=payload.note or "Bank Interest",
         budget_id=budget.id,
-        reference_type=models.ReferenceType.BANK_INTEREST
+        reference_type=models.ReferenceType.BANK_INTEREST,
+        transaction_date=today_in_tz(user_tz),
     )
     db.commit()
     db.refresh(wallet)
@@ -385,6 +387,7 @@ def reconcile_wallet_balance(
     payload: schemas.WalletReconciliationRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
 ):
     """
     Reconciles physical balance via an Adjustment transaction.
@@ -399,14 +402,15 @@ def reconcile_wallet_balance(
             outflow_type="wallet_reconciliation",
             error_code="wallets.goal_protection_conflict",
         )
-    
+
     try:
         WalletService.reconcile_balance(
             db=db,
             owner_id=current_user.id,
             wallet_id=wallet.id,
             target_balance=payload.target_balance,
-            note=payload.note
+            note=payload.note,
+            reconciliation_date=today_in_tz(user_tz),
         )
         db.commit()
         db.refresh(wallet)
@@ -559,5 +563,6 @@ def transfer_funds(
     payload: schemas.WalletTransferCreate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
 ):
     return _execute_wallet_transfer(payload, db, current_user)
