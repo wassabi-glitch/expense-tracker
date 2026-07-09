@@ -1,5 +1,4 @@
-import calendar
-from datetime import date, timedelta, tzinfo
+from datetime import date, tzinfo
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -9,23 +8,15 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app.timezone import get_effective_user_timezone, today_in_tz
-from app.utils import check_budget_alerts
 from app.domains.payment_plans import (
-    _add_months,
-    _add_years,
     _create_payment_plan_expense_event,
     _scheduled_due_date,
 )
 from .. import models, oauth2, schemas
 from ..redis_rate_limiter import consume_token_bucket
-from ..services.budget_service import (
-    validate_budget_limit,
-    validate_subcategory_limit,
-)
 from ..services.debt_service import (
     reconcile_debt,
 )
-from ..services.expense_posting_service import post_expense_event
 from ..services.session_draft_service import validate_session_item_links
 from ..services.wallet_service import WalletService
 from ..session import get_db

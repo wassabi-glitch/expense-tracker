@@ -14,7 +14,7 @@ Strategy:
   the module namespace — we patch there, not at the definition site.
 """
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from unittest import mock
 from zoneinfo import ZoneInfo
 

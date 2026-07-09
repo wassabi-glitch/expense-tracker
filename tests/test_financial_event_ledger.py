@@ -26,7 +26,7 @@ from tests.helpers import (
 
 def _seed_user_with_wallet(client, session, email: str) -> tuple[models.User, models.Wallet]:
     """Create a test user via the API and return their User + default Wallet."""
-    headers = create_user_and_token(client, email.split("@")[0], email, "Password123!")
+    create_user_and_token(client, email.split("@")[0], email, "Password123!")
     user = session.query(models.User).filter(models.User.email == email).first()
     wallet = session.query(models.Wallet).filter(
         models.Wallet.owner_id == user.id,

@@ -207,7 +207,7 @@ def test_payment_plan_payment_future_date_rejected(client, session):
     wallet = _default_wallet(client, headers)
     plan = _create_plan(client, headers)
 
-    from datetime import date, timedelta
+    from datetime import timedelta
     future_date = user_timezone_today() + timedelta(days=30)
 
     payment = plan["payments"][0]

@@ -12,8 +12,6 @@ These tests prove:
 import ast
 from pathlib import Path
 
-import pytest
-
 from app.domains.projects import _quarantine
 from app.domains.projects._quarantine import _contract
 
@@ -370,4 +368,3 @@ def test_critical_compatibility_exports_documented_in_contract():
 #    Same situation as session_draft_service.py — imports
 #    is_isolated_project from project_service for type-guard purposes.
 #    Overlay project behavior is explicitly NOT frozen per ADR-0022.
-

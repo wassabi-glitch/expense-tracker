@@ -6,10 +6,6 @@ These tests verify that:
 3. The full app can be imported
 4. Key cross-package imports resolve correctly
 """
-
-import pytest
-
-
 class TestDomainPackageImports:
     """Verify all domain package __init__ modules are importable."""
 
