@@ -33,7 +33,7 @@ from ..services.goal_funding_service import (
     validate_wallet_for_goal_allocation,
     validate_wallet_for_goal_release,
 )
-from ..services.isolated_project_service import get_project_funding_limit
+from app.domains.projects._quarantine import get_project_funding_limit  # ADR-0022 quarantine
 from ..services.wallet_fee_service import (
     get_owned_fee_wallet_or_404,
     record_linked_bank_fee_event,

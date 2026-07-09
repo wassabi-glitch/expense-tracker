@@ -9,6 +9,11 @@ from sqlalchemy.orm import Session, selectinload
 from app import models, schemas
 from app.services.debt_payment_service import create_debt_payment
 from app.services.debt_service import create_debt_ledger_entry, reconcile_debt
+from app.services.financial_event_ledger_service import (
+    PostEntityLeg,
+    PostWalletLeg,
+    post_financial_event,
+)
 from app.services.goal_funding_service import sync_debt_goal_targets
 from app.services.wallet_service import WalletService
 from app.utils import check_budget_alerts
@@ -394,29 +399,27 @@ def _post_earned(
     note: str | None,
     wallets: list[tuple[models.Wallet, int]],
 ) -> list[models.FinancialEvent]:
-    event = models.FinancialEvent(
+    """Create a posted INCOME FinancialEvent for earned income through the
+    ledger seam."""
+    event = post_financial_event(
+        db,
         owner_id=owner_id,
         title=f"{_source_label(row)} received"[:100],
-        description=note or row.note,
         event_type=models.TransactionType.INCOME,
         date=received_date,
+        description=note or row.note,
+        entity_category=None,
+        wallet_legs=[
+            PostWalletLeg(wallet_id=wallet.id, amount=wallet_amount)
+            for wallet, wallet_amount in wallets
+        ],
+        entity_legs=[
+            PostEntityLeg(
+                amount=int(amount),
+                income_source_id=row.source_id,
+            )
+        ],
     )
-    db.add(event)
-    db.flush()
-    for wallet, wallet_amount in wallets:
-        WalletService.adjust_balance(db, wallet.id, wallet_amount, models.TransactionType.INCOME)
-        db.add(models.WalletLedger(
-            owner_id=owner_id,
-            event_id=event.id,
-            wallet_id=wallet.id,
-            amount=wallet_amount,
-        ))
-    db.add(models.EntityLedger(
-        event_id=event.id,
-        amount=int(amount),
-        income_source_id=row.source_id,
-    ))
-    db.flush()
     return [event]
 
 
@@ -475,34 +478,33 @@ def _post_refund(
     original, original_leg, refundable = _get_refundable_event(db, owner_id, int(row.refund_event_id))
     if amount > refundable:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expenses.refund_exceeds_total")
-    event = models.FinancialEvent(
+
+    event = post_financial_event(
+        db,
         owner_id=owner_id,
         title="Partial Refund" if amount < refundable else "Refund",
-        description=note or original.title,
         event_type=models.TransactionType.REFUND,
-        linked_event_id=original.id,
         date=received_date,
+        description=note or original.title,
+        linked_event_id=original.id,
+        entity_category=original_leg.category,
+        wallet_legs=[
+            PostWalletLeg(wallet_id=wallet.id, amount=wallet_amount)
+            for wallet, wallet_amount in wallets
+        ],
+        entity_legs=[
+            PostEntityLeg(
+                amount=int(amount),
+                category=original_leg.category,
+                subcategory_id=original_leg.subcategory_id,
+                project_id=original_leg.project_id,
+                project_subcategory_id=original_leg.project_subcategory_id,
+                budget_id=original_leg.budget_id,
+                debt_id=original_leg.debt_id,
+            )
+        ],
     )
-    db.add(event)
-    db.flush()
-    for wallet, wallet_amount in wallets:
-        WalletService.adjust_balance(db, wallet.id, wallet_amount, models.TransactionType.REFUND)
-        db.add(models.WalletLedger(
-            owner_id=owner_id,
-            event_id=event.id,
-            wallet_id=wallet.id,
-            amount=wallet_amount,
-        ))
-    db.add(models.EntityLedger(
-        event_id=event.id,
-        amount=int(amount),
-        category=original_leg.category,
-        subcategory_id=original_leg.subcategory_id,
-        project_id=original_leg.project_id,
-        project_subcategory_id=original_leg.project_subcategory_id,
-        budget_id=original_leg.budget_id,
-        debt_id=original_leg.debt_id,
-    ))
+
     if original_leg.debt_id:
         create_debt_ledger_entry(
             db,

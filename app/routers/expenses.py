@@ -25,6 +25,11 @@ from ..services.budget_service import (
 )
 from ..services.debt_service import create_debt_ledger_entry, reconcile_debt
 from ..services.expense_posting_service import post_expense_event, validate_real_expense_category
+from ..services.financial_event_ledger_service import (
+    PostEntityLeg,
+    PostWalletLeg,
+    post_financial_event,
+)
 from ..services.session_draft_service import (
     build_session_draft_out,
     ensure_draft_editable,
@@ -35,7 +40,6 @@ from ..services.session_draft_service import (
     get_owned_session_wallet_allocation_or_404,
     validate_session_item_links,
 )
-from ..services.wallet_service import WalletService
 from ..session import get_db
 from .wallets import _get_owned_wallet_or_404
 
@@ -836,6 +840,7 @@ def create_expense(
     user_tz: tzinfo = Depends(get_effective_user_timezone),
 ):
     local_today = today_in_tz(user_tz)
+    expense_date = expense.date or local_today
     rate_headers = enforce_expense_write_rate_limit(current_user.id)
     for k, v in rate_headers.items():
         response.headers[k] = v
@@ -865,7 +870,7 @@ def create_expense(
         title=expense.title,
         amount=expense.amount,
         category=expense.category,
-        expense_date=expense.date,
+        expense_date=expense_date,
         description=expense.description,
         wallet_id=expense.wallet_id,
         wallet_allocations=expense.wallet_allocations,
@@ -1579,11 +1584,12 @@ def finalize_expense_session_draft(
     for k, v in rate_headers.items():
         response.headers[k] = v
 
+    local_today = today_in_tz(user_tz)
     draft = get_owned_session_draft_or_404(db, current_user.id, draft_id)
-    if draft.date > today_in_tz(user_tz):
+    if draft.date > local_today:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expenses.date_in_future")
 
-    result = finalize_session_draft(db, current_user.id, draft_id)
+    result = finalize_session_draft(db, current_user.id, draft_id, local_today=local_today)
     db.commit()
 
     for budget_id in result.budget_ids:
@@ -1946,51 +1952,48 @@ def delete_expense(
     budget_ids = {leg.budget_id for leg in event.entity_legs if leg.budget_id}
 
     void_date = today_in_tz(user_tz)
-    reversal = models.FinancialEvent(
+
+    # Build counter-balancing wallet and entity legs from the original event
+    reversal_wallet_legs = [
+        PostWalletLeg(
+            wallet_id=leg.wallet_id,
+            amount=-int(leg.amount),
+        )
+        for leg in event.wallet_legs
+    ]
+    reversal_entity_legs = [
+        PostEntityLeg(
+            label=leg.label,
+            amount=-int(leg.amount),
+            original_amount=(
+                -int(leg.original_amount)
+                if leg.original_amount is not None
+                else None
+            ),
+            category=leg.category,
+            budget_id=leg.budget_id,
+            subcategory_id=leg.subcategory_id,
+            project_id=leg.project_id,
+            project_subcategory_id=leg.project_subcategory_id,
+        )
+        for leg in event.entity_legs
+    ]
+
+    reversal = post_financial_event(
+        db,
         owner_id=current_user.id,
         title=f"Void {event.title}",
-        description=f"Reversal for voided expense #{event.id}",
         event_type=event.event_type,
+        date=void_date,
         status=models.FinancialEventStatus.REVERSAL,
+        description=f"Reversal for voided expense #{event.id}",
         reference_type=models.ReferenceType.VOID_REVERSAL,
-        is_session=False,
         linked_event_id=event.id,
         reverses_event_id=event.id,
-        date=void_date,
+        entity_category=None,
+        wallet_legs=reversal_wallet_legs,
+        entity_legs=reversal_entity_legs,
     )
-    db.add(reversal)
-    db.flush()
-
-    for wallet_leg in event.wallet_legs:
-        reversal_amount = -int(wallet_leg.amount)
-        WalletService.adjust_balance(db, wallet_leg.wallet_id, reversal_amount)
-        db.add(
-            models.WalletLedger(
-                owner_id=current_user.id,
-                event_id=reversal.id,
-                wallet_id=wallet_leg.wallet_id,
-                amount=reversal_amount,
-            )
-        )
-
-    for entity_leg in event.entity_legs:
-        db.add(
-            models.EntityLedger(
-                event_id=reversal.id,
-                label=entity_leg.label,
-                amount=-int(entity_leg.amount),
-                original_amount=(
-                    -int(entity_leg.original_amount)
-                    if entity_leg.original_amount is not None
-                    else None
-                ),
-                category=entity_leg.category,
-                subcategory_id=entity_leg.subcategory_id,
-                project_id=entity_leg.project_id,
-                project_subcategory_id=entity_leg.project_subcategory_id,
-                budget_id=entity_leg.budget_id,
-            )
-        )
 
     event.status = models.FinancialEventStatus.VOIDED
     event.voided_at = datetime.now(timezone.utc)
@@ -2079,7 +2082,7 @@ def mark_expense_as_recurring(
     _raise_if_split_parent(event)
     wallet = _single_wallet_for_event(event)
     wallet_id = payload.wallet_id or (wallet.id if wallet else None)
-    if payload.recording_mode == models.RecurringRecordingMode.AUTO_RECORD and wallet_id is None:
+    if getattr(payload, "recording_mode", None) == models.RecurringRecordingMode.AUTO_RECORD and wallet_id is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="recurring_expenses.auto_wallet_required")
 
     recurring_wallet = None
@@ -2345,19 +2348,33 @@ def refund_expense(
     is_partial = refund_amount < max_allowable or total_already_refunded > 0
     refund_title = "Partial Refund" if is_partial else "Refund"
 
-    refund_event = WalletService.record_transaction(
-        db=db,
+    refund_event = post_financial_event(
+        db,
         owner_id=current_user.id,
-        wallet_id=target_wallet_id,
-        transaction_type=models.TransactionType.REFUND,
-        amount_delta=refund_amount,
-        category=entity_leg.category,
         title=refund_title,
+        event_type=models.TransactionType.REFUND,
+        date=now_in_tz(user_tz).date(),
         description=original_event.title,
-        budget_id=entity_leg.budget_id,
-        debt_id=entity_leg.debt_id,
-        transaction_date=now_in_tz(user_tz).date(),
         linked_event_id=original_event.id,
+        entity_category=entity_leg.category,
+        wallet_legs=[
+            PostWalletLeg(
+                wallet_id=target_wallet_id,
+                amount=refund_amount,
+            )
+        ],
+        entity_legs=[
+            PostEntityLeg(
+                label=refund_title,
+                amount=refund_amount,
+                category=entity_leg.category,
+                budget_id=entity_leg.budget_id,
+                debt_id=entity_leg.debt_id,
+                subcategory_id=entity_leg.subcategory_id,
+                project_id=entity_leg.project_id,
+                project_subcategory_id=entity_leg.project_subcategory_id,
+            )
+        ],
     )
 
     if entity_leg.debt_id:

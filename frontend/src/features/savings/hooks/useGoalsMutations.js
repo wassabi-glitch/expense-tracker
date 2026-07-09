@@ -19,7 +19,7 @@ import {
 import { useToast } from "@/lib/context/ToastContext";
 import { formatUzs } from "@/lib/format";
 import { localizeApiError } from "@/lib/errorMessages";
-import { invalidateGoalQueries } from "../goalQueryInvalidation";
+import { invalidateGoalViews as invalidateGoalQueries } from "@/lib/cacheInvalidation";
 
 export function useCreateGoalMutation() {
   const { t } = useTranslation();

@@ -24,6 +24,16 @@ export async function getProjects(params = {}) {
     return normalizeArrayPayload(response.data);
 }
 
+export async function getProject(projectId, params = {}) {
+    const response = await apiClient.get(`/projects/${projectId}`, {
+        params: compactParams({
+            budget_year: params.budgetYear,
+            budget_month: params.budgetMonth,
+        }),
+    });
+    return response.data;
+}
+
 export async function createProject(payload) {
     const response = await apiClient.post("/projects", payload);
     return response.data;

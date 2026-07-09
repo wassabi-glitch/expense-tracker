@@ -3,6 +3,12 @@
 **Status:** Mixed / In Process  
 **Depends On:** Epic 6 (for isolated project wallet allocations, top-ups, spend-down reporting, and project intersections)
 
+## Freeze Notice
+
+Fund Project and isolated-project-dependent work in this epic is frozen by [ADR 0022](../adr/0022-freeze-isolated-projects-and-fund-project.md).
+
+Goal work that does not require Fund Project graduation or isolated project stash behavior may continue. Do not execute new Fund Project graduation, isolated project off-wallet spending, isolated project stash release, or project-protection EC-162 work until the feature is revisited after the core app philosophy stabilizes.
+
 ## Goal
 
 Establish strict lifecycle rules and safety guardrails for the moment a user actually *uses* protected money. This epic covers goal money that becomes spending, Fund Project goals that graduate into isolated projects, isolated project stash spending, and wallet protection breaches caused by spending from wallets that hold protected money.

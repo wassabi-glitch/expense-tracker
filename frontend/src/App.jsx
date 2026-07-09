@@ -30,6 +30,7 @@ import Income from "@/features/income/Income";
 import ExpectedInflowDetails from "@/features/income/ExpectedInflowDetails";
 import Budgets from "@/features/budgets/Budgets";
 import BudgetDetails from "@/features/budgets/BudgetDetails";
+import ProjectDetails from "@/features/budgets/ProjectDetails";
 import Analytics from "@/features/analytics/Analytics";
 import ExportPage from "@/features/expenses/ExportPage";
 import Settings from "@/features/settings/Settings";
@@ -96,6 +97,7 @@ export default function App() {
               <Route path="/income" element={<LegacyMoneyInRedirect />} />
               <Route path="/budgets" element={<Budgets />} />
               <Route path="/budgets/:budgetYear/:budgetMonth/:category" element={<BudgetDetails />} />
+              <Route path="/projects/:projectId" element={<ProjectDetails />} />
               <Route path="/savings" element={<Savings />} />
               <Route path="/debts" element={<Obligations />} />
               <Route path="/analytics" element={<Analytics />} />

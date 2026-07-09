@@ -4,6 +4,7 @@ import { createBudget, deleteBudget, updateBudget, configureBorrowingSurvival, r
 import { useToast } from "@/lib/context/ToastContext";
 import { formatUzs } from "@/lib/format";
 import { localizeApiError } from "@/lib/errorMessages";
+import { invalidateBudgetViews } from "@/lib/cacheInvalidation";
 
 export function useCreateBudgetMutation() {
     const { t } = useTranslation();
@@ -14,12 +15,7 @@ export function useCreateBudgetMutation() {
         mutationFn: ({ category, monthlyLimit, budgetYear, budgetMonth }) =>
             createBudget(category, monthlyLimit, budgetYear, budgetMonth),
         onSuccess: async (data) => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["budgets", "list"] }),
-                queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary"] }),
-                queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
-                queryClient.invalidateQueries({ queryKey: ["notifications"] }),
-            ]);
+            await invalidateBudgetViews(queryClient);
             toast.success(
                 t("toasts.budget.created"),
                 t("toasts.budget.created_detail", {
@@ -44,12 +40,7 @@ export function useUpdateBudgetMutation() {
         mutationFn: ({ category, monthlyLimit, budgetYear, budgetMonth }) =>
             updateBudget(category, monthlyLimit, budgetYear, budgetMonth),
         onSuccess: async (data) => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["budgets", "list"] }),
-                queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary"] }),
-                queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
-                queryClient.invalidateQueries({ queryKey: ["notifications"] }),
-            ]);
+            await invalidateBudgetViews(queryClient);
             toast.success(
                 t("toasts.budget.updated"),
                 t("toasts.budget.updated_detail", {
@@ -74,12 +65,7 @@ export function useDeleteBudgetMutation() {
         mutationFn: ({ category, budgetYear, budgetMonth }) =>
             deleteBudget(category, budgetYear, budgetMonth),
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["budgets", "list"] }),
-                queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary"] }),
-                queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
-                queryClient.invalidateQueries({ queryKey: ["notifications"] }),
-            ]);
+            await invalidateBudgetViews(queryClient);
             toast.success(t("toasts.budget.deleted"));
         },
         onError: (error) => {
@@ -97,9 +83,7 @@ export function useConfigureBorrowingSurvivalMutation() {
     return useMutation({
         mutationFn: (data) => configureBorrowingSurvival(data),
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary"] }),
-            ]);
+            await invalidateBudgetViews(queryClient);
             toast.success(
                 t("toasts.budget.survivalConfigured", { defaultValue: "Borrowing survival configured" })
             );
@@ -127,12 +111,7 @@ export function useReallocateBudgetMutation() {
             });
         },
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["budgets", "list"] }),
-                queryClient.invalidateQueries({ queryKey: ["budgets", "month-summary"] }),
-                queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
-                queryClient.invalidateQueries({ queryKey: ["notifications"] }),
-            ]);
+            await invalidateBudgetViews(queryClient);
             toast.success(
                 t("toasts.budget.reallocated", { defaultValue: "Budget reallocated successfully" })
             );

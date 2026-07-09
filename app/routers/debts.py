@@ -33,6 +33,11 @@ from ..services.debt_policy import (
 )
 from ..services.goal_funding_service import sync_debt_goal_targets, validate_wallet_goal_protection_for_outflow
 from ..services.expense_posting_service import post_expense_event
+from ..services.financial_event_ledger_service import (
+    PostEntityLeg,
+    PostWalletLeg,
+    post_financial_event,
+)
 from ..services.session_draft_service import validate_session_item_links
 from ..services.wallet_service import WalletService
 from ..session import get_db
@@ -76,12 +81,12 @@ def _debt_lifecycle_status(debt: models.Debt) -> schemas.DebtLifecycleStatus:
 def _debt_time_status(
     debt: models.Debt,
     *,
-    today: date | None = None,
+    today: date,
 ) -> schemas.DebtTimeStatus | None:
     if _debt_lifecycle_status(debt) == schemas.DebtLifecycleStatus.CLOSED:
         return None
     due_date = getattr(debt, "expected_return_date", None)
-    if due_date is not None and due_date < (today or date.today()):
+    if due_date is not None and due_date < today:
         return schemas.DebtTimeStatus.OVERDUE
     return schemas.DebtTimeStatus.ON_TRACK
 
@@ -323,7 +328,7 @@ def _is_wallet_backed_obligation(wallet: models.Wallet) -> bool:
     return wallet.wallet_type == models.WalletType.DEBIT and bool(wallet.has_overdraft)
 
 
-def _build_wallet_obligation_out(wallet: models.Wallet) -> schemas.DebtOut:
+def _build_wallet_obligation_out(wallet: models.Wallet, *, today: date) -> schemas.DebtOut:
     amount = abs(int(wallet.current_balance or 0))
     return schemas.DebtOut(
         id=-int(wallet.id),
@@ -337,7 +342,7 @@ def _build_wallet_obligation_out(wallet: models.Wallet) -> schemas.DebtOut:
         remaining_amount=amount,
         currency=wallet.currency,
         description="Wallet-backed liability",
-        date=wallet.created_at.date() if wallet.created_at is not None else date.today(),
+        date=wallet.created_at.date() if wallet.created_at is not None else today,
         expected_return_date=None,
         lifecycle_status=schemas.DebtLifecycleStatus.OPEN,
         time_status=schemas.DebtTimeStatus.ON_TRACK,
@@ -366,7 +371,7 @@ def _build_wallet_obligation_out(wallet: models.Wallet) -> schemas.DebtOut:
     )
 
 
-def _debt_workflow_warnings(debt: models.Debt, *, today: date | None = None) -> list[str]:
+def _debt_workflow_warnings(debt: models.Debt, *, today: date) -> list[str]:
     warnings: list[str] = []
     if _is_debt_archived(debt):
         return warnings
@@ -377,10 +382,9 @@ def _debt_workflow_warnings(debt: models.Debt, *, today: date | None = None) -> 
         debt.debt_type == models.DebtType.OWING
         and _debt_lifecycle_status(debt) == schemas.DebtLifecycleStatus.OPEN
     ):
-        effective_today = today or date.today()
         if debt.expected_return_date is None:
             warnings.append("debts.suggestion.open_ended_paydown")
-        elif debt.expected_return_date < effective_today:
+        elif debt.expected_return_date < today:
             warnings.append("debts.warning.payable_overdue_hard")
         else:
             warnings.append("debts.warning.payable_due_hard")
@@ -1226,54 +1230,56 @@ def _create_financial_event_reversal(
     reversal_date: date,
     note: str | None,
 ) -> models.FinancialEvent:
-    reversal = models.FinancialEvent(
+    """Create a reversal FinancialEvent through the ledger seam.
+
+    Counter-balances the original event's wallet and entity ledger entries
+    so the net effect is zero.  Used by payment-plan undo and debt reversal
+    flows.
+    """
+    reversal_wallet_legs = [
+        PostWalletLeg(
+            wallet_id=leg.wallet_id,
+            amount=-int(leg.amount),
+        )
+        for leg in event.wallet_legs
+    ]
+    reversal_entity_legs = [
+        PostEntityLeg(
+            label=leg.label,
+            amount=-int(leg.amount),
+            original_amount=(
+                -int(leg.original_amount)
+                if leg.original_amount is not None
+                else None
+            ),
+            category=leg.category,
+            budget_id=leg.budget_id,
+            subcategory_id=leg.subcategory_id,
+            project_id=leg.project_id,
+            project_subcategory_id=leg.project_subcategory_id,
+            debt_id=leg.debt_id,
+            payment_plan_id=leg.payment_plan_id,
+            payment_plan_payment_id=leg.payment_plan_payment_id,
+            income_source_id=leg.income_source_id,
+        )
+        for leg in event.entity_legs
+    ]
+
+    reversal = post_financial_event(
+        db,
         owner_id=owner_id,
         title=f"Reverse {event.title}"[:100],
-        description=note or f"Reversal for debt event #{event.id}",
         event_type=event.event_type,
+        date=reversal_date,
         status=models.FinancialEventStatus.REVERSAL,
+        description=note or f"Reversal for debt event #{event.id}",
         reference_type=models.ReferenceType.VOID_REVERSAL,
         linked_event_id=event.id,
         reverses_event_id=event.id,
-        date=reversal_date,
+        entity_category=None,
+        wallet_legs=reversal_wallet_legs,
+        entity_legs=reversal_entity_legs,
     )
-    db.add(reversal)
-    db.flush()
-
-    for wallet_leg in event.wallet_legs:
-        reversal_amount = -int(wallet_leg.amount)
-        WalletService.adjust_balance(db, wallet_leg.wallet_id, reversal_amount)
-        db.add(
-            models.WalletLedger(
-                owner_id=owner_id,
-                event_id=reversal.id,
-                wallet_id=wallet_leg.wallet_id,
-                amount=reversal_amount,
-            )
-        )
-
-    for entity_leg in event.entity_legs:
-        db.add(
-            models.EntityLedger(
-                event_id=reversal.id,
-                label=entity_leg.label,
-                amount=-int(entity_leg.amount),
-                original_amount=(
-                    -int(entity_leg.original_amount)
-                    if entity_leg.original_amount is not None
-                    else None
-                ),
-                category=entity_leg.category,
-                subcategory_id=entity_leg.subcategory_id,
-                project_id=entity_leg.project_id,
-                project_subcategory_id=entity_leg.project_subcategory_id,
-                budget_id=entity_leg.budget_id,
-                debt_id=entity_leg.debt_id,
-                income_source_id=entity_leg.income_source_id,
-                payment_plan_id=entity_leg.payment_plan_id,
-                payment_plan_payment_id=entity_leg.payment_plan_payment_id,
-            )
-        )
 
     event.status = models.FinancialEventStatus.VOIDED
     event.voided_at = datetime.now(timezone.utc)
@@ -1519,7 +1525,7 @@ def list_debts(
                 continue
             if search and search.lower() not in wallet.name.lower():
                 continue
-            result_items.append(_build_wallet_obligation_out(wallet))
+            result_items.append(_build_wallet_obligation_out(wallet, today=today))
 
     result_items.sort(key=lambda item: (item.source_type != "DEBT", item.id), reverse=True)
     total = len(result_items)

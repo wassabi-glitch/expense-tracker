@@ -4,6 +4,12 @@ Parent: [Epic 7 - Goal Deployment & Protection](../../epics/epic-7-goal-deployme
 Publish label: `ready-for-agent`  
 Epic prerequisite: Epic 6 isolated project wallet allocations, project top-ups, isolated spend-down reporting, and project expense posting foundations
 
+## Freeze Notice
+
+Fund Project and isolated-project-dependent work in this file is frozen by [ADR 0022](../../adr/0022-freeze-isolated-projects-and-fund-project.md).
+
+Do not execute Fund Project graduation, isolated project off-wallet spending, isolated project stash release, or project-protection EC-162 work until the isolated-project concept is revisited after the core app philosophy stabilizes.
+
 ## Scope Note
 
 The G7 backend project-date and graduation work is already tracked in [G7 - Projects and Goal Deployment Issues](../g7-projects-and-goal-deployment-issues.md). This file focuses on the remaining Epic 7 work discovered while reviewing the combined goal deployment epic:

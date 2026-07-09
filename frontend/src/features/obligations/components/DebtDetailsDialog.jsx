@@ -26,6 +26,9 @@ import { getWallets } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatAmountInput, formatDisplayDate, formatDisplayDateTime, formatUzs, parseAmountInput } from "@/lib/format";
 import { toISODateInTimeZone } from "@/lib/date";
+import { isBudgetRequiredError, extractBudgetMonth } from "@/lib/budgetInterceptor";
+import { useBudgetRepair } from "@/features/budgets/hooks/useBudgetRepair";
+import { BudgetRepairDialog } from "@/features/budgets/components/BudgetRepairDialog";
 import { useDebtDetailsQuery } from "../hooks/useDebtsQueries";
 import {
   useAddChargeMutation,
@@ -91,23 +94,60 @@ function PaymentForm({ debt, wallets, onClose }) {
   const overpay = total > Number(debt?.remaining_amount || 0);
   const canSubmit = total > 0 && !overpay && !mutation.isPending;
 
+  const [repairAmount, setRepairAmount] = useState("");
+  const budgetRepair = useBudgetRepair();
+
   useEffect(() => {
     if (!defaultWalletId) return;
     setWalletAllocations((rows) => (rows.some((row) => row.wallet_id) ? rows : defaultWalletAllocation(wallets)));
   }, [defaultWalletId]);
 
+  useEffect(() => {
+    if (budgetRepair.prompt) {
+      setRepairAmount(formatAmountInput(String(budgetRepair.prompt.suggestedAmount || 0)));
+    } else {
+      setRepairAmount("");
+    }
+  }, [budgetRepair.prompt]);
+
   const submit = async () => {
     if (!canSubmit) return;
-    await mutation.mutateAsync({
-        debtId: debt.id,
-        payload: {
-        amount: total,
-        date,
-        note: note || null,
-        wallet_allocations: normalizeWalletAllocations(walletAllocations),
-      },
-    });
-    onClose();
+    try {
+      await mutation.mutateAsync({
+          debtId: debt.id,
+          payload: {
+          amount: total,
+          date,
+          note: note || null,
+          wallet_allocations: normalizeWalletAllocations(walletAllocations),
+        },
+      });
+      onClose();
+    } catch (e) {
+      if (isBudgetRequiredError(e) && debt.expense_category) {
+        const { budgetYear, budgetMonth } = extractBudgetMonth(date);
+        budgetRepair.open({
+          category: debt.expense_category,
+          budgetYear,
+          budgetMonth,
+          suggestedAmount: total,
+          date,
+          onReplay: async () => {
+            await mutation.mutateAsync({
+              debtId: debt.id,
+              payload: {
+                amount: total,
+                date,
+                note: note || null,
+                wallet_allocations: normalizeWalletAllocations(walletAllocations),
+              },
+            });
+          },
+        });
+        return;
+      }
+      // Error is handled by mutation hook's onError toast
+    }
   };
 
   return (
@@ -140,6 +180,18 @@ function PaymentForm({ debt, wallets, onClose }) {
         <WalletCards className="mr-2 h-4 w-4" />
         Record payment
       </Button>
+
+      <BudgetRepairDialog
+        open={budgetRepair.isOpen}
+        onOpenChange={(open) => { if (!open) budgetRepair.close(); }}
+        repairPrompt={budgetRepair.prompt}
+        repairAmount={repairAmount}
+        onAmountChange={(raw) => setRepairAmount(formatAmountInput(raw))}
+        repairPending={budgetRepair.pending}
+        repairError={budgetRepair.error}
+        onClose={budgetRepair.close}
+        onCreateBudget={() => budgetRepair.createBudgetAndReplay(parseAmountInput(repairAmount))}
+      />
     </div>
   );
 }
@@ -150,16 +202,52 @@ function ChargeForm({ debt, onClose }) {
   const [reason, setReason] = useState("");
   const amountValue = parseAmountInput(amount);
 
+  const [repairAmount, setRepairAmount] = useState("");
+  const budgetRepair = useBudgetRepair();
+
+  useEffect(() => {
+    if (budgetRepair.prompt) {
+      setRepairAmount(formatAmountInput(String(budgetRepair.prompt.suggestedAmount || 0)));
+    } else {
+      setRepairAmount("");
+    }
+  }, [budgetRepair.prompt]);
+
   const submit = async () => {
     if (amountValue <= 0) return;
-    await mutation.mutateAsync({
-      debtId: debt.id,
-      payload: {
-        amount: amountValue,
-        reason: reason || null,
-      },
-    });
-    onClose();
+    try {
+      await mutation.mutateAsync({
+        debtId: debt.id,
+        payload: {
+          amount: amountValue,
+          reason: reason || null,
+        },
+      });
+      onClose();
+    } catch (e) {
+      if (isBudgetRequiredError(e) && debt.expense_category) {
+        const today = toISODateInTimeZone();
+        const { budgetYear, budgetMonth } = extractBudgetMonth(today);
+        budgetRepair.open({
+          category: debt.expense_category,
+          budgetYear,
+          budgetMonth,
+          suggestedAmount: amountValue,
+          date: today,
+          onReplay: async () => {
+            await mutation.mutateAsync({
+              debtId: debt.id,
+              payload: {
+                amount: amountValue,
+                reason: reason || null,
+              },
+            });
+          },
+        });
+        return;
+      }
+      // Error is handled by mutation hook's onError toast
+    }
   };
 
   return (
@@ -176,6 +264,18 @@ function ChargeForm({ debt, onClose }) {
         <PlusCircle className="mr-2 h-4 w-4" />
         Add charge
       </Button>
+
+      <BudgetRepairDialog
+        open={budgetRepair.isOpen}
+        onOpenChange={(open) => { if (!open) budgetRepair.close(); }}
+        repairPrompt={budgetRepair.prompt}
+        repairAmount={repairAmount}
+        onAmountChange={(raw) => setRepairAmount(formatAmountInput(raw))}
+        repairPending={budgetRepair.pending}
+        repairError={budgetRepair.error}
+        onClose={budgetRepair.close}
+        onCreateBudget={() => budgetRepair.createBudgetAndReplay(parseAmountInput(repairAmount))}
+      />
     </div>
   );
 }

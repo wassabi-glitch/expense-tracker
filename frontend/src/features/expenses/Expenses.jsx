@@ -51,6 +51,7 @@ import {
   reallocateBudgetSubcategory,
   updateBudget,
   getWallets,
+  createBudget,
 } from "@/lib/api";
 import {
   expenseFormSchema,
@@ -226,6 +227,7 @@ export default function Expenses() {
   const [repairAmount, setRepairAmount] = React.useState("");
   const [repairError, setRepairError] = React.useState("");
   const [repairPending, setRepairPending] = React.useState(false);
+  const [savedExpensePayload, setSavedExpensePayload] = React.useState(null);
 
   const [splitMode, setSplitMode] = React.useState("none");
   const [splits, setSplits] = React.useState([]);
@@ -567,6 +569,13 @@ export default function Expenses() {
       setRepairError("");
       return;
     }
+    if (repairPrompt.type === "budget_required") {
+      setRepairAmount(formatAmountInput(String(repairPrompt.suggestedAmount || 0)));
+      setRepairSourceCategory("");
+      setRepairSourceSubcategoryId("buffer");
+      setRepairError("");
+      return;
+    }
     setRepairAmount(formatAmountInput(String(repairPrompt.overage || 0)));
     if (repairPrompt.type === "subcategory") {
       setRepairSourceCategory("");
@@ -695,6 +704,7 @@ export default function Expenses() {
   const openAdd = () => {
     setActionError("");
     setRepairPrompt(null);
+    setSavedExpensePayload(null);
     setAddTitle("");
     setAddAmount("");
     setAddCategory(preferredAddCategory);
@@ -1103,6 +1113,42 @@ export default function Expenses() {
         toast.success(t("expenses.addSuccess", { defaultValue: "Expense added successfully" }));
       }
     } catch (e) {
+      const rawMsg = String(e?.message || "");
+      const isBudgetRequired = rawMsg === "expenses.budget_required"
+        || rawMsg.includes("expenses.budget_required");
+
+      if (isBudgetRequired) {
+        const [budgetYear, budgetMonth] = String(parsed.data.date || "").split("-").map(Number);
+        const payload = {
+          title: parsed.data.title,
+          amount: parsed.data.amount,
+          category: parsed.data.category,
+          description: parsed.data.description ?? null,
+          date: parsed.data.date,
+          wallet_allocations: isMultiWallet
+            ? walletAllocations
+            : [{ wallet_id: Number(parsed.data.wallet_id), amount }],
+          subcategory_id: addSubcategoryId ? Number(addSubcategoryId) : null,
+          project_id: addProjectId ? Number(addProjectId) : null,
+          project_subcategory_id: addProjectSubcategoryId ? Number(addProjectSubcategoryId) : null,
+          splits: splitMode !== "none" && splits.length > 0
+            ? splits.map(s => ({ contact_name: s.contact_name, amount: parseAmountInput(String(s.amount)) }))
+            : undefined,
+        };
+        const suggestedAmount = Math.abs(Number(parsed.data.amount)) || 0;
+        setSavedExpensePayload({ payload, keepOpen });
+        setRepairPrompt({
+          type: "budget_required",
+          category: parsed.data.category,
+          categoryLabel: tCategory(parsed.data.category),
+          budgetYear: Number.isFinite(budgetYear) ? budgetYear : new Date().getFullYear(),
+          budgetMonth: Number.isFinite(budgetMonth) ? budgetMonth : (new Date().getMonth() + 1),
+          suggestedAmount,
+          expenseDate: parsed.data.date,
+        });
+        return;
+      }
+
       setActionError(getActionErrorMessage(e, { category: parsed.data.category, date: parsed.data.date }));
     }
   };
@@ -1137,6 +1183,7 @@ export default function Expenses() {
   const closeRepairPrompt = React.useCallback(() => {
     setRepairPrompt(null);
     setRepairError("");
+    setSavedExpensePayload(null);
   }, []);
 
   const handleRepairReallocate = async () => {
@@ -1251,6 +1298,66 @@ export default function Expenses() {
       setRepairPending(false);
     }
   };
+
+  const handleRepairCreateBudget = async () => {
+    if (!repairPrompt || repairPrompt.type !== "budget_required" || repairPending) return;
+    const { category, budgetYear, budgetMonth, suggestedAmount } = repairPrompt;
+    const limit = Number.isFinite(repairAmountValue) && repairAmountValue > 0
+      ? repairAmountValue
+      : Math.max(suggestedAmount, 1000);
+
+    setRepairPending(true);
+    setRepairError("");
+
+    try {
+      await createBudget(category, limit, budgetYear, budgetMonth);
+      await invalidateBudgetRepairQueries();
+    } catch (e) {
+      setRepairError(localizeApiError(e?.message, t) || e?.message || t("expenses.requestFailed"));
+      setRepairPending(false);
+      return;
+    }
+
+    // Budget created — replay the original expense
+    if (!savedExpensePayload) {
+      closeRepairPrompt();
+      setRepairPending(false);
+      return;
+    }
+
+    const { payload, keepOpen } = savedExpensePayload;
+    try {
+      await addExpenseMutation.mutateAsync(payload);
+      setStoredLastExpenseCategory(payload.category);
+      closeRepairPrompt();
+      if (keepOpen === true) {
+        setAddTitle("");
+        setAddAmount("");
+        setAddDescription("");
+        setAddSubcategoryId("");
+        setAddProjectId("");
+        setAddProjectSubcategoryId("");
+        setAddWalletMode("single");
+        setAddWalletAllocations(defaultWalletId ? [{ id: nextLocalId("wallet"), wallet_id: defaultWalletId, amount: "" }] : []);
+        setTouchedAdd({});
+        setSplitMode("none");
+        setSplits([]);
+        toast.success(t("expenses.addSuccess", { defaultValue: "Expense saved!" }));
+      } else {
+        setAddOpen(false);
+        toast.success(t("expenses.addSuccess", { defaultValue: "Expense added successfully" }));
+      }
+    } catch (e) {
+      setRepairError(
+        t("expenses.replayAfterRepairFailed", {
+          defaultValue: "Budget was created but the expense could not be saved. Please try adding it again.",
+        })
+      );
+    } finally {
+      setRepairPending(false);
+    }
+  };
+
   const handleDelete = async () => {
     if (isDeleting) return;
     if (!deleteTarget) return;
@@ -3230,43 +3337,85 @@ export default function Expenses() {
       <Dialog open={Boolean(repairPrompt)} onOpenChange={(open) => { if (!open) closeRepairPrompt(); }}>
         <DialogContent className="sm:max-w-[520px]">
           <DialogHeader>
-            <DialogTitle>{t("expenses.repairBudgetTitle", { defaultValue: "Repair budget plan" })}</DialogTitle>
+            <DialogTitle>
+              {repairPrompt?.type === "budget_required"
+                ? t("expenses.createBudgetTitle", { defaultValue: "Create budget permission" })
+                : t("expenses.repairBudgetTitle", { defaultValue: "Repair budget plan" })}
+            </DialogTitle>
             <DialogDescription>
               {repairPrompt
-                ? repairPrompt.type === "subcategory"
-                  ? t("expenses.repairSubcategoryDesc", {
-                      defaultValue: "{{subcategory}} is {{amount}} over after this expense.",
-                      subcategory: repairPrompt.subcategoryName,
-                      amount: formatUzs(repairPrompt.overage),
-                    })
-                  : t("expenses.repairBudgetDesc", {
-                      defaultValue: "{{category}} is {{amount}} over after this expense.",
+                ? repairPrompt.type === "budget_required"
+                  ? t("expenses.createBudgetDesc", {
+                      defaultValue: "No budget exists for {{category}} in {{month}}. Create one to allow this {{amount}} expense.",
                       category: repairPrompt.categoryLabel,
-                      amount: formatUzs(repairPrompt.overage),
+                      month: formatMonthYear(`${repairPrompt.budgetYear}-${String(repairPrompt.budgetMonth).padStart(2, "0")}-01`),
+                      amount: formatUzs(repairPrompt.suggestedAmount),
                     })
+                  : repairPrompt.type === "subcategory"
+                    ? t("expenses.repairSubcategoryDesc", {
+                        defaultValue: "{{subcategory}} is {{amount}} over after this expense.",
+                        subcategory: repairPrompt.subcategoryName,
+                        amount: formatUzs(repairPrompt.overage),
+                      })
+                    : t("expenses.repairBudgetDesc", {
+                        defaultValue: "{{category}} is {{amount}} over after this expense.",
+                        category: repairPrompt.categoryLabel,
+                        amount: formatUzs(repairPrompt.overage),
+                      })
                 : ""}
             </DialogDescription>
           </DialogHeader>
           {repairPrompt ? (
             <div className="space-y-4">
-              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+              <div className={cn(
+                "rounded-lg border p-3 text-sm",
+                repairPrompt.type === "budget_required"
+                  ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                  : "border-destructive/30 bg-destructive/5 text-destructive"
+              )}>
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                   <p>
-                    {repairPrompt.type === "subcategory"
-                      ? t("expenses.repairSubcategoryRedState", {
-                          defaultValue: "{{subcategory}} can stay red, or you can move room from {{category}} now.",
-                          subcategory: repairPrompt.subcategoryName,
+                    {repairPrompt.type === "budget_required"
+                      ? t("expenses.createBudgetAlert", {
+                          defaultValue: "Your expense draft is preserved. Create a {{category}} budget for {{month}} to continue, or cancel to leave the expense unposted.",
                           category: repairPrompt.categoryLabel,
+                          month: formatMonthYear(`${repairPrompt.budgetYear}-${String(repairPrompt.budgetMonth).padStart(2, "0")}-01`),
                         })
-                      : t("expenses.repairBudgetRedState", {
-                          defaultValue: "{{category}} can stay red, or you can repair it now.",
-                          category: repairPrompt.categoryLabel,
-                        })}
+                      : repairPrompt.type === "subcategory"
+                        ? t("expenses.repairSubcategoryRedState", {
+                            defaultValue: "{{subcategory}} can stay red, or you can move room from {{category}} now.",
+                            subcategory: repairPrompt.subcategoryName,
+                            category: repairPrompt.categoryLabel,
+                          })
+                        : t("expenses.repairBudgetRedState", {
+                            defaultValue: "{{category}} can stay red, or you can repair it now.",
+                            category: repairPrompt.categoryLabel,
+                          })}
                   </p>
                 </div>
               </div>
-              {repairPrompt.type === "subcategory" ? (
+              {repairPrompt.type === "budget_required" ? (
+                <div className="rounded-lg border border-border/60 bg-muted/15 p-3">
+                  <p className="text-sm font-semibold">
+                    {t("budgets.monthlyLimit", { defaultValue: "Monthly limit" })}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t("expenses.createBudgetHint", {
+                      defaultValue: "Set the monthly spending limit for {{category}}. The expense amount is suggested as a starting point.",
+                      category: repairPrompt.categoryLabel,
+                    })}
+                  </p>
+                  <div className="mt-3 grid gap-1.5">
+                    <label className="text-xs font-semibold">{t("expenses.amount", { defaultValue: "Amount" })}</label>
+                    <Input
+                      value={repairAmount}
+                      inputMode="numeric"
+                      onChange={(event) => setRepairAmount(formatAmountInput(event.target.value))}
+                    />
+                  </div>
+                </div>
+              ) : repairPrompt.type === "subcategory" ? (
                 <div className="rounded-lg border border-border/60 bg-muted/15 p-3">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div>
@@ -3366,26 +3515,37 @@ export default function Expenses() {
           ) : null}
           <DialogFooter className="gap-2 sm:gap-2">
             <Button variant="ghost" disabled={repairPending} onClick={closeRepairPrompt}>
-              {t("expenses.leaveRed", { defaultValue: "Leave red" })}
+              {repairPrompt?.type === "budget_required"
+                ? t("common.cancel", { defaultValue: "Cancel" })
+                : t("expenses.leaveRed", { defaultValue: "Leave red" })}
             </Button>
-            <Button
-              variant="outline"
-              disabled={
-                repairPending
-                || repairAmountValue <= 0
-                || (repairPrompt?.type === "subcategory"
-                  ? !repairSourceSubcategoryId || selectedRepairSubcategorySourceAvailable < repairAmountValue
-                  : !repairSourceCategory)
-              }
-              onClick={handleRepairReallocate}
-            >
-              <ArrowRightLeft className="mr-2 h-4 w-4" />
-              {t("budgets.reallocate", { defaultValue: "Reallocate" })}
-            </Button>
-            <Button disabled={repairPending || repairAmountValue <= 0} onClick={handleRepairIncreaseLimit}>
-              <Plus className="mr-2 h-4 w-4" />
-              {t("budgets.increaseLimit", { defaultValue: "Increase limit" })}
-            </Button>
+            {repairPrompt?.type === "budget_required" ? (
+              <Button disabled={repairPending || repairAmountValue <= 0} onClick={handleRepairCreateBudget}>
+                <Plus className="mr-2 h-4 w-4" />
+                {t("budgets.create", { defaultValue: "Create budget" })}
+              </Button>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  disabled={
+                    repairPending
+                    || repairAmountValue <= 0
+                    || (repairPrompt?.type === "subcategory"
+                      ? !repairSourceSubcategoryId || selectedRepairSubcategorySourceAvailable < repairAmountValue
+                      : !repairSourceCategory)
+                  }
+                  onClick={handleRepairReallocate}
+                >
+                  <ArrowRightLeft className="mr-2 h-4 w-4" />
+                  {t("budgets.reallocate", { defaultValue: "Reallocate" })}
+                </Button>
+                <Button disabled={repairPending || repairAmountValue <= 0} onClick={handleRepairIncreaseLimit}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  {t("budgets.increaseLimit", { defaultValue: "Increase limit" })}
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

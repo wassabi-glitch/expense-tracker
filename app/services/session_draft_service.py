@@ -7,18 +7,23 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, selectinload
 
 from .. import models, schemas
+from ..services.budget_permission_service import (
+    BudgetPermissionRequest,
+    check_budget_permission,
+)
 from ..services.budget_service import (
     get_owned_project_or_404,
     get_owned_project_subcategory_or_404,
     get_owned_subcategory_or_404,
-    materialize_budget_for_month,
-    validate_project_budget,
+)
+from ..services.financial_event_ledger_service import (
+    PostEntityLeg,
+    PostWalletLeg,
+    post_financial_event,
 )
 from ..services.goal_funding_service import validate_wallet_goal_protection_for_outflow
 from ..services.project_service import is_isolated_project
-from ..services.debt_service import create_debt_ledger_entry
-from ..services.wallet_service import WalletService
-from ..services.wallet_value_service import classify_outflow
+from app.domains.debt._debt_service import create_debt_ledger_entry
 
 
 @dataclass
@@ -162,30 +167,6 @@ def validate_session_item_links(
     return subcategory, project, project_subcategory
 
 
-def resolve_budget_for_expense_month(
-    db: Session,
-    owner_id: int,
-    category: models.ExpenseCategory,
-    expense_date: date,
-) -> models.Budget:
-    budget = (
-        db.query(models.Budget)
-        .filter(
-            models.Budget.owner_id == owner_id,
-            models.Budget.category == category,
-            models.Budget.budget_year == expense_date.year,
-            models.Budget.budget_month == expense_date.month,
-        )
-        .with_for_update()
-        .first()
-    )
-    if not budget:
-        budget = materialize_budget_for_month(db, owner_id, category, expense_date.year, expense_date.month)
-        if not budget:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expenses.budget_required")
-    return budget
-
-
 def _distribute_amounts(
     items: list[models.ExpenseSessionDraftItem],
     amount_paid: int | None,
@@ -315,9 +296,13 @@ def finalize_session_draft(
     db: Session,
     owner_id: int,
     draft_id: int,
+    local_today: date | None = None,
 ) -> SessionFinalizeResult:
     draft = get_owned_session_draft_or_404(db, owner_id, draft_id, lock=True)
     ensure_draft_editable(draft)
+
+    if local_today is not None and draft.date > local_today:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expenses.date_in_future")
 
     items = sorted(list(draft.items), key=lambda item: (int(item.sort_order or 0), int(item.id)))
     if not items:
@@ -389,9 +374,23 @@ def finalize_session_draft(
         subcategory, project, project_subcategory = validate_session_item_links(
             db, owner_id, item.category, item.subcategory_id, item.project_id, item.project_subcategory_id
         )
-        budget = None
-        if project is None or not is_isolated_project(project):
-            budget = resolve_budget_for_expense_month(db, owner_id, item.category, draft.date)
+        permission = check_budget_permission(
+            db,
+            BudgetPermissionRequest(
+                user_id=owner_id,
+                category=item.category,
+                amount=adjusted_amount,
+                expense_date=draft.date,
+                subcategory=subcategory,
+                project=project,
+                project_subcategory=project_subcategory,
+                enforce_monthly_budget_limits=(
+                    project is None or not is_isolated_project(project)
+                ),
+            ),
+        )
+        budget = permission.budget
+        if budget is not None:
             grouped_budget_amounts[budget.id] = grouped_budget_amounts.get(budget.id, 0) + adjusted_amount
         if subcategory is not None:
             subcategories[subcategory.id] = subcategory
@@ -416,50 +415,35 @@ def finalize_session_draft(
             ),
             None,
         )
-        validate_project_budget(
+        check_budget_permission(
             db,
-            owner_id,
-            projects[project_id],
-            category,
-            amount,
-            draft.date,
-            project_subcategory=project_subcategory,
+            BudgetPermissionRequest(
+                user_id=owner_id,
+                category=category,
+                amount=amount,
+                expense_date=draft.date,
+                project=projects[project_id],
+                project_subcategory=project_subcategory,
+            ),
         )
 
-    event = models.FinancialEvent(
-        owner_id=owner_id,
-        title=draft.title,
-        description=draft.description,
-        event_type=models.TransactionType.EXPENSE,
-        is_session=True,
-        discount_amount=(original_total - adjusted_total) if original_total != adjusted_total else None,
-        date=draft.date,
-    )
-    db.add(event)
-    db.flush()
-
+    wallet_legs: list[PostWalletLeg] = []
     for allocation in draft.wallet_allocations:
-        funding = classify_outflow(allocation.wallet, int(allocation.amount))
-        WalletService.adjust_balance(db, allocation.wallet_id, -int(allocation.amount), models.TransactionType.EXPENSE)
-        db.add(
-            models.WalletLedger(
-                owner_id=owner_id,
-                event_id=event.id,
+        wallet_legs.append(
+            PostWalletLeg(
                 wallet_id=allocation.wallet_id,
                 amount=-int(allocation.amount),
-                owned_spend_amount=funding.owned_amount,
-                borrowed_spend_amount=funding.borrowed_amount,
             )
         )
 
     budget_ids: set[int] = set()
     has_discount = original_total != adjusted_total
+    entity_legs: list[PostEntityLeg] = []
     for item, adjusted_amount, subcategory, project, project_subcategory, budget in validated_items:
         if budget is not None:
             budget_ids.add(int(budget.id))
-        db.add(
-            models.EntityLedger(
-                event_id=event.id,
+        entity_legs.append(
+            PostEntityLeg(
                 label=item.label.strip(),
                 amount=adjusted_amount,
                 original_amount=int(item.original_amount) if has_discount else None,
@@ -470,6 +454,20 @@ def finalize_session_draft(
                 budget_id=budget.id if budget is not None else None,
             )
         )
+
+    event = post_financial_event(
+        db,
+        owner_id=owner_id,
+        title=draft.title,
+        event_type=models.TransactionType.EXPENSE,
+        date=draft.date,
+        description=draft.description,
+        is_session=True,
+        discount_amount=(original_total - adjusted_total) if original_total != adjusted_total else None,
+        entity_category=None,
+        wallet_legs=wallet_legs,
+        entity_legs=entity_legs,
+    )
 
     for split in draft.splits:
         db.add(

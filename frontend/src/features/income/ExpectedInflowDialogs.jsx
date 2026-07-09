@@ -22,6 +22,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { formatAmountInput, formatDisplayDate, parseAmountInput } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { MAX_INCOME_AMOUNT } from "./incomeSchemas";
+import {
+  getAssetSaleOptions,
+  getEarnedOptions,
+  getReceivableOptions,
+  getRefundOptions,
+} from "./ExpectedInflowSourcePicker";
 
 
 const SOURCE_KINDS = [
@@ -32,7 +38,6 @@ const SOURCE_KINDS = [
 ];
 
 const maxAmountDigits = String(MAX_INCOME_AMOUNT).length;
-const asItems = (data) => (Array.isArray(data) ? data : data?.items || []);
 
 function nextMonthDate(value, minimum) {
   const parsed = new Date(`${value}T00:00:00Z`);
@@ -77,10 +82,10 @@ export function ExpectedInflowEditorDialog({
   const financialLocked = Boolean(item && !item.is_pristine);
 
   const options = useMemo(() => {
-    if (kind === "EARNED") return asItems(sources).filter((source) => source.is_active);
-    if (kind === "RECEIVABLE") return asItems(debts).filter((debt) => debt.debt_type === "OWED" && debt.status === "ACTIVE" && Number(debt.remaining_amount || 0) > 0);
-    if (kind === "REFUND") return asItems(expenses).filter((expense) => expense.event_type !== "REFUND");
-    return asItems(assets).filter((asset) => asset.status === "owned");
+    if (kind === "EARNED") return getEarnedOptions(sources);
+    if (kind === "RECEIVABLE") return getReceivableOptions(debts);
+    if (kind === "REFUND") return getRefundOptions(expenses);
+    return getAssetSaleOptions(assets);
   }, [assets, debts, expenses, kind, sources]);
 
   useEffect(() => {
@@ -101,7 +106,7 @@ export function ExpectedInflowEditorDialog({
     setSourceId(options[0]?.id ? String(options[0].id) : "");
   }, [item, kind, open, options]);
 
-  const optionLabel = (option) => option.name || option.counterparty_name || option.title || `Expense #${option.id}`;
+  const optionLabel = (option) => option.label;
   const submit = async () => {
     const amountValue = parseAmountInput(amount);
     if (!title.trim() || (!item && !sourceId) || (!financialLocked && (amountValue <= 0 || !dueDate))) {

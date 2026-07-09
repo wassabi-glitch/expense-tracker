@@ -19,18 +19,7 @@ import {
 import { useToast } from "@/lib/context/ToastContext";
 import { formatUzs } from "@/lib/format";
 import { localizeApiError } from "@/lib/errorMessages";
-
-async function invalidateDebtsQueries(queryClient) {
-  await Promise.all([
-    queryClient.invalidateQueries({ queryKey: ["debts"] }),
-    queryClient.invalidateQueries({ queryKey: ["wallets"] }),
-    queryClient.invalidateQueries({ queryKey: ["users", "me"] }),
-    queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-    queryClient.invalidateQueries({ queryKey: ["analytics"] }),
-    queryClient.invalidateQueries({ queryKey: ["notifications"] }),
-    queryClient.invalidateQueries({ queryKey: ["income"] }),
-  ]);
-}
+import { invalidateDebtViews } from "@/lib/cacheInvalidation";
 
 export function useCreateDebtMutation() {
   const { t } = useTranslation();
@@ -39,7 +28,7 @@ export function useCreateDebtMutation() {
   return useMutation({
     mutationFn: createDebt,
     onSuccess: async (data) => {
-      await invalidateDebtsQueries(queryClient);
+      await invalidateDebtViews(queryClient);
       toast.success(
         t("debts.toasts.created"),
         t("debts.toasts.created_detail", { 
@@ -62,7 +51,7 @@ export function useRecordDebtPaymentMutation() {
   return useMutation({
     mutationFn: (payload) => recordPayment(payload),
     onSuccess: async (data, payload) => {
-      await invalidateDebtsQueries(queryClient);
+      await invalidateDebtViews(queryClient);
       toast.success(
         t("debts.toasts.paymentRecorded"),
         t("debts.toasts.paymentRecorded_detail", { 
@@ -84,7 +73,7 @@ export function useRecordDebtPaymentForDebtMutation() {
   return useMutation({
     mutationFn: ({ debtId, payload }) => recordPayment({ debt_id: debtId, ...payload }),
     onSuccess: async (data, variables) => {
-      await invalidateDebtsQueries(queryClient);
+      await invalidateDebtViews(queryClient);
       if (variables?.debtId) {
         await queryClient.invalidateQueries({ queryKey: ["debts", "details", variables.debtId] });
       }
@@ -109,7 +98,7 @@ export function usePayWalletBackedObligationMutation() {
   return useMutation({
     mutationFn: ({ walletId, payload }) => payWalletBackedObligation(walletId, payload),
     onSuccess: async (_data, variables) => {
-      await invalidateDebtsQueries(queryClient);
+      await invalidateDebtViews(queryClient);
       toast.success(
         t("debts.toasts.paymentRecorded"),
         t("debts.toasts.paymentRecorded_detail", {
@@ -131,7 +120,7 @@ export function useUpdateDebtMutation() {
   return useMutation({
     mutationFn: ({ debtId, payload }) => updateDebt(debtId, payload),
     onSuccess: async (data) => {
-      await invalidateDebtsQueries(queryClient);
+      await invalidateDebtViews(queryClient);
       toast.success(t("debts.toasts.updated"), data.counterparty_name);
     },
     onError: (error) => {
@@ -148,7 +137,7 @@ export function useArchiveDebtMutation() {
   return useMutation({
     mutationFn: (debtId) => archiveDebt(debtId),
     onSuccess: async (data) => {
-      await invalidateDebtsQueries(queryClient);
+      await invalidateDebtViews(queryClient);
       if (data?.id) {
         await queryClient.invalidateQueries({ queryKey: ["debts", "details", data.id] });
       }
@@ -168,7 +157,7 @@ export function useRestoreDebtMutation() {
   return useMutation({
     mutationFn: (debtId) => restoreDebt(debtId),
     onSuccess: async (data) => {
-      await invalidateDebtsQueries(queryClient);
+      await invalidateDebtViews(queryClient);
       if (data?.id) {
         await queryClient.invalidateQueries({ queryKey: ["debts", "details", data.id] });
       }
@@ -188,7 +177,7 @@ export function useDeleteDebtMutation() {
   return useMutation({
     mutationFn: (debtId) => deleteDebt(debtId),
     onSuccess: async () => {
-      await invalidateDebtsQueries(queryClient);
+      await invalidateDebtViews(queryClient);
       toast.success(t("debts.toasts.deleted"));
     },
     onError: (error) => {
@@ -205,7 +194,7 @@ export function useDeleteTransactionMutation() {
   return useMutation({
     mutationFn: (transactionId) => deleteTransaction(transactionId),
     onSuccess: async () => {
-      await invalidateDebtsQueries(queryClient);
+      await invalidateDebtViews(queryClient);
       toast.success(t("debts.toasts.transactionDeleted"));
     },
     onError: (error) => {
@@ -222,7 +211,7 @@ export function useAddChargeMutation() {
   return useMutation({
     mutationFn: ({ debtId, payload }) => addCharge(debtId, payload),
     onSuccess: async (data) => {
-      await invalidateDebtsQueries(queryClient);
+      await invalidateDebtViews(queryClient);
       toast.success(
         t("debts.toasts.chargeAdded"),
         t("debts.toasts.chargeAdded_detail", { amount: formatUzs(data.amount) })
@@ -242,7 +231,7 @@ export function useForgiveDebtMutation() {
   return useMutation({
     mutationFn: (debtId) => forgiveDebt(debtId),
     onSuccess: async () => {
-      await invalidateDebtsQueries(queryClient);
+      await invalidateDebtViews(queryClient);
       toast.success(t("debts.toasts.forgiven"));
     },
     onError: (error) => {
@@ -259,7 +248,7 @@ export function useForgiveDebtAmountMutation() {
   return useMutation({
     mutationFn: ({ debtId, payload }) => forgiveDebtAmount(debtId, payload),
     onSuccess: async (_data, variables) => {
-      await invalidateDebtsQueries(queryClient);
+      await invalidateDebtViews(queryClient);
       if (variables?.debtId) {
         await queryClient.invalidateQueries({ queryKey: ["debts", "details", variables.debtId] });
       }
@@ -279,7 +268,7 @@ export function useAdjustDebtBalanceMutation() {
   return useMutation({
     mutationFn: ({ debtId, payload }) => adjustDebtBalance(debtId, payload),
     onSuccess: async (_data, variables) => {
-      await invalidateDebtsQueries(queryClient);
+      await invalidateDebtViews(queryClient);
       if (variables?.debtId) {
         await queryClient.invalidateQueries({ queryKey: ["debts", "details", variables.debtId] });
       }
@@ -299,7 +288,7 @@ export function useReverseDebtLedgerEntryMutation() {
   return useMutation({
     mutationFn: ({ debtId, entryId, payload }) => reverseDebtLedgerEntry(debtId, entryId, payload),
     onSuccess: async (_data, variables) => {
-      await invalidateDebtsQueries(queryClient);
+      await invalidateDebtViews(queryClient);
       if (variables?.debtId) {
         await queryClient.invalidateQueries({ queryKey: ["debts", "details", variables.debtId] });
       }
@@ -319,7 +308,7 @@ export function useUpdateDebtFormalDetailsMutation() {
   return useMutation({
     mutationFn: ({ debtId, payload }) => updateDebtFormalDetails(debtId, payload),
     onSuccess: async (_data, variables) => {
-      await invalidateDebtsQueries(queryClient);
+      await invalidateDebtViews(queryClient);
       if (variables?.debtId) {
         await queryClient.invalidateQueries({ queryKey: ["debts", "details", variables.debtId] });
       }

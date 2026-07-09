@@ -1939,20 +1939,6 @@ export default function Budgets() {
   const openProjectStructure = (project) => {
     setActionError("");
     setProjectStructureId(project.id);
-    setProjectCategoryValue("");
-    setProjectCategoryLimitValue("");
-    setEditingProjectCategory("");
-    setEditingProjectCategoryLimit("");
-    setProjectSubcategoryCategory("");
-    setProjectSubcategoryUserSubcategoryId("");
-    setProjectSubcategoryName("");
-    setProjectSubcategoryLimit("");
-    setProjectSubcategoryIsActive("true");
-    setEditingProjectSubcategoryId(null);
-    setEditingProjectSubcategoryUserSubcategoryId("");
-    setEditingProjectSubcategoryName("");
-    setEditingProjectSubcategoryLimit("");
-    setEditingProjectSubcategoryIsActive("true");
     setProjectStructureOpen(true);
   };
 
@@ -3086,7 +3072,6 @@ export default function Budgets() {
                       const remaining = Number(project.remaining || Math.max(0, totalLimit - spent));
                       const targetEstimate = Number(overlayDetails.target_estimate ?? project.target_estimate ?? 0);
                       const selectedMonthReserved = Number(overlayDetails.selected_month_reserved_amount ?? project.selected_month_reserved_amount ?? 0);
-                      const totalReservedScope = Number(overlayDetails.total_reserved_scope ?? project.total_reserved_scope ?? 0);
                       const selectedMonthSpent = (project.category_breakdown || []).reduce(
                         (sum, item) => sum + Number(item.spent || 0),
                         0,
@@ -3127,7 +3112,7 @@ export default function Budgets() {
                             project={project}
                             onEditProperties={setEditProjectModalProject}
                             onManageStructure={openProjectStructure}
-                            onReopen={(projectId) => reopenProjectMutation.mutate(projectId)}
+                            onReopen={(projectId) => navigate(`/projects/${projectId}`)}
                             todayIso={todayIso}
                             disabled={isProjectLifecyclePending}
                           />
@@ -3187,47 +3172,12 @@ export default function Budgets() {
                                       </DropdownMenuItem>
                                     ) : null}
 
-                                    {!projectIsIsolated && projectIsActive ? (
+                                    {!projectIsIsolated && (projectIsActive || projectIsStopped || projectCanComplete || projectIsArchived) ? (
                                       <DropdownMenuItem
-                                        onSelect={() => openProjectLifecycleDialog(project, PROJECT_LIFECYCLE_ACTIONS.PAUSE)}
-                                        disabled={isProjectLifecyclePending}
-                                      >
-                                        <PauseCircle className="mr-2 h-4 w-4" />
-                                        {t("projects.pauseProject", { defaultValue: "Pause project" })}
-                                      </DropdownMenuItem>
-                                    ) : null}
-
-                                    {!projectIsIsolated && projectIsStopped ? (
-                                      <DropdownMenuItem
-                                        onSelect={() => openProjectLifecycleDialog(project, PROJECT_LIFECYCLE_ACTIONS.RESUME)}
-                                        disabled={isProjectLifecyclePending}
-                                      >
-                                        <PlayCircle className="mr-2 h-4 w-4" />
-                                        {t("projects.resumeProject", { defaultValue: "Resume project" })}
-                                      </DropdownMenuItem>
-                                    ) : null}
-
-                                    {!projectIsIsolated && projectCanComplete ? (
-                                      <DropdownMenuItem
-                                        onSelect={() => openProjectLifecycleDialog(project, PROJECT_LIFECYCLE_ACTIONS.COMPLETE)}
-                                        disabled={isProjectLifecyclePending}
+                                        onSelect={() => navigate(`/projects/${project.id}`)}
                                       >
                                         <CalendarClock className="mr-2 h-4 w-4" />
-                                        {projectReadyToWrap
-                                          ? t("projects.wrapUpProject", { defaultValue: "Wrap up project" })
-                                          : projectIsStopped
-                                            ? t("projects.completeNow", { defaultValue: "Complete now" })
-                                            : t("projects.completeEarly", { defaultValue: "Complete early" })}
-                                      </DropdownMenuItem>
-                                    ) : null}
-
-                                    {projectIsArchived ? (
-                                      <DropdownMenuItem
-                                        onSelect={() => reopenProjectMutation.mutate(project.id)}
-                                        disabled={isProjectLifecyclePending}
-                                      >
-                                        <ArchiveRestore className="mr-2 h-4 w-4" />
-                                        {t("common.restore", { defaultValue: "Restore" })}
+                                        {t("projects.manageProject", { defaultValue: "Manage project" })}
                                       </DropdownMenuItem>
                                     ) : null}
 
@@ -3235,7 +3185,7 @@ export default function Budgets() {
                                     <DropdownMenuItem
                                       variant="destructive"
                                       onSelect={() => handleProjectDeleteClick(project)}
-                                      disabled={isProjectDeletionPending || isProjectLifecyclePending}
+                                      disabled={isProjectDeletionPending}
                                     >
                                       <Trash2 className="mr-2 h-4 w-4" />
                                       {t("common.delete", { defaultValue: "Delete" })}

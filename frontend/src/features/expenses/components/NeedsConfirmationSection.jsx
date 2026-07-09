@@ -16,6 +16,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { CurrencyAmount } from "@/components/CurrencyAmount";
 import { Plus, Trash2 } from "lucide-react";
+import { isBudgetRequiredError, extractBudgetMonth } from "@/lib/budgetInterceptor";
+import { useBudgetRepair } from "@/features/budgets/hooks/useBudgetRepair";
+import { BudgetRepairDialog } from "@/features/budgets/components/BudgetRepairDialog";
 
 export function NeedsConfirmationSection() {
     const { t } = useTranslation();
@@ -29,6 +32,18 @@ export function NeedsConfirmationSection() {
     const [confirmDate, setConfirmDate] = React.useState("");
     const [confirmAllocations, setConfirmAllocations] = React.useState([{ wallet_id: "", amount: "" }]);
     const [updateTemplate, setUpdateTemplate] = React.useState(false);
+
+    const [repairAmount, setRepairAmount] = React.useState("");
+    const budgetRepair = useBudgetRepair();
+
+    // Pre-fill repair amount when dialog opens
+    React.useEffect(() => {
+      if (budgetRepair.prompt) {
+        setRepairAmount(formatAmountInput(String(budgetRepair.prompt.suggestedAmount || 0)));
+      } else {
+        setRepairAmount("");
+      }
+    }, [budgetRepair.prompt]);
 
     if (!occurrences || occurrences.length === 0) return null;
 
@@ -81,6 +96,21 @@ export function NeedsConfirmationSection() {
             await confirmMutation.mutateAsync({ id: confirmTarget.id, payload });
             setConfirmTarget(null);
         } catch (e) {
+            if (isBudgetRequiredError(e)) {
+              const { budgetYear, budgetMonth } = extractBudgetMonth(confirmDate || confirmTarget.scheduled_due_date);
+              const id = confirmTarget.id;
+              budgetRepair.open({
+                category: confirmTarget.expected_category,
+                budgetYear,
+                budgetMonth,
+                suggestedAmount: totalAmount,
+                date: confirmDate || confirmTarget.scheduled_due_date,
+                onReplay: async () => {
+                  await confirmMutation.mutateAsync({ id, payload });
+                },
+              });
+              return;
+            }
             // Error is handled in mutation hook via toast
         }
     };
@@ -252,6 +282,18 @@ export function NeedsConfirmationSection() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <BudgetRepairDialog
+              open={budgetRepair.isOpen}
+              onOpenChange={(open) => { if (!open) budgetRepair.close(); }}
+              repairPrompt={budgetRepair.prompt}
+              repairAmount={repairAmount}
+              onAmountChange={(raw) => setRepairAmount(formatAmountInput(raw))}
+              repairPending={budgetRepair.pending}
+              repairError={budgetRepair.error}
+              onClose={budgetRepair.close}
+              onCreateBudget={() => budgetRepair.createBudgetAndReplay(parseAmountInput(repairAmount))}
+            />
         </div>
     );
 }

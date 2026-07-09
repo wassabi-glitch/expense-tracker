@@ -10,6 +10,11 @@ from app.timezone import get_effective_user_timezone, today_in_tz
 from .. import models, oauth2, schemas
 from ..session import get_db
 from ..services.debt_service import reconcile_debt
+from ..services.financial_event_ledger_service import (
+    PostEntityLeg,
+    PostWalletLeg,
+    post_financial_event,
+)
 from ..services.wallet_service import WalletService
 from .wallets import _get_owned_wallet_or_404
 
@@ -240,36 +245,26 @@ def _record_income_event(
     income_date: date,
     wallet_allocations: list[tuple[models.Wallet, int]],
 ) -> models.FinancialEvent:
-    event = models.FinancialEvent(
+    """Create a posted INCOME FinancialEvent through the ledger seam."""
+    return post_financial_event(
+        db,
         owner_id=owner_id,
         title="Income",
-        description=note,
         event_type=models.TransactionType.INCOME,
         date=income_date,
-    )
-    db.add(event)
-    db.flush()
-
-    for wallet, allocation_amount in wallet_allocations:
-        WalletService.adjust_balance(db, wallet.id, int(allocation_amount), models.TransactionType.INCOME)
-        db.add(
-            models.WalletLedger(
-                owner_id=owner_id,
-                event_id=event.id,
-                wallet_id=wallet.id,
-                amount=int(allocation_amount),
+        description=note,
+        entity_category=None,
+        wallet_legs=[
+            PostWalletLeg(wallet_id=wallet.id, amount=int(allocation_amount))
+            for wallet, allocation_amount in wallet_allocations
+        ],
+        entity_legs=[
+            PostEntityLeg(
+                amount=int(amount),
+                income_source_id=source_id,
             )
-        )
-
-    db.add(
-        models.EntityLedger(
-            event_id=event.id,
-            amount=int(amount),
-            income_source_id=source_id,
-        )
+        ],
     )
-    db.flush()
-    return event
 
 
 def _replace_income_event_legs(

@@ -14,8 +14,12 @@ import {
 } from "@/lib/api";
 import { useToast } from "@/lib/context/ToastContext";
 import { localizeApiError } from "@/lib/errorMessages";
-
-// ... (keep helper functions)
+import {
+    invalidateExpenseViews,
+    QK_ASSETS,
+    QK_RECURRING_LIST,
+    QK_DASHBOARD_RECURRING,
+} from "@/lib/cacheInvalidation";
 
 export function useRefundExpenseMutation() {
     const { t } = useTranslation();
@@ -31,8 +35,6 @@ export function useRefundExpenseMutation() {
         },
         onSettled: async () => {
             await invalidateExpenseDerivedQueries(queryClient);
-            // Also invalidate wallets as money moved back
-            await queryClient.invalidateQueries({ queryKey: ["wallets"] });
         },
     });
 }
@@ -66,10 +68,8 @@ export function useMarkExpenseAsAssetMutation() {
             toast.error(t("assets.toastCreateFailed", { defaultValue: "Failed to create asset" }), msg);
         },
         onSettled: async () => {
-            await Promise.all([
-                invalidateExpenseDerivedQueries(queryClient),
-                queryClient.invalidateQueries({ queryKey: ["assets"] }),
-            ]);
+            await invalidateExpenseDerivedQueries(queryClient);
+            await queryClient.invalidateQueries({ queryKey: QK_ASSETS });
         },
     });
 }
@@ -86,11 +86,9 @@ export function useMarkExpenseAsRecurringMutation() {
             toast.error(t("toasts.recurring.failedToCreate", { defaultValue: "Failed to create recurring expense" }), msg);
         },
         onSettled: async () => {
-            await Promise.all([
-                invalidateExpenseDerivedQueries(queryClient),
-                queryClient.invalidateQueries({ queryKey: ["recurring", "list"] }),
-                queryClient.invalidateQueries({ queryKey: ["dashboard", "recurring"] }),
-            ]);
+            await invalidateExpenseDerivedQueries(queryClient);
+            await queryClient.invalidateQueries({ queryKey: QK_RECURRING_LIST });
+            await queryClient.invalidateQueries({ queryKey: QK_DASHBOARD_RECURRING });
         },
     });
 }
@@ -186,16 +184,7 @@ function findExpenseAmountInCache(queryClient, expenseId) {
 }
 
 async function invalidateExpenseDerivedQueries(queryClient) {
-    await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["expenses"] }),
-        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-        queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] }),
-        queryClient.invalidateQueries({ queryKey: ["wallets"] }),
-        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
-        queryClient.invalidateQueries({ queryKey: ["budgets", "month-stats"] }),
-        queryClient.invalidateQueries({ queryKey: ["notifications"] }),
-        queryClient.invalidateQueries({ queryKey: ["debts"] }),
-    ]);
+    await invalidateExpenseViews(queryClient);
 }
 
 export function useCreateExpenseMutation() {

@@ -7,7 +7,6 @@ from sqlalchemy import and_, case, func
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
-from .category_policy import validate_active_expense_category
 from .goal_funding_service import get_wallet_goal_allocated_amount
 from .wallet_value_service import owned_balance
 
@@ -233,6 +232,8 @@ def apply_isolated_project_category_allocation(
     category: models.ExpenseCategory,
     allocated_amount: int,
 ) -> None:
+    from app.domains.posting._category_policy import validate_active_expense_category  # lazy — avoids circular import
+
     if project.project_type != models.ProjectType.ISOLATED:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="projects.isolated_required")
@@ -357,6 +358,8 @@ def apply_isolated_project_subcategory_allocation(
     name: str | None = None,
     user_subcategory_id: int | None = None,
 ) -> None:
+    from app.domains.posting._category_policy import validate_active_expense_category  # lazy — avoids circular import
+
     if project.project_type != models.ProjectType.ISOLATED:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="projects.isolated_required")
@@ -430,6 +433,8 @@ def apply_isolated_project_rebalance(
     project: models.Project,
     payload: schemas.ProjectRebalanceRequest,
 ) -> None:
+    from app.domains.posting._category_policy import validate_active_expense_category  # lazy — avoids circular import
+
     if project.project_type != models.ProjectType.ISOLATED:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="projects.isolated_required")

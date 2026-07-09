@@ -2,6 +2,36 @@
 
 Short decision log for product and architecture choices that are considered settled enough to guide implementation.
 
+## 2026-07-07 - Freeze Isolated Projects and Fund Project
+
+### Decision
+
+Freeze Isolated Projects and Fund Project until the core Sarflog app philosophy is stable.
+
+Do not execute new isolated-project or Fund Project work from older epics, PRDs, or issue files. Existing code may remain if it does not distort core app flows.
+
+### Rationale
+
+Isolated Projects are not a small project feature. They introduce a second money engine that touches wallets, Free Money Now, monthly budgets, goals, expense entry, reports, wrap-up, and protection-breach resolution.
+
+The current middle state is risky because it has wallet-backed project funding and category allocations, but does not yet have a complete first-class ledger model for isolated project stash consumption/release.
+
+### Future Revisit
+
+After the core app stabilizes, decide one of two paths:
+
+```text
+Remove Isolated Projects and Fund Project.
+```
+
+or:
+
+```text
+Promote Isolated Projects into a first-class protected-stash ledger.
+```
+
+See [ADR 0022](adr/0022-freeze-isolated-projects-and-fund-project.md).
+
 ## 2026-06-03 - Payment Plans Guided Create Flow
 
 ### Decision
