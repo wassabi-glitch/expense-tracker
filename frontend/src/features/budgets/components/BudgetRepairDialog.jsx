@@ -11,7 +11,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatUzs, formatMonthYear } from "@/lib/format";
-import { cn } from "@/lib/utils";
 
 /**
  * Shared dialog for the Budget Interceptor repair flow (ADR-0009).

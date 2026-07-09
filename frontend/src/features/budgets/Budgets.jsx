@@ -1937,7 +1937,9 @@ export default function Budgets() {
   };
 
   const openProjectStructure = (project) => {
-    navigate(`/projects/${project.id}`);
+    setActionError("");
+    setProjectStructureId(project.id);
+    setProjectStructureOpen(true);
   };
 
   const openSubcategories = (budget, repair = null) => {
@@ -3070,7 +3072,6 @@ export default function Budgets() {
                       const remaining = Number(project.remaining || Math.max(0, totalLimit - spent));
                       const targetEstimate = Number(overlayDetails.target_estimate ?? project.target_estimate ?? 0);
                       const selectedMonthReserved = Number(overlayDetails.selected_month_reserved_amount ?? project.selected_month_reserved_amount ?? 0);
-                      const totalReservedScope = Number(overlayDetails.total_reserved_scope ?? project.total_reserved_scope ?? 0);
                       const selectedMonthSpent = (project.category_breakdown || []).reduce(
                         (sum, item) => sum + Number(item.spent || 0),
                         0,
@@ -3183,7 +3184,8 @@ export default function Budgets() {
                                     {projectCanModify || projectIsArchived ? <DropdownMenuSeparator /> : null}
                                     <DropdownMenuItem
                                       variant="destructive"
-                                      onSelect={() => navigate(`/projects/${project.id}`)}
+                                      onSelect={() => handleProjectDeleteClick(project)}
+                                      disabled={isProjectDeletionPending}
                                     >
                                       <Trash2 className="mr-2 h-4 w-4" />
                                       {t("common.delete", { defaultValue: "Delete" })}

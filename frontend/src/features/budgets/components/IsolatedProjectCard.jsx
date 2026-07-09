@@ -71,8 +71,6 @@ export function IsolatedProjectCard({
   const fundingLimit = Number(isolatedDetails.funding_limit ?? project.total_limit ?? 0);
   const spent = Number(project.spent || 0);
   const remaining = Number(project.remaining ?? Math.max(0, fundingLimit - spent));
-  const remainingFunding = Number(isolatedDetails.remaining_funding ?? project.remaining_funding ?? 0);
-  const releasedFunding = Number(isolatedDetails.released_funding ?? project.released_funding ?? 0);
   const unassignedFunding = Number(isolatedDetails.unassigned_funding ?? 0);
 
   const projectStatus = project.status || "ACTIVE";
@@ -92,12 +90,7 @@ export function IsolatedProjectCard({
   // Over-budget (spent > funding) is a warning state.
   const isOverStash = remaining < 0;
 
-  const spentFull = formatCompactUzs(spent);
   const fundedFull = formatCompactUzs(fundingLimit);
-
-  const targetEndLabel = project.target_end_date
-    ? project.target_end_date
-    : t("projects.noTargetEndDate", { defaultValue: "No end date" });
 
   const isOverdue = project.target_end_date && project.target_end_date < todayIso && projectIsActive;
 

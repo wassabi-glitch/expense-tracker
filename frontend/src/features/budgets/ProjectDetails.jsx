@@ -93,9 +93,6 @@ export default function ProjectDetails() {
   const remaining = Number(
     project?.remaining ?? Math.max(0, fundingLimit - spent)
   );
-  const remainingFunding = Number(
-    isolatedDetails.remaining_funding ?? project?.remaining_funding ?? 0
-  );
   const releasedFunding = Number(
     isolatedDetails.released_funding ?? project?.released_funding ?? 0
   );
@@ -108,10 +105,6 @@ export default function ProjectDetails() {
       project?.selected_month_reserved_amount ??
       0
   );
-  const totalReservedScope = Number(
-    overlayDetails.total_reserved_scope ?? project?.total_reserved_scope ?? 0
-  );
-
   const spendDownPercent =
     fundingLimit > 0
       ? Math.max(0, Math.min(100, Math.round((remaining / fundingLimit) * 100)))
@@ -419,7 +412,6 @@ export default function ProjectDetails() {
               {categoryBreakdown.map((row, idx) => {
                 const rowLimit = Number(row.limit_amount || 0);
                 const rowSpent = Number(row.spent || 0);
-                const rowRemaining = Number(row.remaining ?? rowLimit - rowSpent);
                 const rowPercent =
                   rowLimit > 0
                     ? Math.min(100, Math.round((rowSpent / rowLimit) * 100))

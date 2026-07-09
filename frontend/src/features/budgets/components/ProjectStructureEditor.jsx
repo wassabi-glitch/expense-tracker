@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -13,7 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useToast } from "@/lib/context/ToastContext";
 import { useBudgetsDataQuery } from "../hooks/useBudgetsDataQuery";
 import { useSubcategoriesQuery } from "../hooks/useSubcategoriesQuery";
 import {
@@ -21,13 +20,12 @@ import {
   createProjectSubcategory,
   deleteProjectCategoryLimit,
   deleteProjectSubcategory,
-  getBudgetSubcategories,
   updateProjectCategoryLimit,
   updateProjectSubcategory,
 } from "@/lib/api";
 import { localizeApiError } from "@/lib/errorMessages";
 import { formatAmountInput, formatUzs } from "@/lib/format";
-import { CATEGORIES, categoryIconMap } from "@/lib/category";
+import { CATEGORIES } from "@/lib/category";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -97,29 +95,32 @@ function CategoryLimitEditor({
     { year: monthYear, month: monthMonth },
     { enabled: !projectIsIsolated }
   );
-  const budgets = budgetsQuery.data || [];
+  const budgets = useMemo(() => budgetsQuery.data || [], [budgetsQuery.data]);
 
-  const getOverlayCategoryHeadroom = (category, excludeAmount = 0) => {
-    const budget =
-      budgets.find(
-        (item) =>
-          item.category === category &&
-          Number(item.budgetYear) === Number(monthYear) &&
-          Number(item.budgetMonth) === Number(monthMonth)
-      ) || null;
-    if (!budget) return { budget: null, headroom: 0 };
-    const reserved = Number(budget.projectReservedAmount || 0);
-    const headroom = Math.max(
-      Number(budget.baseLimit || 0) - reserved + Number(excludeAmount || 0),
-      0
-    );
-    return { budget, headroom };
-  };
+  const getOverlayCategoryHeadroom = useCallback(
+    (category, excludeAmount = 0) => {
+      const budget =
+        budgets.find(
+          (item) =>
+            item.category === category &&
+            Number(item.budgetYear) === Number(monthYear) &&
+            Number(item.budgetMonth) === Number(monthMonth)
+        ) || null;
+      if (!budget) return { budget: null, headroom: 0 };
+      const reserved = Number(budget.projectReservedAmount || 0);
+      const headroom = Math.max(
+        Number(budget.baseLimit || 0) - reserved + Number(excludeAmount || 0),
+        0
+      );
+      return { budget, headroom };
+    },
+    [budgets, monthMonth, monthYear]
+  );
 
   const categoryHeadroom = useMemo(() => {
     if (projectIsIsolated || !categoryValue) return null;
     return getOverlayCategoryHeadroom(categoryValue);
-  }, [categoryValue, projectIsIsolated]);
+  }, [categoryValue, getOverlayCategoryHeadroom, projectIsIsolated]);
 
   const editingCategoryRow = useMemo(
     () =>
@@ -134,7 +135,12 @@ function CategoryLimitEditor({
       editingCategory,
       Number(editingCategoryRow?.limit_amount || 0)
     );
-  }, [editingCategory, editingCategoryRow, projectIsIsolated]);
+  }, [
+    editingCategory,
+    editingCategoryRow,
+    getOverlayCategoryHeadroom,
+    projectIsIsolated,
+  ]);
 
   const categoryWouldOverbook =
     categoryHeadroom &&
@@ -230,7 +236,7 @@ function CategoryLimitEditor({
           budget_month: monthMonth,
         },
       });
-    } catch (e) {
+    } catch {
       /* error handled in onError */
     }
   };
@@ -269,7 +275,7 @@ function CategoryLimitEditor({
           budget_month: monthMonth,
         },
       });
-    } catch (e) {
+    } catch {
       /* handled in onError */
     }
   };
@@ -545,7 +551,7 @@ function OverlaySubcategoryEditor({
     { year: monthYear, month: monthMonth },
     { enabled: true }
   );
-  const budgets = budgetsQuery.data || [];
+  const budgets = useMemo(() => budgetsQuery.data || [], [budgetsQuery.data]);
 
   const overlaySubcategoryBudget = useMemo(
     () =>
@@ -565,7 +571,10 @@ function OverlaySubcategoryEditor({
         Boolean(overlaySubcategoryBudget?.id) && Boolean(subcategoryCategory),
     }
   );
-  const eligibleSubcategories = eligibleSubcategoriesQuery.data || [];
+  const eligibleSubcategories = useMemo(
+    () => eligibleSubcategoriesQuery.data || [],
+    [eligibleSubcategoriesQuery.data]
+  );
 
   const editingSubcategoryRow = useMemo(
     () =>
@@ -591,51 +600,51 @@ function OverlaySubcategoryEditor({
   );
 
   // Headroom helpers for overlay subcategories
-  const getOverlaySubcategoryHeadroom = (
-    userSubcategoryId,
-    excludeAmount = 0
-  ) => {
-    if (!overlaySubcategoryBudget) return null;
-    const sub = eligibleSubcategories.find(
-      (s) => String(s.id) === String(userSubcategoryId)
-    );
-    if (!sub) return null;
-    return {
-      subcategory: sub,
-      headroom: Math.max(
-        Number(sub.monthly_limit || 0) -
-          Number(sub.projectReservedAmount || 0) +
-          Number(excludeAmount || 0),
-        0
-      ),
-    };
-  };
+  const getOverlaySubcategoryHeadroom = useCallback(
+    (userSubcategoryId, excludeAmount = 0) => {
+      if (!overlaySubcategoryBudget) return null;
+      const sub = eligibleSubcategories.find(
+        (s) => String(s.id) === String(userSubcategoryId)
+      );
+      if (!sub) return null;
+      return {
+        subcategory: sub,
+        headroom: Math.max(
+          Number(sub.monthly_limit || 0) -
+            Number(sub.projectReservedAmount || 0) +
+            Number(excludeAmount || 0),
+          0
+        ),
+      };
+    },
+    [eligibleSubcategories, overlaySubcategoryBudget]
+  );
 
-  const getEditingSubcategoryHeadroom = (
-    userSubcategoryId,
-    excludeAmount = 0
-  ) => {
-    if (!editingSubcategoryBudget) return null;
-    const budgetSubs = editingSubcategoryBudget?.subcategories || [];
-    const sub = budgetSubs.find(
-      (s) => String(s.user_subcategory_id) === String(userSubcategoryId)
-    );
-    if (!sub) return null;
-    return {
-      subcategory: sub,
-      headroom: Math.max(
-        Number(sub.monthly_limit || 0) -
-          Number(sub.projectReservedAmount || 0) +
-          Number(excludeAmount || 0),
-        0
-      ),
-    };
-  };
+  const getEditingSubcategoryHeadroom = useCallback(
+    (userSubcategoryId, excludeAmount = 0) => {
+      if (!editingSubcategoryBudget) return null;
+      const budgetSubs = editingSubcategoryBudget?.subcategories || [];
+      const sub = budgetSubs.find(
+        (s) => String(s.user_subcategory_id) === String(userSubcategoryId)
+      );
+      if (!sub) return null;
+      return {
+        subcategory: sub,
+        headroom: Math.max(
+          Number(sub.monthly_limit || 0) -
+            Number(sub.projectReservedAmount || 0) +
+            Number(excludeAmount || 0),
+          0
+        ),
+      };
+    },
+    [editingSubcategoryBudget]
+  );
 
   const subcategoryHeadroom = useMemo(() => {
     if (!subcategoryUserSubcategoryId) return null;
     return getOverlaySubcategoryHeadroom(subcategoryUserSubcategoryId);
-  }, [subcategoryUserSubcategoryId]);
+  }, [getOverlaySubcategoryHeadroom, subcategoryUserSubcategoryId]);
 
   const editingSubcategoryHeadroom = useMemo(() => {
     if (!editingSubcategoryRow?.user_subcategory_id) return null;
@@ -643,7 +652,7 @@ function OverlaySubcategoryEditor({
       editingSubcategoryRow.user_subcategory_id,
       Number(editingSubcategoryRow?.limit_amount || 0)
     );
-  }, [editingSubcategoryRow]);
+  }, [editingSubcategoryRow, getEditingSubcategoryHeadroom]);
 
   const subcategoryWouldOverbook =
     subcategoryHeadroom &&
@@ -747,7 +756,7 @@ function OverlaySubcategoryEditor({
           budget_month: monthMonth,
         },
       });
-    } catch (e) {
+    } catch {
       /* handled in onError */
     }
   };
@@ -797,7 +806,7 @@ function OverlaySubcategoryEditor({
         subcategoryId: editingSubcategoryId,
         payload: { limit_amount: limitAmount },
       });
-    } catch (e) {
+    } catch {
       /* handled in onError */
     }
   };
@@ -1147,7 +1156,7 @@ function IsolatedSubcategoryEditor({
           is_active: subcategoryIsActive === "true",
         },
       });
-    } catch (e) {
+    } catch {
       /* handled in onError */
     }
   };
@@ -1174,7 +1183,7 @@ function IsolatedSubcategoryEditor({
           is_active: editingSubcategoryIsActive === "true",
         },
       });
-    } catch (e) {
+    } catch {
       /* handled in onError */
     }
   };

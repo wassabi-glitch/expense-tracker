@@ -20,7 +20,6 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CurrencyAmount } from "@/components/CurrencyAmount";
 import { useToast } from "@/lib/context/ToastContext";
 import { localizeApiError } from "@/lib/errorMessages";
-import { formatUzs } from "@/lib/format";
 import {
   completeProject,
   deleteProject,
