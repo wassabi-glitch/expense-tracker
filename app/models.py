@@ -219,18 +219,6 @@ class DebtType(str, enum.Enum):
     OWING = "OWING"  # Money I owe others (payable)
 
 
-class DebtStatus(str, enum.Enum):
-    ACTIVE = "ACTIVE"
-    OVERDUE = "OVERDUE"
-    DEFAULTED = "DEFAULTED"
-    IN_COLLECTION = "IN_COLLECTION"
-    PAID = "PAID"
-    SETTLED = "SETTLED"
-    FORGIVEN = "FORGIVEN"
-    WRITTEN_OFF = "WRITTEN_OFF"
-    ARCHIVED = "ARCHIVED"
-
-
 class DebtOriginKind(str, enum.Enum):
     CASH_BORROWED = "CASH_BORROWED"
     CASH_LENT = "CASH_LENT"
@@ -249,18 +237,6 @@ class DebtCounterpartyKind(str, enum.Enum):
     COMPANY = "COMPANY"
     STORE = "STORE"
     GOVERNMENT = "GOVERNMENT"
-    OTHER = "OTHER"
-
-
-class DebtProductKind(str, enum.Enum):
-    INFORMAL_DEBT = "INFORMAL_DEBT"
-    BANK_LOAN = "BANK_LOAN"
-    CAR_LOAN = "CAR_LOAN"
-    MORTGAGE = "MORTGAGE"
-    STORE_INSTALLMENT = "STORE_INSTALLMENT"
-    SERVICE_PAY_LATER = "SERVICE_PAY_LATER"
-    PERSONAL_REIMBURSEMENT = "PERSONAL_REIMBURSEMENT"
-    CLIENT_RECEIVABLE = "CLIENT_RECEIVABLE"
     OTHER = "OTHER"
 
 
@@ -287,6 +263,11 @@ class DebtAssetSettlementType(str, enum.Enum):
 
 
 class DebtActionKind(str, enum.Enum):
+    """User-facing actions available on a standalone Debt (ADR 0027).
+
+    SET_COLLATERAL and RESTRUCTURE_TERMS were removed — they are formal-loan
+    concepts that belong to Payment Plans or future asset-settlement work.
+    """
     RECORD_PAYMENT = "RECORD_PAYMENT"
     ADD_CHARGE = "ADD_CHARGE"
     FORGIVE_PARTIAL = "FORGIVE_PARTIAL"
@@ -296,8 +277,6 @@ class DebtActionKind(str, enum.Enum):
     ARCHIVE = "ARCHIVE"
     RESTORE = "RESTORE"
     LINK_ASSET = "LINK_ASSET"
-    SET_COLLATERAL = "SET_COLLATERAL"
-    RESTRUCTURE_TERMS = "RESTRUCTURE_TERMS"
 
 
 class DebtActionRestrictionLevel(str, enum.Enum):
@@ -1485,10 +1464,8 @@ class Debt(Base):
                         name="ck_debts_expected_return_date_min_2020_01_01"),
         CheckConstraint("expected_return_date >= date",
                         name="ck_debts_expected_return_date_not_before_date"),
-        Index("ix_debts_owner_status", "owner_id", "status"),
         Index("ix_debts_owner_type", "owner_id", "debt_type"),
         Index("ix_debts_owner_origin", "owner_id", "origin_kind"),
-        Index("ix_debts_owner_product", "owner_id", "product_kind"),
         Index("ix_debts_owner_archived_at", "owner_id", "archived_at"),
     )
 
@@ -1508,14 +1485,11 @@ class Debt(Base):
         default=DebtCounterpartyKind.OTHER,
         server_default=DebtCounterpartyKind.OTHER.value,
     )
-    product_kind = Column(Enum(DebtProductKind), nullable=True)
     counterparty_name = Column(String(100), nullable=False)
     initial_amount = Column(BigInteger, nullable=False)
     remaining_amount = Column(BigInteger, nullable=False)
     currency = Column(String(3), default="UZS", nullable=False)
     description = Column(String, nullable=True)
-    status = Column(Enum(DebtStatus), nullable=False,
-                    default=DebtStatus.ACTIVE)
     archived_at = Column(DateTime(timezone=True), nullable=True)
     date = Column(Date, nullable=False)
     expected_return_date = Column(Date, nullable=False)

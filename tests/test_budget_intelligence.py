@@ -276,7 +276,6 @@ def test_category_floor_warning_returns_multiple_structured_reasons(client, sess
         counterparty_name="Laptop store",
         initial_amount=350_000,
         remaining_amount=350_000,
-        status=models.DebtStatus.ACTIVE,
         date=today,
         expected_return_date=today,
         expense_category=models.ExpenseCategory.ELECTRONICS,

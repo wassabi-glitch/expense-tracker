@@ -238,23 +238,6 @@ def _debt_counterparty_kind_for_plan(plan_type: models.PaymentPlanType) -> model
     return models.DebtCounterpartyKind.OTHER
 
 
-def _debt_product_kind_for_plan(plan_type: models.PaymentPlanType) -> models.DebtProductKind:
-    if plan_type == models.PaymentPlanType.MORTGAGE:
-        return models.DebtProductKind.MORTGAGE
-    if plan_type == models.PaymentPlanType.AUTO_LOAN:
-        return models.DebtProductKind.CAR_LOAN
-    if plan_type == models.PaymentPlanType.BANK_LOAN:
-        return models.DebtProductKind.BANK_LOAN
-    if plan_type in {
-        models.PaymentPlanType.STORE_INSTALLMENT,
-        models.PaymentPlanType.PRODUCT_FINANCING,
-    }:
-        return models.DebtProductKind.STORE_INSTALLMENT
-    if plan_type == models.PaymentPlanType.SERVICE_CONTRACT:
-        return models.DebtProductKind.SERVICE_PAY_LATER
-    return models.DebtProductKind.OTHER
-
-
 def _remaining_payment_amount(payment: models.PaymentPlanPayment) -> int:
     return max(
         0,

@@ -255,7 +255,6 @@ def test_dashboard_summary_net_position_counts_payment_plan_once(client, session
         counterparty_name="Legacy store",
         initial_amount=400_000,
         remaining_amount=400_000,
-        status=models.DebtStatus.ACTIVE,
         date=today,
         expected_return_date=today,
     )
@@ -267,7 +266,6 @@ def test_dashboard_summary_net_position_counts_payment_plan_once(client, session
         counterparty_name="Friend",
         initial_amount=100_000,
         remaining_amount=100_000,
-        status=models.DebtStatus.ACTIVE,
         date=today,
         expected_return_date=today,
     )
@@ -279,7 +277,6 @@ def test_dashboard_summary_net_position_counts_payment_plan_once(client, session
         counterparty_name="Coworker",
         initial_amount=50_000,
         remaining_amount=50_000,
-        status=models.DebtStatus.ACTIVE,
         date=today,
         expected_return_date=today,
     )
@@ -328,7 +325,6 @@ def test_analytics_spending_excludes_legacy_payment_plan_debt_duplicate(client, 
         counterparty_name="Legacy store",
         initial_amount=200_000,
         remaining_amount=200_000,
-        status=models.DebtStatus.ACTIVE,
         date=today,
         expected_return_date=today,
     )

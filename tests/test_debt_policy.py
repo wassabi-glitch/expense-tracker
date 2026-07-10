@@ -27,7 +27,6 @@ def _make_debt(session, user, **overrides):
         "remaining_amount": 500_000,
         "currency": "UZS",
         "description": "Dinner split",
-        "status": models.DebtStatus.ACTIVE,
         "date": user_timezone_today(),
         "expected_return_date": user_timezone_today(),
     }
@@ -79,10 +78,10 @@ def test_formal_debt_uses_same_component_forgiveness_as_informal_debt(client, se
     assert is_formal_debt(debt)
 
     forgiveness = evaluate_debt_action(session, debt, models.DebtActionKind.FORGIVE_PARTIAL)
-    collateral = evaluate_debt_action(session, debt, models.DebtActionKind.SET_COLLATERAL)
+    link = evaluate_debt_action(session, debt, models.DebtActionKind.LINK_ASSET)
 
     assert forgiveness.allowed is True
-    assert collateral.allowed is True
+    assert link.allowed is True
 
 
 def test_legacy_payment_plan_link_does_not_create_managed_debt_policy(client, session):
@@ -172,14 +171,13 @@ def test_closed_and_archived_debt_actions_are_restricted(client, session):
     paid_debt = _make_debt(
         session,
         user,
-        status=models.DebtStatus.PAID,
         remaining_amount=0,
     )
     archived_debt = _make_debt(
         session,
         user,
         counterparty_name="Archived",
-        status=models.DebtStatus.ARCHIVED,
+        archived_at=datetime.now(timezone.utc),
     )
     open_debt = _make_debt(session, user, counterparty_name="Open archive candidate")
 

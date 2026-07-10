@@ -6,7 +6,6 @@ import ...`` statements continue to work during the package transition.
 """
 
 from app.domains.debt import (
-    LOCKED_DEBT_STATUSES,
     POSTED_DEBT_LEDGER_STATUS,
     create_debt_ledger_entry,
     get_debt_total_charges,
@@ -20,7 +19,6 @@ from app.domains.debt import (
 
 __all__ = [
     "POSTED_DEBT_LEDGER_STATUS",
-    "LOCKED_DEBT_STATUSES",
     "create_debt_ledger_entry",
     "get_debt_total_charges",
     "get_debt_total_charges_by_debt_ids",

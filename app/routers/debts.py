@@ -54,14 +54,6 @@ CONSUMPTION_ORIGIN_KINDS = {
     models.DebtOriginKind.DEFERRED_EXPENSE,
     models.DebtOriginKind.FINANCED_ASSET_PURCHASE,
 }
-ACTIVE_PAYABLE_DEBT_STATUSES = (
-    models.DebtStatus.ACTIVE,
-    models.DebtStatus.OVERDUE,
-    models.DebtStatus.DEFAULTED,
-    models.DebtStatus.IN_COLLECTION,
-)
-
-
 def _is_debt_archived(debt: models.Debt) -> bool:
     """Archive state is derived purely from ``archived_at`` — never from the
     legacy ``DebtStatus`` column.  ADR 0026 keeps archive separate from
@@ -516,23 +508,6 @@ def _raise_policy_denied(decision) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=decision.reason_code or "debts.policy.action_blocked",
         )
-
-
-def _reconcile_debt_preserving_lifecycle(db: Session, debt: models.Debt) -> models.Debt:
-    previous_status = debt.status
-    reconciled = reconcile_debt(db, debt.id)
-    if (
-        int(reconciled.remaining_amount or 0) > 0
-        and previous_status
-        in (
-            models.DebtStatus.OVERDUE,
-            models.DebtStatus.DEFAULTED,
-            models.DebtStatus.IN_COLLECTION,
-        )
-    ):
-        reconciled.status = previous_status
-        db.flush()
-    return reconciled
 
 
 def _posted_charge_balance(db: Session, debt_id: int) -> int:
@@ -1396,7 +1371,6 @@ def create_debt(
         description=payload.description,
         date=payload.date if payload.date else today_in_tz(user_tz),
         expected_return_date=payload.expected_return_date,
-        status=models.DebtStatus.ACTIVE,
         initial_wallet_id=single_initial_wallet_id,
         is_money_transferred=is_money_transferred,
         expense_category=payload.expense_category,
@@ -1448,7 +1422,7 @@ def create_debt(
             note=f"Opening charges for {debt.counterparty_name}",
         )
 
-    _reconcile_debt_preserving_lifecycle(db, debt)
+    reconcile_debt(db, debt.id)
     sync_debt_goal_targets(db, current_user.id, debt.id)
 
     db.commit()
@@ -1929,7 +1903,7 @@ def update_debt(
     for field, value in update_data.items():
         setattr(debt, field, value)
 
-    _reconcile_debt_preserving_lifecycle(db, debt)
+    reconcile_debt(db, debt.id)
     sync_debt_goal_targets(db, current_user.id, debt.id)
     db.commit()
     db.refresh(debt)
@@ -2001,7 +1975,7 @@ def create_transaction(
         note=payload.note,
         income_source_id=payload.income_source_id,
     )
-    _reconcile_debt_preserving_lifecycle(db, debt)
+    reconcile_debt(db, debt.id)
     sync_debt_goal_targets(db, current_user.id, debt.id)
     db.commit()
     db.refresh(debt_transaction)
@@ -2031,7 +2005,7 @@ def delete_transaction(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="debts.transaction.not_found")
 
     debt = _get_owned_debt_or_404(db, current_user.id, transaction.debt_id)
-    if _is_debt_archived(debt) or debt.status == models.DebtStatus.FORGIVEN:
+    if _is_debt_archived(debt) or int(debt.remaining_amount or 0) <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.transaction.debt_archived")
     if transaction.wallet and not transaction.wallet.is_active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.transaction.wallet_archived")
@@ -2178,7 +2152,6 @@ def forgive_debt(
         )
     reconcile_debt(db, debt.id)
     sync_debt_goal_targets(db, current_user.id, debt.id)
-    debt.status = models.DebtStatus.FORGIVEN
     db.commit()
     db.refresh(debt)
     return _build_debt_out_with_ledger_totals(db, debt, today=today_in_tz(user_tz))
@@ -2232,10 +2205,8 @@ def forgive_debt_amount(
             "charge_amount": int(charge_amount),
         },
     )
-    _reconcile_debt_preserving_lifecycle(db, debt)
+    reconcile_debt(db, debt.id)
     sync_debt_goal_targets(db, current_user.id, debt.id)
-    if forgiveness_amount == remaining:
-        debt.status = models.DebtStatus.FORGIVEN
     db.commit()
     db.refresh(debt)
     return _build_debt_out_with_ledger_totals(db, debt, today=today_in_tz(user_tz))
@@ -2269,7 +2240,7 @@ def adjust_debt_balance(
             note=payload.note or "Debt balance corrected",
             extra_data=extra_data,
         )
-    _reconcile_debt_preserving_lifecycle(db, debt)
+    reconcile_debt(db, debt.id)
     sync_debt_goal_targets(db, current_user.id, debt.id)
     db.commit()
     db.refresh(debt)
@@ -2335,7 +2306,7 @@ def reverse_debt_ledger_entry(
         entry_date=reversal_date,
         note=payload.note or "Debt ledger entry reversed",
     )
-    _reconcile_debt_preserving_lifecycle(db, debt)
+    reconcile_debt(db, debt.id)
     sync_debt_goal_targets(db, current_user.id, debt.id)
     db.commit()
     db.refresh(debt)

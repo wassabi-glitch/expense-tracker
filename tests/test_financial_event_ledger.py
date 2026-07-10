@@ -241,7 +241,6 @@ def test_post_financial_event_preserves_entity_links(client, session):
         remaining_amount=50_000,
         currency="UZS",
         description="Test debt",
-        status=models.DebtStatus.ACTIVE,
         date=user_timezone_today(),
         expected_return_date=user_timezone_today(),
     )

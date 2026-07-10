@@ -200,7 +200,7 @@ def test_debt_remains_open_ended_running_balance_obligation(client, session):
     ).first()
     assert debt_obj.debt_type == models.DebtType.OWING
     assert debt_obj.remaining_amount is not None
-    assert debt_obj.status == models.DebtStatus.ACTIVE
+    assert debt_obj.remaining_amount > 0  # open lifecycle (ADR 0026)
 
 
 def test_payment_plan_remains_scheduled_obligation_with_rows_and_waterfall(
@@ -328,9 +328,8 @@ def test_shared_posting_does_not_merge_persistence_or_lifecycle(client, session)
     plan_obj = session.query(models.PaymentPlan).filter(
         models.PaymentPlan.id == plan["id"]
     ).first()
-    # Debt lifecycle (ACTIVE/PAID, CLOSED, OVERDUE, etc.) is separate from
-    # Payment Plan lifecycle (ACTIVE, PAUSED, COMPLETED, ARCHIVED)
-    assert debt_obj.status in (models.DebtStatus.ACTIVE, models.DebtStatus.PAID)
+    # Debt lifecycle is now derived from remaining_amount (ADR 0026)
+    assert debt_obj.remaining_amount >= 0
     assert plan_obj.status == models.PaymentPlanStatus.ACTIVE
 
 

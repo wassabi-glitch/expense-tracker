@@ -150,17 +150,17 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 3: Split Debt creation into principal, opening charges, and wallet movement.
 - Ticket 4: Make Debt payments component-aware.
 
-- [ ] Debt reversal appends a reversal ledger entry instead of deleting or mutating the original entry.
-- [ ] Original Debt ledger entries remain queryable after reversal.
-- [ ] Reversal is blocked for initial entries.
-- [ ] Reversal is blocked for reversal entries.
-- [ ] Reversal is blocked for already-reversed entries.
-- [ ] Reversal is blocked for entries marked non-reversible.
-- [ ] Reversal is blocked for older entries while newer unreversed reversible entries remain.
-- [ ] Wallet-touching Debt reversals also reverse wallet effects through immutable financial history.
-- [ ] Debt action availability focuses on record payment, add charge, forgive, adjust balance, reverse, archive, restore or unarchive, and future asset settlement.
-- [ ] Obsolete standalone Debt action language for collateral setup and formal loan restructuring is removed or hidden unless backed by a concrete feature.
-- [ ] Tests prove latest-first reversal behavior, wallet-safe reversal, original-history preservation, and action availability.
+- [x] Debt reversal appends a reversal ledger entry instead of deleting or mutating the original entry.
+- [x] Original Debt ledger entries remain queryable after reversal.
+- [x] Reversal is blocked for initial entries.
+- [x] Reversal is blocked for reversal entries.
+- [x] Reversal is blocked for already-reversed entries.
+- [x] Reversal is blocked for entries marked non-reversible.
+- [x] Reversal is blocked for older entries while newer unreversed reversible entries remain.
+- [x] Wallet-touching Debt reversals also reverse wallet effects through immutable financial history.
+- [x] Debt action availability focuses on record payment, add charge, forgive, adjust balance, reverse, archive, restore or unarchive, and future asset settlement.
+- [x] Obsolete standalone Debt action language for collateral setup and formal loan restructuring is removed or hidden unless backed by a concrete feature.
+- [x] Tests prove latest-first reversal behavior, wallet-safe reversal, original-history preservation, and action availability.
 
 ## Ticket 6: Contract Legacy Debt Status, Product-Kind, And Policy Machinery
 
@@ -174,15 +174,15 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 4: Make Debt payments component-aware.
 - Ticket 5: Harden Debt reversal and action rules.
 
-- [ ] Legacy Debt lifecycle statuses are no longer used as the source of truth for public behavior.
-- [ ] Obsolete Debt product-kind persistence is removed or safely migrated out.
-- [ ] Public Debt schemas no longer expose removed product-kind or legacy status fields.
-- [ ] Debt action restriction behavior no longer depends on obsolete status/product combinations.
-- [ ] Debt UI no longer hardcodes legacy statuses or product kinds.
-- [ ] Tests and fixtures are migrated to derived lifecycle/time status and origin/counterparty language.
-- [ ] Migration behavior is explicit about development-data cleanup where old values cannot be meaningfully preserved.
-- [ ] Cross-flow behavior still proves Debt does not depend on Payment Plan records or ledgers.
-- [ ] Regression tests prove legacy product vocabulary cannot return to standalone Debt.
+- [x] Legacy Debt lifecycle statuses are no longer used as the source of truth for public behavior.
+- [x] Obsolete Debt product-kind persistence is removed or safely migrated out.
+- [x] Public Debt schemas no longer expose removed product-kind or legacy status fields.
+- [x] Debt action restriction behavior no longer depends on obsolete status/product combinations.
+- [x] Debt UI no longer hardcodes legacy statuses or product kinds.
+- [x] Tests and fixtures are migrated to derived lifecycle/time status and origin/counterparty language.
+- [x] Migration behavior is explicit about development-data cleanup where old values cannot be meaningfully preserved.
+- [x] Cross-flow behavior still proves Debt does not depend on Payment Plan records or ledgers.
+- [x] Regression tests prove legacy product vocabulary cannot return to standalone Debt.
 
 ## Ticket 7: Add Payment Plan Schedule Model Foundation With Flat-Total Preview
 

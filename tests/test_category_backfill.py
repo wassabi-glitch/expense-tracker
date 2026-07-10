@@ -132,7 +132,6 @@ def test_backfill_migrates_linked_legacy_financing_category_rows(client, session
         initial_amount=200_000,
         remaining_amount=200_000,
         currency="UZS",
-        status=models.DebtStatus.ACTIVE,
         date=event_date,
         expected_return_date=event_date,
         is_money_transferred=False,

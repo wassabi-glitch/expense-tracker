@@ -8,12 +8,6 @@ from app import models
 
 
 POSTED_DEBT_LEDGER_STATUS = "POSTED"
-LOCKED_DEBT_STATUSES = (
-    models.DebtStatus.ARCHIVED,
-    models.DebtStatus.FORGIVEN,
-    models.DebtStatus.SETTLED,
-    models.DebtStatus.WRITTEN_OFF,
-)
 
 
 def reverse_wallet_effect(db: Session, event: models.FinancialEvent) -> None:
@@ -226,6 +220,11 @@ def reverse_debt_transaction_ledger(
 
 
 def reconcile_debt(db: Session, debt_id: int) -> models.Debt:
+    """Recompute ``remaining_amount`` from posted ledger entries.
+
+    Lifecycle is derived at read time (ADR 0026) — this function no longer
+    touches the (now-removed) ``status`` column.
+    """
     debt = (
         db.query(models.Debt)
         .filter(models.Debt.id == debt_id)
@@ -245,13 +244,5 @@ def reconcile_debt(db: Session, debt_id: int) -> models.Debt:
     ) or 0
 
     debt.remaining_amount = max(0, int(ledger_total))
-
-    if debt.status not in LOCKED_DEBT_STATUSES:
-        debt.status = (
-            models.DebtStatus.PAID
-            if debt.remaining_amount == 0
-            else models.DebtStatus.ACTIVE
-        )
-
     db.flush()
     return debt
