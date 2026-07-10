@@ -2280,13 +2280,15 @@ def test_overlay_project_can_overspend_local_reservation_without_blocking_parent
     headers = create_user_and_token(
         client, "overlayoverspend", "overlayoverspend@example.com", "Password123!"
     )
+    today = user_timezone_today()
+    month_start = today.replace(day=1)
     budget = create_budget(
         client,
         headers,
         category="Travel",
         monthly_limit=1_000_000,
-        budget_year=2026,
-        budget_month=6,
+        budget_year=today.year,
+        budget_month=today.month,
     )
     assert budget.status_code == 201, budget.text
 
@@ -2295,8 +2297,8 @@ def test_overlay_project_can_overspend_local_reservation_without_blocking_parent
         json={
             "title": "June trip",
             "is_isolated": False,
-            "start_date": "2026-06-01",
-            "target_end_date": "2026-06-30",
+            "start_date": month_start.isoformat(),
+            "target_end_date": today.isoformat(),
         },
         headers=headers,
     )
@@ -2308,8 +2310,8 @@ def test_overlay_project_can_overspend_local_reservation_without_blocking_parent
         json={
             "category": "Travel",
             "limit_amount": 400_000,
-            "budget_year": 2026,
-            "budget_month": 6,
+            "budget_year": today.year,
+            "budget_month": today.month,
         },
         headers=headers,
     )
@@ -2321,7 +2323,7 @@ def test_overlay_project_can_overspend_local_reservation_without_blocking_parent
             "title": "Hotel",
             "amount": 500_000,
             "category": "Travel",
-            "date": "2026-06-10",
+            "date": today.isoformat(),
             "project_id": project_id,
         },
         headers=headers,
@@ -2330,7 +2332,7 @@ def test_overlay_project_can_overspend_local_reservation_without_blocking_parent
 
     detail = client.get(
         "/budgets/item/detail",
-        params={"budget_year": 2026, "budget_month": 6, "category": "Travel"},
+        params={"budget_year": today.year, "budget_month": today.month, "category": "Travel"},
         headers=headers,
     )
     assert detail.status_code == 200, detail.text
@@ -2345,7 +2347,7 @@ def test_overlay_project_can_overspend_local_reservation_without_blocking_parent
 
     projects = client.get(
         "/projects",
-        params={"budget_year": 2026, "budget_month": 6},
+        params={"budget_year": today.year, "budget_month": today.month},
         headers=headers,
     )
     assert projects.status_code == 200, projects.text
@@ -2359,13 +2361,15 @@ def test_stopped_overlay_project_keeps_reservation_but_blocks_new_project_expens
     headers = create_user_and_token(
         client, "overlaypausedholds", "overlaypausedholds@example.com", "Password123!"
     )
+    today = user_timezone_today()
+    month_start = today.replace(day=1)
     budget = create_budget(
         client,
         headers,
         category="Travel",
         monthly_limit=1_000_000,
-        budget_year=2026,
-        budget_month=6,
+        budget_year=today.year,
+        budget_month=today.month,
     )
     assert budget.status_code == 201, budget.text
 
@@ -2374,8 +2378,8 @@ def test_stopped_overlay_project_keeps_reservation_but_blocks_new_project_expens
         json={
             "title": "Paused trip",
             "is_isolated": False,
-            "start_date": "2026-06-01",
-            "target_end_date": "2026-06-30",
+            "start_date": month_start.isoformat(),
+            "target_end_date": today.isoformat(),
         },
         headers=headers,
     )
@@ -2387,8 +2391,8 @@ def test_stopped_overlay_project_keeps_reservation_but_blocks_new_project_expens
         json={
             "category": "Travel",
             "limit_amount": 400_000,
-            "budget_year": 2026,
-            "budget_month": 6,
+            "budget_year": today.year,
+            "budget_month": today.month,
         },
         headers=headers,
     )
@@ -2400,7 +2404,7 @@ def test_stopped_overlay_project_keeps_reservation_but_blocks_new_project_expens
 
     detail = client.get(
         "/budgets/item/detail",
-        params={"budget_year": 2026, "budget_month": 6, "category": "Travel"},
+        params={"budget_year": today.year, "budget_month": today.month, "category": "Travel"},
         headers=headers,
     )
     assert detail.status_code == 200, detail.text
@@ -2415,7 +2419,7 @@ def test_stopped_overlay_project_keeps_reservation_but_blocks_new_project_expens
             "title": "Paused hotel",
             "amount": 100_000,
             "category": "Travel",
-            "date": "2026-06-10",
+            "date": today.isoformat(),
             "project_id": project_id,
         },
         headers=headers,
@@ -2609,14 +2613,18 @@ def test_overlay_category_reservation_update_excludes_current_slice_and_checks_h
     assert stale_headroom.json()["detail"] == "projects.category_reservation_exceeds_parent_budget"
 
 
-def _create_overlay_subcategory_context(client, headers):
+def _create_overlay_subcategory_context(client, headers, *, budget_date: date | None = None):
+    budget_year = budget_date.year if budget_date is not None else 2026
+    budget_month = budget_date.month if budget_date is not None else 6
+    project_start = date(budget_year, budget_month, 1)
+    project_end = budget_date or date(2026, 6, 30)
     budget = create_budget(
         client,
         headers,
         category="Travel",
         monthly_limit=1_000_000,
-        budget_year=2026,
-        budget_month=6,
+        budget_year=budget_year,
+        budget_month=budget_month,
     )
     assert budget.status_code == 201, budget.text
     subcategory = client.post(
@@ -2630,8 +2638,8 @@ def _create_overlay_subcategory_context(client, headers):
         json={
             "title": "June trip",
             "is_isolated": False,
-            "start_date": "2026-06-01",
-            "target_end_date": "2026-06-30",
+            "start_date": project_start.isoformat(),
+            "target_end_date": project_end.isoformat(),
         },
         headers=headers,
     )
@@ -2641,8 +2649,8 @@ def _create_overlay_subcategory_context(client, headers):
         json={
             "category": "Travel",
             "limit_amount": 500_000,
-            "budget_year": 2026,
-            "budget_month": 6,
+            "budget_year": budget_year,
+            "budget_month": budget_month,
         },
         headers=headers,
     )
@@ -2866,15 +2874,20 @@ def test_overlay_expense_uses_project_id_with_global_subcategory_id(client, sess
     headers = create_user_and_token(
         client, "overlaysubexpense", "overlaysubexpense@example.com", "Password123!"
     )
-    _, subcategory, project = _create_overlay_subcategory_context(client, headers)
+    today = user_timezone_today()
+    _, subcategory, project = _create_overlay_subcategory_context(
+        client,
+        headers,
+        budget_date=today,
+    )
     reservation = client.post(
         f"/projects/{project['id']}/subcategories",
         json={
             "category": "Travel",
             "user_subcategory_id": subcategory["id"],
             "limit_amount": 200_000,
-            "budget_year": 2026,
-            "budget_month": 6,
+            "budget_year": today.year,
+            "budget_month": today.month,
         },
         headers=headers,
     )
@@ -2886,7 +2899,7 @@ def test_overlay_expense_uses_project_id_with_global_subcategory_id(client, sess
             "title": "Hotel",
             "amount": 80_000,
             "category": "Travel",
-            "date": "2026-06-10",
+            "date": today.isoformat(),
             "project_id": project["id"],
             "subcategory_id": subcategory["id"],
         },
@@ -2907,7 +2920,7 @@ def test_overlay_expense_uses_project_id_with_global_subcategory_id(client, sess
 
     projects = client.get(
         "/projects",
-        params={"budget_year": 2026, "budget_month": 6},
+        params={"budget_year": today.year, "budget_month": today.month},
         headers=headers,
     )
     assert projects.status_code == 200, projects.text
@@ -3005,26 +3018,27 @@ def test_historical_overlay_project_subcategory_rows_remain_readable(client, ses
     assert detail.json()["recent_activity"][0]["subcategory_name"] == "Lodging"
 
 
-def test_get_budgets_does_not_auto_rollover_unused_room(client):
+def test_get_budgets_does_not_auto_rollover_unused_room(client, session):
     email = "norolloverbudget@example.com"
     headers = create_user_and_token(
         client, "norolloverbudget", email, "Password123!"
     )
 
-    create_budget(client, headers, category="Food", monthly_limit=300, budget_year=2026, budget_month=1)
+    jan_budget = create_budget(client, headers, category="Food", monthly_limit=300, budget_year=2026, budget_month=1)
     create_budget(client, headers, category="Food", monthly_limit=300, budget_year=2026, budget_month=2)
 
-    jan_expense = client.post(
-        "/expenses/",
-        json={
-            "title": "Jan food",
-            "amount": 200,
-            "category": "Groceries",
-            "date": "2026-01-10",
-        },
-        headers=headers,
+    user = _get_user(session, email)
+    budget = session.query(models.Budget).filter(models.Budget.id == jan_budget.json()["id"]).first()
+    assert budget is not None
+    _record_budget_expense_directly(
+        session,
+        user_id=user.id,
+        wallet=_default_wallet(session, user.id),
+        budget=budget,
+        amount=200,
+        expense_date=date(2026, 1, 10),
+        title="Jan food",
     )
-    assert jan_expense.status_code == 201, jan_expense.text
 
     res = client.get("/budgets/", headers=headers)
     assert res.status_code == 200
