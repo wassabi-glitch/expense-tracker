@@ -1597,13 +1597,13 @@ def test_create_expense_rejects_past_date_outside_current_month(client, monkeypa
         headers=headers,
     )
     assert res_past.status_code == 400
-    assert "expenses.date_before_current_month" in res_past.text
+    assert "expenses.date_closed_period" in res_past.text
 
 
 def test_create_expense_rejects_past_date_uses_user_timezone(client, monkeypatch):
-    """Ticket 3: Past-date rejection uses the user's effective timezone, so
-    a date that is 'last month' in one timezone but 'this month' in another
-    is rejected correctly per timezone."""
+    """Ticket 3+6: Past-date rejection uses the user's effective timezone.
+    Uses day 6 (past the 5-day closing window) so a last-month date is
+    in a closed period, not the grace window."""
     headers = create_user_and_token(
         client, "expusertzp2", "expusertzp2@example.com", "Password123!"
     )
@@ -1612,14 +1612,13 @@ def test_create_expense_rejects_past_date_uses_user_timezone(client, monkeypatch
     def fake_today_in_tz(tz):
         key = getattr(tz, "key", "")
         if key == "Asia/Tashkent":
-            # July 1 in Tashkent (UTC+5) → June 30 is last month
-            return date(2026, 7, 1)
-        # UTC return — July 1 in UTC → June 30 is last month too
-        return date(2026, 7, 1)
+            # July 6 in Tashkent (UTC+5) → day 6, just past closing window
+            return date(2026, 7, 6)
+        return date(2026, 7, 6)
 
     monkeypatch.setattr(expenses_router, "today_in_tz", fake_today_in_tz)
 
-    # June 30 should be rejected when user's local today is July 1
+    # June 30 should be rejected — closed period (day 6+, closing window ended)
     res = client.post(
         "/expenses/",
         json={
@@ -1632,7 +1631,93 @@ def test_create_expense_rejects_past_date_uses_user_timezone(client, monkeypatch
         headers={**headers, "X-Timezone": "Asia/Tashkent"},
     )
     assert res.status_code == 400
-    assert "expenses.date_before_current_month" in res.text
+    assert "expenses.date_closed_period" in res.text
+
+
+def test_create_expense_allows_previous_month_during_closing_window(client, monkeypatch):
+    """Ticket 6: During the 5-day closing window (days 1-5 of a new month),
+    backdating to the previous month is allowed for cleanup."""
+    headers = create_user_and_token(
+        client, "expclosewin1", "expclosewin1@example.com", "Password123!"
+    )
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2026, budget_month=6)
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2026, budget_month=7)
+
+    def fake_today_in_tz(tz):
+        return date(2026, 7, 3)  # Day 3 — inside closing window
+
+    monkeypatch.setattr(expenses_router, "today_in_tz", fake_today_in_tz)
+
+    # June 30 should be allowed during the closing window (day ≤ 5)
+    res = client.post(
+        "/expenses/",
+        json={
+            "title": "June Cleanup",
+            "amount": 10,
+            "category": "Groceries",
+            "description": "missed June expense",
+            "date": "2026-06-30",
+        },
+        headers=headers,
+    )
+    assert res.status_code == 201, res.text
+    assert res.json()["date"] == "2026-06-30"
+
+
+def test_create_expense_rejects_closed_period_after_closing_window(client, monkeypatch):
+    """Ticket 6: After the 5-day closing window, the previous month is
+    closed.  Backdating is rejected with a closed-period error."""
+    headers = create_user_and_token(
+        client, "expclosewin2", "expclosewin2@example.com", "Password123!"
+    )
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2026, budget_month=7)
+
+    def fake_today_in_tz(tz):
+        return date(2026, 7, 7)  # Day 7 — closing window ended
+
+    monkeypatch.setattr(expenses_router, "today_in_tz", fake_today_in_tz)
+
+    res = client.post(
+        "/expenses/",
+        json={
+            "title": "Closed June Expense",
+            "amount": 10,
+            "category": "Groceries",
+            "description": "should be rejected",
+            "date": "2026-06-30",
+        },
+        headers=headers,
+    )
+    assert res.status_code == 400
+    assert "expenses.date_closed_period" in res.text
+
+
+def test_create_expense_allows_current_month_outside_closing_window(client, monkeypatch):
+    """Ticket 6: The current month is always open regardless of the
+    closing window status."""
+    headers = create_user_and_token(
+        client, "expclosewin3", "expclosewin3@example.com", "Password123!"
+    )
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2026, budget_month=7)
+
+    def fake_today_in_tz(tz):
+        return date(2026, 7, 15)  # Day 15 — well past closing window
+
+    monkeypatch.setattr(expenses_router, "today_in_tz", fake_today_in_tz)
+
+    # July 10 is in the current month — must be allowed
+    res = client.post(
+        "/expenses/",
+        json={
+            "title": "Current Month",
+            "amount": 10,
+            "category": "Groceries",
+            "description": "today's expense",
+            "date": "2026-07-10",
+        },
+        headers=headers,
+    )
+    assert res.status_code == 201, res.text
 
 
 def test_update_expense_rejects_financial_date_field(client, monkeypatch):

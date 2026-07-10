@@ -1,4 +1,4 @@
-from datetime import datetime, date, timezone, tzinfo
+from datetime import datetime, date, timezone, tzinfo, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Depends, Header
@@ -65,3 +65,50 @@ def now_in_tz(tz: tzinfo | None) -> datetime:
     if tz is None:
         return datetime.now()
     return datetime.now(tz)
+
+
+CLOSING_WINDOW_DAYS = 5
+
+
+def validate_normal_logging_date(
+    entry_date: date,
+    today: date,
+    *,
+    future_detail: str,
+    closed_detail: str,
+) -> None:
+    """Validate a date against the closed-period guardrails for normal logging.
+
+    - Future dates (after *today*) are always rejected.
+    - The current calendar month is always open.
+    - The first ``CLOSING_WINDOW_DAYS`` days of a new month form a closing
+      window: backdating to the previous month is allowed for cleanup.
+    - After the closing window the previous month is sealed — missed
+      activity must use a current correction, not backdating.
+
+    Raises :class:`fastapi.HTTPException` (400) with *future_detail* or
+    *closed_detail* as appropriate.
+    """
+    from fastapi import HTTPException, status as http_status
+
+    if entry_date > today:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail=future_detail,
+        )
+
+    month_start = today.replace(day=1)
+    if entry_date >= month_start:
+        return  # current month — always open
+
+    # Closing window: days 1-5 of the new month allow backdating to
+    # the previous month for cleanup.
+    if today.day <= CLOSING_WINDOW_DAYS:
+        previous_month = today.replace(day=1) - timedelta(days=1)
+        if entry_date.year == previous_month.year and entry_date.month == previous_month.month:
+            return  # within closing window for previous month
+
+    raise HTTPException(
+        status_code=http_status.HTTP_400_BAD_REQUEST,
+        detail=closed_detail,
+    )

@@ -116,16 +116,16 @@ These tickets build the minimum immutable-ledger foundation before deeper Epicsp
 
 **Blocked by:** Ticket 4: Convert standalone income delete to void and reversal.
 
-- [ ] Metadata-only income edits remain possible without reversal.
-- [ ] Editing income amount voids/reverses the original financial event and posts a corrected event.
-- [ ] Editing income wallet allocation voids/reverses the original financial event and posts a corrected event.
-- [ ] Editing income source voids/reverses the original financial event and posts a corrected event.
-- [ ] Editing income date voids/reverses the original financial event and posts a corrected event if the corrected date is allowed.
-- [ ] Corrected reposts preserve user-visible title/note behavior.
-- [ ] Corrected reposts respect wallet epoch and user-timezone date boundaries.
-- [ ] Corrected reposts keep wallet balances mathematically exact.
-- [ ] Tests prove old ledger legs are not rewritten in place.
-- [ ] Tests prove the response still returns the corrected current income entry shape expected by the UI.
+- [x] Metadata-only income edits remain possible without reversal.
+- [x] Editing income amount voids/reverses the original financial event and posts a corrected event.
+- [x] Editing income wallet allocation voids/reverses the original financial event and posts a corrected event.
+- [x] Editing income source voids/reverses the original financial event and posts a corrected event.
+- [x] Editing income date voids/reverses the original financial event and posts a corrected event if the corrected date is allowed.
+- [x] Corrected reposts preserve user-visible title/note behavior.
+- [x] Corrected reposts respect wallet epoch and user-timezone date boundaries.
+- [x] Corrected reposts keep wallet balances mathematically exact.
+- [x] Tests prove old ledger legs are not rewritten in place.
+- [x] Tests prove the response still returns the corrected current income entry shape expected by the UI.
 
 ## Ticket 6: Add Closed-Period Correction Guardrails For Normal Money Entry
 
@@ -133,14 +133,14 @@ These tickets build the minimum immutable-ledger foundation before deeper Epicsp
 
 **Blocked by:** Ticket 3: Enforce user-timezone normal logging boundaries.
 
-- [ ] The current month remains open for allowed normal and reconciliation behavior.
-- [ ] The closing window allows cleanup according to the accepted grace-window rule.
-- [ ] Closed months reject direct backdated normal money entry.
-- [ ] Missed activity for a closed month is represented as a current correction rather than a rewrite of the closed period.
-- [ ] Current corrections include enough context for the user to understand what past period they refer to.
-- [ ] User-facing dates use the effective user timezone.
-- [ ] Tests cover open month, closing window, and closed-period behavior.
-- [ ] Tests prove closed-period corrections affect the current allowed period instead of the sealed historical period.
+- [x] The current month remains open for allowed normal and reconciliation behavior.
+- [x] The closing window allows cleanup according to the accepted grace-window rule.
+- [x] Closed months reject direct backdated normal money entry.
+- [x] Missed activity for a closed month is represented as a current correction rather than a rewrite of the closed period.
+- [x] Current corrections include enough context for the user to understand what past period they refer to.
+- [x] User-facing dates use the effective user timezone.
+- [x] Tests cover open month, closing window, and closed-period behavior.
+- [x] Tests prove closed-period corrections affect the current allowed period instead of the sealed historical period.
 
 ## Ticket 7: Add Immutable-Ledger Regression Guardrails For New Obligation Work
 

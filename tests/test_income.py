@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 
 from app import models
 from app.redis_rate_limiter import redis_client
@@ -92,6 +92,7 @@ def test_income_entry_crud_and_list(client):
     )
     assert updated.status_code == 200
     assert updated.json()["amount"] == 700000
+    entry_id = updated.json()["id"]
 
     deleted = client.delete(f"/income/entries/{entry_id}", headers=headers)
     assert deleted.status_code == 204
@@ -215,6 +216,7 @@ def test_income_entry_supports_multi_wallet_allocations(client, session):
     )
     assert updated.status_code == 200, updated.text
     assert updated.json()["amount"] == 600_000
+    entry_id = updated.json()["id"]
 
     session.expire_all()
     default_wallet = session.query(models.Wallet).filter(models.Wallet.id == default_wallet.id).first()
@@ -382,7 +384,7 @@ def test_income_entry_rejects_date_outside_current_month(client):
         headers=headers,
     )
     assert res.status_code == 400
-    assert "income.date_before_current_month" in res.text
+    assert "income.date_closed_period" in res.text
 
 
 def test_income_source_toggle_active_and_delete(client):
@@ -569,6 +571,67 @@ def test_income_entry_rejects_future_date_with_distinct_message(client):
     )
     assert res.status_code == 400
     assert res.json()["detail"] == "income.date_in_future"
+
+
+def test_income_entry_allows_previous_month_during_closing_window(client, monkeypatch):
+    """Ticket 6: During the 5-day closing window, income backdating to
+    the previous month is allowed."""
+    headers = create_user_and_token(
+        client, "incclosewin1", "incclosewin1@example.com", "Password123!"
+    )
+    source = client.post("/income/sources", json={"name": "Salary"}, headers=headers)
+    assert source.status_code == 201
+    source_id = source.json()["id"]
+
+    # Patch today_in_tz in the income router namespace
+    import app.routers.income as income_router
+    monkeypatch.setattr(
+        income_router, "today_in_tz",
+        lambda _tz: date(2026, 7, 3),  # Day 3 — inside closing window
+    )
+
+    res = client.post(
+        "/income/entries",
+        json={
+            "amount": 200000,
+            "source_id": source_id,
+            "date": "2026-06-30",
+            "note": "June cleanup",
+        },
+        headers=headers,
+    )
+    assert res.status_code == 201, res.text
+    assert res.json()["date"] == "2026-06-30"
+
+
+def test_income_entry_rejects_closed_period_after_closing_window(client, monkeypatch):
+    """Ticket 6: After the 5-day closing window, income backdating to
+    the previous month is rejected with a closed-period error."""
+    headers = create_user_and_token(
+        client, "incclosewin2", "incclosewin2@example.com", "Password123!"
+    )
+    source = client.post("/income/sources", json={"name": "Salary"}, headers=headers)
+    assert source.status_code == 201
+    source_id = source.json()["id"]
+
+    import app.routers.income as income_router
+    monkeypatch.setattr(
+        income_router, "today_in_tz",
+        lambda _tz: date(2026, 7, 7),  # Day 7 — closing window ended
+    )
+
+    res = client.post(
+        "/income/entries",
+        json={
+            "amount": 200000,
+            "source_id": source_id,
+            "date": "2026-06-30",
+            "note": "closed period attempt",
+        },
+        headers=headers,
+    )
+    assert res.status_code == 400
+    assert res.json()["detail"] == "income.date_closed_period"
 
 
 # ---------------------------------------------------------------------------
@@ -768,3 +831,333 @@ def test_income_delete_multi_wallet_void_and_reversal(client, session):
     sw_after = session.query(models.Wallet).filter(models.Wallet.id == second_wallet.id).first().current_balance
     assert dw_after == dw_before - 200_000
     assert sw_after == sw_before - 400_000
+
+
+# ---------------------------------------------------------------------------
+# Ticket 5: Income correction repost tests
+# ---------------------------------------------------------------------------
+
+
+def test_income_metadata_only_edit_does_not_create_reversal(client, session):
+    """Ticket 5: Changing only the note (metadata) updates in place without
+    voiding or creating a reversal event."""
+    headers = create_user_and_token(
+        client, "inccorrect1", "inccorrect1@example.com", "Password123!"
+    )
+    source = client.post("/income/sources", json={"name": "Salary"}, headers=headers)
+    assert source.status_code == 201
+    source_id = source.json()["id"]
+
+    created = client.post(
+        "/income/entries",
+        json={
+            "amount": 500000,
+            "source_id": source_id,
+            "note": "Original note",
+            "date": user_timezone_today().isoformat(),
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    entry_id = created.json()["id"]
+
+    # Metadata-only update: same amount, date, source, wallet — only note changes
+    updated = client.put(
+        f"/income/entries/{entry_id}",
+        json={
+            "amount": 500000,
+            "source_id": source_id,
+            "note": "Updated note only",
+            "date": user_timezone_today().isoformat(),
+        },
+        headers=headers,
+    )
+    assert updated.status_code == 200, updated.text
+    # Metadata-only edit returns the SAME id (no void → no new event)
+    assert updated.json()["id"] == entry_id
+    assert updated.json()["note"] == "Updated note only"
+
+    # Original event must still be POSTED (not VOIDED)
+    session.expire_all()
+    event = session.query(models.FinancialEvent).filter(
+        models.FinancialEvent.id == entry_id,
+    ).first()
+    assert event is not None
+    assert event.status == models.FinancialEventStatus.POSTED
+    assert event.void_reason is None
+
+
+def test_income_amount_edit_voids_and_creates_corrected_event(client, session):
+    """Ticket 5: Changing the amount voids the original and posts a new
+    corrected event with the updated amount."""
+    headers = create_user_and_token(
+        client, "inccorrect2", "inccorrect2@example.com", "Password123!"
+    )
+    source = client.post("/income/sources", json={"name": "Salary"}, headers=headers)
+    assert source.status_code == 201
+    source_id = source.json()["id"]
+
+    today = user_timezone_today()
+    created = client.post(
+        "/income/entries",
+        json={
+            "amount": 500000,
+            "source_id": source_id,
+            "note": "First amount",
+            "date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    original_id = created.json()["id"]
+    original_wallet_id = created.json()["wallet_allocations"][0]["wallet_id"]
+
+    # Change the amount — should trigger correction repost
+    updated = client.put(
+        f"/income/entries/{original_id}",
+        json={
+            "amount": 750000,
+            "source_id": source_id,
+            "note": "Corrected amount",
+            "date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert updated.status_code == 200, updated.text
+    corrected_id = updated.json()["id"]
+    assert corrected_id != original_id, "correction repost must produce a new event"
+    assert updated.json()["amount"] == 750000
+    assert updated.json()["note"] == "Corrected amount"
+
+    # Original must be VOIDED
+    session.expire_all()
+    original = session.query(models.FinancialEvent).filter(
+        models.FinancialEvent.id == original_id,
+    ).first()
+    assert original.status == models.FinancialEventStatus.VOIDED
+    assert original.void_reason == "Corrected by user"
+
+    # Original wallet/entity legs must be intact (not rewritten in place)
+    assert len(original.wallet_legs) == 1
+    assert original.wallet_legs[0].amount == 500000  # original value preserved
+
+    # Corrected event must be POSTED and linked to the original
+    corrected = session.query(models.FinancialEvent).filter(
+        models.FinancialEvent.id == corrected_id,
+    ).first()
+    assert corrected.status == models.FinancialEventStatus.POSTED
+    assert corrected.linked_event_id == original.id
+    assert corrected.wallet_legs[0].amount == 750000
+
+    # Wallet balance must reflect the corrected amount (net: 750000)
+    wallet = session.query(models.Wallet).filter(
+        models.Wallet.id == original_wallet_id,
+    ).first()
+    # Original +500k, Void -500k, Corrected +750k = +750k net
+    assert wallet.current_balance == 10_000_000 + 750000
+
+
+def test_income_source_edit_voids_and_creates_corrected_event(client, session):
+    """Ticket 5: Changing the income source triggers a correction repost."""
+    headers = create_user_and_token(
+        client, "inccorrect3", "inccorrect3@example.com", "Password123!"
+    )
+    s1 = client.post("/income/sources", json={"name": "Salary"}, headers=headers)
+    s2 = client.post("/income/sources", json={"name": "Freelance"}, headers=headers)
+    assert s1.status_code == 201 and s2.status_code == 201
+    source1_id = s1.json()["id"]
+    source2_id = s2.json()["id"]
+
+    today = user_timezone_today()
+    created = client.post(
+        "/income/entries",
+        json={
+            "amount": 300000,
+            "source_id": source1_id,
+            "date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    original_id = created.json()["id"]
+
+    # Change source → correction repost
+    updated = client.put(
+        f"/income/entries/{original_id}",
+        json={
+            "amount": 300000,
+            "source_id": source2_id,
+            "date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert updated.status_code == 200, updated.text
+    corrected_id = updated.json()["id"]
+    assert corrected_id != original_id
+
+    session.expire_all()
+    original = session.query(models.FinancialEvent).filter(
+        models.FinancialEvent.id == original_id,
+    ).first()
+    assert original.status == models.FinancialEventStatus.VOIDED
+
+    corrected = session.query(models.FinancialEvent).filter(
+        models.FinancialEvent.id == corrected_id,
+    ).first()
+    assert corrected.status == models.FinancialEventStatus.POSTED
+    assert corrected.entity_legs[0].income_source_id == source2_id
+
+
+def test_income_date_edit_voids_and_creates_corrected_event(client, session):
+    """Ticket 5: Changing the income date triggers a correction repost.
+    The corrected date must pass normal-logging boundaries."""
+    headers = create_user_and_token(
+        client, "inccorrect4", "inccorrect4@example.com", "Password123!"
+    )
+    source = client.post("/income/sources", json={"name": "Salary"}, headers=headers)
+    assert source.status_code == 201
+    source_id = source.json()["id"]
+
+    today = user_timezone_today()
+    # Use yesterday or today — whichever is within current month
+    first_date = today.replace(day=max(1, today.day - 2 if today.day > 2 else today.day))
+    second_date = today
+
+    created = client.post(
+        "/income/entries",
+        json={
+            "amount": 200000,
+            "source_id": source_id,
+            "date": first_date.isoformat(),
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    original_id = created.json()["id"]
+
+    # Change date → correction repost
+    updated = client.put(
+        f"/income/entries/{original_id}",
+        json={
+            "amount": 200000,
+            "source_id": source_id,
+            "date": second_date.isoformat(),
+        },
+        headers=headers,
+    )
+    assert updated.status_code == 200, updated.text
+    corrected_id = updated.json()["id"]
+    assert corrected_id != original_id
+
+    session.expire_all()
+    corrected = session.query(models.FinancialEvent).filter(
+        models.FinancialEvent.id == corrected_id,
+    ).first()
+    assert corrected.date == second_date
+
+
+def test_income_wallet_edit_voids_and_creates_corrected_event(client, session):
+    """Ticket 5: Changing wallet allocation triggers a correction repost
+    with correct wallet balance math."""
+    email = "inccorrect5@example.com"
+    headers = create_user_and_token(
+        client, "inccorrect5", email, "Password123!"
+    )
+    user = session.query(models.User).filter(models.User.email == email).first()
+    default_wallet = (
+        session.query(models.Wallet)
+        .filter(models.Wallet.owner_id == user.id, models.Wallet.is_default)
+        .first()
+    )
+    second_wallet = _create_wallet(session, user.id, "Side Wallet")
+
+    source = client.post("/income/sources", json={"name": "Salary"}, headers=headers)
+    assert source.status_code == 201
+    source_id = source.json()["id"]
+
+    today = user_timezone_today()
+    created = client.post(
+        "/income/entries",
+        json={
+            "amount": 400000,
+            "source_id": source_id,
+            "date": today.isoformat(),
+            "wallet_id": default_wallet.id,
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    original_id = created.json()["id"]
+
+    # Switch wallet → correction repost
+    updated = client.put(
+        f"/income/entries/{original_id}",
+        json={
+            "amount": 400000,
+            "source_id": source_id,
+            "date": today.isoformat(),
+            "wallet_id": second_wallet.id,
+        },
+        headers=headers,
+    )
+    assert updated.status_code == 200, updated.text
+    corrected_id = updated.json()["id"]
+    assert corrected_id != original_id
+
+    session.expire_all()
+    dw = session.query(models.Wallet).filter(models.Wallet.id == default_wallet.id).first()
+    sw = session.query(models.Wallet).filter(models.Wallet.id == second_wallet.id).first()
+    # Default: +400k (original) -400k (void) = net 0 → back to 10_000_000
+    # Second: 0 (original) + 400k (corrected) = +400k → 1_400_000
+    assert dw.current_balance == 10_000_000
+    assert sw.current_balance == 1_000_000 + 400000
+
+
+def test_income_update_still_returns_expected_ui_shape(client, session):
+    """Ticket 5: The correction repost response still matches the
+    IncomeEntryOut shape expected by the UI."""
+    headers = create_user_and_token(
+        client, "inccorrect6", "inccorrect6@example.com", "Password123!"
+    )
+    source = client.post("/income/sources", json={"name": "Salary"}, headers=headers)
+    assert source.status_code == 201
+    source_id = source.json()["id"]
+
+    today = user_timezone_today()
+    created = client.post(
+        "/income/entries",
+        json={
+            "amount": 100000,
+            "source_id": source_id,
+            "date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    original_id = created.json()["id"]
+
+    updated = client.put(
+        f"/income/entries/{original_id}",
+        json={
+            "amount": 250000,
+            "source_id": source_id,
+            "note": "Corrected",
+            "date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert updated.status_code == 200
+    entry = updated.json()
+    # Must contain all IncomeEntryOut fields
+    assert "id" in entry
+    assert "amount" in entry
+    assert entry["amount"] == 250000
+    assert "date" in entry
+    assert "source_id" in entry
+    assert entry["source_id"] == source_id
+    assert "note" in entry
+    assert entry["note"] == "Corrected"
+    assert "wallet_allocations" in entry
+    assert len(entry["wallet_allocations"]) == 1
+    assert "created_at" in entry
+    assert "updated_at" in entry

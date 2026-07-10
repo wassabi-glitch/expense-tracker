@@ -432,6 +432,7 @@
     "dateTooEarly": "Sana 2020-01-01 dan oldin bo'lishi mumkin emas.",
     "dateFuture": "Sana kelajakda bo'lishi mumkin emas.",
     "datePastMonth": "Sana joriy oydan oldin bo'lishi mumkin emas. O'tgan faoliyat uchun solishtirishdan foydalaning.",
+    "dateClosedPeriod": "Bu oy yopilgan. Iltimos, bugungi sana va asl davr haqida izoh bilan joriy tuzatish sifatida qayd eting.",
     "startFuture": "Boshlanish sanasi kelajakda bo'lishi mumkin emas.",
     "endFuture": "Tugash sanasi kelajakda bo'lishi mumkin emas.",
     "startAfterEnd": "Boshlanish sanasi tugash sanasidan keyin bo'lishi mumkin emas.",
