@@ -170,14 +170,14 @@ These tickets build the minimum immutable-ledger foundation before deeper Epicsp
 - Ticket 4: Convert standalone income delete to void and reversal.
 - Ticket 5: Convert standalone income financial edits to correction reposts.
 
-- [ ] Wallet balance after a normal posted money event matches the expected projection.
-- [ ] Wallet balance after void/reversal matches the expected projection.
-- [ ] Wallet balance after income corrected repost matches the expected projection.
-- [ ] Multi-wallet operations are included in the projection verification.
-- [ ] Projection checks account for the wallet opening snapshot or equivalent starting point.
-- [ ] Tests prove reversals do not double-apply wallet effects.
-- [ ] Tests prove corrected reposts do not leave stale wallet effects from the original event.
-- [ ] Failures produce useful debugging information for event and wallet ledger mismatch.
+- [x] Wallet balance after a normal posted money event matches the expected projection.
+- [x] Wallet balance after void/reversal matches the expected projection.
+- [x] Wallet balance after income corrected repost matches the expected projection.
+- [x] Multi-wallet operations are included in the projection verification.
+- [x] Projection checks account for the wallet opening snapshot or equivalent starting point.
+- [x] Tests prove reversals do not double-apply wallet effects.
+- [x] Tests prove corrected reposts do not leave stale wallet effects from the original event.
+- [x] Failures produce useful debugging information for event and wallet ledger mismatch.
 
 ## Ticket 9: Document The Epicspart2 Money-History Definition Of Done
 
