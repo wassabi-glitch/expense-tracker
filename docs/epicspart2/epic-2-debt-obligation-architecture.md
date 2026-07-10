@@ -4,6 +4,7 @@
 **Depends On:** Epic 1 (Ledger Foundation)
 
 ## Goal
+
 Define the complete domain model for financial obligations — how debts enter the system, the strict boundary between open-ended debts and scheduled payment plans, and the full lifecycle engine for payment plans including statuses, the waterfall spillover, forgiveness, and the imported-balance path. These three ADRs establish the obligation domain on top of Epic 1's ledger integrity rules.
 
 ## ADRs Included (Execution Sequence)
@@ -24,11 +25,13 @@ Define the complete domain model for financial obligations — how debts enter t
      - **Imported Path:** Mirrors ADR 0003's dual path for historical payment plans with decorative metadata.
 
 ## Why This Order
+
 - ADR 0003 establishes the entry rules: how obligations get born without breaking the wallet epoch (Epic 1).
 - ADR 0004 cleans the structural foundation: no more tangled debt↔plan FKs. This must happen before the engine can be trusted.
 - ADR 0005 builds the full engine on that clean foundation: statuses, waterfall, actions, budget boundary.
 
 ## Execution Rules
+
 - ADR 0004's migration (removing `debt_id` FK, deleting shadow Debt records for linked Payment Plans) is a high-risk database operation. Must be executed with a reversible migration and tested against production-shaped data.
-- ADR 0005's budget boundary rule (`expenses.budget_required` error) defines the *backend contract*. The corresponding frontend interceptor UX is governed by ADR 0009 in a later epic.
+- ADR 0005's budget boundary rule (`expenses.budget_required` error) defines the _backend contract_. The corresponding frontend interceptor UX is governed by ADR 0009 in a later epic.
 - The waterfall engine (ADR 0005 §3) is already architecturally correct per the ADR — preserve and validate, do not rewrite.

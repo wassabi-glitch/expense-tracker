@@ -152,13 +152,13 @@ These tickets build the minimum immutable-ledger foundation before deeper Epicsp
 - Ticket 4: Convert standalone income delete to void and reversal.
 - Ticket 5: Convert standalone income financial edits to correction reposts.
 
-- [ ] New debt/payment-plan money-changing flows are expected to append ledger facts rather than hard-delete posted financial history.
-- [ ] New debt/payment-plan correction flows are expected to use reversal or adjustment rows rather than rewriting prior rows in place.
-- [ ] Payment-plan and debt current-state fields are treated as projections where money history exists.
-- [ ] At least one debt or payment-plan regression test proves posted financial events remain available after an undo/reversal-style action.
-- [ ] Tests distinguish immutable money facts from mutable metadata or planning intent.
-- [ ] The guardrails do not force budgets, recurring templates, or drafts into the global financial ledger.
-- [ ] The behavior is documented clearly enough for subsequent Epicspart2 implementation tickets to follow.
+- [x] New debt/payment-plan money-changing flows are expected to append ledger facts rather than hard-delete posted financial history.
+- [x] New debt/payment-plan correction flows are expected to use reversal or adjustment rows rather than rewriting prior rows in place.
+- [x] Payment-plan and debt current-state fields are treated as projections where money history exists.
+- [x] At least one debt or payment-plan regression test proves posted financial events remain available after an undo/reversal-style action.
+- [x] Tests distinguish immutable money facts from mutable metadata or planning intent.
+- [x] The guardrails do not force budgets, recurring templates, or drafts into the global financial ledger.
+- [x] The behavior is documented clearly enough for subsequent Epicspart2 implementation tickets to follow.
 
 ## Ticket 8: Add Wallet Projection Verification Around Reversals And Corrections
 
