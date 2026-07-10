@@ -567,7 +567,7 @@ class TestIssue5IncomeTimezoneBoundary:
                 headers=headers,
             )
         assert res.status_code == 400, res.text
-        assert "date_outside_current_month" in res.json()["detail"]
+        assert "date_in_future" in res.json()["detail"]
 
 
 class TestIssue5RefundTimezoneBoundary:

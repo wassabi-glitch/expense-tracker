@@ -15,6 +15,7 @@ from ..services.financial_event_ledger_service import (
     PostWalletLeg,
     post_financial_event,
     validate_wallet_epochs,
+    void_financial_event,
 )
 from ..services.wallet_service import WalletService
 from .wallets import _get_owned_wallet_or_404
@@ -111,8 +112,8 @@ def _ensure_source_belongs_to_user(db: Session, user_id: int, source_id: int | N
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="income.source_inactive")
 
 
-def _income_event_query(db: Session, user_id: int):
-    return (
+def _income_event_query(db: Session, user_id: int, *, statuses: list[models.FinancialEventStatus] | None = None):
+    query = (
         db.query(models.FinancialEvent)
         .options(
             selectinload(models.FinancialEvent.wallet_legs).selectinload(models.WalletLedger.wallet),
@@ -121,9 +122,13 @@ def _income_event_query(db: Session, user_id: int):
         .filter(
             models.FinancialEvent.owner_id == user_id,
             models.FinancialEvent.event_type == models.TransactionType.INCOME,
-            models.FinancialEvent.status == models.FinancialEventStatus.POSTED,
         )
     )
+    if statuses is not None:
+        query = query.filter(models.FinancialEvent.status.in_(statuses))
+    else:
+        query = query.filter(models.FinancialEvent.status == models.FinancialEventStatus.POSTED)
+    return query
 
 
 def _primary_income_entity_leg(event: models.FinancialEvent) -> models.EntityLedger | None:
@@ -245,6 +250,7 @@ def _record_income_event(
     note: str | None,
     income_date: date,
     wallet_allocations: list[tuple[models.Wallet, int]],
+    linked_event_id: int | None = None,
 ) -> models.FinancialEvent:
     """Create a posted INCOME FinancialEvent through the ledger seam."""
     return post_financial_event(
@@ -255,6 +261,7 @@ def _record_income_event(
         date=income_date,
         description=note,
         entity_category=None,
+        linked_event_id=linked_event_id,
         wallet_legs=[
             PostWalletLeg(wallet_id=wallet.id, amount=int(allocation_amount))
             for wallet, allocation_amount in wallet_allocations
@@ -310,13 +317,63 @@ def _get_owned_entry_or_404(db: Session, user_id: int, entry_id: int) -> models.
     return entry
 
 
-def _validate_entry_date_in_current_month(entry_date: date, today: date) -> None:
-    month_start = today.replace(day=1)
-    if entry_date < month_start or entry_date > today:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="income.date_outside_current_month",
+def _get_owned_entry_any_status_or_404(db: Session, user_id: int, entry_id: int) -> models.FinancialEvent:
+    """Fetch an income FinancialEvent regardless of status.
+
+    Used by delete to give a clearer error message for already-voided
+    entries rather than a misleading 404.
+    """
+    entry = (
+        _income_event_query(db, user_id, statuses=[models.FinancialEventStatus.POSTED, models.FinancialEventStatus.VOIDED])
+        .filter(models.FinancialEvent.id == entry_id)
+        .first()
+    )
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="income.entry_not_found")
+    return entry
+
+
+def _income_wallet_allocation_changed(
+    entry: models.FinancialEvent,
+    payload: schemas.IncomeEntryUpdate,
+) -> bool:
+    """Return True if the wallet allocation in *payload* differs from *entry*."""
+    existing_positive = sorted(
+        (int(leg.wallet_id), int(leg.amount or 0))
+        for leg in entry.wallet_legs
+        if int(leg.amount or 0) > 0
+    )
+
+    if payload.wallet_allocations:
+        requested = sorted(
+            (int(item.wallet_id), int(item.amount))
+            for item in payload.wallet_allocations
         )
+    elif payload.wallet_id is not None:
+        requested = [(int(payload.wallet_id), int(payload.amount))]
+    else:
+        # No wallet info in payload — default to the existing single-wallet
+        # allocation.  If the entry has multiple wallets this will be caught
+        # by _resolve_income_wallet_allocations later.
+        return False
+
+    return existing_positive != requested
+
+
+def _validate_entry_date_in_current_month(entry_date: date, today: date) -> None:
+    """Enforce user-timezone normal logging boundary for income entries.
+
+    Delegates to the shared ``validate_normal_logging_date`` helper so
+    expense and income date rules stay in sync.
+    """
+    from app.timezone import validate_normal_logging_date
+
+    validate_normal_logging_date(
+        entry_date,
+        today,
+        future_detail="income.date_in_future",
+        closed_detail="income.date_closed_period",
+    )
 
 
 def _money_in_event_query(db: Session, user_id: int):
@@ -768,32 +825,67 @@ def update_income_entry(
     _ensure_source_belongs_to_user(db, current_user.id, payload.source_id)
     entry = _get_owned_entry_or_404(db, current_user.id, entry_id)
 
+    entity_leg = _primary_income_entity_leg(entry)
+    old_source = entity_leg.income_source_id if entity_leg else None
+
+    # Determine which fields changed
+    amount_changed = int(payload.amount) != _income_amount(entry)
+    date_changed = payload.date != entry.date
+    source_changed = payload.source_id != old_source
+    wallet_changed = _income_wallet_allocation_changed(entry, payload)
+    note_only = not (amount_changed or date_changed or source_changed or wallet_changed)
+
+    if note_only:
+        # Metadata-only edit — update in place, no reversal needed
+        entry.description = payload.note
+        db.commit()
+        updated = _get_owned_entry_or_404(db, current_user.id, entry.id)
+        return _build_income_entry_out(updated)
+
+    # ── Financial edit → correction repost ──────────────────────────────
+    # Void the original (preserves it, appends a reversal), then post a
+    # new corrected event linked to the original.  Wallet effects net to
+    # the corrected values — no double-counting.
+
+    debt_ids_to_reconcile = {int(leg.debt_id) for leg in entry.entity_legs if leg.debt_id}
+
+    void_financial_event(
+        db,
+        event=entry,
+        owner_id=current_user.id,
+        user_tz=user_tz,
+        void_reason="Corrected by user",
+    )
+
     wallet_allocations = _resolve_income_wallet_allocations(
         db=db,
         user_id=current_user.id,
         amount=int(payload.amount),
         wallet_id=payload.wallet_id,
         wallet_allocations=payload.wallet_allocations,
-        existing_event=entry,
     )
 
-    debt_ids_to_reconcile = {int(leg.debt_id) for leg in entry.entity_legs if leg.debt_id}
-    _replace_income_event_legs(
+    # Validate wallet epochs for the corrected date
+    touched_wallet_ids = {wallet.id for wallet, _ in wallet_allocations}
+    validate_wallet_epochs(db, wallet_ids=touched_wallet_ids, event_date=payload.date)
+
+    corrected = _record_income_event(
         db,
-        entry,
+        owner_id=current_user.id,
         amount=int(payload.amount),
         source_id=payload.source_id,
+        note=payload.note,
+        income_date=payload.date,
         wallet_allocations=wallet_allocations,
+        linked_event_id=entry.id,
     )
-    entry.description = payload.note
-    entry.date = payload.date
 
     for debt_id in debt_ids_to_reconcile:
         reconcile_debt(db, debt_id)
 
     db.commit()
-    updated = _get_owned_entry_or_404(db, current_user.id, entry.id)
-    return _build_income_entry_out(updated)
+    created = _get_owned_entry_or_404(db, current_user.id, corrected.id)
+    return _build_income_entry_out(created)
 
 
 @router.delete("/entries/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -802,16 +894,43 @@ def delete_income_entry(
     response: Response,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
 ):
     rate_headers = enforce_income_entry_write_rate_limit(current_user.id)
     for k, v in rate_headers.items():
         response.headers[k] = v
-    entry = _get_owned_entry_or_404(db, current_user.id, entry_id)
+
+    # Look up the event regardless of status so we can distinguish
+    # "not found" from "already voided".
+    entry = _get_owned_entry_any_status_or_404(db, current_user.id, entry_id)
+
+    if entry.status != models.FinancialEventStatus.POSTED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="income.entry_not_posted",
+        )
+
+    # Reject if any touched wallet is archived.
+    for wallet_leg in entry.wallet_legs:
+        if wallet_leg.wallet and not wallet_leg.wallet.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="wallets.archived_locked",
+            )
+
+    # Collect linked debts before voiding — they need reconciliation after.
     debt_ids_to_reconcile = {int(leg.debt_id) for leg in entry.entity_legs if leg.debt_id}
 
-    for wallet_leg in list(entry.wallet_legs):
-        WalletService.adjust_balance(db, wallet_leg.wallet_id, -int(wallet_leg.amount or 0), models.TransactionType.INCOME)
-    db.delete(entry)
+    # Use the shared void/reversal seam (Ticket 1) instead of hard-deleting.
+    # This preserves the original financial fact, appends a counter-balancing
+    # reversal, and marks the original event as VOIDED.
+    void_financial_event(
+        db,
+        event=entry,
+        owner_id=current_user.id,
+        user_tz=user_tz,
+        void_reason="Deleted by user",
+    )
 
     for debt_id in debt_ids_to_reconcile:
         reconcile_debt(db, debt_id)

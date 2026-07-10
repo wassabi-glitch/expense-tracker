@@ -846,6 +846,15 @@ def create_expense(
     for k, v in rate_headers.items():
         response.headers[k] = v
 
+    # Enforce user-timezone normal logging boundary with grace window
+    from app.timezone import validate_normal_logging_date
+
+    validate_normal_logging_date(
+        expense_date,
+        local_today,
+        future_detail="expenses.date_in_future",
+        closed_detail="expenses.date_closed_period",
+    )
     current_month_start = local_today.replace(day=1)
     month_expense_count = (
         db.query(func.count(models.FinancialEvent.id))

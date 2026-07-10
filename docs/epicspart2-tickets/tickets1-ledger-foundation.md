@@ -81,14 +81,14 @@ These tickets build the minimum immutable-ledger foundation before deeper Epicsp
 
 **Blocked by:** Ticket 2: Enforce wallet epoch boundaries for wallet-touching money flows.
 
-- [ ] Normal expense logging uses the user's effective timezone for today's date.
-- [ ] Normal income logging uses the user's effective timezone for today's date.
-- [ ] Future-dated normal expense and income entries are rejected according to the user's local date.
-- [ ] Past-dated normal expense and income entries are rejected or routed to the reconciliation path according to the product rule.
-- [ ] Existing request timezone behavior is preserved.
-- [ ] Tests cover a timezone boundary where server date and user date could differ.
-- [ ] Tests use the project's timezone helpers rather than server-local dates.
-- [ ] Error messages distinguish future-date rejection from past-date/reconciliation guidance.
+- [x] Normal expense logging uses the user's effective timezone for today's date.
+- [x] Normal income logging uses the user's effective timezone for today's date.
+- [x] Future-dated normal expense and income entries are rejected according to the user's local date.
+- [x] Past-dated normal expense and income entries are rejected or routed to the reconciliation path according to the product rule.
+- [x] Existing request timezone behavior is preserved.
+- [x] Tests cover a timezone boundary where server date and user date could differ.
+- [x] Tests use the project's timezone helpers rather than server-local dates.
+- [x] Error messages distinguish future-date rejection from past-date/reconciliation guidance.
 
 ## Ticket 4: Convert Standalone Income Delete To Void And Reversal
 
@@ -100,15 +100,15 @@ These tickets build the minimum immutable-ledger foundation before deeper Epicsp
 - Ticket 2: Enforce wallet epoch boundaries for wallet-touching money flows.
 - Ticket 3: Enforce user-timezone normal logging boundaries.
 
-- [ ] Deleting posted standalone income no longer hard-deletes the posted financial event.
-- [ ] Deleting posted standalone income appends a reversal event.
-- [ ] The original income event is marked voided.
-- [ ] Wallet ledger effects are counter-balanced exactly once.
-- [ ] Entity/source ledger history remains explainable after delete.
-- [ ] Deleting already-voided income is rejected or idempotent with clear behavior.
-- [ ] Debt or expected-inflow links affected by the income reversal remain consistent.
-- [ ] Tests prove the original income event remains queryable.
-- [ ] Tests prove the wallet balance after income delete matches the balance before the income was created.
+- [x] Deleting posted standalone income no longer hard-deletes the posted financial event.
+- [x] Deleting posted standalone income appends a reversal event.
+- [x] The original income event is marked voided.
+- [x] Wallet ledger effects are counter-balanced exactly once.
+- [x] Entity/source ledger history remains explainable after delete.
+- [x] Deleting already-voided income is rejected or idempotent with clear behavior.
+- [x] Debt or expected-inflow links affected by the income reversal remain consistent.
+- [x] Tests prove the original income event remains queryable.
+- [x] Tests prove the wallet balance after income delete matches the balance before the income was created.
 
 ## Ticket 5: Convert Standalone Income Financial Edits To Correction Reposts
 
@@ -116,16 +116,16 @@ These tickets build the minimum immutable-ledger foundation before deeper Epicsp
 
 **Blocked by:** Ticket 4: Convert standalone income delete to void and reversal.
 
-- [ ] Metadata-only income edits remain possible without reversal.
-- [ ] Editing income amount voids/reverses the original financial event and posts a corrected event.
-- [ ] Editing income wallet allocation voids/reverses the original financial event and posts a corrected event.
-- [ ] Editing income source voids/reverses the original financial event and posts a corrected event.
-- [ ] Editing income date voids/reverses the original financial event and posts a corrected event if the corrected date is allowed.
-- [ ] Corrected reposts preserve user-visible title/note behavior.
-- [ ] Corrected reposts respect wallet epoch and user-timezone date boundaries.
-- [ ] Corrected reposts keep wallet balances mathematically exact.
-- [ ] Tests prove old ledger legs are not rewritten in place.
-- [ ] Tests prove the response still returns the corrected current income entry shape expected by the UI.
+- [x] Metadata-only income edits remain possible without reversal.
+- [x] Editing income amount voids/reverses the original financial event and posts a corrected event.
+- [x] Editing income wallet allocation voids/reverses the original financial event and posts a corrected event.
+- [x] Editing income source voids/reverses the original financial event and posts a corrected event.
+- [x] Editing income date voids/reverses the original financial event and posts a corrected event if the corrected date is allowed.
+- [x] Corrected reposts preserve user-visible title/note behavior.
+- [x] Corrected reposts respect wallet epoch and user-timezone date boundaries.
+- [x] Corrected reposts keep wallet balances mathematically exact.
+- [x] Tests prove old ledger legs are not rewritten in place.
+- [x] Tests prove the response still returns the corrected current income entry shape expected by the UI.
 
 ## Ticket 6: Add Closed-Period Correction Guardrails For Normal Money Entry
 
@@ -133,14 +133,14 @@ These tickets build the minimum immutable-ledger foundation before deeper Epicsp
 
 **Blocked by:** Ticket 3: Enforce user-timezone normal logging boundaries.
 
-- [ ] The current month remains open for allowed normal and reconciliation behavior.
-- [ ] The closing window allows cleanup according to the accepted grace-window rule.
-- [ ] Closed months reject direct backdated normal money entry.
-- [ ] Missed activity for a closed month is represented as a current correction rather than a rewrite of the closed period.
-- [ ] Current corrections include enough context for the user to understand what past period they refer to.
-- [ ] User-facing dates use the effective user timezone.
-- [ ] Tests cover open month, closing window, and closed-period behavior.
-- [ ] Tests prove closed-period corrections affect the current allowed period instead of the sealed historical period.
+- [x] The current month remains open for allowed normal and reconciliation behavior.
+- [x] The closing window allows cleanup according to the accepted grace-window rule.
+- [x] Closed months reject direct backdated normal money entry.
+- [x] Missed activity for a closed month is represented as a current correction rather than a rewrite of the closed period.
+- [x] Current corrections include enough context for the user to understand what past period they refer to.
+- [x] User-facing dates use the effective user timezone.
+- [x] Tests cover open month, closing window, and closed-period behavior.
+- [x] Tests prove closed-period corrections affect the current allowed period instead of the sealed historical period.
 
 ## Ticket 7: Add Immutable-Ledger Regression Guardrails For New Obligation Work
 

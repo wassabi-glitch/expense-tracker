@@ -1,5 +1,5 @@
 import pytest
-from tests.helpers import create_user_and_token
+from tests.helpers import create_user_and_token, user_timezone_today
 
 
 @pytest.fixture
@@ -102,11 +102,13 @@ def test_isolated_project_subcategory_requires_allocated_parent(client, test_use
 
 def test_isolated_project_subcategory_archive_on_delete_if_spent(client, test_user, session):
     headers = test_user
+    today = user_timezone_today()
+    month_start = today.replace(day=1)
 
     wallet_resp = client.post("/wallets", json={"name": "Cash", "initial_balance": 1000}, headers=headers)
     wallet_id = wallet_resp.json()["id"]
 
-    # Backdate wallet epoch so the expense date 2024-01-02 is allowed
+    # Backdate wallet epoch so the expense date is allowed
     from app import models as _models
     from tests.helpers import TEST_WALLET_EPOCH
     w = session.query(_models.Wallet).filter(_models.Wallet.id == wallet_id).first()
@@ -116,7 +118,7 @@ def test_isolated_project_subcategory_archive_on_delete_if_spent(client, test_us
     proj_resp = client.post("/projects", json={
         "title": "Kitchen",
         "is_isolated": True,
-        "start_date": "2024-01-01",
+        "start_date": month_start.isoformat(),
         "wallet_allocations": [{"wallet_id": wallet_id, "amount": 1000}],
         "category_allocations": [
             {"category": "Housing", "limit_amount": 500}
@@ -140,7 +142,7 @@ def test_isolated_project_subcategory_archive_on_delete_if_spent(client, test_us
         "title": "Materials",
         "amount": 100,
         "category": "Housing",
-        "date": "2024-01-02",
+        "date": today.isoformat(),
         "wallet_id": wallet_id,
         "project_id": project_id,
         "subcategory_id": user_subcategory_id

@@ -1,17 +1,17 @@
-from datetime import date
-
 from app import models
-from tests.helpers import create_budget, create_user_and_token
+from tests.helpers import create_budget, create_user_and_token, user_timezone_today
 
 
 def _create_overlay_project_with_reservations(client, headers):
+    today = user_timezone_today()
+    month_start = today.replace(day=1)
     budget = create_budget(
         client,
         headers,
         category="Travel",
         monthly_limit=1_000_000,
-        budget_year=2026,
-        budget_month=6,
+        budget_year=today.year,
+        budget_month=today.month,
     )
     assert budget.status_code == 201, budget.text
 
@@ -27,8 +27,8 @@ def _create_overlay_project_with_reservations(client, headers):
         json={
             "title": "June trip",
             "is_isolated": False,
-            "start_date": "2026-06-01",
-            "target_end_date": "2026-06-30",
+            "start_date": month_start.isoformat(),
+            "target_end_date": today.isoformat(),
         },
         headers=headers,
     )
@@ -40,8 +40,8 @@ def _create_overlay_project_with_reservations(client, headers):
         json={
             "category": "Travel",
             "limit_amount": 500_000,
-            "budget_year": 2026,
-            "budget_month": 6,
+            "budget_year": today.year,
+            "budget_month": today.month,
         },
         headers=headers,
     )
@@ -53,8 +53,8 @@ def _create_overlay_project_with_reservations(client, headers):
             "category": "Travel",
             "user_subcategory_id": subcategory.json()["id"],
             "limit_amount": 200_000,
-            "budget_year": 2026,
-            "budget_month": 6,
+            "budget_year": today.year,
+            "budget_month": today.month,
         },
         headers=headers,
     )
@@ -63,6 +63,7 @@ def _create_overlay_project_with_reservations(client, headers):
 
 
 def _linked_overlay_expense(client, headers, project_id, *, amount=120_000):
+    today = user_timezone_today()
     expense = client.post(
         "/expenses/",
         json={
@@ -70,7 +71,7 @@ def _linked_overlay_expense(client, headers, project_id, *, amount=120_000):
             "amount": amount,
             "category": "Travel",
             "description": "test",
-            "date": date(2026, 6, 10).isoformat(),
+            "date": today.isoformat(),
             "project_id": project_id,
         },
         headers=headers,
@@ -86,12 +87,12 @@ def test_pristine_overlay_project_delete_hard_deletes_reservations_and_releases_
         "projectdeletepristine@example.com",
         "Password123!",
     )
-    _, _, project = _create_overlay_project_with_reservations(client, headers)
+    budget, _, project = _create_overlay_project_with_reservations(client, headers)
     project_id = project["id"]
 
     before = client.get(
         "/budgets/",
-        params={"budget_year": 2026, "budget_month": 6},
+        params={"budget_year": budget["budget_year"], "budget_month": budget["budget_month"]},
         headers=headers,
     )
     assert before.status_code == 200, before.text
@@ -107,7 +108,7 @@ def test_pristine_overlay_project_delete_hard_deletes_reservations_and_releases_
 
     after = client.get(
         "/budgets/",
-        params={"budget_year": 2026, "budget_month": 6},
+        params={"budget_year": budget["budget_year"], "budget_month": budget["budget_month"]},
         headers=headers,
     )
     assert after.status_code == 200, after.text

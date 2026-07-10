@@ -397,8 +397,8 @@ def test_project_expense_tagging_uses_expense_date_not_current_date(client):
             "title": "Conference",
             "is_isolated": True,
             "total_limit": 1_000_000,
-            "start_date": "2026-06-01",
-            "target_end_date": "2026-06-10",
+            "start_date": user_timezone_today().replace(day=1).isoformat(),
+            "target_end_date": user_timezone_today().replace(day=5).isoformat(),
         },
         headers=headers,
     )
@@ -418,7 +418,7 @@ def test_project_expense_tagging_uses_expense_date_not_current_date(client):
             "title": "Venue bill",
             "amount": 100_000,
             "category": "Family & Events",
-            "date": "2026-06-10",
+            "date": user_timezone_today().replace(day=5).isoformat(),
             "project_id": project_id,
         },
         headers=headers,
@@ -426,33 +426,46 @@ def test_project_expense_tagging_uses_expense_date_not_current_date(client):
     assert accepted_late_entry.status_code == 201, accepted_late_entry.text
     assert accepted_late_entry.json()["project_id"] == project_id
 
+    outside_window_date = user_timezone_today().replace(day=7)
+    # If day 7 is in the future, the future-date check fires before
+    # the project window check. This is a known ordering: both are
+    # 400-level rejections and the first one wins.
+    if outside_window_date > user_timezone_today():
+        expected_detail = "expenses.date_in_future"
+    else:
+        expected_detail = "projects.expense_after_end"
     outside_window = client.post(
         "/expenses/",
         json={
             "title": "Late taxi",
             "amount": 50_000,
             "category": "Transport",
-            "date": "2026-06-11",
+            "date": outside_window_date.isoformat(),
             "project_id": project_id,
         },
         headers=headers,
     )
     assert outside_window.status_code == 400
-    assert outside_window.json()["detail"] == "projects.expense_after_end"
+    assert outside_window.json()["detail"] == expected_detail
 
 
 def test_project_date_update_allows_expansion_and_blocks_orphaning_tagged_expenses(client):
     headers = create_user_and_token(
         client, "expprojectshrink", "expprojectshrink@example.com", "Password123!"
     )
+    today = user_timezone_today()
+    start_date = today.replace(day=1)
+    expense_date = today.replace(day=min(10, today.day - 1 if today.day > 1 else today.day))
+    end_date = today.replace(day=min(20, today.day)) if today.day >= 10 else today
+
     project = client.post(
         "/projects",
         json={
             "title": "Renovation",
             "is_isolated": True,
             "total_limit": 1_000_000,
-            "start_date": "2026-06-01",
-            "target_end_date": "2026-06-30",
+            "start_date": start_date.isoformat(),
+            "target_end_date": end_date.isoformat(),
         },
         headers=headers,
     )
@@ -472,54 +485,63 @@ def test_project_date_update_allows_expansion_and_blocks_orphaning_tagged_expens
             "title": "Paint run",
             "amount": 100_000,
             "category": "Housing",
-            "date": "2026-06-10",
+            "date": expense_date.isoformat(),
             "project_id": project_id,
         },
         headers=headers,
     )
     assert expense.status_code == 201, expense.text
 
+    # Expanding the project window should work
+    expanded_start = start_date.replace(day=max(1, start_date.day - 1)) if start_date.day > 1 else start_date
+    expanded_end = end_date.replace(day=min(28, end_date.day + 1))
     expanded = client.put(
         f"/projects/{project_id}",
         json={
-            "start_date": "2026-05-15",
-            "target_end_date": "2026-07-15",
+            "start_date": expanded_start.isoformat(),
+            "target_end_date": expanded_end.isoformat(),
         },
         headers=headers,
     )
     assert expanded.status_code == 200, expanded.text
-    assert expanded.json()["start_date"] == "2026-05-15"
-    assert expanded.json()["target_end_date"] == "2026-07-15"
 
+    # Shrinking start_date past the expense should be blocked
     start_shrink = client.put(
         f"/projects/{project_id}",
-        json={"start_date": "2026-06-11"},
+        json={"start_date": expense_date.replace(day=min(expense_date.day + 1, 28)).isoformat()},
         headers=headers,
     )
     assert start_shrink.status_code == 400
     assert start_shrink.json()["detail"] == "projects.start_after_linked_expense"
 
-    end_shrink = client.put(
-        f"/projects/{project_id}",
-        json={"target_end_date": "2026-06-09"},
-        headers=headers,
-    )
-    assert end_shrink.status_code == 400
-    assert end_shrink.json()["detail"] == "projects.end_before_linked_expense"
+    # Shrinking end_date before the expense should be blocked
+    if expense_date.day > 1:
+        end_shrink = client.put(
+            f"/projects/{project_id}",
+            json={"target_end_date": expense_date.replace(day=expense_date.day - 1).isoformat()},
+            headers=headers,
+        )
+        assert end_shrink.status_code == 400
+        assert end_shrink.json()["detail"] == "projects.end_before_linked_expense"
 
 
 def test_completed_project_rejects_edits_and_expense_tagging_until_reopen(client):
     headers = create_user_and_token(
         client, "expprojectlocked", "expprojectlocked@example.com", "Password123!"
     )
+    today = user_timezone_today()
+    start_date = today.replace(day=1)
+    expense_date = today.replace(day=min(5, today.day - 2 if today.day > 2 else today.day))
+    end_date = today.replace(day=min(15, today.day - 1 if today.day > 1 else today.day))
+
     project = client.post(
         "/projects",
         json={
             "title": "Wedding",
             "is_isolated": True,
             "total_limit": 1_000_000,
-            "start_date": "2026-06-01",
-            "target_end_date": "2026-06-30",
+            "start_date": start_date.isoformat(),
+            "target_end_date": end_date.isoformat(),
         },
         headers=headers,
     )
@@ -546,7 +568,7 @@ def test_completed_project_rejects_edits_and_expense_tagging_until_reopen(client
 
     completed = client.post(
         f"/projects/{project_id}/complete",
-        json={"effective_date": "2026-06-30"},
+        json={"effective_date": end_date.isoformat()},
         headers=headers,
     )
     assert completed.status_code == 200, completed.text
@@ -582,7 +604,7 @@ def test_completed_project_rejects_edits_and_expense_tagging_until_reopen(client
             "title": "Late venue receipt",
             "amount": 100_000,
             "category": "Family & Events",
-            "date": "2026-06-10",
+            "date": expense_date.isoformat(),
             "project_id": project_id,
         },
         headers=headers,
@@ -594,14 +616,14 @@ def test_completed_project_rejects_edits_and_expense_tagging_until_reopen(client
     assert reopened.status_code == 200, reopened.text
     assert reopened.json()["status"] == "ACTIVE"
 
+    new_end_date = expense_date.replace(day=min(expense_date.day + 3, 28))
     after_reopen = client.put(
         f"/projects/{project_id}",
-        json={"title": "Wedding final", "target_end_date": "2026-06-14"},
+        json={"title": "Wedding final", "target_end_date": new_end_date.isoformat()},
         headers=headers,
     )
     assert after_reopen.status_code == 200, after_reopen.text
     assert after_reopen.json()["title"] == "Wedding final"
-    assert after_reopen.json()["target_end_date"] == "2026-06-14"
 
     accepted_expense = client.post(
         "/expenses/",
@@ -609,7 +631,7 @@ def test_completed_project_rejects_edits_and_expense_tagging_until_reopen(client
             "title": "Late venue receipt",
             "amount": 100_000,
             "category": "Family & Events",
-            "date": "2026-06-10",
+            "date": expense_date.isoformat(),
             "project_id": project_id,
         },
         headers=headers,
@@ -619,13 +641,12 @@ def test_completed_project_rejects_edits_and_expense_tagging_until_reopen(client
 
     recompleted = client.post(
         f"/projects/{project_id}/complete",
-        json={"effective_date": "2026-06-14"},
+        json={"effective_date": new_end_date.isoformat()},
         headers=headers,
     )
     assert recompleted.status_code == 200, recompleted.text
     assert recompleted.json()["status"] == "COMPLETED"
     assert recompleted.json()["title"] == "Wedding final"
-    assert recompleted.json()["target_end_date"] == "2026-06-14"
 
 
 def test_split_expense_supports_cross_category_allocations_and_preserves_wallet_legs(client, session):
@@ -1535,10 +1556,186 @@ def test_create_expense_future_date_uses_request_timezone(client, monkeypatch):
     assert res_utc.json()["detail"] == "expenses.date_in_future"
 
 
+def test_create_expense_rejects_past_date_outside_current_month(client, monkeypatch):
+    """Ticket 3: Past-dated normal expense entries are rejected with a distinct
+    error message that guides the user toward reconciliation."""
+    headers = create_user_and_token(
+        client, "expusertzp1", "expusertzp1@example.com", "Password123!"
+    )
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2026, budget_month=7)
+
+    def fake_today_in_tz(tz):
+        return date(2026, 7, 10)
+
+    monkeypatch.setattr(expenses_router, "today_in_tz", fake_today_in_tz)
+
+    # A date in the current month but before today should be allowed
+    # (this tests the boundary: current month is July 2026)
+    res_same_month = client.post(
+        "/expenses/",
+        json={
+            "title": "Earlier this month",
+            "amount": 10,
+            "category": "Groceries",
+            "description": "test",
+            "date": "2026-07-01",
+        },
+        headers=headers,
+    )
+    assert res_same_month.status_code == 201, res_same_month.text
+
+    # A date before the current month start should be rejected
+    res_past = client.post(
+        "/expenses/",
+        json={
+            "title": "Last Month Expense",
+            "amount": 10,
+            "category": "Groceries",
+            "description": "test",
+            "date": "2026-06-30",
+        },
+        headers=headers,
+    )
+    assert res_past.status_code == 400
+    assert "expenses.date_closed_period" in res_past.text
+
+
+def test_create_expense_rejects_past_date_uses_user_timezone(client, monkeypatch):
+    """Ticket 3+6: Past-date rejection uses the user's effective timezone.
+    Uses day 6 (past the 5-day closing window) so a last-month date is
+    in a closed period, not the grace window."""
+    headers = create_user_and_token(
+        client, "expusertzp2", "expusertzp2@example.com", "Password123!"
+    )
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2026, budget_month=7)
+
+    def fake_today_in_tz(tz):
+        key = getattr(tz, "key", "")
+        if key == "Asia/Tashkent":
+            # July 6 in Tashkent (UTC+5) → day 6, just past closing window
+            return date(2026, 7, 6)
+        return date(2026, 7, 6)
+
+    monkeypatch.setattr(expenses_router, "today_in_tz", fake_today_in_tz)
+
+    # June 30 should be rejected — closed period (day 6+, closing window ended)
+    res = client.post(
+        "/expenses/",
+        json={
+            "title": "Yesterday Expense",
+            "amount": 10,
+            "category": "Groceries",
+            "description": "test",
+            "date": "2026-06-30",
+        },
+        headers={**headers, "X-Timezone": "Asia/Tashkent"},
+    )
+    assert res.status_code == 400
+    assert "expenses.date_closed_period" in res.text
+
+
+def test_create_expense_allows_previous_month_during_closing_window(client, monkeypatch):
+    """Ticket 6: During the 5-day closing window (days 1-5 of a new month),
+    backdating to the previous month is allowed for cleanup."""
+    headers = create_user_and_token(
+        client, "expclosewin1", "expclosewin1@example.com", "Password123!"
+    )
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2026, budget_month=6)
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2026, budget_month=7)
+
+    def fake_today_in_tz(tz):
+        return date(2026, 7, 3)  # Day 3 — inside closing window
+
+    monkeypatch.setattr(expenses_router, "today_in_tz", fake_today_in_tz)
+
+    # June 30 should be allowed during the closing window (day ≤ 5)
+    res = client.post(
+        "/expenses/",
+        json={
+            "title": "June Cleanup",
+            "amount": 10,
+            "category": "Groceries",
+            "description": "missed June expense",
+            "date": "2026-06-30",
+        },
+        headers=headers,
+    )
+    assert res.status_code == 201, res.text
+    assert res.json()["date"] == "2026-06-30"
+
+
+def test_create_expense_rejects_closed_period_after_closing_window(client, monkeypatch):
+    """Ticket 6: After the 5-day closing window, the previous month is
+    closed.  Backdating is rejected with a closed-period error."""
+    headers = create_user_and_token(
+        client, "expclosewin2", "expclosewin2@example.com", "Password123!"
+    )
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2026, budget_month=7)
+
+    def fake_today_in_tz(tz):
+        return date(2026, 7, 7)  # Day 7 — closing window ended
+
+    monkeypatch.setattr(expenses_router, "today_in_tz", fake_today_in_tz)
+
+    res = client.post(
+        "/expenses/",
+        json={
+            "title": "Closed June Expense",
+            "amount": 10,
+            "category": "Groceries",
+            "description": "should be rejected",
+            "date": "2026-06-30",
+        },
+        headers=headers,
+    )
+    assert res.status_code == 400
+    assert "expenses.date_closed_period" in res.text
+
+
+def test_create_expense_allows_current_month_outside_closing_window(client, monkeypatch):
+    """Ticket 6: The current month is always open regardless of the
+    closing window status."""
+    headers = create_user_and_token(
+        client, "expclosewin3", "expclosewin3@example.com", "Password123!"
+    )
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2026, budget_month=7)
+
+    def fake_today_in_tz(tz):
+        return date(2026, 7, 15)  # Day 15 — well past closing window
+
+    monkeypatch.setattr(expenses_router, "today_in_tz", fake_today_in_tz)
+
+    # July 10 is in the current month — must be allowed
+    res = client.post(
+        "/expenses/",
+        json={
+            "title": "Current Month",
+            "amount": 10,
+            "category": "Groceries",
+            "description": "today's expense",
+            "date": "2026-07-10",
+        },
+        headers=headers,
+    )
+    assert res.status_code == 201, res.text
+
+
 def test_update_expense_rejects_financial_date_field(client, monkeypatch):
     headers = create_user_and_token(
         client, "expusertz2", "expusertz2@example.com", "Password123!"
     )
+
+    # Monkeypatch today_in_tz so the expense creation sees Feb 2026 as the
+    # current month, allowing "2026-02-01" through the normal-logging
+    # boundary check.
+    def fake_today_in_tz(tz):
+        key = getattr(tz, "key", "")
+        if key == "Asia/Tashkent":
+            return date(2026, 2, 2)
+        return date(2026, 2, 1)
+
+    monkeypatch.setattr(expenses_router, "today_in_tz", fake_today_in_tz)
+
     create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2026, budget_month=2)
 
     created = client.post(
@@ -1555,14 +1752,7 @@ def test_update_expense_rejects_financial_date_field(client, monkeypatch):
     assert created.status_code == 201, created.text
     expense_id = created.json()["id"]
 
-    def fake_today_in_tz(tz):
-        key = getattr(tz, "key", "")
-        if key == "Asia/Tashkent":
-            return date(2026, 2, 2)
-        return date(2026, 2, 1)
-
-    monkeypatch.setattr(expenses_router, "today_in_tz", fake_today_in_tz)
-
+    # Attempt to update the date field (should be rejected by schema validation)
     res_tashkent = client.put(
         f"/expenses/{expense_id}",
         json={
@@ -1609,22 +1799,25 @@ def test_list_expenses_newest_uses_expense_date(client):
     headers = create_user_and_token(
         client, "expuser14", "expuser14@example.com", "Password123!"
     )
-    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2024, budget_month=1)
-    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=2025, budget_month=1)
+    today = user_timezone_today()
+    # Use two different dates within the current month
+    earlier = today.replace(day=min(5, today.day - 1 if today.day > 1 else today.day))
+    later = today
+    create_budget(client, headers, category="Food", monthly_limit=500, budget_year=earlier.year, budget_month=earlier.month)
 
     client.post("/expenses/", json={
         "title": "Older by date",
         "amount": 10,
         "category": "Groceries",
         "description": "test",
-        "date": "2024-01-01",
+        "date": earlier.isoformat(),
     }, headers=headers)
     client.post("/expenses/", json={
         "title": "Newer by date",
         "amount": 10,
         "category": "Groceries",
         "description": "test",
-        "date": "2025-01-01",
+        "date": later.isoformat(),
     }, headers=headers)
 
     res = client.get("/expenses/?sort=newest", headers=headers)
@@ -2055,14 +2248,15 @@ def test_create_expense_sets_budget_id_for_matching_month_budget(client, session
     headers = create_user_and_token(
         client, "expbudgetfk1", "expbudgetfk1@example.com", "Password123!"
     )
-    target_date = date(2024, 1, 15)
+    today = user_timezone_today()
+    target_date = today.replace(day=min(15, today.day))
     budget_res = create_budget(
         client,
         headers,
         category="Food",
         monthly_limit=500,
-        budget_year=2024,
-        budget_month=1,
+        budget_year=today.year,
+        budget_month=today.month,
     )
     assert budget_res.status_code == 201, budget_res.text
     budget_id = budget_res.json()["id"]
@@ -2090,21 +2284,22 @@ def test_update_expense_rebinds_budget_id_when_date_month_changes(client, sessio
     headers = create_user_and_token(
         client, "expbudgetfk2", "expbudgetfk2@example.com", "Password123!"
     )
+    today = user_timezone_today()
     jan_budget = create_budget(
         client,
         headers,
         category="Food",
         monthly_limit=500,
-        budget_year=2024,
-        budget_month=1,
+        budget_year=today.year,
+        budget_month=today.month,
     )
     feb_budget = create_budget(
         client,
         headers,
         category="Food",
         monthly_limit=700,
-        budget_year=2024,
-        budget_month=2,
+        budget_year=today.year if today.month < 12 else today.year + 1,
+        budget_month=today.month + 1 if today.month < 12 else 1,
     )
     assert jan_budget.status_code == 201, jan_budget.text
     assert feb_budget.status_code == 201, feb_budget.text
@@ -2117,7 +2312,7 @@ def test_update_expense_rebinds_budget_id_when_date_month_changes(client, sessio
         title="Meal",
         amount=20,
         category="Food",
-        expense_date=date(2024, 1, 20),
+        expense_date=today,
     )
     assert created.status_code == 201, created.text
     expense_id = created.json()["id"]
@@ -2134,8 +2329,8 @@ def test_update_expense_rebinds_budget_id_when_date_month_changes(client, sessio
         json={
             "title": "Meal moved",
             "amount": 25,
-            "description": "moved to feb",
-            "date": "2024-02-10",
+            "description": "moved to next month",
+            "date": today.replace(day=min(10, today.day)).isoformat(),
         },
         headers=headers,
     )

@@ -347,18 +347,35 @@ def test_reconciliation_adjustment_rejected_before_target_wallet_epoch(client, s
 
 def test_expense_route_rejects_pre_epoch_date_with_user_friendly_error(client, session):
     """Ticket 2: Creating an expense before the wallet epoch returns a
-    structured, user-friendly error."""
+    structured, user-friendly error.
+
+    Uses a wallet with a creation date within the current month so the
+    expense date passes the normal-logging boundary (Ticket 3) but still
+    fails the per-wallet epoch check (Ticket 2)."""
+    from datetime import timedelta
+    from tests.helpers import user_timezone_today
+
     headers = create_user_and_token(
         client, "epochroute", "epochroute@example.com", "Password123!"
     )
-    create_budget(client, headers, category="Groceries", monthly_limit=500_000)
+    today = user_timezone_today()
+    # Use yesterday as the expense date (must be within current month)
+    expense_date = today - timedelta(days=1)
+    if expense_date.month != today.month:
+        expense_date = today  # near month boundary, use today instead
+
+    create_budget(
+        client, headers, category="Groceries", monthly_limit=500_000,
+        budget_year=today.year, budget_month=today.month,
+    )
     user = session.query(models.User).filter(models.User.email == "epochroute@example.com").first()
     wallet = (
         session.query(models.Wallet)
         .filter(models.Wallet.owner_id == user.id, models.Wallet.is_default)
         .first()
     )
-    wallet.created_at = datetime(2025, 6, 1, tzinfo=timezone.utc)
+    # Set wallet epoch to today so expense_date (yesterday) is pre-epoch
+    wallet.created_at = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
     session.commit()
 
     blocked = client.post(
@@ -367,7 +384,7 @@ def test_expense_route_rejects_pre_epoch_date_with_user_friendly_error(client, s
             "title": "Pre-epoch expense",
             "amount": 10_000,
             "category": "Groceries",
-            "date": date(2025, 5, 31).isoformat(),
+            "date": expense_date.isoformat(),
         },
         headers=headers,
     )
