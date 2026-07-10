@@ -190,17 +190,17 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 
 **Blocked by:** None - can start immediately.
 
-- [ ] Payment Plan creation accepts an explicit schedule model.
-- [ ] Payment Plan type remains product language while schedule model controls math behavior.
-- [ ] Store installment and product-financing plans default to flat-total schedule behavior.
-- [ ] Flat-total creation asks for final total price, down payment, payment count, frequency, and first due date.
-- [ ] Flat-total schedule generation computes unpaid total as final total minus down payment.
-- [ ] Flat-total generated rows are principal rows.
-- [ ] Flat-total rounding ensures the generated rows reconcile exactly to the unpaid total.
-- [ ] Schedule preview returns total principal, total charges, total to pay, final due date, and rows.
-- [ ] The user can create the plan from the reviewed preview.
-- [ ] Existing Payment Plan payment and budget-boundary behavior remains intact for flat plans.
-- [ ] Tests cover default mapping, preview totals, generated row amounts, rounding, creation from preview, and regression for existing flat plan behavior.
+- [x] Payment Plan creation accepts an explicit schedule model.
+- [x] Payment Plan type remains product language while schedule model controls math behavior.
+- [x] Store installment and product-financing plans default to flat-total schedule behavior.
+- [x] Flat-total creation asks for final total price, down payment, payment count, frequency, and first due date.
+- [x] Flat-total schedule generation computes unpaid total as final total minus down payment.
+- [x] Flat-total generated rows are principal rows.
+- [x] Flat-total rounding ensures the generated rows reconcile exactly to the unpaid total.
+- [x] Schedule preview returns total principal, total charges, total to pay, final due date, and rows.
+- [x] The user can create the plan from the reviewed preview.
+- [x] Existing Payment Plan payment and budget-boundary behavior remains intact for flat plans.
+- [x] Tests cover default mapping, preview totals, generated row amounts, rounding, creation from preview, and regression for existing flat plan behavior.
 
 ## Ticket 8: Add Amortized Loan Schedules With Installment Grouping
 
@@ -208,16 +208,16 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 
 **Blocked by:** Ticket 7: Add Payment Plan schedule model foundation with flat-total preview.
 
-- [ ] Bank loan, mortgage, and auto loan plan types default to amortized schedule behavior.
-- [ ] Amortized creation accepts principal, annual interest rate, payment count or term, frequency, first due date, and required generation metadata.
-- [ ] Annual interest rate is converted into a periodic rate based on frequency.
-- [ ] Generated amortized schedules include charge rows for interest and principal rows for principal.
-- [ ] Final rounding ensures remaining principal reaches zero.
-- [ ] Rows that belong to the same installment share stable grouping data.
-- [ ] API responses can present grouped installments without hiding row-level accounting.
-- [ ] Schedule preview shows total principal, total interest/charges, total to pay, final due date, installment rows, and remaining principal progression.
-- [ ] The UI explains generated schedules as planning tools rather than legal guarantees.
-- [ ] Tests cover monthly and at least one non-monthly frequency, component rows, grouping, rounding, preview, and creation from preview.
+- [x] Bank loan, mortgage, and auto loan plan types default to amortized schedule behavior.
+- [x] Amortized creation accepts principal, annual interest rate, payment count or term, frequency, first due date, and required generation metadata.
+- [x] Annual interest rate is converted into a periodic rate based on frequency.
+- [x] Generated amortized schedules include charge rows for interest and principal rows for principal.
+- [x] Final rounding ensures remaining principal reaches zero.
+- [x] Rows that belong to the same installment share stable grouping data.
+- [x] API responses can present grouped installments without hiding row-level accounting.
+- [x] Schedule preview shows total principal, total interest/charges, total to pay, final due date, installment rows, and remaining principal progression.
+- [x] The UI explains generated schedules as planning tools rather than legal guarantees.
+- [x] Tests cover monthly and at least one non-monthly frequency, component rows, grouping, rounding, preview, and creation from preview.
 
 ## Ticket 9: Add Manual Contract Schedule Creation
 

@@ -10,7 +10,12 @@ from sqlalchemy.orm import Session, selectinload
 from app.timezone import get_effective_user_timezone, today_in_tz
 from app.domains.payment_plans import (
     _create_payment_plan_expense_event,
+    _default_schedule_model,
+    _generate_amortized_rows,
+    _generate_flat_total_rows,
+    _resolve_schedule_model,
     _scheduled_due_date,
+    generate_schedule_preview,
 )
 from .. import models, oauth2, schemas
 from ..redis_rate_limiter import consume_token_bucket
@@ -111,44 +116,86 @@ def _is_pristine_payment_plan(db: Session, plan: models.PaymentPlan) -> bool:
 
 
 def _regenerate_pristine_payment_plan_schedule(db: Session, plan: models.PaymentPlan) -> None:
-    remaining_amount = int(plan.total_price) - int(plan.down_payment)
-    if remaining_amount < 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.invalid_down_payment")
-
+    schedule_model = plan.schedule_model or models.ScheduleModel.FLAT_TOTAL
     payment_count = int(plan.months)
-    base_payment = remaining_amount // payment_count if remaining_amount > 0 else 0
 
+    # Only use amortized regeneration when interest rate metadata exists
+    gen_meta = plan.generation_metadata or {}
+    annual_rate = float(gen_meta.get("annual_interest_rate", 0))
+    effective_model = schedule_model
+    if schedule_model == models.ScheduleModel.AMORTIZED_LOAN and annual_rate <= 0:
+        effective_model = models.ScheduleModel.FLAT_TOTAL
+
+    if effective_model == models.ScheduleModel.AMORTIZED_LOAN:
+        # Rebuild amortized rows from generation_metadata or stored schedule_rule
+        principal = int(gen_meta.get("principal", plan.total_price))
+        schedule_rows = _generate_amortized_rows(
+            principal=principal,
+            annual_interest_rate=annual_rate,
+            payment_count=payment_count,
+            frequency=plan.frequency,
+            first_due_date=plan.start_date,
+        )
+        total_principal = sum(r["amount"] for r in schedule_rows if r["component_type"] == "PRINCIPAL")
+        total_charges = sum(r["amount"] for r in schedule_rows if r["component_type"] == "CHARGE")
+        remaining_amount = total_principal + total_charges
+        monthly_payment = schedule_rows[0]["amount"] if schedule_rows else 0
+        schedule_rule_data = {
+            "source": "AMORTIZED_LOAN",
+            "frequency": plan.frequency.value,
+            "payment_count": payment_count,
+            "annual_interest_rate": annual_rate,
+            "principal": principal,
+        }
+    else:
+        # FLAT_TOTAL
+        remaining_amount = int(plan.total_price) - int(plan.down_payment)
+        if remaining_amount < 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.invalid_down_payment")
+        schedule_rows = _generate_flat_total_rows(
+            total_price=int(plan.total_price),
+            down_payment=int(plan.down_payment),
+            payment_count=payment_count,
+            frequency=plan.frequency,
+            first_due_date=plan.start_date,
+        )
+        base_payment = remaining_amount // payment_count if remaining_amount > 0 else 0
+        monthly_payment = base_payment
+        schedule_rule_data = {
+            "source": "FLAT_TOTAL",
+            "frequency": plan.frequency.value,
+            "payment_count": payment_count,
+            "total_price": int(plan.total_price),
+            "down_payment": int(plan.down_payment),
+        }
+
+    # Remove existing schedule rows
     for payment in list(plan.payments or []):
         if payment.component_type == models.PaymentPlanPaymentComponentType.PRINCIPAL:
+            db.delete(payment)
+            plan.payments.remove(payment)
+        elif payment.component_type == models.PaymentPlanPaymentComponentType.CHARGE:
             db.delete(payment)
             plan.payments.remove(payment)
 
     plan.remaining_amount = remaining_amount
     plan.payment_count = payment_count
-    plan.monthly_payment_amount = base_payment
-    plan.regular_payment_amount = base_payment
-    plan.schedule_rule = {
-        "source": "STANDARD_INTERVAL",
-        "frequency": plan.frequency.value,
-        "payment_count": payment_count,
-    }
+    plan.monthly_payment_amount = monthly_payment
+    plan.regular_payment_amount = monthly_payment
+    plan.schedule_rule = schedule_rule_data
     plan.status = models.PaymentPlanStatus.PAID if remaining_amount == 0 else models.PaymentPlanStatus.ACTIVE
 
-    if remaining_amount > 0:
-        remainder = remaining_amount % payment_count
-        for index in range(1, payment_count + 1):
-            payment_amount = base_payment + (remainder if index == payment_count else 0)
-            if payment_amount <= 0:
-                continue
-            plan.payments.append(
-                models.PaymentPlanPayment(
-                    owner_id=plan.owner_id,
-                    amount=payment_amount,
-                    due_date=_scheduled_due_date(plan.start_date, plan.frequency, index),
-                    component_type=models.PaymentPlanPaymentComponentType.PRINCIPAL,
-                    status=models.PaymentPlanPaymentStatus.PENDING,
-                )
+    for row in schedule_rows:
+        plan.payments.append(
+            models.PaymentPlanPayment(
+                owner_id=plan.owner_id,
+                amount=row["amount"],
+                due_date=row["due_date"],
+                component_type=models.PaymentPlanPaymentComponentType(row["component_type"]),
+                installment_number=row.get("installment_number"),
+                status=models.PaymentPlanPaymentStatus.PENDING,
             )
+        )
 
 
 def _resolve_existing_plan_category(
@@ -602,7 +649,28 @@ def _create_payment_plan_in_transaction(
     existing_down_payment_event: models.FinancialEvent | None = None,
     linked_asset_id: int | None = None,
 ) -> models.PaymentPlan:
-    remaining_amount = int(payload.total_price) - int(payload.down_payment)
+    # Resolve schedule model
+    schedule_model = _resolve_schedule_model(payload.plan_type, payload.schedule_model)
+    annual_rate = payload.annual_interest_rate or 0.0
+
+    # Only use amortized generation when an interest rate is actually provided.
+    # Zero-rate amortized plans fall back to flat-total for backward compatibility.
+    effective_model = schedule_model
+    if schedule_model == models.ScheduleModel.AMORTIZED_LOAN and annual_rate <= 0:
+        effective_model = models.ScheduleModel.FLAT_TOTAL
+
+    if effective_model == models.ScheduleModel.AMORTIZED_LOAN:
+        principal_amount = int(payload.total_price)
+        down_payment_amount = int(payload.down_payment)
+        payment_count = int(payload.months)
+        remaining_amount = principal_amount  # amortized doesn't subtract down_payment for obligation
+    else:
+        # FLAT_TOTAL (and fallback)
+        principal_amount = int(payload.total_price)
+        down_payment_amount = int(payload.down_payment)
+        remaining_amount = principal_amount - down_payment_amount
+        payment_count = int(payload.months)
+
     if remaining_amount < 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.invalid_down_payment")
     if payload.track_as_asset and payload.plan_type not in ASSET_ELIGIBLE_PAYMENT_PLAN_TYPES:
@@ -612,8 +680,6 @@ def _create_payment_plan_in_transaction(
     if existing_down_payment_event is not None and existing_down_payment_event.owner_id != owner_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="expenses.not_found")
 
-    payment_count = int(payload.months)
-    base_payment = remaining_amount // payment_count if remaining_amount > 0 else 0
     plan_category = _resolve_plan_category(payload)
     _validate_plan_links(
         db,
@@ -623,24 +689,73 @@ def _create_payment_plan_in_transaction(
         project_id=payload.project_id,
         project_subcategory_id=payload.project_subcategory_id,
     )
+
+    # Generate schedule rows based on effective model
+    if effective_model == models.ScheduleModel.AMORTIZED_LOAN:
+        schedule_rows = _generate_amortized_rows(
+            principal=principal_amount,
+            annual_interest_rate=annual_rate,
+            payment_count=payment_count,
+            frequency=payload.frequency,
+            first_due_date=payload.start_date,
+        )
+        total_principal = sum(r["amount"] for r in schedule_rows if r["component_type"] == "PRINCIPAL")
+        total_charges = sum(r["amount"] for r in schedule_rows if r["component_type"] == "CHARGE")
+        remaining_amount = total_principal + total_charges
+        monthly_payment = schedule_rows[0]["amount"] if schedule_rows else 0
+        schedule_rule_data = {
+            "source": "AMORTIZED_LOAN",
+            "frequency": payload.frequency.value,
+            "payment_count": payment_count,
+            "annual_interest_rate": annual_rate,
+            "principal": principal_amount,
+        }
+        generation_metadata = payload.generation_metadata or {
+            "principal": principal_amount,
+            "annual_interest_rate": annual_rate,
+            "payment_count": payment_count,
+            "frequency": payload.frequency.value,
+        }
+    else:
+        schedule_rows = _generate_flat_total_rows(
+            total_price=principal_amount,
+            down_payment=down_payment_amount,
+            payment_count=payment_count,
+            frequency=payload.frequency,
+            first_due_date=payload.start_date,
+        )
+        base_payment = remaining_amount // payment_count if remaining_amount > 0 else 0
+        monthly_payment = base_payment
+        schedule_rule_data = {
+            "source": "FLAT_TOTAL",
+            "frequency": payload.frequency.value,
+            "payment_count": payment_count,
+            "total_price": principal_amount,
+            "down_payment": down_payment_amount,
+        }
+        generation_metadata = payload.generation_metadata or {
+            "total_price": principal_amount,
+            "down_payment": down_payment_amount,
+            "payment_count": payment_count,
+            "frequency": payload.frequency.value,
+        }
+
     plan = models.PaymentPlan(
         owner_id=owner_id,
         item_name=payload.item_name,
         store_or_bank_name=payload.store_or_bank_name,
         plan_type=payload.plan_type,
+        schedule_model=schedule_model,
         total_price=payload.total_price,
-        down_payment=payload.down_payment,
+        down_payment=down_payment_amount,
         remaining_amount=remaining_amount,
         months=payload.months,
         payment_count=payment_count,
         frequency=payload.frequency,
-        monthly_payment_amount=base_payment,
-        regular_payment_amount=base_payment,
-        schedule_rule={
-            "source": "STANDARD_INTERVAL",
-            "frequency": payload.frequency.value,
-            "payment_count": payment_count,
-        },
+        monthly_payment_amount=monthly_payment,
+        regular_payment_amount=monthly_payment,
+        schedule_rule=schedule_rule_data,
+        generation_metadata=generation_metadata,
         status=models.PaymentPlanStatus.PAID if remaining_amount == 0 else models.PaymentPlanStatus.ACTIVE,
         start_date=payload.start_date,
         expense_category=plan_category,
@@ -653,12 +768,12 @@ def _create_payment_plan_in_transaction(
     db.flush()
 
     down_payment_event: models.FinancialEvent | None = existing_down_payment_event
-    if payload.down_payment > 0 and down_payment_event is None:
+    if down_payment_amount > 0 and down_payment_event is None:
         down_payment_event = _create_payment_plan_expense_event(
             db,
             owner_id,
             title=f"{payload.item_name} down payment",
-            amount=int(payload.down_payment),
+            amount=down_payment_amount,
             category=plan_category,
             expense_date=payload.start_date,
             wallet_allocations=payload.wallet_allocations,
@@ -710,13 +825,22 @@ def _create_payment_plan_in_transaction(
         db.flush()
 
     if remaining_amount > 0:
+        total_principal = sum(
+            r["amount"] for r in schedule_rows
+            if r["component_type"] == models.PaymentPlanPaymentComponentType.PRINCIPAL.value
+        )
+        total_charges = sum(
+            r["amount"] for r in schedule_rows
+            if r["component_type"] == models.PaymentPlanPaymentComponentType.CHARGE.value
+        )
         db.add(models.PaymentPlanLedgerEntry(
             owner_id=owner_id,
             plan_id=plan.id,
             financial_event_id=disbursement_event.id if disbursement_event else None,
             entry_type=models.PaymentPlanLedgerEntryType.INITIAL,
             amount_delta=remaining_amount,
-            principal_delta=remaining_amount,
+            principal_delta=total_principal,
+            charge_delta=total_charges,
             balance_after=remaining_amount,
             event_subtype="LOAN_DISBURSEMENT" if disbursement_event else "PAYMENT_PLAN_ORIGIN",
             entry_date=payload.start_date,
@@ -725,22 +849,18 @@ def _create_payment_plan_in_transaction(
         ))
         db.flush()
 
-    if remaining_amount > 0:
-        remainder = remaining_amount % payment_count
-        for index in range(1, payment_count + 1):
-            payment_amount = base_payment + (remainder if index == payment_count else 0)
-            if payment_amount <= 0:
-                continue
-            db.add(
-                models.PaymentPlanPayment(
-                    owner_id=owner_id,
-                    plan_id=plan.id,
-                    amount=payment_amount,
-                    due_date=_scheduled_due_date(payload.start_date, payload.frequency, index),
-                    component_type=models.PaymentPlanPaymentComponentType.PRINCIPAL,
-                    status=models.PaymentPlanPaymentStatus.PENDING,
-                )
+    for row in schedule_rows:
+        db.add(
+            models.PaymentPlanPayment(
+                owner_id=owner_id,
+                plan_id=plan.id,
+                amount=row["amount"],
+                due_date=row["due_date"],
+                component_type=models.PaymentPlanPaymentComponentType(row["component_type"]),
+                installment_number=row.get("installment_number"),
+                status=models.PaymentPlanPaymentStatus.PENDING,
             )
+        )
 
     db.flush()
     return plan
@@ -825,6 +945,104 @@ def get_payment_plan_summary(
         paid_amount=int(paid[1] or 0),
         overdue_count=overdue[0] or 0,
         overdue_amount=int(overdue[1] or 0),
+    )
+
+
+@router.post("/preview", response_model=schemas.PaymentPlanSchedulePreviewOut)
+def preview_payment_plan_schedule(
+    payload: schemas.PaymentPlanSchedulePreviewIn,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
+):
+    """Generate a schedule preview without creating the plan.
+
+    Supports FLAT_TOTAL and AMORTIZED_LOAN schedule models. The preview
+    shows generated rows, totals, and final due date so the user can
+    review before confirming creation.
+    """
+    # Resolve schedule model
+    schedule_model = _resolve_schedule_model(
+        payload.plan_type, payload.schedule_model
+    )
+
+    # Resolve payment count
+    payment_count = payload.payment_count or payload.months
+    if payment_count is None or payment_count <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="payment_plans.preview.payment_count_required",
+        )
+
+    # Resolve first due date
+    first_due_date = payload.first_due_date or payload.start_date
+    if first_due_date is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="payment_plans.preview.first_due_date_required",
+        )
+    first_due_date = date(first_due_date.year, first_due_date.month, first_due_date.day)
+    today = today_in_tz(user_tz)
+    if first_due_date < today:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="payment_plans.preview.first_due_date_past",
+        )
+
+    # Amortized specific validation
+    if schedule_model == models.ScheduleModel.AMORTIZED_LOAN:
+        if payload.principal is None or payload.principal <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="payment_plans.preview.principal_required",
+            )
+        if payload.annual_interest_rate is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="payment_plans.preview.annual_rate_required",
+            )
+    else:
+        # FLAT_TOTAL
+        if payload.total_price is None or payload.total_price <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="payment_plans.preview.total_price_required",
+            )
+
+    try:
+        preview = generate_schedule_preview(
+            schedule_model=schedule_model,
+            total_price=payload.total_price,
+            down_payment=payload.down_payment or 0,
+            principal=payload.principal,
+            annual_interest_rate=payload.annual_interest_rate,
+            payment_count=payment_count,
+            frequency=payload.frequency,
+            first_due_date=first_due_date,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"payment_plans.preview.{str(exc).replace(' ', '_').lower()}",
+        )
+
+    return schemas.PaymentPlanSchedulePreviewOut(
+        schedule_model=preview["schedule_model"],
+        total_principal=preview["total_principal"],
+        total_charges=preview["total_charges"],
+        total_to_pay=preview["total_to_pay"],
+        final_due_date=preview["final_due_date"],
+        payment_count=preview["payment_count"],
+        frequency=preview["frequency"],
+        rows=[
+            schemas.PaymentPlanSchedulePreviewRow(
+                due_date=row["due_date"],
+                component_type=row["component_type"],
+                amount=row["amount"],
+                installment_number=row.get("installment_number"),
+            )
+            for row in preview["rows"]
+        ],
     )
 
 

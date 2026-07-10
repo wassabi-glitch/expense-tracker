@@ -342,6 +342,12 @@ class PaymentPlanLedgerEntrySource(str, enum.Enum):
     SYSTEM = "SYSTEM"
 
 
+class ScheduleModel(str, enum.Enum):
+    FLAT_TOTAL = "FLAT_TOTAL"
+    AMORTIZED_LOAN = "AMORTIZED_LOAN"
+    MANUAL_CONTRACT_SCHEDULE = "MANUAL_CONTRACT_SCHEDULE"
+
+
 class ExpectedIncomeStatus(str, enum.Enum):
     EXPECTED = "EXPECTED"
     PARTIALLY_RECEIVED = "PARTIALLY_RECEIVED"
@@ -1947,6 +1953,13 @@ class PaymentPlan(Base):
                                     use_alter=True, name="fk_payment_plans_project_subcategory_id"), nullable=True)
     asset_id = Column(Integer, ForeignKey(
         "assets.id", ondelete="SET NULL"), nullable=True)
+    schedule_model = Column(
+        Enum(ScheduleModel),
+        nullable=False,
+        default=ScheduleModel.FLAT_TOTAL,
+        server_default=ScheduleModel.FLAT_TOTAL.value,
+    )
+    generation_metadata = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True),
                         server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(
@@ -2017,6 +2030,7 @@ class PaymentPlanPayment(Base):
         "financial_events.id", ondelete="SET NULL"), nullable=True, index=True)
     payment_plan_ledger_entry_id = Column(Integer, ForeignKey(
         "payment_plan_ledger_entries.id", ondelete="SET NULL"), nullable=True, index=True)
+    installment_number = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True),
                         server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(

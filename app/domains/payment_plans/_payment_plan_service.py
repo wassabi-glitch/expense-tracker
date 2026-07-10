@@ -131,3 +131,228 @@ def _create_payment_plan_expense_event(
 
     check_budget_alerts(db, result.budget)
     return result.event
+
+
+# ---------------------------------------------------------------------------
+# Schedule model resolution
+# ---------------------------------------------------------------------------
+
+
+def _default_schedule_model(plan_type: models.PaymentPlanType) -> models.ScheduleModel:
+    """Return the default schedule model for a given plan type."""
+    if plan_type in {
+        models.PaymentPlanType.STORE_INSTALLMENT,
+        models.PaymentPlanType.PRODUCT_FINANCING,
+    }:
+        return models.ScheduleModel.FLAT_TOTAL
+    if plan_type in {
+        models.PaymentPlanType.BANK_LOAN,
+        models.PaymentPlanType.MORTGAGE,
+        models.PaymentPlanType.AUTO_LOAN,
+    }:
+        return models.ScheduleModel.AMORTIZED_LOAN
+    # EDUCATION_LOAN, SERVICE_CONTRACT, OTHER — default to FLAT_TOTAL
+    return models.ScheduleModel.FLAT_TOTAL
+
+
+def _resolve_schedule_model(
+    plan_type: models.PaymentPlanType,
+    schedule_model_override: models.ScheduleModel | None = None,
+) -> models.ScheduleModel:
+    """Resolve the effective schedule model, allowing explicit override."""
+    if schedule_model_override is not None:
+        return schedule_model_override
+    return _default_schedule_model(plan_type)
+
+
+# ---------------------------------------------------------------------------
+# Flat-total schedule generation
+# ---------------------------------------------------------------------------
+
+
+def _generate_flat_total_rows(
+    total_price: int,
+    down_payment: int,
+    payment_count: int,
+    frequency: models.PaymentPlanFrequency,
+    first_due_date: date,
+) -> list[dict]:
+    """Generate flat-total schedule rows.
+
+    Returns a list of dicts with: due_date, component_type, amount,
+    installment_number.
+    """
+    remaining = int(total_price) - int(down_payment)
+    if remaining <= 0:
+        return []
+
+    base_payment = remaining // payment_count
+    remainder = remaining % payment_count
+    rows: list[dict] = []
+
+    for idx in range(1, payment_count + 1):
+        amount = base_payment + (remainder if idx == payment_count else 0)
+        if amount <= 0:
+            continue
+        rows.append({
+            "due_date": _scheduled_due_date(first_due_date, frequency, idx),
+            "component_type": models.PaymentPlanPaymentComponentType.PRINCIPAL.value,
+            "amount": amount,
+            "installment_number": idx,
+        })
+
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Amortized schedule generation
+# ---------------------------------------------------------------------------
+
+
+def _periodic_rate(annual_rate_percent: float, frequency: models.PaymentPlanFrequency) -> float:
+    """Convert annual interest rate (percentage, e.g. 19.9 = 19.9%) to periodic
+    decimal rate based on frequency."""
+    periods_per_year = {
+        models.PaymentPlanFrequency.WEEKLY: 52,
+        models.PaymentPlanFrequency.BIWEEKLY: 26,
+        models.PaymentPlanFrequency.MONTHLY: 12,
+        models.PaymentPlanFrequency.QUARTERLY: 4,
+        models.PaymentPlanFrequency.YEARLY: 1,
+    }
+    n = periods_per_year.get(frequency, 12)
+    annual_decimal = annual_rate_percent / 100.0
+    return annual_decimal / n
+
+
+def _pmt(principal: float, periodic_rate: float, payment_count: int) -> int:
+    """Compute the fixed payment amount for an amortized loan (integer UZS).
+
+    Uses the standard PMT formula: P * r * (1+r)^n / ((1+r)^n - 1)
+    """
+    if periodic_rate == 0:
+        return round(principal / payment_count)
+    r = periodic_rate
+    n = payment_count
+    factor = (1 + r) ** n
+    payment = principal * r * factor / (factor - 1)
+    return round(payment)
+
+
+def _generate_amortized_rows(
+    principal: int,
+    annual_interest_rate: float,
+    payment_count: int,
+    frequency: models.PaymentPlanFrequency,
+    first_due_date: date,
+) -> list[dict]:
+    """Generate amortized schedule rows with CHARGE and PRINCIPAL per installment.
+
+    Returns a list of dicts with: due_date, component_type, amount,
+    installment_number. CHARGE rows come before PRINCIPAL within each
+    installment.
+    """
+    if principal <= 0 or payment_count <= 0:
+        return []
+
+    p_rate = _periodic_rate(annual_interest_rate, frequency)
+    payment_amount = _pmt(float(principal), p_rate, payment_count)
+    remaining_principal = principal
+    rows: list[dict] = []
+
+    for inst_num in range(1, payment_count + 1):
+        interest = round(remaining_principal * p_rate)
+        # Last payment: adjust principal to zero out
+        if inst_num == payment_count:
+            principal_part = remaining_principal
+            payment_amount = principal_part + interest
+        else:
+            principal_part = payment_amount - interest
+            if principal_part > remaining_principal:
+                principal_part = remaining_principal
+                payment_amount = principal_part + interest
+
+        # Amortized: first payment falls on first_due_date itself
+        # (idx - 1) so that idx=1 returns first_due_date, idx=2 returns 1 period later
+        due = _scheduled_due_date(first_due_date, frequency, inst_num - 1)
+
+        if interest > 0:
+            rows.append({
+                "due_date": due,
+                "component_type": models.PaymentPlanPaymentComponentType.CHARGE.value,
+                "amount": max(interest, 0),
+                "installment_number": inst_num,
+            })
+        if principal_part > 0:
+            rows.append({
+                "due_date": due,
+                "component_type": models.PaymentPlanPaymentComponentType.PRINCIPAL.value,
+                "amount": max(principal_part, 0),
+                "installment_number": inst_num,
+            })
+        remaining_principal -= principal_part
+
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Schedule preview dispatcher
+# ---------------------------------------------------------------------------
+
+
+def generate_schedule_preview(
+    *,
+    schedule_model: models.ScheduleModel,
+    # Flat-total params
+    total_price: int | None = None,
+    down_payment: int = 0,
+    # Amortized params
+    principal: int | None = None,
+    annual_interest_rate: float | None = None,
+    # Shared params
+    payment_count: int,
+    frequency: models.PaymentPlanFrequency,
+    first_due_date: date,
+) -> dict:
+    """Generate a schedule preview without persisting anything.
+
+    Returns a dict with schedule_model, total_principal, total_charges,
+    total_to_pay, final_due_date, payment_count, frequency, and rows.
+    """
+    if schedule_model == models.ScheduleModel.AMORTIZED_LOAN:
+        if principal is None:
+            raise ValueError("amortized schedule requires principal")
+        if annual_interest_rate is None:
+            raise ValueError("amortized schedule requires annual_interest_rate")
+        rows = _generate_amortized_rows(
+            principal=int(principal),
+            annual_interest_rate=float(annual_interest_rate),
+            payment_count=payment_count,
+            frequency=frequency,
+            first_due_date=first_due_date,
+        )
+    else:
+        # FLAT_TOTAL (and MANUAL_CONTRACT_SCHEDULE fallback)
+        if total_price is None:
+            raise ValueError("flat-total schedule requires total_price")
+        rows = _generate_flat_total_rows(
+            total_price=int(total_price),
+            down_payment=int(down_payment),
+            payment_count=payment_count,
+            frequency=frequency,
+            first_due_date=first_due_date,
+        )
+
+    total_principal = sum(r["amount"] for r in rows if r["component_type"] == "PRINCIPAL")
+    total_charges = sum(r["amount"] for r in rows if r["component_type"] == "CHARGE")
+    final_due_date = rows[-1]["due_date"] if rows else first_due_date
+
+    return {
+        "schedule_model": schedule_model.value,
+        "total_principal": total_principal,
+        "total_charges": total_charges,
+        "total_to_pay": total_principal + total_charges,
+        "final_due_date": final_due_date,
+        "payment_count": payment_count,
+        "frequency": frequency.value,
+        "rows": rows,
+    }

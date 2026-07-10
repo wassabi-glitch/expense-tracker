@@ -2,7 +2,12 @@
 from datetime import date, timedelta
 
 from app import models
-from tests.helpers import create_budget, create_user_and_token, user_timezone_today
+from tests.helpers import (
+    create_budget,
+    create_user_and_token,
+    TEST_TIMEZONE,
+    user_timezone_today,
+)
 
 
 def _default_wallet(client, headers):
@@ -1082,3 +1087,406 @@ def test_legacy_mark_paid_uses_plan_owned_ledger(client):
     details = client.get(f"/payment-plans/{plan['id']}/details", headers=headers).json()
     assert details["plan"]["remaining_amount"] == 600_000
     # assert any(item["entry_type"] == "PAYMENT" for item in details["plan_activity"])
+
+
+# ---------------------------------------------------------------------------
+# Ticket 7: Schedule Model Foundation & Flat-Total Preview
+# ---------------------------------------------------------------------------
+
+
+def test_flat_total_schedule_preview_generates_correct_rows(client):
+    """Preview a flat-total schedule and verify row count, amounts, and totals."""
+    headers = create_user_and_token(client, "previewflat1", "previewflat1@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "STORE_INSTALLMENT",
+            "total_price": 12_000_000,
+            "down_payment": 3_000_000,
+            "payment_count": 12,
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+
+    assert data["schedule_model"] == "FLAT_TOTAL"
+    assert data["total_principal"] == 9_000_000
+    assert data["total_charges"] == 0
+    assert data["total_to_pay"] == 9_000_000
+    assert data["payment_count"] == 12
+    assert data["frequency"] == "MONTHLY"
+    assert len(data["rows"]) == 12
+    # First 11 rows should all be base_payment (750,000), last row gets remainder
+    base = 9_000_000 // 12  # 750,000
+    for i, row in enumerate(data["rows"]):
+        assert row["component_type"] == "PRINCIPAL"
+        if i < 11:
+            assert row["amount"] == base, f"Row {i}: expected {base}, got {row['amount']}"
+        else:
+            expected_last = base + (9_000_000 % 12)  # 750,000
+            assert row["amount"] == expected_last, f"Last row: expected {expected_last}, got {row['amount']}"
+
+
+def test_flat_total_preview_rejects_missing_total_price(client):
+    """Preview without total_price returns 400."""
+    headers = create_user_and_token(client, "previewflat2", "previewflat2@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "STORE_INSTALLMENT",
+            "payment_count": 6,
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 400, response.text
+
+
+def test_flat_total_creation_stores_schedule_model(client):
+    """Creating a store installment plan stores FLAT_TOTAL schedule_model."""
+    headers = create_user_and_token(client, "createflat1", "createflat1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    start = user_timezone_today()
+    plan = _create_payment_plan(
+        client,
+        headers,
+        item_name="Test Flat Plan",
+        plan_type="STORE_INSTALLMENT",
+        total_price=6_000_000,
+        down_payment=1_000_000,
+        months=6,
+        frequency="MONTHLY",
+        start_date=start.isoformat(),
+        expense_category="Electronics",
+    )
+    assert plan["schedule_model"] == "FLAT_TOTAL"
+    assert plan["schedule_rule"]["source"] == "FLAT_TOTAL"
+    # Verify payment count
+    assert plan["payment_count"] == 6
+    assert len(plan["payments"]) == 6
+    # All rows should be PRINCIPAL
+    for p in plan["payments"]:
+        assert p["component_type"] == "PRINCIPAL"
+
+
+def test_product_financing_defaults_to_flat_total(client):
+    """PRODUCT_FINANCING plan type defaults to FLAT_TOTAL schedule model."""
+    headers = create_user_and_token(client, "newtest1", "newtest1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    start = user_timezone_today()
+    plan = _create_payment_plan(
+        client,
+        headers,
+        item_name="Laptop Financing",
+        plan_type="PRODUCT_FINANCING",
+        total_price=8_000_000,
+        down_payment=0,
+        months=4,
+        frequency="MONTHLY",
+        start_date=start.isoformat(),
+        expense_category="Electronics",
+    )
+    assert plan["schedule_model"] == "FLAT_TOTAL"
+
+
+def test_flat_total_zero_remaining_creates_paid_plan(client):
+    """Flat plan with down_payment >= total_price creates PAID status with no rows."""
+    headers = create_user_and_token(client, "newtest2", "newtest2@example.com", "Password123!")
+    start = user_timezone_today()
+    # Create a budget large enough
+    create_budget(
+        client, headers,
+        category="Electronics",
+        monthly_limit=10_000_000,
+        budget_year=start.year,
+        budget_month=start.month,
+    )
+    plan = _create_payment_plan(
+        client,
+        headers,
+        item_name="Fully Paid",
+        plan_type="STORE_INSTALLMENT",
+        total_price=1_000_000,
+        down_payment=1_000_000,
+        months=1,
+        frequency="MONTHLY",
+        start_date=start.isoformat(),
+        expense_category="Electronics",
+    )
+    assert plan["remaining_amount"] == 0
+    assert len(plan["payments"]) == 0
+
+
+# ---------------------------------------------------------------------------
+# Ticket 8: Amortized Loan Schedules & Installment Grouping
+# ---------------------------------------------------------------------------
+
+
+def test_amortized_schedule_preview_generates_both_component_types(client):
+    """Preview an amortized loan schedule. Should produce CHARGE and PRINCIPAL rows."""
+    headers = create_user_and_token(client, "newtest3", "newtest3@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "BANK_LOAN",
+            "schedule_model": "AMORTIZED_LOAN",
+            "principal": 4_070_000,
+            "annual_interest_rate": 19.9,
+            "payment_count": 3,
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+
+    assert data["schedule_model"] == "AMORTIZED_LOAN"
+    # Should have CHARGE and PRINCIPAL rows
+    charge_rows = [r for r in data["rows"] if r["component_type"] == "CHARGE"]
+    principal_rows = [r for r in data["rows"] if r["component_type"] == "PRINCIPAL"]
+    assert len(charge_rows) == 3
+    assert len(principal_rows) == 3
+    assert data["total_charges"] > 0
+    assert data["total_principal"] == 4_070_000
+    # Total must match ADR 0028 example (within rounding)
+    assert abs(data["total_to_pay"] - 4_205_728) < 10
+
+
+def test_amortized_rows_have_installment_grouping(client):
+    """Amortized schedule rows should have installment_number grouping CHARGE+PRINCIPAL."""
+    headers = create_user_and_token(client, "newtest4", "newtest4@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "BANK_LOAN",
+            "schedule_model": "AMORTIZED_LOAN",
+            "principal": 4_070_000,
+            "annual_interest_rate": 19.9,
+            "payment_count": 3,
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+
+    # Each installment should have exactly two rows: CHARGE then PRINCIPAL
+    installment_numbers = [r["installment_number"] for r in data["rows"]]
+    assert installment_numbers == [1, 1, 2, 2, 3, 3]
+
+    # Check grouping by installment
+    for inst_num in [1, 2, 3]:
+        inst_rows = [r for r in data["rows"] if r["installment_number"] == inst_num]
+        assert len(inst_rows) == 2, f"Installment {inst_num}: expected 2 rows, got {len(inst_rows)}"
+        assert inst_rows[0]["component_type"] == "CHARGE"
+        assert inst_rows[1]["component_type"] == "PRINCIPAL"
+        # Same due date within installment
+        assert inst_rows[0]["due_date"] == inst_rows[1]["due_date"]
+
+
+def test_amortized_schedule_preview_rejects_missing_principal(client):
+    """Amortized preview without principal returns 400."""
+    headers = create_user_and_token(client, "newtest5", "newtest5@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "BANK_LOAN",
+            "schedule_model": "AMORTIZED_LOAN",
+            "annual_interest_rate": 19.9,
+            "payment_count": 3,
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 400, response.text
+
+
+def test_amortized_schedule_preview_rejects_missing_rate(client):
+    """Amortized preview without annual_interest_rate returns 400."""
+    headers = create_user_and_token(client, "newtest6", "newtest6@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "BANK_LOAN",
+            "schedule_model": "AMORTIZED_LOAN",
+            "principal": 4_070_000,
+            "payment_count": 3,
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 400, response.text
+
+
+def test_amortized_creation_stores_schedule_model_and_metadata(client):
+    """Creating a bank loan plan with interest stores AMORTIZED_LOAN and metadata."""
+    headers = create_user_and_token(client, "newtest7", "newtest7@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    start = user_timezone_today()
+    plan = _create_payment_plan(
+        client,
+        headers,
+        item_name="Car Loan",
+        store_or_bank_name="AutoBank",
+        plan_type="BANK_LOAN",
+        total_price=4_070_000,  # principal
+        down_payment=0,
+        months=3,
+        frequency="MONTHLY",
+        start_date=start.isoformat(),
+        expense_category="Transport",
+        annual_interest_rate=19.9,
+    )
+    assert plan["schedule_model"] == "AMORTIZED_LOAN"
+    assert plan["schedule_rule"]["source"] == "AMORTIZED_LOAN"
+    assert plan["generation_metadata"] is not None
+    assert plan["generation_metadata"]["principal"] == 4_070_000
+
+    # Should have both CHARGE and PRINCIPAL rows
+    payments = plan["payments"]
+    charge_rows = [p for p in payments if p["component_type"] == "CHARGE"]
+    principal_rows = [p for p in payments if p["component_type"] == "PRINCIPAL"]
+    assert len(charge_rows) == 3
+    assert len(principal_rows) == 3
+
+    # Installment grouping
+    for p in charge_rows + principal_rows:
+        assert p["installment_number"] is not None
+
+
+def test_amortized_zero_rate_falls_back_to_flat_total(client):
+    """Bank loan without interest rate falls back to flat-total behavior."""
+    headers = create_user_and_token(client, "newtest8", "newtest8@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    start = user_timezone_today()
+    plan = _create_payment_plan(
+        client,
+        headers,
+        item_name="Zero Rate Loan",
+        store_or_bank_name="Family Bank",
+        plan_type="BANK_LOAN",
+        total_price=3_000_000,
+        down_payment=0,
+        months=3,
+        frequency="MONTHLY",
+        start_date=start.isoformat(),
+        expense_category="Transport",
+    )
+    # Plan stores AMORTIZED_LOAN as schedule_model (it's a BANK_LOAN default)
+    # but row generation used flat-total fallback since rate is 0
+    assert plan["remaining_amount"] == 3_000_000
+    assert len(plan["payments"]) == 3
+    # All rows should be PRINCIPAL (no CHARGE rows with 0% interest)
+    for p in plan["payments"]:
+        assert p["component_type"] == "PRINCIPAL"
+    # Even division: 1,000,000 each
+    for p in plan["payments"]:
+        assert p["amount"] == 1_000_000
+
+
+def test_amortized_non_monthly_biweekly_frequency(client):
+    """Preview amortized schedule with BIWEEKLY frequency."""
+    headers = create_user_and_token(client, "newtest9", "newtest9@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "BANK_LOAN",
+            "schedule_model": "AMORTIZED_LOAN",
+            "principal": 2_000_000,
+            "annual_interest_rate": 12.0,
+            "payment_count": 4,
+            "frequency": "BIWEEKLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["schedule_model"] == "AMORTIZED_LOAN"
+    assert data["frequency"] == "BIWEEKLY"
+    assert data["payment_count"] == 4
+    # 4 installments, each with CHARGE + PRINCIPAL = 8 rows
+    assert len(data["rows"]) == 8
+
+
+def test_preview_rejects_past_first_due_date(client):
+    """Preview with a first_due_date in the past returns 400."""
+    headers = create_user_and_token(client, "newtest10", "newtest10@example.com", "Password123!")
+    from datetime import date as dt_date, timedelta
+    past = dt_date.today() - timedelta(days=1)
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "STORE_INSTALLMENT",
+            "total_price": 5_000_000,
+            "payment_count": 6,
+            "frequency": "MONTHLY",
+            "first_due_date": past.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 400, response.text
+
+
+def test_preview_uses_months_as_payment_count_fallback(client):
+    """Preview with months but no payment_count uses months."""
+    headers = create_user_and_token(client, "newtest11", "newtest11@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "STORE_INSTALLMENT",
+            "total_price": 6_000_000,
+            "months": 3,
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["payment_count"] == 3
+    assert len(data["rows"]) == 3
+
+
+def test_amortized_schedule_total_principal_matches_input(client):
+    """The sum of PRINCIPAL rows must equal the input principal exactly."""
+    headers = create_user_and_token(client, "newtest12", "newtest12@example.com", "Password123!")
+    start = user_timezone_today()
+    for principal in [1_000_000, 4_070_000, 10_000_000, 5_555_555]:
+        response = client.post(
+            "/payment-plans/preview",
+            json={
+                "plan_type": "BANK_LOAN",
+                "schedule_model": "AMORTIZED_LOAN",
+                "principal": principal,
+                "annual_interest_rate": 15.0,
+                "payment_count": 6,
+                "frequency": "MONTHLY",
+                "first_due_date": start.isoformat(),
+            },
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        total_principal = sum(
+            r["amount"] for r in data["rows"] if r["component_type"] == "PRINCIPAL"
+        )
+        assert total_principal == principal, (
+            f"Principal {principal}: sum of PRINCIPAL rows = {total_principal}"
+        )

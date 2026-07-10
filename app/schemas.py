@@ -39,6 +39,7 @@ from .models import (
     PaymentPlanStatus,
     PaymentPlanPaymentStatus,
     PaymentPlanPaymentComponentType,
+    ScheduleModel,
     WalletType,
     AccountingType,
     TransactionType,
@@ -3746,6 +3747,7 @@ class PaymentPlanBase(BaseModel):
     item_name: str
     store_or_bank_name: Optional[str] = None
     plan_type: PaymentPlanType = PaymentPlanType.STORE_INSTALLMENT
+    schedule_model: Optional[ScheduleModel] = None
     total_price: int = Field(gt=0)
     down_payment: int = Field(ge=0)
     months: int = Field(gt=0)
@@ -3777,6 +3779,8 @@ class PaymentPlanCreate(PaymentPlanBase):
     track_as_asset: bool = False
     asset_current_value: Optional[int] = Field(default=None, ge=0)
     loan_disbursement_wallet_id: Optional[int] = None
+    annual_interest_rate: Optional[float] = Field(default=None, ge=0, le=200)
+    generation_metadata: Optional[Dict[str, Any]] = None
 
 
 class PaymentPlanUpdate(BaseModel):
@@ -3857,6 +3861,7 @@ class PaymentPlanPaymentOut(PaymentPlanPaymentBase):
     event_id: Optional[int] = None
     expense_id: Optional[int] = None
     payment_plan_ledger_entry_id: Optional[int] = None
+    installment_number: Optional[int] = None
     allocations: List[PaymentPlanPaymentAllocationOut] = []
     created_at: datetime
     updated_at: datetime
@@ -3874,6 +3879,8 @@ class PaymentPlanOut(PaymentPlanBase):
     payment_count: int
     regular_payment_amount: int
     schedule_rule: Optional[Dict[str, Any]] = None
+    schedule_model: Optional[str] = None
+    generation_metadata: Optional[Dict[str, Any]] = None
     status: PaymentPlanStatus
     created_at: datetime
     updated_at: datetime
@@ -3910,6 +3917,57 @@ class PaymentPlanPaymentRecordCreate(BaseModel):
     wallet_allocations: List[PaymentPlanWalletAllocationIn] = Field(
         default_factory=list)
     note: Optional[str] = Field(default=None, max_length=200)
+
+
+# --- SCHEDULE PREVIEW SCHEMAS ---
+
+
+class PaymentPlanSchedulePreviewRow(BaseModel):
+    """A single row in a schedule preview."""
+    due_date: date
+    component_type: str  # PRINCIPAL or CHARGE
+    amount: int
+    installment_number: Optional[int] = None
+
+
+class PaymentPlanSchedulePreviewOut(BaseModel):
+    """Response for schedule preview before plan creation."""
+    schedule_model: str
+    total_principal: int
+    total_charges: int
+    total_to_pay: int
+    final_due_date: date
+    payment_count: int
+    frequency: str
+    rows: List[PaymentPlanSchedulePreviewRow]
+
+
+class PaymentPlanSchedulePreviewIn(BaseModel):
+    """Request body for generating a schedule preview."""
+    plan_type: PaymentPlanType = PaymentPlanType.STORE_INSTALLMENT
+    schedule_model: Optional[ScheduleModel] = None
+    # Flat-total fields
+    total_price: Optional[int] = Field(default=None, gt=0)
+    down_payment: Optional[int] = Field(default=None, ge=0)
+    # Amortized fields
+    principal: Optional[int] = Field(default=None, gt=0)
+    annual_interest_rate: Optional[float] = Field(default=None, ge=0, le=200)
+    # Shared fields
+    payment_count: Optional[int] = Field(default=None, gt=0)
+    months: Optional[int] = Field(default=None, gt=0)
+    frequency: PaymentPlanFrequency = PaymentPlanFrequency.MONTHLY
+    first_due_date: Optional[date] = None
+    start_date: Optional[date] = None
+
+    @field_validator("first_due_date", "start_date")
+    @classmethod
+    def validate_dates(cls, v: Optional[date]):
+        if v is not None:
+            return _validate_supported_user_date(v, "validation.date_too_early")
+        return v
+
+
+# --- ACTIVITY / DETAIL SCHEMAS ---
 
 
 class PaymentPlanActivityItemOut(BaseModel):
