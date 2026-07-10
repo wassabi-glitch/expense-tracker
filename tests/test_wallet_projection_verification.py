@@ -5,8 +5,6 @@ immutable WalletLedger entries — after create, void, reversal, and
 corrected repost flows.
 """
 
-from datetime import date, datetime, timezone
-
 from app import models
 from app.domains.ledger import (
     verify_all_wallet_projections,
@@ -68,7 +66,6 @@ def test_normal_expense_projection_is_valid(client, session):
     )
     create_budget(client, headers, category="Groceries", monthly_limit=500_000)
     wallet = _default_wallet(client, headers)
-    user = _user(session, "proj1@example.com")
 
     # Post an expense.
     created = client.post(
@@ -101,7 +98,6 @@ def test_normal_income_projection_is_valid(client, session):
     source = client.post("/income/sources", json={"name": "Salary"}, headers=headers)
     assert source.status_code == 201, source.text
     source_id = source.json()["id"]
-    wallet = _default_wallet(client, headers)
 
     created = client.post(
         "/income/entries",
@@ -418,7 +414,7 @@ def test_projection_accounts_for_initial_balance(client, session):
     """The projection formula is initial_balance + SUM(wallet_ledger.amount).
     A wallet with no ledger entries should have current_balance == initial_balance."""
     email = "proj9@example.com"
-    headers = create_user_and_token(client, "proj9", email, "Password123!")
+    create_user_and_token(client, "proj9", email, "Password123!")
     user = _user(session, email)
 
     # Create a fresh wallet with a non-zero initial_balance and no activity.
@@ -516,7 +512,7 @@ def test_projection_mismatch_produces_debug_info(client, session):
     the WalletProjection dataclass exposes the delta and a human-readable
     detail message for debugging."""
     email = "proj12@example.com"
-    headers = create_user_and_token(client, "proj12", email, "Password123!")
+    create_user_and_token(client, "proj12", email, "Password123!")
     user = _user(session, email)
 
     # Directly mutate the wallet balance to simulate a drift.

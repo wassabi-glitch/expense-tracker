@@ -194,10 +194,10 @@ These tickets build the minimum immutable-ledger foundation before deeper Epicsp
 - Ticket 7: Add immutable-ledger regression guardrails for new obligation work.
 - Ticket 8: Add wallet projection verification around reversals and corrections.
 
-- [ ] The standard explains when a feature must use append-only financial history.
-- [ ] The standard explains when mutable metadata is still acceptable.
-- [ ] The standard explains how wallet epoch and user-timezone date validation should be applied.
-- [ ] The standard explains how void, reversal, corrected repost, and current correction differ.
-- [ ] The standard explains that budgets, recurring templates, and drafts are not automatically global financial ledger events.
-- [ ] The standard includes a testing checklist for money-history features.
-- [ ] The standard is written in project domain language so future specs and tickets can reference it.
+- [x] The standard explains when a feature must use append-only financial history.
+- [x] The standard explains when mutable metadata is still acceptable.
+- [x] The standard explains how wallet epoch and user-timezone date validation should be applied.
+- [x] The standard explains how void, reversal, corrected repost, and current correction differ.
+- [x] The standard explains that budgets, recurring templates, and drafts are not automatically global financial ledger events.
+- [x] The standard includes a testing checklist for money-history features.
+- [x] The standard is written in project domain language so future specs and tickets can reference it.
