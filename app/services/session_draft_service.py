@@ -476,7 +476,6 @@ def finalize_session_draft(
                 debt_type=models.DebtType.OWED,
                 origin_kind=models.DebtOriginKind.SPLIT_REIMBURSEMENT,
                 counterparty_kind=models.DebtCounterpartyKind.PERSON,
-                product_kind=models.DebtProductKind.PERSONAL_REIMBURSEMENT,
                 counterparty_name=split.contact_name,
                 initial_amount=int(split.amount),
                 remaining_amount=int(split.amount),

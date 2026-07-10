@@ -64,7 +64,6 @@ const DEBT_REASON_OPTIONS = {
         icon: Banknote,
         origin_kind: "CASH_BORROWED",
         counterparty_kind: "PERSON",
-        product_kind: "INFORMAL_DEBT",
         moneyMoved: true,
       },
       {
@@ -74,7 +73,6 @@ const DEBT_REASON_OPTIONS = {
         icon: HandCoins,
         origin_kind: "DEFERRED_EXPENSE",
         counterparty_kind: "PERSON",
-        product_kind: "INFORMAL_DEBT",
         moneyMoved: false,
         requiresExpenseCategory: true,
       },
@@ -85,7 +83,6 @@ const DEBT_REASON_OPTIONS = {
         icon: ShieldAlert,
         origin_kind: "DAMAGE_COMPENSATION",
         counterparty_kind: "PERSON",
-        product_kind: "PERSONAL_REIMBURSEMENT",
         moneyMoved: false,
         requiresExpenseCategory: true,
       },
@@ -98,7 +95,6 @@ const DEBT_REASON_OPTIONS = {
         icon: Landmark,
         origin_kind: "CASH_BORROWED",
         counterparty_kind: "BANK",
-        product_kind: "BANK_LOAN",
         moneyMoved: true,
       },
       {
@@ -108,7 +104,6 @@ const DEBT_REASON_OPTIONS = {
         icon: Building2,
         origin_kind: "DEFERRED_EXPENSE",
         counterparty_kind: "COMPANY",
-        product_kind: "OTHER",
         moneyMoved: false,
         requiresExpenseCategory: true,
       },
@@ -119,7 +114,6 @@ const DEBT_REASON_OPTIONS = {
         icon: ShieldAlert,
         origin_kind: "DAMAGE_COMPENSATION",
         counterparty_kind: "COMPANY",
-        product_kind: "OTHER",
         moneyMoved: false,
         requiresExpenseCategory: true,
       },
@@ -134,7 +128,6 @@ const DEBT_REASON_OPTIONS = {
         icon: Banknote,
         origin_kind: "CASH_LENT",
         counterparty_kind: "PERSON",
-        product_kind: "INFORMAL_DEBT",
         moneyMoved: true,
       },
       {
@@ -144,7 +137,6 @@ const DEBT_REASON_OPTIONS = {
         icon: HandCoins,
         origin_kind: "RECEIVABLE_INCOME",
         counterparty_kind: "PERSON",
-        product_kind: "CLIENT_RECEIVABLE",
         moneyMoved: false,
         requiresIncomeSource: true,
       },
@@ -155,7 +147,6 @@ const DEBT_REASON_OPTIONS = {
         icon: ShieldAlert,
         origin_kind: "DAMAGE_COMPENSATION",
         counterparty_kind: "PERSON",
-        product_kind: "PERSONAL_REIMBURSEMENT",
         moneyMoved: false,
       },
     ],
@@ -167,7 +158,6 @@ const DEBT_REASON_OPTIONS = {
         icon: Landmark,
         origin_kind: "CASH_LENT",
         counterparty_kind: "COMPANY",
-        product_kind: "OTHER",
         moneyMoved: true,
       },
       {
@@ -177,7 +167,6 @@ const DEBT_REASON_OPTIONS = {
         icon: Building2,
         origin_kind: "RECEIVABLE_INCOME",
         counterparty_kind: "COMPANY",
-        product_kind: "CLIENT_RECEIVABLE",
         moneyMoved: false,
         requiresIncomeSource: true,
       },
@@ -188,7 +177,6 @@ const DEBT_REASON_OPTIONS = {
         icon: ShieldAlert,
         origin_kind: "DAMAGE_COMPENSATION",
         counterparty_kind: "COMPANY",
-        product_kind: "OTHER",
         moneyMoved: false,
       },
     ],
@@ -204,7 +192,7 @@ function activeArray(data) {
 }
 
 function kindIcon(debt) {
-  if (debt.counterparty_kind === "BANK" || debt.product_kind === "BANK_LOAN") return Landmark;
+  if (debt.counterparty_kind === "BANK") return Landmark;
   if (debt.counterparty_kind === "COMPANY" || debt.counterparty_kind === "STORE") return Building2;
   return UserRound;
 }
@@ -379,7 +367,6 @@ function DebtCreationDialog({ open, onOpenChange, wallets, incomeSources }) {
       initial_wallet_allocations: normalizedWalletAllocations,
       origin_kind: selectedReason.origin_kind,
       counterparty_kind: selectedReason.counterparty_kind,
-      product_kind: selectedReason.product_kind,
       expense_category: selectedReason.requiresExpenseCategory ? expenseCategory : null,
       income_source_id: selectedReason.requiresIncomeSource ? Number(incomeSourceId) : null,
     };
@@ -770,7 +757,7 @@ function DebtRow({ debt, onOpen, onEdit, onArchive, onRestore, onDelete, onPayof
               <div className="min-w-0">
                 <p className="truncate font-semibold">{debt.description || debt.counterparty_name}</p>
                 <p className="truncate text-sm text-muted-foreground">
-                  {isWalletObligation ? `${debt.wallet_name || debt.counterparty_name} - wallet-backed liability` : `${debt.counterparty_name} - ${debt.product_kind || debt.origin_kind}`}
+                  {isWalletObligation ? `${debt.wallet_name || debt.counterparty_name} - wallet-backed liability` : `${debt.counterparty_name} - ${debt.origin_kind || "Debt"}`}
                 </p>
               </div>
             </div>
@@ -877,7 +864,7 @@ export function DebtsTab() {
 
   const debts = Array.isArray(debtsQuery.data?.items) ? debtsQuery.data.items : [];
   const summary = summaryQuery.data || {};
-  const formalCount = debts.filter((debt) => ["BANK_LOAN", "CAR_LOAN", "MORTGAGE", "STORE_INSTALLMENT", "SERVICE_PAY_LATER"].includes(debt.product_kind)).length;
+  const formalCount = debts.filter((debt) => ["BANK", "GOVERNMENT"].includes(debt.counterparty_kind)).length;
   const riskCount = debts.filter((debt) => debt.time_status === "OVERDUE" && !debt.is_archived).length;
   const wallets = useMemo(() => (Array.isArray(walletsQuery.data) ? walletsQuery.data : []), [walletsQuery.data]);
   const incomeSources = useMemo(() => (Array.isArray(incomeSourcesQuery.data) ? incomeSourcesQuery.data : []), [incomeSourcesQuery.data]);

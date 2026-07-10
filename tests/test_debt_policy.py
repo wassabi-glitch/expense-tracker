@@ -22,7 +22,6 @@ def _make_debt(session, user, **overrides):
         "debt_type": models.DebtType.OWED,
         "origin_kind": models.DebtOriginKind.PERSONAL_REIMBURSEMENT,
         "counterparty_kind": models.DebtCounterpartyKind.PERSON,
-        "product_kind": models.DebtProductKind.PERSONAL_REIMBURSEMENT,
         "counterparty_name": "Ali",
         "initial_amount": 500_000,
         "remaining_amount": 500_000,
@@ -65,7 +64,6 @@ def test_formal_debt_uses_same_component_forgiveness_as_informal_debt(client, se
         debt_type=models.DebtType.OWING,
         origin_kind=models.DebtOriginKind.CASH_BORROWED,
         counterparty_kind=models.DebtCounterpartyKind.BANK,
-        product_kind=models.DebtProductKind.BANK_LOAN,
         counterparty_name="Bank",
     )
     session.add(
@@ -96,7 +94,6 @@ def test_legacy_payment_plan_link_does_not_create_managed_debt_policy(client, se
         debt_type=models.DebtType.OWING,
         origin_kind=models.DebtOriginKind.FINANCED_ASSET_PURCHASE,
         counterparty_kind=models.DebtCounterpartyKind.STORE,
-        product_kind=models.DebtProductKind.STORE_INSTALLMENT,
         counterparty_name="Store",
     )
     plan = models.PaymentPlan(

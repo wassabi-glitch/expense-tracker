@@ -908,7 +908,6 @@ def create_expense(
                 debt_type=models.DebtType.OWED,
                 origin_kind=models.DebtOriginKind.SPLIT_REIMBURSEMENT,
                 counterparty_kind=models.DebtCounterpartyKind.PERSON,
-                product_kind=models.DebtProductKind.PERSONAL_REIMBURSEMENT,
                 counterparty_name=split.contact_name,
                 initial_amount=split.amount,
                 remaining_amount=split.amount,

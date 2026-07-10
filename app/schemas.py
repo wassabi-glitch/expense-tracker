@@ -30,7 +30,6 @@ from .models import (
     DebtLedgerEntrySource,
     DebtLedgerEntryType,
     DebtOriginKind,
-    DebtProductKind,
     DebtType,
     ExpectedIncomeStatus,
     ExpectedInflowKind,
@@ -3350,7 +3349,6 @@ class DebtBase(BaseModel):
     debt_type: DebtType
     origin_kind: DebtOriginKind = DebtOriginKind.IMPORTED_BALANCE
     counterparty_kind: DebtCounterpartyKind = DebtCounterpartyKind.OTHER
-    product_kind: Optional[DebtProductKind] = None
     counterparty_name: str
     initial_amount: int = Field(gt=0)
     currency: str = "UZS"
@@ -3421,7 +3419,6 @@ class DebtUpdate(BaseModel):
     expected_return_date: Optional[dt.date] = None
     origin_kind: Optional[DebtOriginKind] = None
     counterparty_kind: Optional[DebtCounterpartyKind] = None
-    product_kind: Optional[DebtProductKind] = None
     initial_amount: Optional[int] = Field(default=None, gt=0)
     expense_category: Optional[ExpenseCategory] = None
     expense_subcategory_id: Optional[int] = None

@@ -334,7 +334,6 @@ def test_formal_bank_debt_disbursement_uses_loan_reference_type(client, session)
             "is_money_transferred": True,
             "origin_kind": "CASH_BORROWED",
             "counterparty_kind": "BANK",
-            "product_kind": "BANK_LOAN",
             "initial_wallet_allocations": [
                 {"wallet_id": wallet["id"], "amount": 5_000_000},
             ],
@@ -549,7 +548,6 @@ def test_damage_compensation_i_owe_payment_posts_as_expense(client, session):
             "debt_type": "OWING",
             "origin_kind": "DAMAGE_COMPENSATION",
             "counterparty_kind": "PERSON",
-            "product_kind": "PERSONAL_REIMBURSEMENT",
             "counterparty_name": "Neighbor",
             "initial_amount": 800_000,
             "currency": "UZS",
@@ -599,7 +597,6 @@ def test_damage_compensation_owed_to_me_payment_is_not_income(client, session):
             "debt_type": "OWED",
             "origin_kind": "DAMAGE_COMPENSATION",
             "counterparty_kind": "PERSON",
-            "product_kind": "PERSONAL_REIMBURSEMENT",
             "counterparty_name": "Friend",
             "initial_amount": 600_000,
             "currency": "UZS",
@@ -882,7 +879,6 @@ def test_partial_and_formal_debts_use_component_aware_forgiveness(client, sessio
         headers,
         wallet["id"],
         counterparty_kind="BANK",
-        product_kind="BANK_LOAN",
     )
     forgiven = client.post(
         f"/debts/{formal_debt['id']}/forgiveness",

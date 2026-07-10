@@ -128,7 +128,6 @@ def test_backfill_migrates_linked_legacy_financing_category_rows(client, session
         debt_type=models.DebtType.OWING,
         origin_kind=models.DebtOriginKind.DEFERRED_EXPENSE,
         counterparty_kind=models.DebtCounterpartyKind.PERSON,
-        product_kind=models.DebtProductKind.INFORMAL_DEBT,
         counterparty_name="Restaurant",
         initial_amount=200_000,
         remaining_amount=200_000,

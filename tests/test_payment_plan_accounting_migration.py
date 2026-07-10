@@ -78,14 +78,14 @@ def _seed_legacy_pristine_plan(conn):
         sa.text(
             """
             INSERT INTO debts (
-                owner_id, debt_type, origin_kind, counterparty_kind, product_kind,
+                owner_id, debt_type, origin_kind, counterparty_kind,
                 counterparty_name, initial_amount, remaining_amount, currency,
                 status, date, expected_return_date, is_money_transferred,
                 expense_category
             )
             VALUES (
                 :owner_id, 'OWING', 'FINANCED_ASSET_PURCHASE', 'STORE',
-                'STORE_INSTALLMENT', 'Phone Store', 900000, 900000, 'UZS',
+                'Phone Store', 900000, 900000, 'UZS',
                 'ACTIVE', DATE '2026-01-01', DATE '2026-04-01', false,
                 'ELECTRONICS'
             )
@@ -762,7 +762,6 @@ def _add_legacy_loan_disbursement(conn, ids):
             SET
                 origin_kind = 'CASH_BORROWED',
                 counterparty_kind = 'BANK',
-                product_kind = 'BANK_LOAN',
                 counterparty_name = 'Bank',
                 is_money_transferred = true,
                 linked_event_id = :event_id
@@ -802,13 +801,13 @@ def _add_real_user_debt(conn, owner_id):
         sa.text(
             """
             INSERT INTO debts (
-                owner_id, debt_type, origin_kind, counterparty_kind, product_kind,
+                owner_id, debt_type, origin_kind, counterparty_kind,
                 counterparty_name, initial_amount, remaining_amount, currency,
                 status, date, expected_return_date, is_money_transferred
             )
             VALUES (
                 :owner_id, 'OWING', 'CASH_BORROWED', 'PERSON',
-                'INFORMAL_DEBT', 'Friend', 123000, 123000, 'UZS',
+                'Friend', 123000, 123000, 'UZS',
                 'ACTIVE', DATE '2026-01-05', DATE '2026-03-05', true
             )
             RETURNING id

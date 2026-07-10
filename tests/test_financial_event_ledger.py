@@ -236,7 +236,6 @@ def test_post_financial_event_preserves_entity_links(client, session):
         debt_type=models.DebtType.OWED,
         origin_kind=models.DebtOriginKind.SPLIT_REIMBURSEMENT,
         counterparty_kind=models.DebtCounterpartyKind.PERSON,
-        product_kind=models.DebtProductKind.PERSONAL_REIMBURSEMENT,
         counterparty_name="Test contact",
         initial_amount=50_000,
         remaining_amount=50_000,

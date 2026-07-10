@@ -640,3 +640,224 @@ def test_forgive_debt_closes_balance_through_ledger(client):
     forgiveness = [entry for entry in detail.json()["ledger_entries"] if entry["entry_type"] == "FORGIVENESS"]
     assert len(forgiveness) == 1
     assert forgiveness[0]["amount_delta"] == -1_000_000
+
+
+# ── Ticket 1: derived lifecycle / time-status / timezone boundary ──────────
+
+
+def test_derived_lifecycle_open_when_remaining_positive(client):
+    headers = create_user_and_token(client, "lifecycle1", "lifecycle1@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _create_transferred_debt(client, headers, wallet_id, amount=500_000)
+    assert debt["lifecycle_status"] == "OPEN"
+    assert debt["remaining_amount"] == 500_000
+
+
+def test_derived_lifecycle_closed_when_remaining_zero(client):
+    headers = create_user_and_token(client, "lifecycle2", "lifecycle2@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _create_transferred_debt(client, headers, wallet_id, amount=500_000)
+    forgiven = client.post(f"/debts/{debt['id']}/forgive", headers=headers)
+    assert forgiven.status_code == 200
+    assert forgiven.json()["lifecycle_status"] == "CLOSED"
+    assert forgiven.json()["remaining_amount"] == 0
+    assert forgiven.json()["time_status"] is None
+
+
+def test_time_status_on_track_when_due_today_or_future(client):
+    headers = create_user_and_token(client, "timestatus1", "timestatus1@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    today = user_timezone_today()
+    future = (today + timedelta(days=30)).isoformat()
+    response = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWING",
+            "counterparty_name": "Test",
+            "initial_amount": 200_000,
+            "currency": "UZS",
+            "date": today.isoformat(),
+            "expected_return_date": future,
+            "is_money_transferred": True,
+            "initial_wallet_id": wallet_id,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    debt = response.json()
+    assert debt["lifecycle_status"] == "OPEN"
+    assert debt["time_status"] == "ON_TRACK"
+
+
+def test_time_status_overdue_when_due_before_local_today(client):
+    headers = create_user_and_token(client, "timestatus2", "timestatus2@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    today = user_timezone_today()
+    past = (today - timedelta(days=1)).isoformat()
+    response = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWING",
+            "counterparty_name": "Test",
+            "initial_amount": 200_000,
+            "currency": "UZS",
+            "date": past,
+            "expected_return_date": past,
+            "is_money_transferred": True,
+            "initial_wallet_id": wallet_id,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    debt = response.json()
+    assert debt["lifecycle_status"] == "OPEN"
+    assert debt["time_status"] == "OVERDUE"
+
+
+def test_closed_debt_has_no_time_status(client):
+    headers = create_user_and_token(client, "timestatus3", "timestatus3@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    today = user_timezone_today()
+    past = (today - timedelta(days=90)).isoformat()
+    response = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWING",
+            "counterparty_name": "Old settled debt",
+            "initial_amount": 100_000,
+            "currency": "UZS",
+            "date": past,
+            "expected_return_date": past,
+            "is_money_transferred": True,
+            "initial_wallet_id": wallet_id,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    debt_id = response.json()["id"]
+    forgiven = client.post(f"/debts/{debt_id}/forgive", headers=headers)
+    assert forgiven.status_code == 200
+    assert forgiven.json()["lifecycle_status"] == "CLOSED"
+    assert forgiven.json()["time_status"] is None
+
+
+def test_archive_is_independent_from_lifecycle(client):
+    headers = create_user_and_token(client, "archive1", "archive1@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _create_transferred_debt(client, headers, wallet_id, amount=500_000)
+
+    # archived + open
+    archived = client.post(f"/debts/{debt['id']}/archive", headers=headers)
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["is_archived"] is True
+    assert archived.json()["archived_at"] is not None
+    assert archived.json()["lifecycle_status"] == "OPEN"
+
+    # restore clears archive, keeps balance + lifecycle
+    restored = client.post(f"/debts/{debt['id']}/restore", headers=headers)
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["is_archived"] is False
+    assert restored.json()["archived_at"] is None
+    assert restored.json()["lifecycle_status"] == "OPEN"
+    assert restored.json()["remaining_amount"] == 500_000
+
+    # archived + closed
+    client.post(f"/debts/{debt['id']}/forgive", headers=headers)
+    archived2 = client.post(f"/debts/{debt['id']}/archive", headers=headers)
+    assert archived2.status_code == 200, archived2.text
+    assert archived2.json()["is_archived"] is True
+    assert archived2.json()["lifecycle_status"] == "CLOSED"
+    assert archived2.json()["time_status"] is None
+
+
+def test_timezone_boundary_respects_user_tz(client):
+    """Open debts due 'today' in the user's TZ should be ON_TRACK, not overdue,
+    even when today in UTC has already passed."""
+    headers = create_user_and_token(client, "tzbound1", "tzbound1@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    today = user_timezone_today().isoformat()
+    response = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWING",
+            "counterparty_name": "TZ test",
+            "initial_amount": 300_000,
+            "currency": "UZS",
+            "date": today,
+            "expected_return_date": today,
+            "is_money_transferred": True,
+            "initial_wallet_id": wallet_id,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    debt = response.json()
+    assert debt["lifecycle_status"] == "OPEN"
+    assert debt["time_status"] == "ON_TRACK", (
+        f"Expected ON_TRACK for {today} in {headers.get('X-Timezone', 'Asia/Tashkent')}"
+    )
+
+    # List filter confirms the boundary
+    listed = client.get(
+        "/debts",
+        params={"time_status": "ON_TRACK", "include_archived": False},
+        headers=headers,
+    )
+    assert listed.status_code == 200
+    on_track_ids = [d["id"] for d in listed.json()["items"]]
+    assert debt["id"] in on_track_ids
+
+
+# ── Ticket 2: product_kind cannot leak through public Debt flows ──────────
+
+
+def test_product_kind_rejected_in_create(client):
+    headers = create_user_and_token(client, "noprod1", "noprod1@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    today = user_timezone_today().isoformat()
+    response = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWING",
+            "counterparty_name": "No product test",
+            "initial_amount": 100_000,
+            "currency": "UZS",
+            "date": today,
+            "expected_return_date": today,
+            "is_money_transferred": True,
+            "initial_wallet_id": wallet_id,
+            "product_kind": "BANK_LOAN",
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    debt = response.json()
+    assert "product_kind" not in debt, f"product_kind leaked: {debt}"
+
+
+def test_product_kind_rejected_in_update(client):
+    headers = create_user_and_token(client, "noprod2", "noprod2@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _create_transferred_debt(client, headers, wallet_id)
+    response = client.patch(
+        f"/debts/{debt['id']}",
+        json={"product_kind": "BANK_LOAN"},
+        headers=headers,
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_list_and_detail_do_not_expose_product_kind(client):
+    headers = create_user_and_token(client, "noprod3", "noprod3@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _create_transferred_debt(client, headers, wallet_id)
+    # list
+    listed = client.get("/debts", headers=headers)
+    for item in listed.json()["items"]:
+        assert "product_kind" not in item
+    # detail
+    detail = client.get(f"/debts/{debt['id']}", headers=headers)
+    assert "product_kind" not in detail.json()
+    # details (full)
+    details = client.get(f"/debts/{debt['id']}/details", headers=headers)
+    assert "product_kind" not in details.json()["debt"]

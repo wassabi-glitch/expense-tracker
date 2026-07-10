@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 # pyrefly: ignore [missing-import]
-from sqlalchemy import func, or_
+from sqlalchemy import func
 # pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session, joinedload
 
@@ -54,12 +54,6 @@ CONSUMPTION_ORIGIN_KINDS = {
     models.DebtOriginKind.DEFERRED_EXPENSE,
     models.DebtOriginKind.FINANCED_ASSET_PURCHASE,
 }
-FORMAL_SCHEDULE_PRODUCT_KINDS = {
-    models.DebtProductKind.MORTGAGE,
-    models.DebtProductKind.CAR_LOAN,
-    models.DebtProductKind.STORE_INSTALLMENT,
-    models.DebtProductKind.SERVICE_PAY_LATER,
-}
 ACTIVE_PAYABLE_DEBT_STATUSES = (
     models.DebtStatus.ACTIVE,
     models.DebtStatus.OVERDUE,
@@ -69,7 +63,10 @@ ACTIVE_PAYABLE_DEBT_STATUSES = (
 
 
 def _is_debt_archived(debt: models.Debt) -> bool:
-    return getattr(debt, "archived_at", None) is not None or debt.status == models.DebtStatus.ARCHIVED
+    """Archive state is derived purely from ``archived_at`` — never from the
+    legacy ``DebtStatus`` column.  ADR 0026 keeps archive separate from
+    lifecycle and time status."""
+    return getattr(debt, "archived_at", None) is not None
 
 
 def _debt_lifecycle_status(debt: models.Debt) -> schemas.DebtLifecycleStatus:
@@ -182,22 +179,6 @@ def _infer_debt_origin_kind(payload: schemas.DebtCreate) -> models.DebtOriginKin
     if payload.income_source_id is not None:
         return models.DebtOriginKind.RECEIVABLE_INCOME
     return models.DebtOriginKind.PERSONAL_REIMBURSEMENT
-
-
-def _infer_debt_product_kind(
-    payload: schemas.DebtCreate,
-    origin_kind: models.DebtOriginKind,
-) -> models.DebtProductKind:
-    if payload.product_kind is not None:
-        return payload.product_kind
-    if origin_kind == models.DebtOriginKind.RECEIVABLE_INCOME:
-        return models.DebtProductKind.CLIENT_RECEIVABLE
-    if origin_kind in (
-        models.DebtOriginKind.SPLIT_REIMBURSEMENT,
-        models.DebtOriginKind.PERSONAL_REIMBURSEMENT,
-    ):
-        return models.DebtProductKind.PERSONAL_REIMBURSEMENT
-    return models.DebtProductKind.INFORMAL_DEBT
 
 
 def _infer_counterparty_kind(
@@ -336,7 +317,6 @@ def _build_wallet_obligation_out(wallet: models.Wallet, *, today: date) -> schem
         debt_type=models.DebtType.OWING,
         origin_kind=models.DebtOriginKind.IMPORTED_BALANCE,
         counterparty_kind=models.DebtCounterpartyKind.OTHER,
-        product_kind=None,
         counterparty_name=wallet.name,
         initial_amount=amount,
         remaining_amount=amount,
@@ -376,8 +356,6 @@ def _debt_workflow_warnings(debt: models.Debt, *, today: date) -> list[str]:
     if _is_debt_archived(debt):
         return warnings
 
-    if debt.product_kind in FORMAL_SCHEDULE_PRODUCT_KINDS:
-        warnings.append("debts.warning.formal_scheduled_debt_consider_payment_plan")
     if (
         debt.debt_type == models.DebtType.OWING
         and _debt_lifecycle_status(debt) == schemas.DebtLifecycleStatus.OPEN
@@ -834,11 +812,6 @@ def _initial_transfer_reference_type(debt: models.Debt) -> str:
         debt.debt_type == models.DebtType.OWING
         and debt.origin_kind == models.DebtOriginKind.CASH_BORROWED
         and debt.counterparty_kind == models.DebtCounterpartyKind.BANK
-    ):
-        return models.ReferenceType.LOAN_DISBURSEMENT
-    if (
-        debt.debt_type == models.DebtType.OWING
-        and debt.product_kind == models.DebtProductKind.BANK_LOAN
     ):
         return models.ReferenceType.LOAN_DISBURSEMENT
     return models.ReferenceType.DEBT_INITIAL
@@ -1301,7 +1274,6 @@ def get_debt_summary(
             models.Debt.debt_type == models.DebtType.OWING,
             models.Debt.remaining_amount > 0,
             models.Debt.archived_at.is_(None),
-            models.Debt.status != models.DebtStatus.ARCHIVED,
         )
         .scalar()
     ) or 0
@@ -1313,7 +1285,6 @@ def get_debt_summary(
             models.Debt.debt_type == models.DebtType.OWED,
             models.Debt.remaining_amount > 0,
             models.Debt.archived_at.is_(None),
-            models.Debt.status != models.DebtStatus.ARCHIVED,
         )
         .scalar()
     ) or 0
@@ -1346,7 +1317,6 @@ def create_debt(
         )
 
     origin_kind = _infer_debt_origin_kind(payload)
-    product_kind = _infer_debt_product_kind(payload, origin_kind)
     counterparty_kind = _infer_counterparty_kind(payload, origin_kind)
     initial_wallet_allocations = _resolve_initial_wallet_allocations(db, current_user.id, payload)
     is_money_transferred = bool(initial_wallet_allocations)
@@ -1381,7 +1351,6 @@ def create_debt(
         debt_type=payload.debt_type,
         origin_kind=origin_kind,
         counterparty_kind=counterparty_kind,
-        product_kind=product_kind,
         counterparty_name=payload.counterparty_name,
         initial_amount=initial_amount,
         remaining_amount=initial_amount,
@@ -1449,9 +1418,9 @@ def list_debts(
     if debt_type:
         query = query.filter(models.Debt.debt_type == debt_type)
     if archived is True:
-        query = query.filter(or_(models.Debt.archived_at.is_not(None), models.Debt.status == models.DebtStatus.ARCHIVED))
+        query = query.filter(models.Debt.archived_at.is_not(None))
     elif archived is False or not include_archived:
-        query = query.filter(models.Debt.archived_at.is_(None), models.Debt.status != models.DebtStatus.ARCHIVED)
+        query = query.filter(models.Debt.archived_at.is_(None))
     if search:
         query = query.filter(models.Debt.counterparty_name.ilike(f"%{search}%"))
 
@@ -1667,8 +1636,6 @@ def _restore_debt_from_archive(
     _raise_policy_denied(evaluate_debt_action(db, debt, models.DebtActionKind.RESTORE))
 
     debt.archived_at = None
-    if debt.status == models.DebtStatus.ARCHIVED:
-        debt.status = models.DebtStatus.PAID if int(debt.remaining_amount or 0) <= 0 else models.DebtStatus.ACTIVE
     db.commit()
     db.refresh(debt)
     return _build_debt_out_with_ledger_totals(db, debt, today=today_in_tz(user_tz))

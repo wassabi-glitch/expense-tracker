@@ -22,14 +22,6 @@ CLOSED_DEBT_STATUSES = {
     models.DebtStatus.WRITTEN_OFF,
 }
 
-FORMAL_PRODUCT_KINDS = {
-    models.DebtProductKind.BANK_LOAN,
-    models.DebtProductKind.CAR_LOAN,
-    models.DebtProductKind.MORTGAGE,
-    models.DebtProductKind.STORE_INSTALLMENT,
-    models.DebtProductKind.SERVICE_PAY_LATER,
-}
-
 INFORMAL_ORIGIN_KINDS = {
     models.DebtOriginKind.CASH_BORROWED,
     models.DebtOriginKind.CASH_LENT,
@@ -37,6 +29,9 @@ INFORMAL_ORIGIN_KINDS = {
     models.DebtOriginKind.SPLIT_REIMBURSEMENT,
     models.DebtOriginKind.PERSONAL_REIMBURSEMENT,
     models.DebtOriginKind.DAMAGE_COMPENSATION,
+    models.DebtOriginKind.RECEIVABLE_INCOME,
+    models.DebtOriginKind.IMPORTED_BALANCE,
+    models.DebtOriginKind.FINANCED_ASSET_PURCHASE,
 }
 
 REVERSIBLE_ENTRY_TYPES = {
@@ -131,11 +126,16 @@ def _as_value(value):
 
 
 def is_formal_debt(debt: models.Debt) -> bool:
-    product_kind = _as_value(debt.product_kind)
+    """A Debt is formal when the counterparty is a bank, government, or formal
+    details exist (institution, contract number, collateral, etc.).
+
+    ADR 0026 removes ``DebtProductKind`` from standalone Debt; formality is
+    now inferred from counterparty and the optional formal-details record.
+    """
     counterparty_kind = _as_value(debt.counterparty_kind)
     return (
-        product_kind in {item.value for item in FORMAL_PRODUCT_KINDS}
-        or counterparty_kind in {
+        counterparty_kind
+        in {
             models.DebtCounterpartyKind.BANK.value,
             models.DebtCounterpartyKind.GOVERNMENT.value,
         }
@@ -145,18 +145,9 @@ def is_formal_debt(debt: models.Debt) -> bool:
 
 def is_informal_debt(debt: models.Debt) -> bool:
     origin_kind = _as_value(debt.origin_kind)
-    product_kind = _as_value(debt.product_kind)
-    return (
-        not is_formal_debt(debt)
-        and (
-            origin_kind in {item.value for item in INFORMAL_ORIGIN_KINDS}
-            or product_kind
-            in {
-                models.DebtProductKind.INFORMAL_DEBT.value,
-                models.DebtProductKind.PERSONAL_REIMBURSEMENT.value,
-            }
-        )
-    )
+    return not is_formal_debt(debt) and origin_kind in {
+        item.value for item in INFORMAL_ORIGIN_KINDS
+    }
 
 
 def is_open_debt(debt: models.Debt) -> bool:
