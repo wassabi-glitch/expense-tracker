@@ -3772,6 +3772,14 @@ class PaymentPlanBase(BaseModel):
         return _validate_supported_user_date(v, "validation.date_too_early")
 
 
+class PaymentPlanManualRowIn(BaseModel):
+    """A single manually-entered schedule row for preview or creation."""
+    due_date: date
+    component_type: str = "PRINCIPAL"  # PRINCIPAL or CHARGE
+    amount: int = Field(gt=0)
+    installment_number: Optional[int] = None
+
+
 class PaymentPlanCreate(PaymentPlanBase):
     wallet_allocations: List[PaymentPlanWalletAllocationIn] = Field(
         default_factory=list)
@@ -3781,6 +3789,7 @@ class PaymentPlanCreate(PaymentPlanBase):
     loan_disbursement_wallet_id: Optional[int] = None
     annual_interest_rate: Optional[float] = Field(default=None, ge=0, le=200)
     generation_metadata: Optional[Dict[str, Any]] = None
+    manual_rows: Optional[List[PaymentPlanManualRowIn]] = None
 
 
 class PaymentPlanUpdate(BaseModel):
@@ -3862,6 +3871,11 @@ class PaymentPlanPaymentOut(PaymentPlanPaymentBase):
     expense_id: Optional[int] = None
     payment_plan_ledger_entry_id: Optional[int] = None
     installment_number: Optional[int] = None
+    # Derived fields (computed by router, not stored)
+    settlement_state: Optional[str] = None
+    settlement_label: Optional[str] = None
+    time_status: Optional[str] = None
+    remaining_amount: int = 0
     allocations: List[PaymentPlanPaymentAllocationOut] = []
     created_at: datetime
     updated_at: datetime
@@ -3952,6 +3966,8 @@ class PaymentPlanSchedulePreviewIn(BaseModel):
     # Amortized fields
     principal: Optional[int] = Field(default=None, gt=0)
     annual_interest_rate: Optional[float] = Field(default=None, ge=0, le=200)
+    # Manual schedule fields
+    manual_rows: Optional[List[PaymentPlanManualRowIn]] = None
     # Shared fields
     payment_count: Optional[int] = Field(default=None, gt=0)
     months: Optional[int] = Field(default=None, gt=0)

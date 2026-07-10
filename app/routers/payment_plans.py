@@ -13,7 +13,11 @@ from app.domains.payment_plans import (
     _default_schedule_model,
     _generate_amortized_rows,
     _generate_flat_total_rows,
+    _generate_manual_rows,
     _resolve_schedule_model,
+    _row_settlement_label,
+    _row_settlement_state,
+    _row_time_status,
     _scheduled_due_date,
     generate_schedule_preview,
 )
@@ -296,16 +300,52 @@ def _payment_component_type(payment: models.PaymentPlanPayment) -> models.Paymen
     return payment.component_type or models.PaymentPlanPaymentComponentType.PRINCIPAL
 
 
+def _enrich_payment_row(
+    payment: models.PaymentPlanPayment,
+    user_tz: tzinfo,
+) -> dict:
+    """Compute derived settlement and time fields for a single payment row."""
+    settlement_state = _row_settlement_state(
+        int(payment.amount),
+        int(payment.paid_amount or 0),
+        int(payment.written_off_amount or 0),
+    )
+    return {
+        "settlement_state": settlement_state,
+        "settlement_label": _row_settlement_label(
+            int(payment.amount),
+            int(payment.paid_amount or 0),
+            int(payment.written_off_amount or 0),
+        ),
+        "time_status": _row_time_status(payment.due_date, settlement_state, user_tz),
+        "remaining_amount": _remaining_payment_amount(payment),
+    }
+
+
+def _enrich_plan_payments(
+    plan: models.PaymentPlan,
+    user_tz: tzinfo,
+) -> list[schemas.PaymentPlanPaymentOut]:
+    """Build PaymentPlanPaymentOut list with derived settlement/time fields."""
+    enriched: list[schemas.PaymentPlanPaymentOut] = []
+    for payment in (plan.payments or []):
+        pout = schemas.PaymentPlanPaymentOut.model_validate(payment)
+        extra = _enrich_payment_row(payment, user_tz)
+        pout.settlement_state = extra["settlement_state"]
+        pout.settlement_label = extra["settlement_label"]
+        pout.time_status = extra["time_status"]
+        pout.remaining_amount = extra["remaining_amount"]
+        enriched.append(pout)
+    return enriched
+
+
 def _active_unpaid_payments(plan: models.PaymentPlan) -> list[models.PaymentPlanPayment]:
+    """Return unsettled payment rows in due-date order."""
     return sorted(
         [
             payment
             for payment in (plan.payments or [])
-            if payment.status not in {
-                models.PaymentPlanPaymentStatus.PAID,
-                models.PaymentPlanPaymentStatus.SKIPPED,
-            }
-            and _remaining_payment_amount(payment) > 0
+            if _remaining_payment_amount(payment) > 0
         ],
         key=lambda payment: (payment.due_date, payment.id or 0),
     )
@@ -635,8 +675,67 @@ def _build_payment_plan_details(db: Session, plan: models.PaymentPlan) -> schema
     ]
 
     return schemas.PaymentPlanDetailsOut(
-        plan=schemas.PaymentPlanWithPaymentsOut.model_validate(plan),
+        plan=_build_enriched_plan_response(plan),
         plan_activity=plan_activity,
+    )
+
+
+def _enrich_payment_response(
+    payment: models.PaymentPlanPayment,
+    user_tz: tzinfo | None = None,
+) -> schemas.PaymentPlanPaymentOut:
+    """Build a PaymentPlanPaymentOut with derived settlement/time fields."""
+    pout = schemas.PaymentPlanPaymentOut.model_validate(payment)
+    ss = _row_settlement_state(
+        int(payment.amount),
+        int(payment.paid_amount or 0),
+        int(payment.written_off_amount or 0),
+    )
+    pout.settlement_state = ss
+    pout.settlement_label = _row_settlement_label(
+        int(payment.amount),
+        int(payment.paid_amount or 0),
+        int(payment.written_off_amount or 0),
+    )
+    if user_tz is not None:
+        pout.time_status = _row_time_status(payment.due_date, ss, user_tz)
+    pout.remaining_amount = _remaining_payment_amount(payment)
+    return pout
+
+
+def _build_enriched_plan_response(
+    plan: models.PaymentPlan,
+    user_tz: tzinfo | None = None,
+) -> schemas.PaymentPlanWithPaymentsOut:
+    """Build a PaymentPlanWithPaymentsOut with derived settlement/time fields.
+
+    The user_tz parameter is used to derive time_status. If not provided,
+    the payments will have null time_status (for contexts where timezone
+    is not available).
+    """
+    base = schemas.PaymentPlanOut.model_validate(plan)
+    enriched_payments: list[schemas.PaymentPlanPaymentOut] = []
+    for payment in (plan.payments or []):
+        pout = schemas.PaymentPlanPaymentOut.model_validate(payment)
+        ss = _row_settlement_state(
+            int(payment.amount),
+            int(payment.paid_amount or 0),
+            int(payment.written_off_amount or 0),
+        )
+        pout.settlement_state = ss
+        pout.settlement_label = _row_settlement_label(
+            int(payment.amount),
+            int(payment.paid_amount or 0),
+            int(payment.written_off_amount or 0),
+        )
+        if user_tz is not None:
+            pout.time_status = _row_time_status(payment.due_date, ss, user_tz)
+        pout.remaining_amount = _remaining_payment_amount(payment)
+        enriched_payments.append(pout)
+
+    return schemas.PaymentPlanWithPaymentsOut(
+        **base.model_dump(),
+        payments=enriched_payments,
     )
 
 
@@ -659,7 +758,52 @@ def _create_payment_plan_in_transaction(
     if schedule_model == models.ScheduleModel.AMORTIZED_LOAN and annual_rate <= 0:
         effective_model = models.ScheduleModel.FLAT_TOTAL
 
-    if effective_model == models.ScheduleModel.AMORTIZED_LOAN:
+    # --- Manual contract schedule: use user-provided rows directly ---
+    if effective_model == models.ScheduleModel.MANUAL_CONTRACT_SCHEDULE:
+        if not payload.manual_rows:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="payment_plans.manual_rows_required",
+            )
+        raw_rows = [
+            {
+                "due_date": r.due_date,
+                "component_type": r.component_type,
+                "amount": r.amount,
+                "installment_number": r.installment_number,
+            }
+            for r in payload.manual_rows
+        ]
+        try:
+            manual_validated = _generate_manual_rows(raw_rows)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"payment_plans.{str(exc).replace(' ', '_').lower()}",
+            )
+
+        principal_amount = int(payload.total_price) if payload.total_price else sum(
+            r["amount"] for r in manual_validated if r["component_type"] == "PRINCIPAL"
+        )
+        total_charge = sum(r["amount"] for r in manual_validated if r["component_type"] == "CHARGE")
+        remaining_amount = principal_amount + total_charge
+        down_payment_amount = int(payload.down_payment)
+        payment_count = len(set(r.get("installment_number") for r in manual_validated))
+        schedule_rows = manual_validated
+        monthly_payment = 0
+        schedule_rule_data = {
+            "source": "MANUAL_CONTRACT_SCHEDULE",
+            "frequency": payload.frequency.value,
+            "payment_count": payment_count,
+        }
+        generation_metadata = payload.generation_metadata or {
+            "source": "manual_contract_schedule",
+            "row_count": len(manual_validated),
+        }
+
+        # Skip the normal generation branches, go straight to plan creation
+        # (fall through to the plan-building code below)
+    elif effective_model == models.ScheduleModel.AMORTIZED_LOAN:
         principal_amount = int(payload.total_price)
         down_payment_amount = int(payload.down_payment)
         payment_count = int(payload.months)
@@ -691,7 +835,10 @@ def _create_payment_plan_in_transaction(
     )
 
     # Generate schedule rows based on effective model
-    if effective_model == models.ScheduleModel.AMORTIZED_LOAN:
+    # (manual rows already validated and set above)
+    if effective_model == models.ScheduleModel.MANUAL_CONTRACT_SCHEDULE:
+        pass  # schedule_rows, schedule_rule_data, generation_metadata already set
+    elif effective_model == models.ScheduleModel.AMORTIZED_LOAN:
         schedule_rows = _generate_amortized_rows(
             principal=principal_amount,
             annual_interest_rate=annual_rate,
@@ -717,6 +864,7 @@ def _create_payment_plan_in_transaction(
             "frequency": payload.frequency.value,
         }
     else:
+        # FLAT_TOTAL
         schedule_rows = _generate_flat_total_rows(
             total_price=principal_amount,
             down_payment=down_payment_amount,
@@ -965,6 +1113,58 @@ def preview_payment_plan_schedule(
     schedule_model = _resolve_schedule_model(
         payload.plan_type, payload.schedule_model
     )
+    # Allow explicit override to MANUAL_CONTRACT_SCHEDULE
+    if payload.schedule_model == models.ScheduleModel.MANUAL_CONTRACT_SCHEDULE:
+        schedule_model = models.ScheduleModel.MANUAL_CONTRACT_SCHEDULE
+
+    # --- Manual contract schedule: validate and return user-entered rows ---
+    if schedule_model == models.ScheduleModel.MANUAL_CONTRACT_SCHEDULE:
+        if not payload.manual_rows:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="payment_plans.preview.manual_rows_required",
+            )
+        raw_rows = [
+            {
+                "due_date": r.due_date,
+                "component_type": r.component_type,
+                "amount": r.amount,
+                "installment_number": r.installment_number,
+            }
+            for r in payload.manual_rows
+        ]
+        try:
+            validated_rows = _generate_manual_rows(raw_rows)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"payment_plans.preview.{str(exc).replace(' ', '_').lower()}",
+            )
+
+        total_principal = sum(r["amount"] for r in validated_rows if r["component_type"] == "PRINCIPAL")
+        total_charges = sum(r["amount"] for r in validated_rows if r["component_type"] == "CHARGE")
+        final_due_date = validated_rows[-1]["due_date"]
+        payment_count = len(set(r.get("installment_number") for r in validated_rows))
+        frequency = payload.frequency.value
+
+        return schemas.PaymentPlanSchedulePreviewOut(
+            schedule_model=models.ScheduleModel.MANUAL_CONTRACT_SCHEDULE.value,
+            total_principal=total_principal,
+            total_charges=total_charges,
+            total_to_pay=total_principal + total_charges,
+            final_due_date=final_due_date,
+            payment_count=payment_count,
+            frequency=frequency,
+            rows=[
+                schemas.PaymentPlanSchedulePreviewRow(
+                    due_date=r["due_date"],
+                    component_type=r["component_type"],
+                    amount=r["amount"],
+                    installment_number=r.get("installment_number"),
+                )
+                for r in validated_rows
+            ],
+        )
 
     # Resolve payment count
     payment_count = payload.payment_count or payload.months
@@ -1066,7 +1266,7 @@ def create_payment_plan(
     )
     db.commit()
     db.refresh(plan)
-    return plan
+    return _build_enriched_plan_response(plan, user_tz)
 
 
 @router.get("", response_model=schemas.PaymentPlanListOut)
@@ -1087,7 +1287,8 @@ def list_payment_plans(
 
     total = query.count()
     items = query.order_by(models.PaymentPlan.created_at.desc()).offset(skip).limit(limit).all()
-    return schemas.PaymentPlanListOut(total=total, items=items)
+    enriched_items = [_build_enriched_plan_response(item) for item in items]
+    return schemas.PaymentPlanListOut(total=total, items=enriched_items)
 
 
 @router.get("/{plan_id}", response_model=schemas.PaymentPlanWithPaymentsOut)
@@ -1095,8 +1296,10 @@ def get_payment_plan(
     plan_id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
 ):
-    return _get_owned_plan_or_404(db, current_user.id, plan_id)
+    plan = _get_owned_plan_or_404(db, current_user.id, plan_id)
+    return _build_enriched_plan_response(plan, user_tz)
 
 
 @router.get("/{plan_id}/details", response_model=schemas.PaymentPlanDetailsOut)
@@ -1116,6 +1319,7 @@ def update_payment_plan(
     response: Response,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
 ):
     rate_headers = enforce_payment_plans_write_rate_limit(current_user.id)
     for key, value in rate_headers.items():
@@ -1161,7 +1365,7 @@ def update_payment_plan(
 
     db.commit()
     db.refresh(plan)
-    return plan
+    return _build_enriched_plan_response(plan, user_tz)
 
 
 @router.post("/{plan_id}/payments/undo-latest", response_model=schemas.PaymentPlanDetailsOut)
@@ -1592,7 +1796,7 @@ def mark_payment_paid(
         )
     db.commit()
     db.refresh(payment)
-    return payment
+    return _enrich_payment_response(payment, user_tz)
 
 
 
@@ -1680,7 +1884,7 @@ def write_off_payment(
     
     db.commit()
     db.refresh(payment)
-    return payment
+    return _enrich_payment_response(payment, user_tz)
 
 
 @router.post("/payments/{payment_id}/undo-write-off", response_model=schemas.PaymentPlanPaymentOut)
@@ -1689,6 +1893,7 @@ def undo_write_off_payment(
     response: Response,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
 ):
     rate_headers = enforce_payment_plans_write_rate_limit(current_user.id)
     for key, value in rate_headers.items():
@@ -1737,7 +1942,7 @@ def undo_write_off_payment(
 
     db.commit()
     db.refresh(payment)
-    return payment
+    return _enrich_payment_response(payment, user_tz)
 
 
 
@@ -1809,7 +2014,7 @@ def add_payment_plan_charge(
         plan.status = models.PaymentPlanStatus.ACTIVE
     db.commit()
     db.refresh(plan)
-    return plan
+    return _build_enriched_plan_response(plan, user_tz)
 
 @router.delete("/{plan_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_payment_plan(

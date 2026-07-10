@@ -356,3 +356,145 @@ def generate_schedule_preview(
         "frequency": frequency.value,
         "rows": rows,
     }
+
+
+# ---------------------------------------------------------------------------
+# Manual contract schedule
+# ---------------------------------------------------------------------------
+
+
+def _generate_manual_rows(
+    manual_rows: list[dict],
+) -> list[dict]:
+    """Validate and return user-provided manual schedule rows.
+
+    Each row dict must have: due_date, component_type, amount.
+    Optional: installment_number.
+
+    Raises ValueError for validation failures.
+    """
+    if not manual_rows:
+        raise ValueError("manual schedule requires at least one row")
+
+    validated: list[dict] = []
+    seen_installments: set[int] = set()
+    total_amount = 0
+
+    for i, row in enumerate(manual_rows):
+        due_date = row.get("due_date")
+        component_type = row.get("component_type", "PRINCIPAL")
+        amount = row.get("amount", 0)
+        inst_num = row.get("installment_number")
+
+        if due_date is None:
+            raise ValueError(f"row {i}: due_date is required")
+        if not isinstance(due_date, date):
+            raise ValueError(f"row {i}: due_date must be a date, got {type(due_date).__name__}")
+
+        if component_type not in ("PRINCIPAL", "CHARGE"):
+            raise ValueError(
+                f"row {i}: component_type must be PRINCIPAL or CHARGE, got {component_type}"
+            )
+
+        amount_int = int(amount)
+        if amount_int <= 0:
+            raise ValueError(f"row {i}: amount must be positive, got {amount_int}")
+
+        total_amount += amount_int
+
+        if inst_num is not None:
+            seen_installments.add(int(inst_num))
+
+        validated.append({
+            "due_date": due_date,
+            "component_type": component_type,
+            "amount": amount_int,
+            "installment_number": int(inst_num) if inst_num is not None else None,
+        })
+
+    # Sort by due_date, then by component (CHARGE before PRINCIPAL)
+    validated.sort(key=lambda r: (
+        r["due_date"],
+        0 if r["component_type"] == "CHARGE" else 1,
+    ))
+
+    # Re-assign installment numbers if none provided, based on due_date groups
+    if not seen_installments:
+        inst_counter = 1
+        prev_due = None
+        for row in validated:
+            if row["due_date"] != prev_due:
+                inst_counter += 1 if prev_due is not None else 0
+                prev_due = row["due_date"]
+            row["installment_number"] = inst_counter
+
+    return validated
+
+
+# ---------------------------------------------------------------------------
+# Row settlement state and time status (derived, not stored)
+# ---------------------------------------------------------------------------
+
+
+def _row_settlement_state(
+    amount: int,
+    paid_amount: int,
+    written_off_amount: int,
+) -> str:
+    """Derive the settlement state of a payment plan row from its amounts.
+
+    Returns one of: UNPAID, PARTIAL, SETTLED.
+    """
+    remaining = max(0, int(amount) - int(paid_amount or 0) - int(written_off_amount or 0))
+    paid = int(paid_amount or 0)
+    written_off = int(written_off_amount or 0)
+
+    if remaining == 0:
+        return "SETTLED"
+    if paid == 0 and written_off == 0:
+        return "UNPAID"
+    return "PARTIAL"
+
+
+def _row_settlement_label(
+    amount: int,
+    paid_amount: int,
+    written_off_amount: int,
+) -> str:
+    """A human-readable label for the row's settlement state.
+
+    Returns one of: unpaid, partial, paid, written_off, settled.
+    """
+    paid = int(paid_amount or 0)
+    written_off = int(written_off_amount or 0)
+    amount_int = int(amount)
+
+    if paid == amount_int:
+        return "paid"
+    if written_off == amount_int:
+        return "written_off"
+    if paid > 0 and written_off > 0:
+        return "settled"
+    if paid > 0:
+        return "partial"
+    if written_off > 0:
+        return "partial"
+    return "unpaid"
+
+
+def _row_time_status(
+    due_date: date,
+    settlement_state: str,
+    user_tz: tzinfo,
+) -> str | None:
+    """Derive the time status of a payment plan row.
+
+    Returns one of: ON_TRACK, OVERDUE, or None (for settled rows).
+    Uses the user's effective timezone for "today".
+    """
+    if settlement_state == "SETTLED":
+        return None
+    local_today = today_in_tz(user_tz)
+    if due_date < local_today:
+        return "OVERDUE"
+    return "ON_TRACK"

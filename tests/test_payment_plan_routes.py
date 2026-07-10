@@ -1490,3 +1490,318 @@ def test_amortized_schedule_total_principal_matches_input(client):
         assert total_principal == principal, (
             f"Principal {principal}: sum of PRINCIPAL rows = {total_principal}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Ticket 9: Manual Contract Schedule Creation
+# ---------------------------------------------------------------------------
+
+
+def test_manual_schedule_preview_returns_user_entered_rows(client):
+    """Preview with manual rows returns the exact rows the user entered."""
+    headers = create_user_and_token(client, "manualprev1", "manualprev1@example.com", "Password123!")
+    start = user_timezone_today()
+    manual_rows = [
+        {"due_date": start.isoformat(), "component_type": "CHARGE", "amount": 75_000, "installment_number": 1},
+        {"due_date": start.isoformat(), "component_type": "PRINCIPAL", "amount": 1_330_000, "installment_number": 1},
+        {"due_date": (start + timedelta(days=31)).isoformat(), "component_type": "CHARGE", "amount": 45_000, "installment_number": 2},
+        {"due_date": (start + timedelta(days=31)).isoformat(), "component_type": "PRINCIPAL", "amount": 1_360_000, "installment_number": 2},
+    ]
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "OTHER",
+            "schedule_model": "MANUAL_CONTRACT_SCHEDULE",
+            "manual_rows": manual_rows,
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["schedule_model"] == "MANUAL_CONTRACT_SCHEDULE"
+    assert data["total_principal"] == 1_330_000 + 1_360_000
+    assert data["total_charges"] == 75_000 + 45_000
+    assert data["total_to_pay"] == data["total_principal"] + data["total_charges"]
+    assert len(data["rows"]) == 4
+    # Rows should preserve user-entered amounts exactly
+    amounts = [r["amount"] for r in data["rows"]]
+    assert 75_000 in amounts
+    assert 1_330_000 in amounts
+    assert 45_000 in amounts
+    assert 1_360_000 in amounts
+
+
+def test_manual_schedule_preview_rejects_missing_rows(client):
+    """Manual preview without manual_rows returns 400."""
+    headers = create_user_and_token(client, "manualprev2", "manualprev2@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "OTHER",
+            "schedule_model": "MANUAL_CONTRACT_SCHEDULE",
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 400, response.text
+
+
+def test_manual_schedule_preview_rejects_invalid_component_type(client):
+    """Manual preview rejects rows with invalid component_type."""
+    headers = create_user_and_token(client, "manualprev3", "manualprev3@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "OTHER",
+            "schedule_model": "MANUAL_CONTRACT_SCHEDULE",
+            "manual_rows": [
+                {"due_date": start.isoformat(), "component_type": "INVALID", "amount": 100_000},
+            ],
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 400, response.text
+
+
+def test_manual_schedule_preview_rejects_zero_amount(client):
+    """Manual preview rejects rows with zero or negative amount."""
+    headers = create_user_and_token(client, "manualprev4", "manualprev4@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "OTHER",
+            "schedule_model": "MANUAL_CONTRACT_SCHEDULE",
+            "manual_rows": [
+                {"due_date": start.isoformat(), "component_type": "PRINCIPAL", "amount": -100},
+            ],
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    # Zero is rejected by Pydantic (gt=0), negative is rejected by domain logic
+    assert response.status_code in (400, 422), response.text
+
+
+def test_manual_schedule_preview_auto_assigns_installment_numbers(client):
+    """Manual rows without installment_number get them auto-assigned by due_date."""
+    headers = create_user_and_token(client, "manualprev5", "manualprev5@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "OTHER",
+            "schedule_model": "MANUAL_CONTRACT_SCHEDULE",
+            "manual_rows": [
+                {"due_date": start.isoformat(), "component_type": "CHARGE", "amount": 50_000},
+                {"due_date": start.isoformat(), "component_type": "PRINCIPAL", "amount": 500_000},
+                {"due_date": (start + timedelta(days=31)).isoformat(), "component_type": "PRINCIPAL", "amount": 500_000},
+            ],
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    # Same due_date rows should share installment number
+    inst_nums = [r["installment_number"] for r in data["rows"]]
+    assert inst_nums[0] == inst_nums[1]  # CHARGE + PRINCIPAL same installment
+    assert inst_nums[1] != inst_nums[2]  # Different due date = different installment
+
+
+def test_manual_schedule_creation_preserves_user_rows(client):
+    """Creating a plan with manual rows stores exact row amounts."""
+    headers = create_user_and_token(client, "manualcreate1", "manualcreate1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    start = user_timezone_today()
+
+    plan = _create_payment_plan(
+        client,
+        headers,
+        item_name="Exact Contract",
+        plan_type="OTHER",
+        schedule_model="MANUAL_CONTRACT_SCHEDULE",
+        total_price=2_810_000,
+        down_payment=0,
+        months=2,
+        frequency="MONTHLY",
+        start_date=start.isoformat(),
+        expense_category="Electronics",
+        manual_rows=[
+            {"due_date": start.isoformat(), "component_type": "CHARGE", "amount": 75_000, "installment_number": 1},
+            {"due_date": start.isoformat(), "component_type": "PRINCIPAL", "amount": 1_330_000, "installment_number": 1},
+            {"due_date": (start + timedelta(days=31)).isoformat(), "component_type": "CHARGE", "amount": 45_000, "installment_number": 2},
+            {"due_date": (start + timedelta(days=31)).isoformat(), "component_type": "PRINCIPAL", "amount": 1_360_000, "installment_number": 2},
+        ],
+    )
+    assert plan["schedule_model"] == "MANUAL_CONTRACT_SCHEDULE"
+    assert plan["schedule_rule"]["source"] == "MANUAL_CONTRACT_SCHEDULE"
+    payments = plan["payments"]
+    assert len(payments) == 4
+    # Exact amounts preserved
+    amounts = sorted([p["amount"] for p in payments])
+    assert amounts == [45_000, 75_000, 1_330_000, 1_360_000]
+
+
+# ---------------------------------------------------------------------------
+# Ticket 10: Row Settlement State & Derived Overdue
+# ---------------------------------------------------------------------------
+
+
+def test_payment_row_settlement_state_unpaid(client):
+    """Fresh rows have settlement_state = UNPAID."""
+    headers = create_user_and_token(client, "settle1", "settle1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers)
+    for p in plan["payments"]:
+        assert p["settlement_state"] == "UNPAID"
+        assert p["settlement_label"] == "unpaid"
+        assert p["remaining_amount"] == p["amount"]
+
+
+def test_payment_row_settlement_state_partial_after_payment(client, session):
+    """A partially paid row shows settlement_state = PARTIAL."""
+    headers = create_user_and_token(client, "settle2", "settle2@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers)
+
+    # Make a partial payment on the first row
+    first_row = plan["payments"][0]
+    resp = client.post(
+        f"/payment-plans/{plan['id']}/payments",
+        json={
+            "amount": first_row["amount"] // 2,
+            "wallet_allocations": [{"wallet_id": _default_wallet(client, headers)["id"], "amount": first_row["amount"] // 2}],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+
+    # Re-fetch plan to get enriched rows
+    refreshed = client.get(f"/payment-plans/{plan['id']}", headers=headers).json()
+    first = refreshed["payments"][0]
+    assert first["settlement_state"] == "PARTIAL"
+    assert first["settlement_label"] == "partial"
+    assert first["remaining_amount"] == first["amount"] // 2
+
+
+def test_payment_row_settlement_state_settled_after_full_payment(client, session):
+    """A fully paid row shows settlement_state = SETTLED, label = paid."""
+    headers = create_user_and_token(client, "settle3", "settle3@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=2, total_price=900_000, down_payment=0)
+
+    # Pay the first row in full
+    first_row = plan["payments"][0]
+    wallet_id = _default_wallet(client, headers)["id"]
+    resp = client.post(
+        f"/payment-plans/{plan['id']}/payments",
+        json={
+            "amount": first_row["amount"],
+            "wallet_allocations": [{"wallet_id": wallet_id, "amount": first_row["amount"]}],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+
+    refreshed = client.get(f"/payment-plans/{plan['id']}", headers=headers).json()
+    paid_row = refreshed["payments"][0]
+    assert paid_row["settlement_state"] == "SETTLED"
+    assert paid_row["settlement_label"] == "paid"
+    assert paid_row["remaining_amount"] == 0
+    # Settled rows should have null time_status
+    assert paid_row["time_status"] is None
+
+
+def test_payment_row_time_status_on_track(client):
+    """Future-dated unpaid rows show time_status = ON_TRACK."""
+    headers = create_user_and_token(client, "settle4", "settle4@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    # Create plan starting next month
+    from datetime import date as dt_date
+    start = user_timezone_today()
+    future_start = start + timedelta(days=60)
+    plan = _create_payment_plan(
+        client,
+        headers,
+        start_date=future_start.isoformat(),
+        months=1,
+        total_price=500_000,
+        down_payment=0,
+    )
+    for p in plan["payments"]:
+        assert p["time_status"] == "ON_TRACK"
+        assert p["settlement_state"] == "UNPAID"
+
+
+def test_payment_row_time_status_overdue(client):
+    """Past-due unpaid rows show time_status = OVERDUE."""
+    headers = create_user_and_token(client, "settle5", "settle5@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    # Create plan with a start date far enough in the past that the first
+    # payment (start + 1 period for flat-total) is before today.
+    past_date = user_timezone_today() - timedelta(days=60)
+    plan = _create_payment_plan(
+        client,
+        headers,
+        start_date=past_date.isoformat(),
+        months=1,
+        total_price=500_000,
+        down_payment=0,
+        frequency="MONTHLY",
+    )
+    for p in plan["payments"]:
+        assert p["time_status"] == "OVERDUE"
+        assert p["settlement_state"] == "UNPAID"
+
+
+def test_payment_row_settlement_label_written_off(client):
+    """A fully written-off row shows label = written_off."""
+    headers = create_user_and_token(client, "settle6", "settle6@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=500_000, down_payment=0)
+
+    # Write off the row
+    row_id = plan["payments"][0]["id"]
+    resp = client.post(
+        f"/payment-plans/payments/{row_id}/write-off",
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["settlement_state"] == "SETTLED"
+    assert resp.json()["settlement_label"] == "written_off"
+    assert resp.json()["remaining_amount"] == 0
+    assert resp.json()["time_status"] is None
+
+
+def test_payment_row_enriched_fields_in_list(client):
+    """All rows in a list response include derived settlement and time fields."""
+    headers = create_user_and_token(client, "settle7", "settle7@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    _create_payment_plan(client, headers, months=3, total_price=1_500_000, down_payment=0)
+
+    response = client.get("/payment-plans", headers=headers)
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert len(data["items"]) >= 1
+    for plan in data["items"]:
+        for p in plan["payments"]:
+            assert "settlement_state" in p
+            assert "settlement_label" in p
+            assert "time_status" in p
+            assert "remaining_amount" in p
+            # Verify internal consistency
+            if p["settlement_state"] == "UNPAID":
+                assert p["remaining_amount"] == p["amount"]
+            elif p["settlement_state"] == "SETTLED":
+                assert p["remaining_amount"] == 0
+                assert p["time_status"] is None

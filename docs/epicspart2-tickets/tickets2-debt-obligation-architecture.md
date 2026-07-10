@@ -225,15 +225,15 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 
 **Blocked by:** Ticket 7: Add Payment Plan schedule model foundation with flat-total preview.
 
-- [ ] Manual schedule model accepts user-entered due dates, principal amounts, charge amounts, and totals.
-- [ ] Manual rows preserve user-entered amounts instead of regenerating them.
-- [ ] Manual schedule creation validates that rows are internally consistent.
-- [ ] Manual schedule creation supports multiple rows per installment when principal and charges are both present.
-- [ ] Manual schedule preview shows entered rows and aggregate totals before creation.
-- [ ] Users can switch from generated preview to manual schedule mode before creation.
-- [ ] Manual schedules store enough metadata to explain that the contract schedule came from user-entered rows.
-- [ ] Payment Plan responses treat manual rows the same as generated rows after creation.
-- [ ] Tests cover exact-row preservation, validation failures, mixed principal/charge rows, switching to manual mode, and creation from preview.
+- [x] Manual schedule model accepts user-entered due dates, principal amounts, charge amounts, and totals.
+- [x] Manual rows preserve user-entered amounts instead of regenerating them.
+- [x] Manual schedule creation validates that rows are internally consistent.
+- [x] Manual schedule creation supports multiple rows per installment when principal and charges are both present.
+- [x] Manual schedule preview shows entered rows and aggregate totals before creation.
+- [x] Users can switch from generated preview to manual schedule mode before creation.
+- [x] Manual schedules store enough metadata to explain that the contract schedule came from user-entered rows.
+- [x] Payment Plan responses treat manual rows the same as generated rows after creation.
+- [x] Tests cover exact-row preservation, validation failures, mixed principal/charge rows, switching to manual mode, and creation from preview.
 
 ## Ticket 10: Convert Payment Plan Rows To Settlement State And Derived Overdue
 
@@ -241,16 +241,16 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 
 **Blocked by:** Ticket 7: Add Payment Plan schedule model foundation with flat-total preview.
 
-- [ ] Row settlement state derives from amount, paid amount, and written-off amount.
-- [ ] A row with no paid or written-off amount is unpaid.
-- [ ] A row with partial paid or written-off amount and remaining balance is partial.
-- [ ] A row with zero remaining amount is settled.
-- [ ] Public labels distinguish paid, written off, mixed settled, unpaid, partial, and overdue cases.
-- [ ] Overdue is derived from due date, unsettled state, and the user's local today.
-- [ ] Closed or settled rows do not show stale overdue urgency.
-- [ ] Stored skipped status is removed or ignored as a current settlement state.
-- [ ] Row responses expose enough paid, written-off, remaining, settlement, and time information for the UI to render truthful labels.
-- [ ] Tests cover unpaid, partial-paid, partial-written-off, fully paid, fully written-off, mixed settled, overdue, and timezone-boundary cases.
+- [x] Row settlement state derives from amount, paid amount, and written-off amount.
+- [x] A row with no paid or written-off amount is unpaid.
+- [x] A row with partial paid or written-off amount and remaining balance is partial.
+- [x] A row with zero remaining amount is settled.
+- [x] Public labels distinguish paid, written off, mixed settled, unpaid, partial, and overdue cases.
+- [x] Overdue is derived from due date, unsettled state, and the user's local today.
+- [x] Closed or settled rows do not show stale overdue urgency.
+- [x] Stored skipped status is removed or ignored as a current settlement state.
+- [x] Row responses expose enough paid, written-off, remaining, settlement, and time information for the UI to render truthful labels.
+- [x] Tests cover unpaid, partial-paid, partial-written-off, fully paid, fully written-off, mixed settled, overdue, and timezone-boundary cases.
 
 ## Ticket 11: Apply Plan-Wide Waterfall Allocation By Due Date And Component
 
