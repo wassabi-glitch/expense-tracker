@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone, tzinfo
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import models
@@ -392,3 +393,140 @@ def validate_wallet_epochs(
                     f"Same-day activity is allowed."
                 ),
             })
+
+
+# ---------------------------------------------------------------------------
+# Wallet projection verification
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class WalletProjection:
+    """The result of verifying a wallet's current balance against its ledger.
+
+    The wallet's ``current_balance`` is a projection — it should always equal
+    ``initial_balance + SUM(WalletLedger.amount)`` for that wallet.
+    """
+
+    wallet_id: int
+    wallet_name: str
+    """True when ``current_balance`` matches the ledger projection."""
+    is_valid: bool
+    current_balance: int
+    initial_balance: int
+    ledger_sum: int
+    expected_balance: int
+    delta: int
+    event_count: int
+    detail: str
+
+
+def verify_wallet_projection(
+    db: Session,
+    *,
+    wallet_id: int,
+) -> WalletProjection:
+    """Verify that a wallet's current balance matches its WalletLedger entries.
+
+    The expected balance is computed as::
+
+        initial_balance + SUM(WalletLedger.amount)
+
+    where the sum runs over every WalletLedger row linked to the wallet.
+    This is the projection formula — the wallet balance is a derived value
+    from the immutable ledger history.
+
+    Returns a :class:`WalletProjection` dataclass with the full comparison.
+    On mismatch the *detail* field describes the discrepancy.
+
+    Multi-wallet callers should call this once per wallet and aggregate.
+    """
+    wallet = (
+        db.query(models.Wallet)
+        .filter(models.Wallet.id == wallet_id)
+        .first()
+    )
+    if wallet is None:
+        raise LedgerError({
+            "code": "wallets.not_found",
+            "wallet_id": wallet_id,
+            "message": f"Wallet {wallet_id} not found.",
+        })
+
+    ledger_sum = int(
+        db.query(func.coalesce(func.sum(models.WalletLedger.amount), 0))
+        .filter(models.WalletLedger.wallet_id == wallet_id)
+        .scalar()
+        or 0
+    )
+
+    event_count = (
+        db.query(func.count(models.WalletLedger.id))
+        .filter(models.WalletLedger.wallet_id == wallet_id)
+        .scalar()
+    ) or 0
+
+    initial_balance = int(wallet.initial_balance or 0)
+    current_balance = int(wallet.current_balance or 0)
+    expected_balance = initial_balance + ledger_sum
+    delta = current_balance - expected_balance
+
+    is_valid = delta == 0
+
+    if is_valid:
+        detail = (
+            f"Wallet '{wallet.name}' (id={wallet_id}): "
+            f"balance={current_balance}, "
+            f"initial={initial_balance} + ledger_sum={ledger_sum} "
+            f"= expected={expected_balance}, "
+            f"events={event_count} — OK"
+        )
+    else:
+        detail = (
+            f"Wallet '{wallet.name}' (id={wallet_id}) PROJECTION MISMATCH: "
+            f"current_balance={current_balance} != "
+            f"initial_balance({initial_balance}) + ledger_sum({ledger_sum}) "
+            f"= expected({expected_balance}), "
+            f"delta={delta}, events={event_count}. "
+            f"The wallet balance drifted from its ledger projection by {delta}. "
+            f"Possible causes: a direct balance mutation outside the ledger seam, "
+            f"a missing WalletLedger row, or a duplicated wallet effect."
+        )
+
+    return WalletProjection(
+        wallet_id=wallet_id,
+        wallet_name=wallet.name,
+        is_valid=is_valid,
+        current_balance=current_balance,
+        initial_balance=initial_balance,
+        ledger_sum=ledger_sum,
+        expected_balance=expected_balance,
+        delta=delta,
+        event_count=event_count,
+        detail=detail,
+    )
+
+
+def verify_all_wallet_projections(
+    db: Session,
+    *,
+    owner_id: int,
+) -> list[WalletProjection]:
+    """Verify every active wallet owned by *owner_id*.
+
+    Returns a list of :class:`WalletProjection` results, one per wallet.
+    Callers can check ``all(p.is_valid for p in results)`` to confirm
+    global projection integrity.
+    """
+    wallets = (
+        db.query(models.Wallet)
+        .filter(
+            models.Wallet.owner_id == owner_id,
+            models.Wallet.is_active.is_(True),
+        )
+        .all()
+    )
+    return [
+        verify_wallet_projection(db, wallet_id=wallet.id)
+        for wallet in wallets
+    ]

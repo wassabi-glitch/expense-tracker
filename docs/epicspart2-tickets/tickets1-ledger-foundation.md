@@ -152,13 +152,13 @@ These tickets build the minimum immutable-ledger foundation before deeper Epicsp
 - Ticket 4: Convert standalone income delete to void and reversal.
 - Ticket 5: Convert standalone income financial edits to correction reposts.
 
-- [ ] New debt/payment-plan money-changing flows are expected to append ledger facts rather than hard-delete posted financial history.
-- [ ] New debt/payment-plan correction flows are expected to use reversal or adjustment rows rather than rewriting prior rows in place.
-- [ ] Payment-plan and debt current-state fields are treated as projections where money history exists.
-- [ ] At least one debt or payment-plan regression test proves posted financial events remain available after an undo/reversal-style action.
-- [ ] Tests distinguish immutable money facts from mutable metadata or planning intent.
-- [ ] The guardrails do not force budgets, recurring templates, or drafts into the global financial ledger.
-- [ ] The behavior is documented clearly enough for subsequent Epicspart2 implementation tickets to follow.
+- [x] New debt/payment-plan money-changing flows are expected to append ledger facts rather than hard-delete posted financial history.
+- [x] New debt/payment-plan correction flows are expected to use reversal or adjustment rows rather than rewriting prior rows in place.
+- [x] Payment-plan and debt current-state fields are treated as projections where money history exists.
+- [x] At least one debt or payment-plan regression test proves posted financial events remain available after an undo/reversal-style action.
+- [x] Tests distinguish immutable money facts from mutable metadata or planning intent.
+- [x] The guardrails do not force budgets, recurring templates, or drafts into the global financial ledger.
+- [x] The behavior is documented clearly enough for subsequent Epicspart2 implementation tickets to follow.
 
 ## Ticket 8: Add Wallet Projection Verification Around Reversals And Corrections
 
@@ -170,14 +170,14 @@ These tickets build the minimum immutable-ledger foundation before deeper Epicsp
 - Ticket 4: Convert standalone income delete to void and reversal.
 - Ticket 5: Convert standalone income financial edits to correction reposts.
 
-- [ ] Wallet balance after a normal posted money event matches the expected projection.
-- [ ] Wallet balance after void/reversal matches the expected projection.
-- [ ] Wallet balance after income corrected repost matches the expected projection.
-- [ ] Multi-wallet operations are included in the projection verification.
-- [ ] Projection checks account for the wallet opening snapshot or equivalent starting point.
-- [ ] Tests prove reversals do not double-apply wallet effects.
-- [ ] Tests prove corrected reposts do not leave stale wallet effects from the original event.
-- [ ] Failures produce useful debugging information for event and wallet ledger mismatch.
+- [x] Wallet balance after a normal posted money event matches the expected projection.
+- [x] Wallet balance after void/reversal matches the expected projection.
+- [x] Wallet balance after income corrected repost matches the expected projection.
+- [x] Multi-wallet operations are included in the projection verification.
+- [x] Projection checks account for the wallet opening snapshot or equivalent starting point.
+- [x] Tests prove reversals do not double-apply wallet effects.
+- [x] Tests prove corrected reposts do not leave stale wallet effects from the original event.
+- [x] Failures produce useful debugging information for event and wallet ledger mismatch.
 
 ## Ticket 9: Document The Epicspart2 Money-History Definition Of Done
 
@@ -194,10 +194,10 @@ These tickets build the minimum immutable-ledger foundation before deeper Epicsp
 - Ticket 7: Add immutable-ledger regression guardrails for new obligation work.
 - Ticket 8: Add wallet projection verification around reversals and corrections.
 
-- [ ] The standard explains when a feature must use append-only financial history.
-- [ ] The standard explains when mutable metadata is still acceptable.
-- [ ] The standard explains how wallet epoch and user-timezone date validation should be applied.
-- [ ] The standard explains how void, reversal, corrected repost, and current correction differ.
-- [ ] The standard explains that budgets, recurring templates, and drafts are not automatically global financial ledger events.
-- [ ] The standard includes a testing checklist for money-history features.
-- [ ] The standard is written in project domain language so future specs and tickets can reference it.
+- [x] The standard explains when a feature must use append-only financial history.
+- [x] The standard explains when mutable metadata is still acceptable.
+- [x] The standard explains how wallet epoch and user-timezone date validation should be applied.
+- [x] The standard explains how void, reversal, corrected repost, and current correction differ.
+- [x] The standard explains that budgets, recurring templates, and drafts are not automatically global financial ledger events.
+- [x] The standard includes a testing checklist for money-history features.
+- [x] The standard is written in project domain language so future specs and tickets can reference it.
