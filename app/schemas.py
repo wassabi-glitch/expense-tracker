@@ -3386,6 +3386,18 @@ class DebtInitialWalletAllocationIn(BaseModel):
 
 
 class DebtCreate(DebtBase):
+    """Payload for creating a Debt.
+
+    ``initial_amount`` is the original principal.  ``opening_charge_amount``
+    (default 0) covers upfront interest, fees, or other charges that are part
+    of the obligation from day one.
+
+    Starting balance = initial_amount + opening_charge_amount.
+
+    Wallet movement (if any) is declared separately via
+    ``initial_wallet_allocations`` and may differ from the starting balance.
+    """
+    opening_charge_amount: int = Field(default=0, ge=0)
     is_money_transferred: bool = False
     initial_wallet_id: Optional[int] = None
     initial_wallet_allocations: List[DebtInitialWalletAllocationIn] = Field(
@@ -3475,13 +3487,35 @@ class DebtTransactionWalletAllocationIn(BaseModel):
     amount: int = Field(gt=0)
 
 
+class DebtPaymentAllocationMode(str, Enum):
+    """How a payment amount is split between principal and charges."""
+    AUTOMATIC = "AUTOMATIC"          # charges-first (visible default)
+    CHARGES_FIRST = "CHARGES_FIRST"  # clear all charges, then principal
+    PRINCIPAL_FIRST = "PRINCIPAL_FIRST"  # clear all principal, then charges
+    CUSTOM = "CUSTOM"                # user specifies exact split
+
+
 class DebtPaymentCreate(BaseModel):
     amount: int = Field(gt=0)
+    allocation_mode: DebtPaymentAllocationMode = DebtPaymentAllocationMode.AUTOMATIC
+    principal_amount: Optional[int] = Field(default=None, gt=0)
+    charge_amount: Optional[int] = Field(default=None, gt=0)
     date: Optional[dt.date] = None
     note: Optional[str] = None
     wallet_allocations: List[DebtTransactionWalletAllocationIn] = Field(
         default_factory=list)
     income_source_id: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_custom_split(self):
+        if self.allocation_mode == DebtPaymentAllocationMode.CUSTOM:
+            principal = self.principal_amount or 0
+            charge = self.charge_amount or 0
+            if principal <= 0 and charge <= 0:
+                raise ValueError("debts.payment.custom_split_required")
+            if principal + charge != self.amount:
+                raise ValueError("debts.payment.custom_split_mismatch")
+        return self
 
 
 class DebtTransactionWalletAllocationOut(BaseModel):

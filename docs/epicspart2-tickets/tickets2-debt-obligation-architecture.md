@@ -111,17 +111,17 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 1: Introduce derived Debt state and archive visibility.
 - Ticket 2: Remove standalone Debt product taxonomy from public flows.
 
-- [ ] Debt creation accepts an original principal amount.
-- [ ] Debt creation accepts optional opening charges defaulting to zero.
-- [ ] Starting Debt balance equals principal plus opening charges.
-- [ ] Debt creation can record wallet movement when cash actually enters or leaves a wallet.
-- [ ] Debt creation does not require wallet movement for unpaid service bills or imported balances.
-- [ ] Wallet movement amount is allowed to differ from the starting Debt balance.
-- [ ] Principal creation appends an initial Debt ledger entry with principal delta.
-- [ ] Opening charges append a charge Debt ledger entry with charge delta.
-- [ ] Remaining Debt balance reconciles from posted Debt ledger entries.
-- [ ] Wallet-touching creation follows wallet epoch, user timezone, and immutable money-history rules.
-- [ ] Tests cover principal-only, principal-plus-charge, borrowed cash with upfront fee, lent cash with expected charge, unpaid service bill, and imported balance.
+- [x] Debt creation accepts an original principal amount.
+- [x] Debt creation accepts optional opening charges defaulting to zero.
+- [x] Starting Debt balance equals principal plus opening charges.
+- [x] Debt creation can record wallet movement when cash actually enters or leaves a wallet.
+- [x] Debt creation does not require wallet movement for unpaid service bills or imported balances.
+- [x] Wallet movement amount is allowed to differ from the starting Debt balance.
+- [x] Principal creation appends an initial Debt ledger entry with principal delta.
+- [x] Opening charges append a charge Debt ledger entry with charge delta.
+- [x] Remaining Debt balance reconciles from posted Debt ledger entries.
+- [x] Wallet-touching creation follows wallet epoch, user timezone, and immutable money-history rules.
+- [x] Tests cover principal-only, principal-plus-charge, borrowed cash with upfront fee, lent cash with expected charge, unpaid service bill, and imported balance.
 
 ## Ticket 4: Make Debt Payments Component-Aware
 
@@ -129,17 +129,17 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 
 **Blocked by:** Ticket 3: Split Debt creation into principal, opening charges, and wallet movement.
 
-- [ ] Debt payment creation supports automatic allocation.
-- [ ] Debt payment creation supports charges-first allocation.
-- [ ] Debt payment creation supports principal-first allocation.
-- [ ] Debt payment creation supports custom principal and charge splits.
-- [ ] The default allocation rule is visible in API/UI behavior.
-- [ ] Payment ledger entries record principal and charge deltas accurately.
-- [ ] Payments cannot allocate more than the remaining eligible principal or charges.
-- [ ] Wallet movement created by payment follows the shared money-history seams.
-- [ ] Remaining amount, remaining principal, and remaining charges reconcile after payment.
-- [ ] Debt activity clearly distinguishes principal payment and charge payment effects.
-- [ ] Tests cover all allocation modes, over-allocation rejection, wallet effects, and projection reconciliation.
+- [x] Debt payment creation supports automatic allocation.
+- [x] Debt payment creation supports charges-first allocation.
+- [x] Debt payment creation supports principal-first allocation.
+- [x] Debt payment creation supports custom principal and charge splits.
+- [x] The default allocation rule is visible in API/UI behavior.
+- [x] Payment ledger entries record principal and charge deltas accurately.
+- [x] Payments cannot allocate more than the remaining eligible principal or charges.
+- [x] Wallet movement created by payment follows the shared money-history seams.
+- [x] Remaining amount, remaining principal, and remaining charges reconcile after payment.
+- [x] Debt activity clearly distinguishes principal payment and charge payment effects.
+- [x] Tests cover all allocation modes, over-allocation rejection, wallet effects, and projection reconciliation.
 
 ## Ticket 5: Harden Debt Reversal And Action Rules
 

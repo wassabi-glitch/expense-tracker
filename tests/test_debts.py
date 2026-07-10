@@ -548,6 +548,7 @@ def test_reversal_blocks_older_entry_when_newer_same_debt_action_exists(client):
         f"/debts/{debt['id']}/payments",
         json={
             "amount": 100_000,
+            "allocation_mode": "PRINCIPAL_FIRST",
             "date": user_timezone_today().isoformat(),
             "wallet_allocations": [{"wallet_id": wallet_id, "amount": 100_000}],
         },
@@ -861,3 +862,359 @@ def test_list_and_detail_do_not_expose_product_kind(client):
     # details (full)
     details = client.get(f"/debts/{debt['id']}/details", headers=headers)
     assert "product_kind" not in details.json()["debt"]
+
+
+# ── Ticket 3: principal / charges / wallet-movement separation ──────────────
+
+
+def test_t3_principal_only_creation(client):
+    """Principal without opening charges — simplest case."""
+    headers = create_user_and_token(client, "t3p1", "t3p1@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    today = user_timezone_today().isoformat()
+    response = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWING",
+            "counterparty_name": "Principal only",
+            "initial_amount": 1_000_000,
+            "currency": "UZS",
+            "date": today,
+            "expected_return_date": today,
+            "is_money_transferred": True,
+            "initial_wallet_id": wallet_id,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    debt = response.json()
+    assert debt["initial_amount"] == 1_000_000
+    assert debt["remaining_amount"] == 1_000_000
+    assert debt["total_charges"] == 0
+    assert debt["remaining_principal_amount"] == 1_000_000
+    assert debt["remaining_charge_amount"] == 0
+
+
+def test_t3_principal_plus_opening_charges(client):
+    """Principal + opening charges = starting balance."""
+    headers = create_user_and_token(client, "t3p2", "t3p2@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    today = user_timezone_today().isoformat()
+    response = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWING",
+            "counterparty_name": "Bank with fees",
+            "initial_amount": 5_000_000,
+            "opening_charge_amount": 500_000,
+            "currency": "UZS",
+            "date": today,
+            "expected_return_date": today,
+            "is_money_transferred": True,
+            "initial_wallet_id": wallet_id,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    debt = response.json()
+    assert debt["initial_amount"] == 5_000_000
+    assert debt["remaining_amount"] == 5_500_000
+    assert debt["total_charges"] == 500_000
+    assert debt["remaining_principal_amount"] == 5_000_000
+    assert debt["remaining_charge_amount"] == 500_000
+
+
+def test_t3_borrowed_cash_with_upfront_fee(client):
+    """Wallet receives principal (5M) but debt = principal + fee (5.5M)."""
+    headers = create_user_and_token(client, "t3p3", "t3p3@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    today = user_timezone_today().isoformat()
+    response = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWING",
+            "counterparty_name": "Bank loan with origination fee",
+            "initial_amount": 5_000_000,
+            "opening_charge_amount": 500_000,
+            "currency": "UZS",
+            "date": today,
+            "expected_return_date": today,
+            "is_money_transferred": True,
+            "initial_wallet_id": wallet_id,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    debt = response.json()
+    # principal = 5M, opening charges = 500k → starting balance = 5.5M
+    assert debt["initial_amount"] == 5_000_000
+    assert debt["remaining_amount"] == 5_500_000
+    # Wallet moved 5M (the principal), not 5.5M
+    assert debt["is_money_transferred"] is True
+
+    detail = client.get(f"/debts/{debt['id']}", headers=headers).json()
+    entry_types = {e["entry_type"] for e in detail["ledger_entries"]}
+    assert "INITIAL" in entry_types
+    assert "CHARGE" in entry_types
+
+
+def test_t3_unpaid_service_bill_no_wallet_movement(client):
+    """Unpaid service — no cash moved, expense_category required."""
+    headers = create_user_and_token(client, "t3p4", "t3p4@example.com", "Password123!")
+    today = user_timezone_today().isoformat()
+    response = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWING",
+            "counterparty_name": "Mechanic",
+            "initial_amount": 700_000,
+            "currency": "UZS",
+            "date": today,
+            "expected_return_date": today,
+            "is_money_transferred": False,
+            "expense_category": "Transport",
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    debt = response.json()
+    assert debt["initial_amount"] == 700_000
+    assert debt["remaining_amount"] == 700_000
+    assert debt["is_money_transferred"] is False
+    assert debt["total_charges"] == 0
+
+
+def test_t3_imported_balance_no_wallet_movement(client):
+    """Imported balance — no wallet movement, no expense category needed for OWED."""
+    headers = create_user_and_token(client, "t3p5", "t3p5@example.com", "Password123!")
+    today = user_timezone_today().isoformat()
+    response = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWED",
+            "counterparty_name": "Historical receivable",
+            "initial_amount": 300_000,
+            "origin_kind": "IMPORTED_BALANCE",
+            "currency": "UZS",
+            "date": today,
+            "expected_return_date": today,
+            "is_money_transferred": False,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    debt = response.json()
+    assert debt["is_money_transferred"] is False
+    assert debt["initial_amount"] == 300_000
+    assert debt["remaining_amount"] == 300_000
+
+
+def test_t3_wallet_movement_can_differ_from_balance(client):
+    """ADR 0027: wallet movement amount ≠ starting balance."""
+    headers = create_user_and_token(client, "t3p6", "t3p6@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    today = user_timezone_today().isoformat()
+    response = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWING",
+            "counterparty_name": "Lender with upfront interest",
+            "initial_amount": 1_000_000,
+            "opening_charge_amount": 100_000,
+            "currency": "UZS",
+            "date": today,
+            "expected_return_date": today,
+            "is_money_transferred": True,
+            "initial_wallet_id": wallet_id,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    debt = response.json()
+    # Wallet received 1M, but obligation is 1.1M
+    assert debt["initial_amount"] == 1_000_000
+    assert debt["remaining_amount"] == 1_100_000
+
+
+# ── Ticket 4: component-aware payment allocation ────────────────────────────
+
+
+def _t4_setup_debt_charges_budget(client, headers):
+    """Ensure a DEBT_CHARGES budget exists so charge payments can post."""
+    today = user_timezone_today()
+    budget_payload = {
+        "category": "Debt Charges",  # enum value string
+        "monthly_limit": 10_000_000,
+        "budget_year": today.year,
+        "budget_month": today.month,
+    }
+    client.post("/budgets/", json=budget_payload, headers=headers)
+
+
+def _t4_create_debt_with_charges(client, headers, wallet_id):
+    """Create a debt with principal 1M + 200k charges for payment tests."""
+    _t4_setup_debt_charges_budget(client, headers)
+    today = user_timezone_today().isoformat()
+    resp = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWING",
+            "counterparty_name": "Component test",
+            "initial_amount": 1_000_000,
+            "opening_charge_amount": 200_000,
+            "currency": "UZS",
+            "date": today,
+            "expected_return_date": today,
+            "is_money_transferred": True,
+            "initial_wallet_id": wallet_id,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def test_t4_automatic_allocation_charges_first(client):
+    """Default AUTOMATIC = charges-first (ADR 0027)."""
+    headers = create_user_and_token(client, "t4a1", "t4a1@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _t4_create_debt_with_charges(client, headers, wallet_id)
+    # Pay 150k — all goes to charges (200k available), 0 to principal
+    payment = client.post(
+        f"/debts/{debt['id']}/payments",
+        json={
+            "amount": 150_000,
+            "wallet_allocations": [{"wallet_id": wallet_id, "amount": 150_000}],
+        },
+        headers=headers,
+    )
+    assert payment.status_code == 201, payment.text
+    detail = client.get(f"/debts/{debt['id']}", headers=headers).json()
+    # remaining = 1.2M - 150k = 1.05M
+    assert detail["remaining_amount"] == 1_050_000
+    assert detail["remaining_principal_amount"] == 1_000_000  # unchanged
+    assert detail["remaining_charge_amount"] == 50_000  # 200k - 150k
+
+
+def test_t4_charges_first_explicit(client):
+    headers = create_user_and_token(client, "t4a2", "t4a2@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _t4_create_debt_with_charges(client, headers, wallet_id)
+    payment = client.post(
+        f"/debts/{debt['id']}/payments",
+        json={
+            "amount": 300_000,
+            "allocation_mode": "CHARGES_FIRST",
+            "wallet_allocations": [{"wallet_id": wallet_id, "amount": 300_000}],
+        },
+        headers=headers,
+    )
+    assert payment.status_code == 201, payment.text
+    detail = client.get(f"/debts/{debt['id']}", headers=headers).json()
+    assert detail["remaining_amount"] == 900_000
+    # 200k charges cleared, then 100k principal
+    assert detail["remaining_charge_amount"] == 0
+    assert detail["remaining_principal_amount"] == 900_000
+
+
+def test_t4_principal_first_explicit(client):
+    headers = create_user_and_token(client, "t4a3", "t4a3@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _t4_create_debt_with_charges(client, headers, wallet_id)
+    payment = client.post(
+        f"/debts/{debt['id']}/payments",
+        json={
+            "amount": 300_000,
+            "allocation_mode": "PRINCIPAL_FIRST",
+            "wallet_allocations": [{"wallet_id": wallet_id, "amount": 300_000}],
+        },
+        headers=headers,
+    )
+    assert payment.status_code == 201, payment.text
+    detail = client.get(f"/debts/{debt['id']}", headers=headers).json()
+    assert detail["remaining_amount"] == 900_000
+    assert detail["remaining_principal_amount"] == 700_000  # 1M - 300k
+    assert detail["remaining_charge_amount"] == 200_000  # untouched
+
+
+def test_t4_custom_split(client):
+    headers = create_user_and_token(client, "t4a4", "t4a4@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _t4_create_debt_with_charges(client, headers, wallet_id)
+    payment = client.post(
+        f"/debts/{debt['id']}/payments",
+        json={
+            "amount": 300_000,
+            "allocation_mode": "CUSTOM",
+            "principal_amount": 250_000,
+            "charge_amount": 50_000,
+            "wallet_allocations": [{"wallet_id": wallet_id, "amount": 300_000}],
+        },
+        headers=headers,
+    )
+    assert payment.status_code == 201, payment.text
+    detail = client.get(f"/debts/{debt['id']}", headers=headers).json()
+    assert detail["remaining_amount"] == 900_000
+    assert detail["remaining_principal_amount"] == 750_000
+    assert detail["remaining_charge_amount"] == 150_000
+
+
+def test_t4_custom_split_must_match_total(client):
+    headers = create_user_and_token(client, "t4a5", "t4a5@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _t4_create_debt_with_charges(client, headers, wallet_id)
+    payment = client.post(
+        f"/debts/{debt['id']}/payments",
+        json={
+            "amount": 300_000,
+            "allocation_mode": "CUSTOM",
+            "principal_amount": 200_000,
+            "charge_amount": 50_000,  # only 250k total, not 300k
+            "wallet_allocations": [{"wallet_id": wallet_id, "amount": 300_000}],
+        },
+        headers=headers,
+    )
+    assert payment.status_code == 422, payment.text
+
+
+def test_t4_over_allocation_rejected(client):
+    headers = create_user_and_token(client, "t4a6", "t4a6@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _t4_create_debt_with_charges(client, headers, wallet_id)
+    # Try to pay more charges than exist
+    payment = client.post(
+        f"/debts/{debt['id']}/payments",
+        json={
+            "amount": 500_000,
+            "allocation_mode": "CUSTOM",
+            "principal_amount": 100_000,
+            "charge_amount": 400_000,  # only 200k charges exist
+            "wallet_allocations": [{"wallet_id": wallet_id, "amount": 500_000}],
+        },
+        headers=headers,
+    )
+    assert payment.status_code == 400, payment.text
+
+
+def test_t4_payment_ledger_entries_have_component_deltas(client):
+    headers = create_user_and_token(client, "t4a7", "t4a7@example.com", "Password123!")
+    wallet_id = _default_wallet_id(client, headers)
+    debt = _t4_create_debt_with_charges(client, headers, wallet_id)
+    payment = client.post(
+        f"/debts/{debt['id']}/payments",
+        json={
+            "amount": 300_000,
+            "allocation_mode": "CUSTOM",
+            "principal_amount": 200_000,
+            "charge_amount": 100_000,
+            "wallet_allocations": [{"wallet_id": wallet_id, "amount": 300_000}],
+        },
+        headers=headers,
+    )
+    assert payment.status_code == 201, payment.text
+    detail = client.get(f"/debts/{debt['id']}", headers=headers).json()
+    payments = [e for e in detail["ledger_entries"] if e["entry_type"] == "PAYMENT"]
+    principal_deltas = [p["principal_delta"] for p in payments]
+    charge_deltas = [p["charge_delta"] for p in payments]
+    assert sum(principal_deltas) == -200_000
+    assert sum(charge_deltas) == -100_000

@@ -88,6 +88,36 @@ def _debt_time_status(
     return schemas.DebtTimeStatus.ON_TRACK
 
 
+def _resolve_payment_allocation(
+    db: Session,
+    debt: models.Debt,
+    payload: schemas.DebtPaymentCreate,
+) -> tuple[int | None, int | None]:
+    """Compute principal/charge overrides from the allocation mode.
+
+    Returns (principal_override, charge_override) — both None means
+    "let the payment service decide automatically" (charges-first).
+    """
+    mode = payload.allocation_mode
+    amount = int(payload.amount)
+
+    if mode == schemas.DebtPaymentAllocationMode.CUSTOM:
+        return int(payload.principal_amount or 0), int(payload.charge_amount or 0)
+
+    charge_balance = _posted_charge_balance(db, debt.id)
+    principal_balance = max(0, int(debt.remaining_amount or 0) - charge_balance)
+
+    if mode == schemas.DebtPaymentAllocationMode.PRINCIPAL_FIRST:
+        principal = min(amount, principal_balance)
+        charge = amount - principal
+        return principal, charge
+
+    # AUTOMATIC and CHARGES_FIRST both default to charges-first (ADR 0027)
+    charge = min(amount, charge_balance)
+    principal = amount - charge
+    return principal, charge
+
+
 def _matches_debt_lifecycle_filter(debt: models.Debt, lifecycle_status: schemas.DebtLifecycleStatus | None) -> bool:
     if lifecycle_status is None:
         return True
@@ -821,10 +851,13 @@ def _record_initial_transfer_event(
     db: Session,
     debt: models.Debt,
     wallet_allocations: list[tuple[models.Wallet, int]],
+    *,
+    wallet_movement_total: int = 0,
 ) -> models.FinancialEvent:
     if not wallet_allocations:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="wallets.at_least_one_required")
 
+    movement = wallet_movement_total or sum(int(amt) for _, amt in wallet_allocations)
     event = models.FinancialEvent(
         owner_id=debt.owner_id,
         title=f"{debt.counterparty_name}"[:100],
@@ -861,7 +894,7 @@ def _record_initial_transfer_event(
         models.EntityLedger(
             event_id=event.id,
             label=f"Initial debt for {debt.counterparty_name}"[:100],
-            amount=int(debt.initial_amount),
+            amount=int(movement),
             debt_id=debt.id,
         )
     )
@@ -1320,11 +1353,16 @@ def create_debt(
     counterparty_kind = _infer_counterparty_kind(payload, origin_kind)
     initial_wallet_allocations = _resolve_initial_wallet_allocations(db, current_user.id, payload)
     is_money_transferred = bool(initial_wallet_allocations)
-    initial_amount = (
+
+    principal = int(payload.initial_amount)
+    opening_charges = int(payload.opening_charge_amount)
+    starting_balance = principal + opening_charges
+    wallet_movement_total = (
         sum(int(amount) for _, amount in initial_wallet_allocations)
         if is_money_transferred
-        else int(payload.initial_amount)
+        else 0
     )
+
     single_initial_wallet_id = (
         initial_wallet_allocations[0][0].id
         if len(initial_wallet_allocations) == 1
@@ -1352,8 +1390,8 @@ def create_debt(
         origin_kind=origin_kind,
         counterparty_kind=counterparty_kind,
         counterparty_name=payload.counterparty_name,
-        initial_amount=initial_amount,
-        remaining_amount=initial_amount,
+        initial_amount=principal,
+        remaining_amount=starting_balance,
         currency=payload.currency,
         description=payload.description,
         date=payload.date if payload.date else today_in_tz(user_tz),
@@ -1375,22 +1413,41 @@ def create_debt(
 
     initial_event = None
     if debt.is_money_transferred:
-        event = _record_initial_transfer_event(db, debt, initial_wallet_allocations)
+        event = _record_initial_transfer_event(
+            db, debt, initial_wallet_allocations,
+            wallet_movement_total=wallet_movement_total,
+        )
         debt.linked_event_id = event.id
         initial_event = event
 
+    # INITIAL ledger entry = principal (ADR 0027)
     create_debt_ledger_entry(
         db,
         owner_id=current_user.id,
         debt_id=debt.id,
         entry_type=models.DebtLedgerEntryType.INITIAL,
-        amount_delta=debt.initial_amount,
-        principal_delta=debt.initial_amount,
+        amount_delta=principal,
+        principal_delta=principal,
         entry_date=debt.date,
         financial_event_id=initial_event.id if initial_event is not None else None,
         wallet_id=single_initial_wallet_id,
-        note=f"Initial debt for {debt.counterparty_name}",
+        note=f"Principal for {debt.counterparty_name}",
     )
+
+    # CHARGE ledger entry = opening charges (only when > 0, ADR 0027)
+    if opening_charges > 0:
+        create_debt_ledger_entry(
+            db,
+            owner_id=current_user.id,
+            debt_id=debt.id,
+            entry_type=models.DebtLedgerEntryType.CHARGE,
+            amount_delta=opening_charges,
+            charge_delta=opening_charges,
+            entry_date=debt.date,
+            event_subtype="OPENING_CHARGE",
+            note=f"Opening charges for {debt.counterparty_name}",
+        )
+
     _reconcile_debt_preserving_lifecycle(db, debt)
     sync_debt_goal_targets(db, current_user.id, debt.id)
 
@@ -2016,6 +2073,7 @@ def record_debt_payment(
     _raise_policy_denied(evaluate_debt_action(db, debt, models.DebtActionKind.RECORD_PAYMENT))
 
     transaction_date = payload.date or today_in_tz(user_tz)
+    principal_override, charge_override = _resolve_payment_allocation(db, debt, payload)
     debt_transaction, _ = create_debt_payment_service(
         db,
         debt,
@@ -2024,6 +2082,8 @@ def record_debt_payment(
         wallet_allocations=payload.wallet_allocations,
         note=payload.note,
         income_source_id=payload.income_source_id,
+        principal_amount_override=principal_override,
+        charge_amount_override=charge_override,
     )
     reconcile_debt(db, debt.id)
     sync_debt_goal_targets(db, current_user.id, debt.id)
