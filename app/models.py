@@ -355,8 +355,6 @@ class ExpectedIncomeStatus(str, enum.Enum):
     RESOLVED = "RESOLVED"
     SUPERSEDED = "SUPERSEDED"
     WRITTEN_OFF = "WRITTEN_OFF"
-    RECEIVED = "RECEIVED"
-    MISSED = "MISSED"
     CANCELLED = "CANCELLED"
 
 

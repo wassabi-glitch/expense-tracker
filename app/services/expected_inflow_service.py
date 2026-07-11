@@ -29,8 +29,6 @@ TERMINAL_STATUSES = {
     models.ExpectedIncomeStatus.SUPERSEDED,
     models.ExpectedIncomeStatus.WRITTEN_OFF,
     models.ExpectedIncomeStatus.CANCELLED,
-    models.ExpectedIncomeStatus.RECEIVED,
-    models.ExpectedIncomeStatus.MISSED,
 }
 
 
@@ -94,18 +92,10 @@ def remaining_amount(row: models.ExpectedIncome) -> int:
     return max(int(row.amount) - received_amount(row) - written_off_amount(row), 0)
 
 
-def normalized_status(row: models.ExpectedIncome) -> models.ExpectedIncomeStatus:
-    if row.status == models.ExpectedIncomeStatus.RECEIVED:
-        return models.ExpectedIncomeStatus.RESOLVED
-    if row.status == models.ExpectedIncomeStatus.MISSED:
-        return models.ExpectedIncomeStatus.CANCELLED
-    return row.status
-
-
 def active_backing_amount(row: models.ExpectedIncome) -> int:
     if not bool(row.backing_eligible):
         return 0
-    if normalized_status(row) not in ACTIVE_STATUSES:
+    if row.status not in ACTIVE_STATUSES:
         return 0
     kind = _kind(row)
     if kind == models.ExpectedInflowKind.EARNED and (row.source is None or not row.source.is_active):
@@ -160,7 +150,7 @@ def _event_ids(row: models.ExpectedIncome) -> list[int]:
 def serialize_inflow(row: models.ExpectedIncome, *, today: date) -> schemas.ExpectedInflowOut:
     received = received_amount(row)
     remaining = remaining_amount(row)
-    state = normalized_status(row)
+    state = row.status
     return schemas.ExpectedInflowOut(
         id=int(row.id),
         owner_id=int(row.owner_id),
@@ -346,7 +336,7 @@ def update_inflow(
     *,
     today: date,
 ) -> None:
-    if normalized_status(row) not in ACTIVE_STATUSES:
+    if row.status not in ACTIVE_STATUSES:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.terminal_locked")
     if payload.amount is not None:
         if received_amount(row) > 0 or row.children:
@@ -593,231 +583,7 @@ def _post_source(
     return _post_asset_sale(db, owner_id, row, amount, received_date, note, wallets)
 
 
-def _sync_lifecycle(row: models.ExpectedIncome) -> None:
-    received = received_amount(row)
-    row.received_amount = received
-    if row.close_reason in {"CANCELLED", "WRITTEN_OFF", "RESCHEDULED", "SOURCE_CLOSED"}:
-        return
-    if received <= 0:
-        row.status = models.ExpectedIncomeStatus.EXPECTED
-        row.close_reason = None
-        row.closed_at = None
-    elif received < int(row.amount):
-        row.status = models.ExpectedIncomeStatus.PARTIALLY_RECEIVED
-        row.close_reason = None
-        row.closed_at = None
-    else:
-        row.status = models.ExpectedIncomeStatus.RESOLVED
-        row.close_reason = "FULLY_RECEIVED"
-        row.closed_at = datetime.now(timezone.utc)
-
-
-def realize_inflow(
-    db: Session,
-    owner_id: int,
-    route_inflow_id: int,
-    payload: schemas.ExpectedInflowRealizeCreate,
-    *,
-    today: date,
-) -> tuple[models.ExpectedInflowRealization, list[models.ExpectedIncome]]:
-    if payload.received_date is not None and payload.received_date > today:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expected_inflow.received_date_in_future")
-    if payload.idempotency_key:
-        existing = inflow_query(db).join(
-            models.ExpectedInflowRealizationAllocation,
-            models.ExpectedInflowRealizationAllocation.expected_inflow_id == models.ExpectedIncome.id,
-        ).join(
-            models.ExpectedInflowRealization,
-            models.ExpectedInflowRealization.id == models.ExpectedInflowRealizationAllocation.realization_id,
-        ).filter(
-            models.ExpectedInflowRealization.owner_id == owner_id,
-            models.ExpectedInflowRealization.idempotency_key == payload.idempotency_key,
-        ).all()
-        if existing:
-            realization = next(
-                allocation.realization
-                for row in existing
-                for allocation in row.realization_allocations
-                if allocation.realization.idempotency_key == payload.idempotency_key
-            )
-            return realization, existing
-
-    requested_allocations = payload.expectation_allocations or [
-        schemas.ExpectedInflowExpectationAllocationCreate(
-            expected_inflow_id=route_inflow_id,
-            amount=int(payload.actual_amount),
-        )
-    ]
-    if route_inflow_id not in {item.expected_inflow_id for item in requested_allocations}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expected_inflow.route_allocation_required")
-    if sum(int(item.amount) for item in requested_allocations) != int(payload.actual_amount):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expected_inflow.allocation_total_mismatch")
-    if len({item.expected_inflow_id for item in requested_allocations}) != len(requested_allocations):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expected_inflow.duplicate_allocation")
-
-    inflow_ids = sorted(item.expected_inflow_id for item in requested_allocations)
-    rows = inflow_query(db).filter(
-        models.ExpectedIncome.owner_id == owner_id,
-        models.ExpectedIncome.id.in_(inflow_ids),
-    ).order_by(models.ExpectedIncome.id.asc()).with_for_update().all()
-    if len(rows) != len(inflow_ids):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="expected_inflow.not_found")
-    source_keys = {_source_key(row) for row in rows}
-    if len(source_keys) != 1:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expected_inflow.incompatible_sources")
-    allocation_by_id = {item.expected_inflow_id: int(item.amount) for item in requested_allocations}
-    for row in rows:
-        if normalized_status(row) not in ACTIVE_STATUSES:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.not_active")
-        if allocation_by_id[row.id] > remaining_amount(row):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expected_inflow.exceeds_remaining")
-
-    wallets = _resolve_wallets(db, owner_id, payload.wallet_allocations, int(payload.actual_amount))
-    received_date = payload.received_date or today
-    realization = models.ExpectedInflowRealization(
-        owner_id=owner_id,
-        actual_amount=int(payload.actual_amount),
-        received_date=received_date,
-        note=payload.note.strip() if payload.note else None,
-        idempotency_key=payload.idempotency_key,
-    )
-    db.add(realization)
-    db.flush()
-
-    events = _post_source(
-        db,
-        owner_id,
-        rows[0],
-        int(payload.actual_amount),
-        received_date,
-        payload.note,
-        wallets,
-    )
-    if not events:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="expected_inflow.posting_failed")
-    for row in rows:
-        db.add(models.ExpectedInflowRealizationAllocation(
-            realization_id=realization.id,
-            expected_inflow_id=row.id,
-            amount=allocation_by_id[row.id],
-        ))
-    for event in events:
-        db.add(models.ExpectedInflowRealizationEvent(
-            realization_id=realization.id,
-            financial_event_id=event.id,
-        ))
-    db.flush()
-
-    for row in rows:
-        db.refresh(row, attribute_names=["realization_allocations"])
-        _sync_lifecycle(row)
-        row.linked_transaction_id = events[0].id
-        if _kind(row) == models.ExpectedInflowKind.ASSET_SALE:
-            row.status = models.ExpectedIncomeStatus.RESOLVED
-            row.close_reason = "SOURCE_CLOSED"
-            row.closed_at = datetime.now(timezone.utc)
-    db.flush()
-    return realization, rows
-
-
-def reschedule_inflow(
-    db: Session,
-    owner_id: int,
-    inflow_id: int,
-    payload: schemas.ExpectedInflowRescheduleCreate,
-    *,
-    today: date,
-) -> tuple[models.ExpectedIncome, list[models.ExpectedIncome]]:
-    row = get_inflow_or_404(db, owner_id, inflow_id, lock=True)
-    if normalized_status(row) not in ACTIVE_STATUSES:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.not_active")
-    outstanding = remaining_amount(row)
-    if outstanding <= 0:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.no_remaining")
-    if sum(int(item.amount) for item in payload.allocations) != outstanding:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expected_inflow.reschedule_total_mismatch")
-    if all(item.due_date == row.due_date for item in payload.allocations):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expected_inflow.reschedule_no_change")
-    source_month = date(row.budget_year, row.budget_month, 1)
-    replacements: list[models.ExpectedIncome] = []
-    for allocation in payload.allocations:
-        validate_planning_date(allocation.due_date, today=today)
-        if allocation.due_date < today and allocation.due_date != row.due_date:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expected_inflow.reschedule_date_in_past")
-        target_month = date(allocation.due_date.year, allocation.due_date.month, 1)
-        if target_month < source_month:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expected_inflow.reschedule_cannot_move_backward")
-        replacement = models.ExpectedIncome(
-            owner_id=owner_id,
-            promise_id=int(row.promise_id),
-            kind=_kind(row).value,
-            source_id=row.source_id,
-            debt_id=row.debt_id,
-            asset_id=row.asset_id,
-            refund_event_id=row.refund_event_id,
-            parent_id=row.id,
-            amount=int(allocation.amount),
-            received_amount=0,
-            due_date=allocation.due_date,
-            budget_year=allocation.due_date.year,
-            budget_month=allocation.due_date.month,
-            status=models.ExpectedIncomeStatus.EXPECTED,
-            backing_eligible=bool(row.backing_eligible),
-            note=(allocation.note or payload.note or row.note),
-        )
-        db.add(replacement)
-        replacements.append(replacement)
-    row.status = models.ExpectedIncomeStatus.SUPERSEDED
-    row.close_reason = "RESCHEDULED"
-    row.closed_at = datetime.now(timezone.utc)
-    db.flush()
-    return row, replacements
-
-
-def cancel_inflow(row: models.ExpectedIncome, payload: schemas.ExpectedInflowCloseCreate) -> None:
-    if normalized_status(row) not in ACTIVE_STATUSES or received_amount(row) != 0:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.cancel_not_allowed")
-    row.status = models.ExpectedIncomeStatus.CANCELLED
-    row.close_reason = "CANCELLED"
-    row.closed_at = datetime.now(timezone.utc)
-    if payload.note:
-        row.note = payload.note.strip()
-
-
-def write_off_inflow(row: models.ExpectedIncome, payload: schemas.ExpectedInflowCloseCreate) -> None:
-    received = received_amount(row)
-    if normalized_status(row) not in ACTIVE_STATUSES or received <= 0 or remaining_amount(row) <= 0:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.write_off_not_allowed")
-    row.status = models.ExpectedIncomeStatus.RESOLVED
-    row.close_reason = "WRITTEN_OFF"
-    row.closed_at = datetime.now(timezone.utc)
-    if payload.note:
-        row.note = payload.note.strip()
-
-
-def reopen_inflow(row: models.ExpectedIncome) -> None:
-    if row.close_reason not in {"CANCELLED", "WRITTEN_OFF"}:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.reopen_not_allowed")
-    row.close_reason = None
-    row.closed_at = None
-    _sync_lifecycle(row)
-
-
-def reconcile_inflow(row: models.ExpectedIncome) -> None:
-    if row.close_reason in {"RESCHEDULED", "SOURCE_CLOSED"}:
-        return
-    if row.close_reason in {"CANCELLED", "WRITTEN_OFF"}:
-        return
-    _sync_lifecycle(row)
-
-
-def delete_inflow(db: Session, row: models.ExpectedIncome) -> None:
-    if received_amount(row) > 0 or row.realization_allocations or row.children or row.parent_id is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.delete_locked")
-    db.delete(row)
-
-
-# Promise aggregate API. `ExpectedIncome` remains the physical legacy schedule table.
+# Promise aggregate API. `ExpectedIncome` remains the physical schedule table.
 
 def promise_query(db: Session):
     schedule_realizations = (
@@ -917,7 +683,7 @@ def _schedule_state(schedule: models.ExpectedIncome) -> models.ExpectedIncomeSta
         return models.ExpectedIncomeStatus.SUPERSEDED
     if schedule.close_reason == "WRITTEN_OFF" and remaining_amount(schedule) == 0:
         return models.ExpectedIncomeStatus.WRITTEN_OFF
-    return normalized_status(schedule)
+    return schedule.status
 
 
 def _schedule_is_active(schedule: models.ExpectedIncome) -> bool:
@@ -1156,6 +922,16 @@ def serialize_promise(
                     amount=remaining_amount(schedule),
                     schedule_id=int(schedule.id),
                     note=schedule.note,
+                ))
+            # Ticket 9: Emit reschedule reversal as a distinct timeline event.
+            if schedule.close_reason == "RESCHEDULE_REVERSED" and schedule.closed_at:
+                activity.append(schemas.ExpectedInflowActivityOut(
+                    id=f"reschedule-reversed-{schedule.id}",
+                    activity_type="RESCHEDULE_REVERSED",
+                    activity_date=schedule.closed_at.date(),
+                    amount=int(schedule.amount),
+                    schedule_id=int(schedule.id),
+                    note="Reschedule reversed",
                 ))
         for write_off in promise.write_offs or []:
             activity.append(schemas.ExpectedInflowActivityOut(
@@ -1748,6 +1524,79 @@ def reverse_realization(
     return promise
 
 
+def reverse_reschedule(
+    db: Session,
+    owner_id: int,
+    promise_id: int,
+    source_schedule_id: int,
+) -> models.ExpectedInflowPromise:
+    """Reverse a reschedule — restore the superseded source schedule.
+
+    Ticket 9: Leaves-only reschedule reversal. A reschedule can only be
+    reversed when ALL replacement children are still untouched (no receipts,
+    no write-offs, no further rescheduling). Once any child has real activity
+    the tree is locked.
+    """
+    promise = get_promise_or_404(db, owner_id, promise_id, lock=True)
+    source = db.query(models.ExpectedIncome).filter(
+        models.ExpectedIncome.id == source_schedule_id,
+        models.ExpectedIncome.promise_id == promise_id,
+        models.ExpectedIncome.owner_id == owner_id,
+        models.ExpectedIncome.close_reason == "RESCHEDULED",
+    ).with_for_update().first()
+    if source is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="expected_inflow.reschedule_source_not_found",
+        )
+    # Find all immediate children created by this reschedule.
+    children = db.query(models.ExpectedIncome).filter(
+        models.ExpectedIncome.parent_id == int(source.id),
+        models.ExpectedIncome.promise_id == promise_id,
+    ).with_for_update().all()
+    if not children:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="expected_inflow.reschedule_no_children",
+        )
+    # Validate every child is untouched.
+    for child in children:
+        if received_amount(child) > 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="expected_inflow.reschedule_child_has_receipts",
+            )
+        if written_off_amount(child) > 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="expected_inflow.reschedule_child_has_write_offs",
+            )
+        if child.children:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="expected_inflow.reschedule_child_was_rescheduled",
+            )
+        if child.close_reason is not None and child.close_reason != "RESCHEDULED":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="expected_inflow.reschedule_child_not_expected",
+            )
+    # Restore the source schedule.
+    source.status = models.ExpectedIncomeStatus.EXPECTED
+    source.close_reason = None
+    source.closed_at = None
+    # Close children through an auditable structural correction.
+    now = datetime.now(timezone.utc)
+    for child in children:
+        child.status = models.ExpectedIncomeStatus.CANCELLED
+        child.close_reason = "RESCHEDULE_REVERSED"
+        child.closed_at = now
+    db.flush()
+    _sync_promise(promise)
+    db.flush()
+    return promise
+
+
 def cancel_promise(
     promise: models.ExpectedInflowPromise,
     payload: schemas.ExpectedInflowCloseCreate,
@@ -1766,41 +1615,6 @@ def cancel_promise(
         schedule.closed_at = datetime.now(timezone.utc)
     if payload.note:
         promise.note = payload.note.strip()
-    _sync_promise(promise)
-
-
-def reopen_promise(promise: models.ExpectedInflowPromise) -> None:
-    lifecycle = promise_lifecycle(promise)
-    if lifecycle != models.ExpectedInflowPromiseStatus.CLOSED:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.reopen_not_allowed")
-    display = promise_display_state(promise)
-    if display == models.PromiseDisplayState.FULLY_RECEIVED:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.reopen_not_allowed")
-    if _is_cancelled(promise):
-        leaves = [schedule for schedule in promise.schedules if not schedule.children and schedule.close_reason == "CANCELLED"]
-        for schedule in leaves:
-            schedule.close_reason = None
-            schedule.closed_at = None
-            _sync_schedule(schedule)
-    elif display in {models.PromiseDisplayState.WRITTEN_OFF, models.PromiseDisplayState.SETTLED}:
-        for write_off in promise.write_offs:
-            if write_off.reversed_at is None:
-                write_off.reversed_at = datetime.now(timezone.utc)
-                write_off.reversal_note = "Expected inflow reopened"
-        for schedule in promise.schedules:
-            if not schedule.children and schedule.close_reason == "WRITTEN_OFF":
-                schedule.close_reason = None
-                schedule.closed_at = None
-                _sync_schedule(schedule)
-    else:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.reopen_not_allowed")
-    _sync_promise(promise)
-
-
-def reconcile_promise(promise: models.ExpectedInflowPromise) -> None:
-    for schedule in promise.schedules:
-        if schedule.close_reason not in {"RESCHEDULED", "CANCELLED"}:
-            _sync_schedule(schedule)
     _sync_promise(promise)
 
 

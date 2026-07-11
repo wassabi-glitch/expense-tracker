@@ -54,13 +54,8 @@ export async function reverseExpectedInflowReceipt(id, realizationId, payload = 
     return response.data;
 }
 
-export async function reopenExpectedInflow(id) {
-    const response = await apiClient.post(`/expected-inflows/${id}/reopen`);
-    return response.data;
-}
-
-export async function reconcileExpectedInflow(id) {
-    const response = await apiClient.post(`/expected-inflows/${id}/reconcile`);
+export async function reverseExpectedInflowReschedule(id, scheduleId) {
+    const response = await apiClient.post(`/expected-inflows/${id}/reschedules/${scheduleId}/reverse`);
     return response.data;
 }
 

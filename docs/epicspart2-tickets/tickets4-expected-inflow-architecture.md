@@ -220,17 +220,17 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 5: Build Schedule cards, inline actions, and drawer anchoring.
 - Ticket 6: Replace raw expected-inflow history with a unified timeline.
 
-- [ ] Reschedule history records enough identity to know which child schedules came from one reschedule action.
-- [ ] A reschedule reversal command restores the superseded source schedule when all replacement children are untouched.
-- [ ] Reversal removes or closes untouched replacement children through an auditable structural correction.
-- [ ] Reversal is allowed for a simple one-child untouched replacement.
-- [ ] Reversal is allowed for a multi-child untouched replacement.
-- [ ] Reversal is blocked if any child has received amount.
-- [ ] Reversal is blocked if any child has written-off amount.
-- [ ] Reversal is blocked if any child has been rescheduled into its own children.
-- [ ] Reversal is blocked if any child is no longer expected for another reason.
-- [ ] Timeline shows reschedule reversal distinctly.
-- [ ] Tests cover multi-level schedule trees and the blocked child-activity cases.
+- [x] Reschedule history records enough identity to know which child schedules came from one reschedule action.
+- [x] A reschedule reversal command restores the superseded source schedule when all replacement children are untouched.
+- [x] Reversal removes or closes untouched replacement children through an auditable structural correction.
+- [x] Reversal is allowed for a simple one-child untouched replacement.
+- [x] Reversal is allowed for a multi-child untouched replacement.
+- [x] Reversal is blocked if any child has received amount.
+- [x] Reversal is blocked if any child has written-off amount.
+- [x] Reversal is blocked if any child has been rescheduled into its own children.
+- [x] Reversal is blocked if any child is no longer expected for another reason.
+- [x] Timeline shows reschedule reversal distinctly.
+- [x] Tests cover multi-level schedule trees and the blocked child-activity cases.
 
 ## Ticket 10: Remove Legacy Data, Edit, Delete, And Manual Lifecycle Paths
 
@@ -243,22 +243,22 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 8: Make write-off reversal preserve append-only history.
 - Ticket 9: Add leaves-only reschedule reversal.
 
-- [ ] Obsolete Expected Inflow enum values, columns, payload fields, and response fields are removed when they no longer match the new contract.
-- [ ] Obsolete development rows are migrated only when the mapping is clean; otherwise they may be discarded or reseeded.
-- [ ] No database table or column is kept solely to preserve stale development data.
-- [ ] No backend branch is kept solely to support the old 5-state Promise lifecycle.
-- [ ] No frontend branch is kept solely to render old expected-inflow status values.
-- [ ] Manual Promise reopen is removed or hidden from public user workflows.
-- [ ] Manual lifecycle changes are replaced by auto-close and auto-reopen math.
-- [ ] Raw schedule edit is unavailable after meaningful activity exists.
-- [ ] Raw schedule delete is unavailable after meaningful activity exists.
-- [ ] Promise delete is allowed only for pristine setup records with no meaningful history.
-- [ ] Non-pristine deletion attempts return clear guidance to use reverse, write-off, cancel, or archive-like visibility behavior if available.
-- [ ] Pristine setup correction remains possible without weakening history rules.
-- [ ] Frontend removes legacy edit/delete/reopen buttons where they violate the target contract.
-- [ ] API tests prove lifecycle commands cannot bypass expected-inflow invariants.
-- [ ] Regression tests prove legacy budget expected-income routes cannot bypass lifecycle commands.
-- [ ] Migration and cleanup tests prove the final schema/code path has no dependency on obsolete expected-inflow development data.
+- [x] Obsolete Expected Inflow enum values, columns, payload fields, and response fields are removed when they no longer match the new contract.
+- [x] Obsolete development rows are migrated only when the mapping is clean; otherwise they may be discarded or reseeded.
+- [x] No database table or column is kept solely to preserve stale development data.
+- [x] No backend branch is kept solely to support the old 5-state Promise lifecycle.
+- [x] No frontend branch is kept solely to render old expected-inflow status values.
+- [x] Manual Promise reopen is removed or hidden from public user workflows.
+- [x] Manual lifecycle changes are replaced by auto-close and auto-reopen math.
+- [x] Raw schedule edit is unavailable after meaningful activity exists.
+- [x] Raw schedule delete is unavailable after meaningful activity exists.
+- [x] Promise delete is allowed only for pristine setup records with no meaningful history.
+- [x] Non-pristine deletion attempts return clear guidance to use reverse, write-off, cancel, or archive-like visibility behavior if available.
+- [x] Pristine setup correction remains possible without weakening history rules.
+- [x] Frontend removes legacy edit/delete/reopen buttons where they violate the target contract.
+- [x] API tests prove lifecycle commands cannot bypass expected-inflow invariants.
+- [x] Regression tests prove legacy budget expected-income routes cannot bypass lifecycle commands.
+- [x] Migration and cleanup tests prove the final schema/code path has no dependency on obsolete expected-inflow development data.
 
 ## Ticket 11: Harden Budget Backing, Timezone Behavior, And Source-Kind Coverage
 

@@ -26,6 +26,7 @@ import {
   useRealizeExpectedInflowMutation,
   useRescheduleExpectedInflowMutation,
   useReverseExpectedInflowReceiptMutation,
+  useReverseExpectedInflowRescheduleMutation,
   useReverseExpectedInflowWriteOffMutation,
   useSaveExpectedInflowMutation,
   useWriteOffExpectedInflowMutation,
@@ -57,6 +58,7 @@ export default function ExpectedInflowDetails() {
   const writeOffMutation = useWriteOffExpectedInflowMutation();
   const reverseWriteOffMutation = useReverseExpectedInflowWriteOffMutation();
   const reverseReceiptMutation = useReverseExpectedInflowReceiptMutation();
+  const reverseRescheduleMutation = useReverseExpectedInflowRescheduleMutation();
   const cancelMutation = useCancelExpectedInflowMutation();
 
   const [editing, setEditing] = useState(false);
@@ -66,6 +68,7 @@ export default function ExpectedInflowDetails() {
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [reverseReceiptId, setReverseReceiptId] = useState(null);
   const [reverseWriteOffId, setReverseWriteOffId] = useState(null);
+  const [reverseRescheduleSchedule, setReverseRescheduleSchedule] = useState(null);
 
   // Extract anchor schedule id from URL hash (#schedule-123)
   const anchorScheduleId = useMemo(() => {
@@ -125,6 +128,7 @@ export default function ExpectedInflowDetails() {
     writeOffMutation.isPending ||
     reverseWriteOffMutation.isPending ||
     reverseReceiptMutation.isPending ||
+    reverseRescheduleMutation.isPending ||
     cancelMutation.isPending;
 
   const run = async (operation, successMessage) => {
@@ -220,6 +224,7 @@ export default function ExpectedInflowDetails() {
                 onReceive={(s) => setReceiving(s)}
                 onReschedule={(s) => setRescheduling(s)}
                 onWriteOff={(s) => setWritingOff(s)}
+                onReverseReschedule={(s) => setReverseRescheduleSchedule(s)}
               />
             ))}
           </div>
@@ -314,6 +319,19 @@ export default function ExpectedInflowDetails() {
             () => reverseWriteOffMutation.mutateAsync({ id: item.id, writeOffId: reverseWriteOffId, payload: {} }),
             "Write-off reversed",
           ).then(() => setReverseWriteOffId(null))
+        }
+      />
+
+      <ConfirmDialog
+        open={reverseRescheduleSchedule != null}
+        onOpenChange={(open) => { if (!open) setReverseRescheduleSchedule(null); }}
+        title="Reverse reschedule"
+        description="This will restore the original schedule and remove the replacement schedules. Only possible when replacement schedules have no receipts, write-offs, or further reschedules."
+        onConfirm={() =>
+          run(
+            () => reverseRescheduleMutation.mutateAsync({ id: item.id, scheduleId: reverseRescheduleSchedule.id }),
+            "Reschedule reversed",
+          ).then(() => setReverseRescheduleSchedule(null))
         }
       />
     </div>

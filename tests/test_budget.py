@@ -1932,13 +1932,13 @@ def test_expected_income_status_cannot_bypass_lifecycle_commands(client):
     )
     assert created.status_code == 201, created.text
 
+    # Ticket 10: Legacy status values removed — cannot bypass lifecycle commands.
     status_update = client.patch(
         f"/budgets/expected-incomes/{expected['id']}",
         json={"status": "RECEIVED"},
         headers=headers,
     )
-    assert status_update.status_code == 409, status_update.text
-    assert status_update.json()["detail"] == "expected_inflow.use_lifecycle_command"
+    assert status_update.status_code == 422, status_update.text
 
     summary = client.get(
         f"/budgets/month-summary?budget_year={today.year}&budget_month={today.month}",

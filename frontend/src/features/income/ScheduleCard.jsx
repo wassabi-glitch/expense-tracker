@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { CheckCircle2, Split } from "lucide-react";
+import { CheckCircle2, RotateCcw, Split } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,7 @@ export function ScheduleCard({
   onReceive,
   onReschedule,
   onWriteOff,
+  onReverseReschedule,
   highlight,
 }) {
   const ref = useRef(null);
@@ -92,6 +93,15 @@ export function ScheduleCard({
             </Button>
             <Button size="sm" variant="outline" onClick={() => onWriteOff(schedule)} disabled={pending}>
               Write off
+            </Button>
+          </div>
+        )}
+
+        {/* Ticket 9: Reverse reschedule — only on SUPERSEDED cards when Promise is open */}
+        {promiseIsOpen && schedule.read_state === "SUPERSEDED" && onReverseReschedule && (
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button size="sm" variant="ghost" onClick={() => onReverseReschedule(schedule)} disabled={pending}>
+              <RotateCcw className="mr-2 h-4 w-4" />Reverse reschedule
             </Button>
           </div>
         )}

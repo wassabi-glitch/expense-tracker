@@ -921,3 +921,216 @@ def test_receipt_then_write_off_then_reverse_both_in_any_order(client):
     assert rev_r.json()["received_amount"] == 0
     assert rev_r.json()["outstanding_amount"] == 500_000
     assert rev_r.json()["status"] == "OPEN"
+
+
+# ---------------------------------------------------------------------------
+# Ticket 9: Leaves-only reschedule reversal
+# ---------------------------------------------------------------------------
+
+
+def test_reverse_simple_one_child_reschedule(client):
+    """Reschedule with one replacement child can be reversed."""
+    headers = create_user_and_token(client, "t9simple", "t9simple@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 500_000, today)
+
+    # Find the only active schedule (created by _create_earned).
+    detail = client.get(f"/expected-inflows/{inflow['id']}", headers=headers)
+    schedule_id = detail.json()["schedules"][0]["id"]
+
+    # Reschedule to a future date.
+    future = _month_date(today, 1)
+    rescheduled = client.post(
+        f"/expected-inflows/{inflow['id']}/reschedule",
+        json={
+            "source_schedule_id": schedule_id,
+            "allocations": [{"amount": 500_000, "due_date": future.isoformat()}],
+        },
+        headers=headers,
+    )
+    assert rescheduled.status_code == 200, rescheduled.text
+    result = rescheduled.json()
+    assert result["source"]["is_rescheduled"] is True
+    assert len(result["replacements"]) == 1
+
+    # Reverse the reschedule.
+    rev = client.post(
+        f"/expected-inflows/{inflow['id']}/reschedules/{schedule_id}/reverse",
+        headers=headers,
+    )
+    assert rev.status_code == 200, rev.text
+    after = rev.json()
+    # Source schedule is restored — should be EXPECTED/active again.
+    source_schedule = next(s for s in after["schedules"] if s["id"] == schedule_id)
+    assert source_schedule["read_state"] == "OUTSTANDING"
+    # Child is closed with RESCHEDULE_REVERSED reason.
+    child = next(s for s in after["schedules"] if s["parent_id"] == schedule_id)
+    assert child["close_reason"] == "RESCHEDULE_REVERSED"
+    assert child["is_active"] is False
+
+
+def test_reverse_multi_child_untouched_reschedule(client):
+    """Multi-child reschedule can be reversed when all children are untouched."""
+    headers = create_user_and_token(client, "t9multi", "t9multi@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 600_000, today)
+
+    detail = client.get(f"/expected-inflows/{inflow['id']}", headers=headers)
+    schedule_id = detail.json()["schedules"][0]["id"]
+
+    future1 = _month_date(today, 1)
+    future2 = _month_date(today, 2)
+    rescheduled = client.post(
+        f"/expected-inflows/{inflow['id']}/reschedule",
+        json={
+            "source_schedule_id": schedule_id,
+            "allocations": [
+                {"amount": 300_000, "due_date": future1.isoformat()},
+                {"amount": 300_000, "due_date": future2.isoformat()},
+            ],
+        },
+        headers=headers,
+    )
+    assert rescheduled.status_code == 200, rescheduled.text
+    assert len(rescheduled.json()["replacements"]) == 2
+
+    rev = client.post(
+        f"/expected-inflows/{inflow['id']}/reschedules/{schedule_id}/reverse",
+        headers=headers,
+    )
+    assert rev.status_code == 200, rev.text
+    after = rev.json()
+    source_schedule = next(s for s in after["schedules"] if s["id"] == schedule_id)
+    assert source_schedule["read_state"] == "OUTSTANDING"
+
+
+def test_reschedule_reversal_blocked_by_child_receipt(client):
+    """Cannot reverse when a child has received money."""
+    headers = create_user_and_token(client, "t9blocked", "t9blocked@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    wallet = _wallet(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 400_000, today)
+
+    detail = client.get(f"/expected-inflows/{inflow['id']}", headers=headers)
+    schedule_id = detail.json()["schedules"][0]["id"]
+
+    future = _month_date(today, 1)
+    rescheduled = client.post(
+        f"/expected-inflows/{inflow['id']}/reschedule",
+        json={
+            "source_schedule_id": schedule_id,
+            "allocations": [{"amount": 400_000, "due_date": future.isoformat()}],
+        },
+        headers=headers,
+    )
+    assert rescheduled.status_code == 200, rescheduled.text
+    child_id = rescheduled.json()["replacements"][0]["id"]
+
+    # Receive against the child.
+    realized = client.post(
+        f"/expected-inflows/{inflow['id']}/realize",
+        json={
+            "actual_amount": 100_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 100_000}],
+            "schedule_allocations": [{"schedule_id": child_id, "amount": 100_000}],
+            "idempotency_key": "t9-blocked",
+        },
+        headers=headers,
+    )
+    assert realized.status_code == 200, realized.text
+
+    # Reversal is blocked.
+    rev = client.post(
+        f"/expected-inflows/{inflow['id']}/reschedules/{schedule_id}/reverse",
+        headers=headers,
+    )
+    assert rev.status_code == 409
+
+
+def test_reschedule_reversal_blocked_by_child_write_off(client):
+    """Cannot reverse when a child has been written off."""
+    headers = create_user_and_token(client, "t9woff", "t9woff@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 300_000, today)
+
+    detail = client.get(f"/expected-inflows/{inflow['id']}", headers=headers)
+    schedule_id = detail.json()["schedules"][0]["id"]
+
+    future = _month_date(today, 1)
+    rescheduled = client.post(
+        f"/expected-inflows/{inflow['id']}/reschedule",
+        json={
+            "source_schedule_id": schedule_id,
+            "allocations": [{"amount": 300_000, "due_date": future.isoformat()}],
+        },
+        headers=headers,
+    )
+    assert rescheduled.status_code == 200, rescheduled.text
+    child_id = rescheduled.json()["replacements"][0]["id"]
+
+    # Write off against the child.
+    wo = client.post(
+        f"/expected-inflows/{inflow['id']}/write-off",
+        json={
+            "amount": 100_000,
+            "reason": "Disputed",
+            "written_off_date": today.isoformat(),
+            "schedule_allocations": [{"schedule_id": child_id, "amount": 100_000}],
+        },
+        headers=headers,
+    )
+    assert wo.status_code == 200, wo.text
+
+    # Reversal is blocked.
+    rev = client.post(
+        f"/expected-inflows/{inflow['id']}/reschedules/{schedule_id}/reverse",
+        headers=headers,
+    )
+    assert rev.status_code == 409
+
+
+def test_reschedule_reversal_blocked_by_child_reschedule(client):
+    """Cannot reverse when a child has been rescheduled again."""
+    headers = create_user_and_token(client, "t9childres", "t9childres@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 500_000, today)
+
+    detail = client.get(f"/expected-inflows/{inflow['id']}", headers=headers)
+    schedule_id = detail.json()["schedules"][0]["id"]
+
+    future = _month_date(today, 1)
+    rescheduled = client.post(
+        f"/expected-inflows/{inflow['id']}/reschedule",
+        json={
+            "source_schedule_id": schedule_id,
+            "allocations": [{"amount": 500_000, "due_date": future.isoformat()}],
+        },
+        headers=headers,
+    )
+    assert rescheduled.status_code == 200, rescheduled.text
+    child_id = rescheduled.json()["replacements"][0]["id"]
+
+    # Reschedule the child again.
+    future2 = _month_date(today, 2)
+    r2 = client.post(
+        f"/expected-inflows/{inflow['id']}/reschedule",
+        json={
+            "source_schedule_id": child_id,
+            "allocations": [{"amount": 500_000, "due_date": future2.isoformat()}],
+        },
+        headers=headers,
+    )
+    assert r2.status_code == 200, r2.text
+
+    # Reversal of the original reschedule is blocked.
+    rev = client.post(
+        f"/expected-inflows/{inflow['id']}/reschedules/{schedule_id}/reverse",
+        headers=headers,
+    )
+    assert rev.status_code == 409

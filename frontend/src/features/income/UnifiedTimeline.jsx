@@ -61,6 +61,11 @@ const EVENT_CONFIG = {
     label: "Agreement reopened",
     tone: "text-amber-600 dark:text-amber-400",
   },
+  RESCHEDULE_REVERSED: {
+    icon: RotateCcw,
+    label: "Reschedule reversed",
+    tone: "text-amber-600 dark:text-amber-400",
+  },
 };
 
 
@@ -135,7 +140,7 @@ function buildTimelineEvents(item) {
     }
   }
 
-  // 4. Reschedules (from schedule close_reason == "RESCHEDULED")
+  // 4. Reschedules (from schedule close_reason == "RESCHEDULED") and reversals
   for (const schedule of item.schedules || []) {
     if (schedule.close_reason === "RESCHEDULED") {
       events.push({
@@ -144,6 +149,16 @@ function buildTimelineEvents(item) {
         date: schedule.updated_at ? schedule.updated_at.slice(0, 10) : null,
         amount: schedule.amount,
         note: `Due date was ${formatDisplayDate(schedule.due_date)}`,
+        scheduleId: schedule.id,
+      });
+    }
+    if (schedule.close_reason === "RESCHEDULE_REVERSED") {
+      events.push({
+        id: `reschedule-reversed-${schedule.id}`,
+        type: "RESCHEDULE_REVERSED",
+        date: schedule.updated_at ? schedule.updated_at.slice(0, 10) : null,
+        amount: schedule.amount,
+        note: "Reschedule reversed",
         scheduleId: schedule.id,
       });
     }

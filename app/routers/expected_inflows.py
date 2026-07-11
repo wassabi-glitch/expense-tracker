@@ -275,30 +275,17 @@ def reverse_expected_inflow_realization(
     return _serialize(db, current_user.id, promise_id, today)
 
 
-@router.post("/{promise_id}/reopen", response_model=schemas.ExpectedInflowPromiseOut)
-def reopen_expected_inflow(
+@router.post("/{promise_id}/reschedules/{schedule_id}/reverse", response_model=schemas.ExpectedInflowPromiseOut)
+def reverse_expected_inflow_reschedule(
     promise_id: int,
+    schedule_id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
     user_tz=Depends(get_effective_user_timezone),
 ):
+    """Ticket 9: Reverse a reschedule when all children are untouched."""
     today = _today(user_tz)
-    promise = service.get_promise_or_404(db, current_user.id, promise_id, lock=True)
-    service.reopen_promise(promise)
-    db.commit()
-    return _serialize(db, current_user.id, promise_id, today)
-
-
-@router.post("/{promise_id}/reconcile", response_model=schemas.ExpectedInflowPromiseOut)
-def reconcile_expected_inflow(
-    promise_id: int,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(oauth2.get_current_user),
-    user_tz=Depends(get_effective_user_timezone),
-):
-    today = _today(user_tz)
-    promise = service.get_promise_or_404(db, current_user.id, promise_id, lock=True)
-    service.reconcile_promise(promise)
+    service.reverse_reschedule(db, current_user.id, promise_id, schedule_id)
     db.commit()
     return _serialize(db, current_user.id, promise_id, today)
 

@@ -1,16 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Ban,
   CalendarClock,
-  Eye,
   FileText,
   History,
-  Pencil,
   Plus,
-  RotateCcw,
   Search,
-  Trash2,
   Wallet,
 } from "lucide-react";
 
@@ -41,9 +36,7 @@ import { AgreementRow } from "./AgreementRow";
 import { CashflowRow } from "./CashflowRow";
 import {
   useCancelExpectedInflowMutation,
-  useDeleteExpectedInflowMutation,
   useRealizeExpectedInflowMutation,
-  useReopenExpectedInflowMutation,
   useRescheduleExpectedInflowMutation,
   useSaveExpectedInflowMutation,
   useWriteOffExpectedInflowMutation,
@@ -103,9 +96,7 @@ export function ExpectedInflowsPanel({ monthValue, onMonthChange, todayISO, crea
   const rescheduleMutation = useRescheduleExpectedInflowMutation();
   const writeOffMutation = useWriteOffExpectedInflowMutation();
   const cancelMutation = useCancelExpectedInflowMutation();
-  const reopenMutation = useReopenExpectedInflowMutation();
-  const deleteMutation = useDeleteExpectedInflowMutation();
-  const pending = [saveMutation, receiveMutation, rescheduleMutation, writeOffMutation, cancelMutation, reopenMutation, deleteMutation].some((m) => m.isPending);
+  const pending = [saveMutation, receiveMutation, rescheduleMutation, writeOffMutation, cancelMutation].some((m) => m.isPending);
 
   const loading = agreementsQuery.isLoading || sourcesQuery.isLoading || debtsQuery.isLoading || expensesQuery.isLoading || assetsQuery.isLoading || walletsQuery.isLoading;
 
@@ -120,9 +111,8 @@ export function ExpectedInflowsPanel({ monthValue, onMonthChange, todayISO, crea
     if (!confirmAction) return;
     try {
       if (confirmAction.type === "cancel") await cancelMutation.mutateAsync(confirmAction.item.id);
-      if (confirmAction.type === "delete") await deleteMutation.mutateAsync(confirmAction.item.id);
       setConfirmAction(null);
-      toast.success("Expected inflow updated");
+      toast.success("Expected inflow cancelled");
     } catch (error) {
       toast.error("Expected inflow action failed", error?.message);
     }
@@ -262,7 +252,7 @@ export function ExpectedInflowsPanel({ monthValue, onMonthChange, todayISO, crea
       />
       <ConfirmDialog
         open={Boolean(confirmAction)} onOpenChange={(open) => !open && setConfirmAction(null)}
-        title={confirmAction?.type === "delete" ? "Delete expected inflow" : "Cancel expected inflow"}
+        title="Cancel expected inflow"
         description={confirmAction?.item?.title || "Expected inflow"}
         onConfirm={runConfirmedAction}
       />
