@@ -21,6 +21,11 @@ export async function updateIncomeSource(sourceId, payload) {
     return response.data;
 }
 
+export async function getIncomeSourceAnalytics(sourceId) {
+    const response = await apiClient.get(`/income/sources/${sourceId}/analytics`);
+    return response.data;
+}
+
 export async function deleteIncomeSource(sourceId) {
     const response = await apiClient.delete(`/income/sources/${sourceId}`);
     return response.data;

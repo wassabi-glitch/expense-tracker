@@ -89,16 +89,16 @@ Assumption: the Epicspart2 ledger foundation, Debt architecture, and Expected In
 - Ticket 1: Enforce Expected Inflow Entity + Memo ledger identity.
 - Ticket 2: Add creatable Income Source selection for Expected Inflows.
 
-- [ ] Users can navigate to an Income Sources Hub or equivalent first-class source analytics view.
-- [ ] Each source shows lifetime expected amount from linked Expected Inflows.
-- [ ] Each source shows lifetime received amount from linked posted money.
-- [ ] Each source shows current outstanding expected amount.
-- [ ] Each source exposes a reliability-oriented metric or status derived from due/received behavior.
-- [ ] Source analytics use durable source links, not ledger-title parsing.
-- [ ] Inactive sources remain viewable when historical analytics exist.
-- [ ] Source detail supports scanning related expected inflows and posted received money.
-- [ ] Tests cover source totals for expected, received, outstanding, and inactive-source history.
-- [ ] Frontend tests cover the empty state, populated list, and source detail summary.
+- [x] Users can navigate to an Income Sources Hub or equivalent first-class source analytics view.
+- [x] Each source shows lifetime expected amount from linked Expected Inflows.
+- [x] Each source shows lifetime received amount from linked posted money.
+- [x] Each source shows current outstanding expected amount.
+- [x] Each source exposes a reliability-oriented metric or status derived from due/received behavior.
+- [x] Source analytics use durable source links, not ledger-title parsing.
+- [x] Inactive sources remain viewable when historical analytics exist.
+- [x] Source detail supports scanning related expected inflows and posted received money.
+- [x] Tests cover source totals for expected, received, outstanding, and inactive-source history.
+- [x] Frontend tests cover the empty state, populated list, and source detail summary.
 
 ## Ticket 4: Apply Global Money In Title Inheritance
 
@@ -106,16 +106,16 @@ Assumption: the Epicspart2 ledger foundation, Debt architecture, and Expected In
 
 **Blocked by:** Ticket 1: Enforce Expected Inflow Entity + Memo ledger identity.
 
-- [ ] Direct refund posting stores the original expense title as the refund event title.
-- [ ] Expected refund receipt posting preserves the Promise title as the refund Money In title.
-- [ ] Refund titles do not use "Refund", "Partial Refund", or "Refund for" as stored primary title.
-- [ ] Debt receipt posting uses the user's receipt note or memo as the primary Money In title.
-- [ ] Debt receipt counterparty appears as supporting context, not as the primary title.
-- [ ] Debt receipt flow collects or validates the note required to become the title.
-- [ ] Asset sale posting stores the asset title or linked Promise title without an "Asset Sale" prefix.
-- [ ] Balance corrections use the user's note as title when one exists.
-- [ ] Balance corrections use "Balance Adjustment" only when no user note exists.
-- [ ] Tests cover every Money In title rule and prevent the banned prefixes from returning.
+- [x] Direct refund posting stores the original expense title as the refund event title.
+- [x] Expected refund receipt posting preserves the Promise title as the refund Money In title.
+- [x] Refund titles do not use "Refund", "Partial Refund", or "Refund for" as stored primary title.
+- [x] Debt receipt posting uses the user's receipt note or memo as the primary Money In title.
+- [x] Debt receipt counterparty appears as supporting context, not as the primary title.
+- [x] Debt receipt flow collects or validates the note required to become the title.
+- [x] Asset sale posting stores the asset title or linked Promise title without an "Asset Sale" prefix.
+- [x] Balance corrections use the user's note as title when one exists.
+- [x] Balance corrections use "Balance Adjustment" only when no user note exists.
+- [x] Tests cover every Money In title rule and prevent the banned prefixes from returning.
 
 ## Ticket 5: Preserve Refund Duality Across Wallet And Category Math
 

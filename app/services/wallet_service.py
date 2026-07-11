@@ -186,10 +186,13 @@ class WalletService:
             event_date=reconcile_date,
         )
 
+        # Ticket 4: Use the user's note as title when provided.
+        # Only fall back to "Balance Adjustment" when no note exists.
+        adjustment_title = (note.strip() if note and note.strip() else "Balance Adjustment")[:100]
         return post_financial_event(
             db,
             owner_id=owner_id,
-            title="Balance Adjustment",
+            title=adjustment_title,
             event_type=models.TransactionType.ADJUSTMENT,
             date=reconcile_date,
             description=note,

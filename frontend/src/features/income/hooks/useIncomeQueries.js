@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { getDashboardSummary, getIncomeEntries, getIncomeSources, getMoneyIn } from "@/lib/api";
+import { getDashboardSummary, getIncomeEntries, getIncomeSourceAnalytics, getIncomeSources, getMoneyIn } from "@/lib/api";
 
 export function useIncomeSourcesQuery(includeInactive = false) {
     return useQuery({
@@ -39,5 +39,14 @@ export function useIncomeMonthEntriesCountQuery(params, enabled = true) {
         queryFn: () => getIncomeEntries(params),
         enabled,
         placeholderData: (previousData) => previousData,
+    });
+}
+
+// Ticket 3: Income Sources Hub — per-source lifetime analytics
+export function useIncomeSourceAnalyticsQuery(sourceId, enabled = true) {
+    return useQuery({
+        queryKey: ["income", "sources", sourceId, "analytics"],
+        queryFn: () => getIncomeSourceAnalytics(sourceId),
+        enabled: enabled && sourceId != null,
     });
 }

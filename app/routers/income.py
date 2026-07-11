@@ -253,10 +253,25 @@ def _record_income_event(
     linked_event_id: int | None = None,
 ) -> models.FinancialEvent:
     """Create a posted INCOME FinancialEvent through the ledger seam."""
+    # Ticket 4: Use the user's note as the primary title when provided.
+    # For corrections (linked_event_id set): use note, fallback to "Balance Adjustment".
+    # For regular income: use note, fallback to source name, fallback to "Income".
+    if note and note.strip():
+        title = note.strip()[:100]
+    elif linked_event_id is not None:
+        title = "Balance Adjustment"
+    elif source_id is not None:
+        source = db.query(models.IncomeSource).filter(
+            models.IncomeSource.id == source_id,
+            models.IncomeSource.owner_id == owner_id,
+        ).first()
+        title = (source.name if source else "Income")[:100]
+    else:
+        title = "Income"
     return post_financial_event(
         db,
         owner_id=owner_id,
-        title="Income",
+        title=title,
         event_type=models.TransactionType.INCOME,
         date=income_date,
         description=note,
@@ -604,6 +619,86 @@ def list_income_sources(
     if not include_inactive:
         query = query.filter(models.IncomeSource.is_active.is_(True))
     return query.order_by(models.IncomeSource.created_at.desc(), models.IncomeSource.id.desc()).all()
+
+
+# ---------------------------------------------------------------------------
+# Ticket 3: Income Sources Hub — per-source lifetime analytics
+# ---------------------------------------------------------------------------
+
+
+@router.get("/sources/{source_id}/analytics", response_model=schemas.IncomeSourceAnalyticsOut)
+def get_income_source_analytics(
+    source_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+):
+    source = db.query(models.IncomeSource).filter(
+        models.IncomeSource.id == source_id,
+        models.IncomeSource.owner_id == current_user.id,
+    ).first()
+    if source is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="income.source_not_found")
+
+    # EARNED promises linked to this source (active + closed).
+    # Eager-load schedules so we can sum received_amount without N+1.
+    earned_promises = (
+        db.query(models.ExpectedInflowPromise)
+        .options(selectinload(models.ExpectedInflowPromise.schedules))
+        .filter(
+            models.ExpectedInflowPromise.owner_id == current_user.id,
+            models.ExpectedInflowPromise.source_id == source_id,
+            models.ExpectedInflowPromise.kind == models.ExpectedInflowKind.EARNED.value,
+        )
+        .all()
+    )
+
+    promise_count = len(earned_promises)
+    promise_ids = [int(p.id) for p in earned_promises]
+    lifetime_expected = sum(int(p.original_amount) for p in earned_promises)
+    lifetime_received = 0
+    outstanding_expected = 0
+
+    for promise in earned_promises:
+        for schedule in promise.schedules or []:
+            # Use denormalised received_amount column (same as service.received_amount).
+            received = int(schedule.received_amount or 0)
+            lifetime_received += received
+            remaining = max(int(schedule.amount) - received, 0)
+            # Only count non-superseded schedules toward outstanding
+            if remaining > 0 and schedule.close_reason != "RESCHEDULED":
+                outstanding_expected += remaining
+
+    # Money In entries linked to this source via entity leg income_source_id
+    entity_rows = db.query(models.EntityLedger).filter(
+        models.EntityLedger.income_source_id == source_id,
+    ).all()
+    entry_ids = {int(row.event_id) for row in entity_rows}
+    entry_count = len(entry_ids)
+    entry_total_received = int(sum(int(row.amount) for row in entity_rows))
+
+    # Reliability: received / (received + outstanding) across active promises
+    total_active_material = lifetime_received + outstanding_expected
+    reliability_pct = (
+        round(lifetime_received / total_active_material * 100, 1)
+        if total_active_material > 0
+        else None
+    )
+
+    return schemas.IncomeSourceAnalyticsOut(
+        id=int(source.id),
+        name=source.name,
+        is_active=bool(source.is_active),
+        promise_count=promise_count,
+        lifetime_expected=lifetime_expected,
+        lifetime_received=lifetime_received,
+        outstanding_expected=outstanding_expected,
+        entry_count=entry_count,
+        entry_total_received=entry_total_received,
+        reliability_pct=reliability_pct,
+        promise_ids=promise_ids,
+        created_at=source.created_at,
+        updated_at=source.updated_at,
+    )
 
 
 @router.post("/sources", response_model=schemas.IncomeSourceOut, status_code=status.HTTP_201_CREATED)

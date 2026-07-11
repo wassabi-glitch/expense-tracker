@@ -148,11 +148,14 @@ def _record_multi_wallet_sale_event(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="wallets.archived_locked")
         validated_wallets.append((wallet, int(allocation.amount)))
 
+    # Ticket 4: Store the asset title without "Asset Sale:" prefix.
+    # The sale type is communicated through reference_type, not the title.
     event = models.FinancialEvent(
         owner_id=owner_id,
-        title=f"Asset Sale: {asset.title}",
+        title=asset.title[:100],
         description=note or asset.description,
         event_type=models.TransactionType.INCOME,
+        reference_type=models.ReferenceType.ASSET_SALE,
         linked_event_id=asset.origin_event_id,
         date=sold_date,
     )
