@@ -92,6 +92,16 @@ export default function ExpectedInflowDetails() {
     }
   }, [anchorScheduleId, item, location.hash]);
 
+  // All schedules sorted: active/pending first, then historical.
+  // Keep this hook before early returns so the hook order is stable while data loads.
+  const sortedSchedules = useMemo(() => {
+    const schedules = item?.schedules || [];
+    return [...schedules].sort((a, b) => {
+      if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
+      return a.due_date.localeCompare(b.due_date);
+    });
+  }, [item?.schedules]);
+
   if (detailQuery.isLoading) {
     return (
       <div className="flex min-h-64 items-center justify-center">
@@ -125,17 +135,6 @@ export default function ExpectedInflowDetails() {
       toast.error("Expected inflow action failed", error?.message);
     }
   };
-
-  // All schedules sorted: active/pending first, then historical
-  const sortedSchedules = useMemo(() => {
-    const schedules = item.schedules || [];
-    return [...schedules].sort((a, b) => {
-      // Active first
-      if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
-      // Then by due date
-      return a.due_date.localeCompare(b.due_date);
-    });
-  }, [item.schedules]);
 
   return (
     <div className="w-full space-y-7 px-page py-8">
