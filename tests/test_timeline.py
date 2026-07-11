@@ -25,7 +25,7 @@ def test_future_timeline_aggregates_all_event_types(client, session):
         source_id=source.id,
         title="Monthly Salary",
         original_amount=1_000_000,
-        status=models.ExpectedInflowPromiseStatus.EXPECTED,
+        status=models.ExpectedInflowPromiseStatus.OPEN.value,
     )
     session.add(income_promise)
     session.flush()
@@ -273,7 +273,7 @@ def test_timeline_excludes_fully_paid_items_and_uses_remaining_amount(client, se
         source_id=source.id,
         title="Bonus",
         original_amount=1_000_000,
-        status=models.ExpectedInflowPromiseStatus.RESOLVED,
+        status=models.ExpectedInflowPromiseStatus.CLOSED.value,
     )
     session.add(income_promise)
     session.flush()

@@ -49,11 +49,10 @@ import {
 import { useExpectedInflowsQuery } from "./hooks/useExpectedInflowQueries";
 
 
-const STATUS_META = {
+const DISPLAY_STATE_META = {
   EXPECTED: { label: "Expected", tone: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300" },
-  PARTIALLY_RECEIVED: { label: "Partially received", tone: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300" },
-  RESOLVED: { label: "Resolved", tone: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" },
-  CANCELLED: { label: "Cancelled", tone: "border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300" },
+  FULLY_RECEIVED: { label: "Fully received", tone: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" },
+  SETTLED: { label: "Settled", tone: "border-purple-500/30 bg-purple-500/10 text-purple-700 dark:text-purple-300" },
   WRITTEN_OFF: { label: "Written off", tone: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300" },
 };
 
@@ -68,9 +67,9 @@ const normalizeItems = (data) => (Array.isArray(data) ? data : data?.items || []
 
 function InflowRow({ item, pending, onReceive, onReschedule, onWriteOff, onEdit, onCancel, onReopen, onDelete }) {
   const navigate = useNavigate();
-  const meta = STATUS_META[item.status] || STATUS_META.CANCELLED;
+  const meta = DISPLAY_STATE_META[item.display_state] || { label: item.display_state, tone: "border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300" };
   const KindIcon = KIND_ICONS[item.kind] || CalendarClock;
-  const active = ["EXPECTED", "PARTIALLY_RECEIVED"].includes(item.status);
+  const active = item.status === "OPEN";
   return (
     <Card className="rounded-lg border-border/70 shadow-sm">
       <CardContent className="p-4">
@@ -101,7 +100,7 @@ function InflowRow({ item, pending, onReceive, onReschedule, onWriteOff, onEdit,
             <Button size="icon" variant="ghost" title="Open details" onClick={() => navigate(`/money-in/expected-inflow/${item.id}`)}><Eye className="h-4 w-4" /></Button>
             {active ? <Button size="icon" variant="ghost" title="Edit" onClick={() => onEdit(item)} disabled={pending}><Pencil className="h-4 w-4" /></Button> : null}
             {active && item.received_amount === 0 && item.written_off_amount === 0 ? <Button size="icon" variant="ghost" title="Cancel" onClick={() => onCancel(item)} disabled={pending}><Ban className="h-4 w-4" /></Button> : null}
-            {!active && ["CANCELLED", "WRITTEN_OFF"].includes(item.status) ? <Button size="icon" variant="ghost" title="Reopen" onClick={() => onReopen(item)} disabled={pending}><RotateCcw className="h-4 w-4" /></Button> : null}
+            {!active && item.display_state !== "FULLY_RECEIVED" ? <Button size="icon" variant="ghost" title="Reopen" onClick={() => onReopen(item)} disabled={pending}><RotateCcw className="h-4 w-4" /></Button> : null}
             {item.is_pristine ? <Button size="icon" variant="ghost" title="Delete" className="text-destructive" onClick={() => onDelete(item)} disabled={pending}><Trash2 className="h-4 w-4" /></Button> : null}
           </div>
         </div>

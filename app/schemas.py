@@ -34,6 +34,8 @@ from .models import (
     ExpectedIncomeStatus,
     ExpectedInflowKind,
     ExpectedInflowPromiseStatus,
+    PromiseDisplayState,
+    ScheduleReadState,
     PaymentPlanFrequency,
     PaymentPlanType,
     PaymentPlanStatus,
@@ -735,6 +737,8 @@ class ExpectedInflowScheduleOut(BaseModel):
     budget_year: int
     budget_month: int
     status: ExpectedIncomeStatus
+    structural_lifecycle: ExpectedIncomeStatus = ExpectedIncomeStatus.EXPECTED
+    read_state: ScheduleReadState = ScheduleReadState.OUTSTANDING
     close_reason: Optional[str] = None
     is_active: bool
     is_overdue: bool
@@ -784,6 +788,7 @@ class ExpectedInflowPromiseOut(BaseModel):
     budget_year: Optional[int] = None
     budget_month: Optional[int] = None
     status: ExpectedInflowPromiseStatus
+    display_state: PromiseDisplayState = PromiseDisplayState.EXPECTED
     backing_eligible: bool
     backing_amount: int
     period_scheduled_amount: int
@@ -853,6 +858,7 @@ class ExpectedInflowTimelineItemOut(BaseModel):
     received_amount: int
     remaining_amount: int
     status: ExpectedIncomeStatus
+    read_state: ScheduleReadState = ScheduleReadState.OUTSTANDING
     backing_eligible: bool
     is_overdue: bool
 

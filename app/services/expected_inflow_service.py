@@ -875,7 +875,41 @@ def _promise_source_label(promise: models.ExpectedInflowPromise) -> str:
     return "Expense refund"
 
 
+def _schedule_structural_state(schedule: models.ExpectedIncome) -> models.ExpectedIncomeStatus:
+    """Structural lifecycle only: active, superseded, or cancelled.
+    Does NOT encode settlement/read labels."""
+    if schedule.close_reason == "RESCHEDULED":
+        return models.ExpectedIncomeStatus.SUPERSEDED
+    if schedule.close_reason == "CANCELLED":
+        return models.ExpectedIncomeStatus.CANCELLED
+    return models.ExpectedIncomeStatus.EXPECTED
+
+
+def schedule_read_state(schedule: models.ExpectedIncome, *, today: date) -> models.ScheduleReadState:
+    """Derived schedule settlement/read label — never stored as source of truth."""
+    structural = _schedule_structural_state(schedule)
+    if structural == models.ExpectedIncomeStatus.SUPERSEDED:
+        return models.ScheduleReadState.SUPERSEDED
+    if structural == models.ExpectedIncomeStatus.CANCELLED:
+        return models.ScheduleReadState.CANCELLED
+    received = received_amount(schedule)
+    written_off = written_off_amount(schedule)
+    remaining = max(int(schedule.amount) - received - written_off, 0)
+    if remaining == 0:
+        if written_off > 0 and received > 0:
+            return models.ScheduleReadState.SETTLED
+        if written_off > 0:
+            return models.ScheduleReadState.WRITTEN_OFF
+        return models.ScheduleReadState.FULLY_RECEIVED
+    is_overdue = schedule.due_date < today
+    if received > 0:
+        return models.ScheduleReadState.OVERDUE if is_overdue else models.ScheduleReadState.PARTIAL
+    return models.ScheduleReadState.OVERDUE if is_overdue else models.ScheduleReadState.OUTSTANDING
+
+
 def _schedule_state(schedule: models.ExpectedIncome) -> models.ExpectedIncomeStatus:
+    """Stored schedule status (rebuildable projection) — legacy compat.
+    Prefer schedule_read_state() for user-facing labels."""
     if schedule.close_reason == "RESCHEDULED":
         return models.ExpectedIncomeStatus.SUPERSEDED
     if schedule.close_reason == "WRITTEN_OFF" and remaining_amount(schedule) == 0:
@@ -907,23 +941,45 @@ def promise_outstanding_amount(promise: models.ExpectedInflowPromise) -> int:
     ))
 
 
-def promise_status(promise: models.ExpectedInflowPromise) -> models.ExpectedInflowPromiseStatus:
+def promise_lifecycle(promise: models.ExpectedInflowPromise) -> models.ExpectedInflowPromiseStatus:
+    """Stored lifecycle: OPEN when outstanding > 0; CLOSED otherwise.
+    Derived from immutable financial facts."""
+    outstanding = promise_outstanding_amount(promise)
+    return (
+        models.ExpectedInflowPromiseStatus.OPEN
+        if outstanding > 0
+        else models.ExpectedInflowPromiseStatus.CLOSED
+    )
+
+
+def _is_cancelled(promise: models.ExpectedInflowPromise) -> bool:
+    """True when every non-superseded schedule has been explicitly cancelled."""
+    current = [
+        s for s in (promise.schedules or [])
+        if s.close_reason != "RESCHEDULED"
+    ]
+    return bool(current) and all(s.close_reason == "CANCELLED" for s in current)
+
+
+def promise_display_state(promise: models.ExpectedInflowPromise) -> models.PromiseDisplayState:
+    """Derived Promise display state from immutable financial facts.
+    Never stored — always computed from received, written-off, and outstanding."""
     received = promise_received_amount(promise)
     written_off = promise_written_off_amount(promise)
     outstanding = promise_outstanding_amount(promise)
     if outstanding > 0:
-        return (
-            models.ExpectedInflowPromiseStatus.PARTIALLY_RECEIVED
-            if received > 0
-            else models.ExpectedInflowPromiseStatus.EXPECTED
-        )
+        return models.PromiseDisplayState.EXPECTED
     if received >= int(promise.original_amount) and written_off == 0:
-        return models.ExpectedInflowPromiseStatus.RESOLVED
-    if written_off > 0:
-        return models.ExpectedInflowPromiseStatus.WRITTEN_OFF
-    if any(_schedule_state(schedule) == models.ExpectedIncomeStatus.CANCELLED for schedule in promise.schedules or []):
-        return models.ExpectedInflowPromiseStatus.CANCELLED
-    return promise.status
+        return models.PromiseDisplayState.FULLY_RECEIVED
+    if written_off >= int(promise.original_amount) and received == 0:
+        return models.PromiseDisplayState.WRITTEN_OFF
+    # Mixed settlement: some received, some written off, zero outstanding
+    return models.PromiseDisplayState.SETTLED
+
+
+# Backward-compat alias — callers should migrate to promise_display_state or promise_lifecycle
+def promise_status(promise: models.ExpectedInflowPromise) -> models.PromiseDisplayState:
+    return promise_display_state(promise)
 
 
 def promise_is_pristine(promise: models.ExpectedInflowPromise) -> bool:
@@ -968,22 +1024,19 @@ def _sync_schedule(schedule: models.ExpectedIncome) -> None:
 
 
 def _sync_promise(promise: models.ExpectedInflowPromise) -> None:
-    state = promise_status(promise)
-    promise.status = state
-    promise.closed_at = (
-        promise.closed_at or datetime.now(timezone.utc)
-        if state in {
-            models.ExpectedInflowPromiseStatus.RESOLVED,
-            models.ExpectedInflowPromiseStatus.CANCELLED,
-            models.ExpectedInflowPromiseStatus.WRITTEN_OFF,
-        }
-        else None
-    )
+    lifecycle = promise_lifecycle(promise)
+    promise.status = lifecycle.value
+    if lifecycle == models.ExpectedInflowPromiseStatus.CLOSED:
+        promise.closed_at = promise.closed_at or datetime.now(timezone.utc)
+    else:
+        promise.closed_at = None
 
 
 def _serialize_schedule(schedule: models.ExpectedIncome, *, today: date) -> schemas.ExpectedInflowScheduleOut:
-    state = _schedule_state(schedule)
+    stored_status = _schedule_state(schedule)
     remaining = remaining_amount(schedule)
+    read_state = schedule_read_state(schedule, today=today)
+    structural = _schedule_structural_state(schedule)
     return schemas.ExpectedInflowScheduleOut(
         id=int(schedule.id),
         promise_id=int(schedule.promise_id),
@@ -995,7 +1048,9 @@ def _serialize_schedule(schedule: models.ExpectedIncome, *, today: date) -> sche
         due_date=schedule.due_date,
         budget_year=int(schedule.budget_year),
         budget_month=int(schedule.budget_month),
-        status=state,
+        status=stored_status,
+        structural_lifecycle=structural,
+        read_state=read_state,
         close_reason=schedule.close_reason,
         is_active=_schedule_is_active(schedule),
         is_overdue=_schedule_is_active(schedule) and schedule.due_date < today,
@@ -1036,13 +1091,20 @@ def serialize_promise(
     received = promise_received_amount(promise)
     written_off = promise_written_off_amount(promise)
     outstanding = promise_outstanding_amount(promise)
-    state = promise_status(promise)
+    lifecycle = promise_lifecycle(promise)
+    display_state = promise_display_state(promise)
     next_due = min((schedule.due_date for schedule in active_schedules), default=None)
-    close_reason = {
-        models.ExpectedInflowPromiseStatus.RESOLVED: "FULLY_RECEIVED",
-        models.ExpectedInflowPromiseStatus.CANCELLED: "CANCELLED",
-        models.ExpectedInflowPromiseStatus.WRITTEN_OFF: "WRITTEN_OFF",
-    }.get(state)
+    # Derive close_reason from facts, not stored state
+    close_reason = None
+    if lifecycle == models.ExpectedInflowPromiseStatus.CLOSED:
+        if written_off > 0 and received > 0:
+            close_reason = "SETTLED"
+        elif written_off > 0:
+            close_reason = "WRITTEN_OFF"
+        elif received > 0:
+            close_reason = "FULLY_RECEIVED"
+        elif _is_cancelled(promise):
+            close_reason = "CANCELLED"
     realization_outputs: list[schemas.ExpectedInflowRealizationOut] = []
     activity: list[schemas.ExpectedInflowActivityOut] = [
         schemas.ExpectedInflowActivityOut(
@@ -1110,7 +1172,8 @@ def serialize_promise(
         next_due_date=next_due,
         budget_year=(next_due.year if next_due else None),
         budget_month=(next_due.month if next_due else None),
-        status=state,
+        status=lifecycle,
+        display_state=display_state,
         backing_eligible=bool(promise.backing_eligible),
         backing_amount=(outstanding if promise.backing_eligible else 0),
         period_scheduled_amount=sum(int(schedule.amount) for schedule in period_schedules),
@@ -1171,10 +1234,7 @@ def list_promises(
             )
             if not has_period_schedule:
                 continue
-        is_active = output.status in {
-            models.ExpectedInflowPromiseStatus.EXPECTED,
-            models.ExpectedInflowPromiseStatus.PARTIALLY_RECEIVED,
-        }
+        is_active = output.status == models.ExpectedInflowPromiseStatus.OPEN
         if view == "active" and not is_active:
             continue
         if view == "history" and is_active:
@@ -1211,7 +1271,7 @@ def create_promise(
         refund_event_id=payload.refund_event_id,
         title=(payload.title.strip() if payload.title else _source_title(payload.kind, source_object))[:100],
         original_amount=int(payload.amount),
-        status=models.ExpectedInflowPromiseStatus.EXPECTED,
+        status=models.ExpectedInflowPromiseStatus.OPEN.value,
         backing_eligible=bool(backing_eligible),
         note=payload.note.strip() if payload.note else None,
     )
@@ -1337,9 +1397,19 @@ def realize_promise(
         if existing is not None:
             return existing, get_promise_or_404(db, owner_id, promise_id)
     promise = get_promise_or_404(db, owner_id, promise_id, lock=True)
+    # Ticket 2: Closed Promises reject financial commands
+    if promise_lifecycle(promise) == models.ExpectedInflowPromiseStatus.CLOSED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.promise_is_closed")
     schedules = _active_schedules(promise)
     if not schedules:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.not_active")
+    # Ticket 2: Reject over-receipt above Promise original_amount
+    total_settled = promise_received_amount(promise) + promise_written_off_amount(promise)
+    if total_settled + int(payload.actual_amount) > int(promise.original_amount):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="expected_inflow.over_cap",
+        )
     schedule_ids = [int(schedule.id) for schedule in schedules]
     db.query(models.ExpectedIncome).filter(models.ExpectedIncome.id.in_(schedule_ids)).order_by(
         models.ExpectedIncome.id.asc()
@@ -1409,6 +1479,9 @@ def reschedule_promise(
     today: date,
 ) -> tuple[models.ExpectedInflowPromise, list[models.ExpectedIncome]]:
     promise = get_promise_or_404(db, owner_id, promise_id, lock=True)
+    # Ticket 2: Closed Promises reject financial commands
+    if promise_lifecycle(promise) == models.ExpectedInflowPromiseStatus.CLOSED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.promise_is_closed")
     active = _active_schedules(promise)
     if not active:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.not_active")
@@ -1473,6 +1546,9 @@ def write_off_promise(
     if written_off_date > today:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expected_inflow.write_off_date_in_future")
     promise = get_promise_or_404(db, owner_id, promise_id, lock=True)
+    # Ticket 2: Closed Promises reject financial commands
+    if promise_lifecycle(promise) == models.ExpectedInflowPromiseStatus.CLOSED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.promise_is_closed")
     schedules = _active_schedules(promise)
     if not schedules:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.not_active")
@@ -1527,6 +1603,9 @@ def cancel_promise(
     promise: models.ExpectedInflowPromise,
     payload: schemas.ExpectedInflowCloseCreate,
 ) -> None:
+    # Ticket 2: Closed Promises reject financial commands
+    if promise_lifecycle(promise) == models.ExpectedInflowPromiseStatus.CLOSED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.promise_is_closed")
     if promise_received_amount(promise) > 0 or promise_written_off_amount(promise) > 0:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.cancel_not_allowed")
     active = _active_schedules(promise)
@@ -1542,14 +1621,19 @@ def cancel_promise(
 
 
 def reopen_promise(promise: models.ExpectedInflowPromise) -> None:
-    state = promise_status(promise)
-    if state == models.ExpectedInflowPromiseStatus.CANCELLED:
+    lifecycle = promise_lifecycle(promise)
+    if lifecycle != models.ExpectedInflowPromiseStatus.CLOSED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.reopen_not_allowed")
+    display = promise_display_state(promise)
+    if display == models.PromiseDisplayState.FULLY_RECEIVED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.reopen_not_allowed")
+    if _is_cancelled(promise):
         leaves = [schedule for schedule in promise.schedules if not schedule.children and schedule.close_reason == "CANCELLED"]
         for schedule in leaves:
             schedule.close_reason = None
             schedule.closed_at = None
             _sync_schedule(schedule)
-    elif state == models.ExpectedInflowPromiseStatus.WRITTEN_OFF:
+    elif display in {models.PromiseDisplayState.WRITTEN_OFF, models.PromiseDisplayState.SETTLED}:
         for write_off in promise.write_offs:
             if write_off.reversed_at is None:
                 write_off.reversed_at = datetime.now(timezone.utc)

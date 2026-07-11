@@ -69,6 +69,7 @@ def expected_inflow_timeline(
                 continue
             state = service._schedule_state(schedule)
             remaining = service.remaining_amount(schedule)
+            read_state = service.schedule_read_state(schedule, today=today)
             items.append(schemas.ExpectedInflowTimelineItemOut(
                 id=int(schedule.id),
                 kind=service._promise_kind(promise),
@@ -78,6 +79,7 @@ def expected_inflow_timeline(
                 received_amount=service.received_amount(schedule),
                 remaining_amount=remaining,
                 status=state,
+                read_state=read_state,
                 backing_eligible=bool(promise.backing_eligible),
                 is_overdue=service._schedule_is_active(schedule) and schedule.due_date < today,
             ))

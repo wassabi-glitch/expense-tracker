@@ -62,7 +62,8 @@ def test_earned_partial_realization_updates_wallet_lifecycle_and_backing(client,
     )
     assert realized.status_code == 200, realized.text
     payload = realized.json()["inflows"][0]
-    assert payload["status"] == "PARTIALLY_RECEIVED"
+    assert payload["status"] == "OPEN"
+    assert payload["display_state"] == "EXPECTED"
     assert payload["received_amount"] == 400_000
     assert payload["remaining_amount"] == 600_000
     assert payload["backing_amount"] == 600_000
@@ -112,7 +113,8 @@ def test_partial_inflow_reschedules_complete_remainder_without_ledger_effect(cli
     )
     assert rescheduled.status_code == 200, rescheduled.text
     payload = rescheduled.json()
-    assert payload["source"]["status"] == "PARTIALLY_RECEIVED"
+    assert payload["source"]["status"] == "OPEN"
+    assert payload["source"]["display_state"] == "EXPECTED"
     assert payload["source"]["is_rescheduled"] is True
     assert payload["source"]["amount"] == 1_000_000
     assert payload["source"]["received_amount"] == 400_000
@@ -191,7 +193,8 @@ def test_one_earned_receipt_can_resolve_sibling_schedules_once(client, session):
     assert realized.status_code == 200, realized.text
     payload = realized.json()
     assert len(payload["realization"]["event_ids"]) == 1
-    assert payload["inflow"]["status"] == "RESOLVED"
+    assert payload["inflow"]["status"] == "CLOSED"
+    assert payload["inflow"]["display_state"] == "FULLY_RECEIVED"
     assert session.query(models.FinancialEvent).count() == events_before + 1
 
     retried = client.post(
@@ -212,33 +215,61 @@ def test_one_earned_receipt_can_resolve_sibling_schedules_once(client, session):
     assert session.query(models.FinancialEvent).count() == events_before + 1
 
 
-def test_earned_receipt_can_exceed_expected_amount_without_overallocating_schedule(client, session):
+def test_over_receipt_above_promise_cap_is_rejected(client, session):
+    """Ticket 2: receipt cannot exceed Promise original_amount.
+    Excess money must be recorded as separate income."""
     headers = create_user_and_token(client, "g29overpay", "g29overpay@example.com", "Password123!")
     today = user_timezone_today()
     source = _source(client, headers, "Client overpayment")
     wallet = _wallet(client, headers)
     inflow = _create_earned(client, headers, source["id"], 300_000, today)
 
+    # First receive 200k (leaves 100k remaining)
+    partial = client.post(
+        f"/expected-inflows/{inflow['id']}/realize",
+        json={
+            "actual_amount": 200_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 200_000}],
+            "idempotency_key": "g29-overpay-p1",
+        },
+        headers=headers,
+    )
+    assert partial.status_code == 200, partial.text
+    assert partial.json()["inflows"][0]["remaining_amount"] == 100_000
+
+    # Then try to over-receive: 150k against 100k remaining → rejected
     realized = client.post(
         f"/expected-inflows/{inflow['id']}/realize",
         json={
-            "actual_amount": 350_000,
+            "actual_amount": 150_000,
             "received_date": today.isoformat(),
-            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 350_000}],
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 150_000}],
             "idempotency_key": "g29-overpay-receipt",
         },
         headers=headers,
     )
 
-    assert realized.status_code == 200, realized.text
-    payload = realized.json()
-    assert payload["realization"]["actual_amount"] == 350_000
+    assert realized.status_code == 400, realized.text
+    assert realized.json()["detail"] == "expected_inflow.over_cap"
+
+    # Exact remaining amount should still be accepted
+    exact = client.post(
+        f"/expected-inflows/{inflow['id']}/realize",
+        json={
+            "actual_amount": 100_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 100_000}],
+            "idempotency_key": "g29-exact-receipt",
+        },
+        headers=headers,
+    )
+    assert exact.status_code == 200, exact.text
+    payload = exact.json()
     assert payload["inflow"]["received_amount"] == 300_000
     assert payload["inflow"]["outstanding_amount"] == 0
-    assert payload["inflow"]["status"] == "RESOLVED"
-    event = session.get(models.FinancialEvent, payload["realization"]["event_ids"][0])
-    assert event is not None
-    assert sum(int(row.amount) for row in event.wallet_legs) == 350_000
+    assert payload["inflow"]["status"] == "CLOSED"
+    assert payload["inflow"]["display_state"] == "FULLY_RECEIVED"
 
 
 def test_receivable_realization_links_principal_and_charge_events(client, session):
@@ -372,9 +403,10 @@ def test_refund_and_asset_sale_expectations_delegate_to_source_domains(client, s
     )
     assert sale.status_code == 200, sale.text
     sale_inflow = sale.json()["inflows"][0]
-    assert sale_inflow["status"] == "WRITTEN_OFF"
+    assert sale_inflow["status"] == "CLOSED"
+    assert sale_inflow["display_state"] == "SETTLED"
     assert sale_inflow["written_off_amount"] == 50_000
-    assert sale_inflow["close_reason"] == "WRITTEN_OFF"
+    assert sale_inflow["close_reason"] == "SETTLED"
     asset_after = client.get(f"/assets/{asset.json()['id']}", headers=headers)
     assert asset_after.status_code == 200, asset_after.text
     assert asset_after.json()["status"] == "sold"
@@ -411,7 +443,8 @@ def test_partial_write_off_locks_financial_edits_and_can_be_reversed(client):
     )
     assert written_off.status_code == 200, written_off.text
     payload = written_off.json()
-    assert payload["status"] == "PARTIALLY_RECEIVED"
+    assert payload["status"] == "OPEN"
+    assert payload["display_state"] == "EXPECTED"
     assert payload["received_amount"] == 200_000
     assert payload["written_off_amount"] == 100_000
     assert payload["outstanding_amount"] == 200_000
@@ -442,4 +475,5 @@ def test_partial_write_off_locks_financial_edits_and_can_be_reversed(client):
     reversed_payload = reversed_response.json()
     assert reversed_payload["written_off_amount"] == 0
     assert reversed_payload["outstanding_amount"] == 300_000
-    assert reversed_payload["status"] == "PARTIALLY_RECEIVED"
+    assert reversed_payload["status"] == "OPEN"
+    assert reversed_payload["display_state"] == "EXPECTED"

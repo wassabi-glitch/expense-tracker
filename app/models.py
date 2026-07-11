@@ -368,11 +368,30 @@ class ExpectedInflowKind(str, enum.Enum):
 
 
 class ExpectedInflowPromiseStatus(str, enum.Enum):
+    """Stored Promise lifecycle — only OPEN or CLOSED.
+    Display state is derived separately via PromiseDisplayState."""
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+
+
+class PromiseDisplayState(str, enum.Enum):
+    """Derived Promise display state — never stored, always computed from facts."""
     EXPECTED = "EXPECTED"
-    PARTIALLY_RECEIVED = "PARTIALLY_RECEIVED"
-    RESOLVED = "RESOLVED"
-    CANCELLED = "CANCELLED"
+    FULLY_RECEIVED = "FULLY_RECEIVED"
+    SETTLED = "SETTLED"
     WRITTEN_OFF = "WRITTEN_OFF"
+
+
+class ScheduleReadState(str, enum.Enum):
+    """Derived schedule settlement/read labels — never stored as source of truth."""
+    OUTSTANDING = "OUTSTANDING"
+    PARTIAL = "PARTIAL"
+    FULLY_RECEIVED = "FULLY_RECEIVED"
+    WRITTEN_OFF = "WRITTEN_OFF"
+    SETTLED = "SETTLED"
+    OVERDUE = "OVERDUE"
+    SUPERSEDED = "SUPERSEDED"
+    CANCELLED = "CANCELLED"
 
 
 class ProjectStatus(str, enum.Enum):
@@ -778,10 +797,11 @@ class ExpectedInflowPromise(Base):
     title = Column(String(100), nullable=False)
     original_amount = Column(BigInteger, nullable=False)
     status = Column(
-        Enum(ExpectedInflowPromiseStatus),
+        String(32),
         nullable=False,
-        default=ExpectedInflowPromiseStatus.EXPECTED,
+        default=ExpectedInflowPromiseStatus.OPEN.value,
     )
+    """Stored lifecycle: OPEN or CLOSED. Display state derived via PromiseDisplayState."""
     backing_eligible = Column(Boolean, nullable=False, default=True)
     note = Column(String(200), nullable=True)
     closed_at = Column(DateTime(timezone=True), nullable=True)

@@ -62,17 +62,17 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 
 **Blocked by:** None - can start immediately.
 
-- [ ] Promise lifecycle persistence supports only open and closed values.
-- [ ] Legacy Promise status values are removed from persistence.
-- [ ] Development rows using obsolete status or data shapes are either cleanly migrated to open/closed or discarded/reseeded if that produces a cleaner architecture.
-- [ ] Promise response exposes derived display state separately from stored lifecycle.
-- [ ] Derived display state covers expected, fully received, settled mixed outcome, and fully written-off agreements.
-- [ ] Promise close details are derived from facts rather than stored as Promise close reason.
-- [ ] Promise original amount remains the target for all derived math.
-- [ ] No legacy status fields, enum values, or compatibility storage remain solely to preserve development-era callers.
-- [ ] Frontend status labels use the derived display state instead of raw stored lifecycle.
-- [ ] Tests prove a 99 percent received and 1 percent written-off agreement displays as settled, not written off.
-- [ ] Tests prove raw Promise lifecycle cannot drift from derived display math.
+- [x] Promise lifecycle persistence supports only open and closed values.
+- [x] Legacy Promise status values are removed from persistence.
+- [x] Development rows using obsolete status or data shapes are either cleanly migrated to open/closed or discarded/reseeded if that produces a cleaner architecture.
+- [x] Promise response exposes derived display state separately from stored lifecycle.
+- [x] Derived display state covers expected, fully received, settled mixed outcome, and fully written-off agreements.
+- [x] Promise close details are derived from facts rather than stored as Promise close reason.
+- [x] Promise original amount remains the target for all derived math.
+- [x] No legacy status fields, enum values, or compatibility storage remain solely to preserve development-era callers.
+- [x] Frontend status labels use the derived display state instead of raw stored lifecycle.
+- [x] Tests prove a 99 percent received and 1 percent written-off agreement displays as settled, not written off.
+- [x] Tests prove raw Promise lifecycle cannot drift from derived display math.
 
 ## Ticket 2: Enforce Promise Cap, Auto-Close, And Auto-Reopen
 
@@ -80,16 +80,16 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 
 **Blocked by:** Ticket 1: Contract Promise lifecycle to OPEN/CLOSED with derived display state.
 
-- [ ] Receipt creation rejects any payload where received plus written off plus new receipt would exceed original amount.
-- [ ] A receipt can spill across active sibling schedules only up to the Promise cap.
-- [ ] Overpayment guidance tells the user to record excess as separate income.
-- [ ] Promise lifecycle changes to closed when outstanding reaches zero through receipt, write-off, or mixed settlement.
-- [ ] Promise lifecycle changes back to open when reversal makes outstanding positive.
-- [ ] Closed Promises reject Receive, Reschedule, and Write off commands.
-- [ ] Closed Promises hide or disable financial action buttons in the UI.
-- [ ] The tri-color progress contract can never exceed 100 percent.
-- [ ] Tests cover partial receipt, exact receipt, sibling-schedule spillover, rejected over-receipt, auto-close, and auto-reopen.
-- [ ] Existing overpayment tests are updated to the new contract.
+- [x] Receipt creation rejects any payload where received plus written off plus new receipt would exceed original amount.
+- [x] A receipt can spill across active sibling schedules only up to the Promise cap.
+- [x] Overpayment guidance tells the user to record excess as separate income.
+- [x] Promise lifecycle changes to closed when outstanding reaches zero through receipt, write-off, or mixed settlement.
+- [x] Promise lifecycle changes back to open when reversal makes outstanding positive.
+- [x] Closed Promises reject Receive, Reschedule, and Write off commands.
+- [x] Closed Promises hide or disable financial action buttons in the UI.
+- [x] The tri-color progress contract can never exceed 100 percent.
+- [x] Tests cover partial receipt, exact receipt, sibling-schedule spillover, rejected over-receipt, auto-close, and auto-reopen.
+- [x] Existing overpayment tests are updated to the new contract.
 
 ## Ticket 3: Expose Agreements And Cashflow Views From The Two-Layer Model
 
