@@ -477,3 +477,447 @@ def test_partial_write_off_locks_financial_edits_and_can_be_reversed(client):
     assert reversed_payload["outstanding_amount"] == 300_000
     assert reversed_payload["status"] == "OPEN"
     assert reversed_payload["display_state"] == "EXPECTED"
+
+
+# ---------------------------------------------------------------------------
+# Ticket 7: First-class receipt reversal
+# ---------------------------------------------------------------------------
+
+
+def test_full_receipt_reversal_restores_outstanding_and_preserves_history(client):
+    """Reverse an entire receipt — outstanding restored, wallet corrected, original realization visible."""
+    headers = create_user_and_token(client, "t7fullrev", "t7fullrev@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    wallet = _wallet(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 1_000_000, today)
+
+    def _wallet_balance(wallet_id):
+        wallets = client.get("/wallets", headers=headers)
+        assert wallets.status_code == 200
+        return next(w["owned_balance"] for w in wallets.json() if w["id"] == wallet_id)
+
+    # Capture wallet balance before receipt.
+    balance_before = _wallet_balance(wallet["id"])
+
+    # Receive full amount → should auto-close.
+    realized = client.post(
+        f"/expected-inflows/{inflow['id']}/realize",
+        json={
+            "actual_amount": 1_000_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 1_000_000}],
+            "idempotency_key": "t7-full-receipt",
+        },
+        headers=headers,
+    )
+    assert realized.status_code == 200, realized.text
+    after_receipt = realized.json()["inflows"][0]
+    assert after_receipt["status"] == "CLOSED"
+    assert after_receipt["display_state"] == "FULLY_RECEIVED"
+    assert after_receipt["outstanding_amount"] == 0
+
+    # Wallet balance increased by 1,000,000.
+    assert _wallet_balance(wallet["id"]) == balance_before + 1_000_000
+
+    realization_id = after_receipt["realizations"][0]["id"]
+
+    # Reverse the receipt.
+    reversed_resp = client.post(
+        f"/expected-inflows/{inflow['id']}/realizations/{realization_id}/reverse",
+        json={"note": "Posted to wrong contract"},
+        headers=headers,
+    )
+    assert reversed_resp.status_code == 200, reversed_resp.text
+    reversed_data = reversed_resp.json()
+    assert reversed_data["status"] == "OPEN"
+    assert reversed_data["display_state"] == "EXPECTED"
+    assert reversed_data["outstanding_amount"] == 1_000_000
+    assert reversed_data["received_amount"] == 0
+
+    # Wallet balance restored to pre-receipt level.
+    assert _wallet_balance(wallet["id"]) == balance_before
+
+    # Original realization is preserved as history.
+    assert len(reversed_data["realizations"]) == 1
+    orig = reversed_data["realizations"][0]
+    assert orig["actual_amount"] == 1_000_000
+    assert orig["reversed_at"] is not None
+    assert orig["reversal_note"] == "Posted to wrong contract"
+
+    # Activity includes both RECEIVED and RECEIPT_REVERSED.
+    activity_types = {item["activity_type"] for item in reversed_data["activity"]}
+    assert "RECEIVED" in activity_types
+    assert "RECEIPT_REVERSED" in activity_types
+
+
+def test_partial_receipt_reversal_recalculates_math_correctly(client):
+    """Reverse part of a multi-receipt scenario — schedule/Promise math recalculates."""
+    headers = create_user_and_token(client, "t7partial", "t7partial@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    wallet = _wallet(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 1_000_000, today)
+
+    # First receipt: 400k.
+    r1 = client.post(
+        f"/expected-inflows/{inflow['id']}/realize",
+        json={
+            "actual_amount": 400_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 400_000}],
+            "idempotency_key": "t7-partial-1",
+        },
+        headers=headers,
+    )
+    assert r1.status_code == 200, r1.text
+
+    # Second receipt: 200k.
+    r2 = client.post(
+        f"/expected-inflows/{inflow['id']}/realize",
+        json={
+            "actual_amount": 200_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 200_000}],
+            "idempotency_key": "t7-partial-2",
+        },
+        headers=headers,
+    )
+    assert r2.status_code == 200, r2.text
+
+    detail = client.get(f"/expected-inflows/{inflow['id']}", headers=headers)
+    assert detail.json()["received_amount"] == 600_000
+    assert detail.json()["outstanding_amount"] == 400_000
+
+    # Reverse the first receipt.
+    r1_id = detail.json()["realizations"][0]["id"]
+    rev = client.post(
+        f"/expected-inflows/{inflow['id']}/realizations/{r1_id}/reverse",
+        json={"note": "Wrong amount"},
+        headers=headers,
+    )
+    assert rev.status_code == 200, rev.text
+    after = rev.json()
+    assert after["received_amount"] == 200_000
+    assert after["outstanding_amount"] == 800_000
+    assert after["status"] == "OPEN"
+
+
+def test_receipt_reversal_after_closure_auto_reopens(client):
+    """Reversing the only receipt on a closed Promise reopens it."""
+    headers = create_user_and_token(client, "t7reopen", "t7reopen@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    wallet = _wallet(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 500_000, today)
+
+    # Receive exact amount → auto-close.
+    client.post(
+        f"/expected-inflows/{inflow['id']}/realize",
+        json={
+            "actual_amount": 500_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 500_000}],
+            "idempotency_key": "t7-auto-close",
+        },
+        headers=headers,
+    )
+    closed = client.get(f"/expected-inflows/{inflow['id']}", headers=headers)
+    assert closed.json()["status"] == "CLOSED"
+
+    # Reverse → auto-reopen.
+    realization_id = closed.json()["realizations"][0]["id"]
+    reopened = client.post(
+        f"/expected-inflows/{inflow['id']}/realizations/{realization_id}/reverse",
+        json={},
+        headers=headers,
+    )
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["status"] == "OPEN"
+
+
+def test_receipt_reversal_blocks_already_reversed(client):
+    """Cannot reverse a realization that was already reversed."""
+    headers = create_user_and_token(client, "t7dup", "t7dup@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    wallet = _wallet(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 300_000, today)
+
+    realized = client.post(
+        f"/expected-inflows/{inflow['id']}/realize",
+        json={
+            "actual_amount": 300_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 300_000}],
+            "idempotency_key": "t7-dup-key",
+        },
+        headers=headers,
+    )
+    assert realized.status_code == 200, realized.text
+    detail = client.get(f"/expected-inflows/{inflow['id']}", headers=headers)
+    assert len(detail.json()["realizations"]) >= 1
+    realization_id = detail.json()["realizations"][0]["id"]
+
+    # First reversal succeeds.
+    r1 = client.post(
+        f"/expected-inflows/{inflow['id']}/realizations/{realization_id}/reverse",
+        json={},
+        headers=headers,
+    )
+    assert r1.status_code == 200, r1.text
+
+    # Second reversal is rejected.
+    r2 = client.post(
+        f"/expected-inflows/{inflow['id']}/realizations/{realization_id}/reverse",
+        json={},
+        headers=headers,
+    )
+    assert r2.status_code == 409
+
+
+def test_receipt_reversal_not_found_for_wrong_ids(client):
+    """404 when realization doesn't belong to the promise or doesn't exist."""
+    headers = create_user_and_token(client, "t7nf", "t7nf@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    wallet = _wallet(client, headers)
+
+    inflow1 = _create_earned(client, headers, source["id"], 100_000, today)
+    inflow2 = _create_earned(client, headers, source["id"], 200_000, today)
+
+    realized = client.post(
+        f"/expected-inflows/{inflow1['id']}/realize",
+        json={
+            "actual_amount": 100_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 100_000}],
+            "idempotency_key": "t7-nf-key1",
+        },
+        headers=headers,
+    )
+    assert realized.status_code == 200, realized.text
+    detail = client.get(f"/expected-inflows/{inflow1['id']}", headers=headers)
+    assert len(detail.json()["realizations"]) >= 1
+    real_id = detail.json()["realizations"][0]["id"]
+
+    # Try to reverse realization of inflow1 under inflow2's id.
+    wrong = client.post(
+        f"/expected-inflows/{inflow2['id']}/realizations/{real_id}/reverse",
+        json={},
+        headers=headers,
+    )
+    assert wrong.status_code == 404
+
+    # Try a non-existent realization id.
+    bogus = client.post(
+        f"/expected-inflows/{inflow1['id']}/realizations/99999/reverse",
+        json={},
+        headers=headers,
+    )
+    assert bogus.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Ticket 8: Write-off reversal preserves append-only history
+# ---------------------------------------------------------------------------
+
+
+def test_write_off_reversal_preserves_original_write_off_in_history(client):
+    """After reversal the original write-off is still visible with original data."""
+    headers = create_user_and_token(client, "t8history", "t8history@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 500_000, today)
+
+    wo = client.post(
+        f"/expected-inflows/{inflow['id']}/write-off",
+        json={"amount": 150_000, "reason": "Client insolvent", "written_off_date": today.isoformat()},
+        headers=headers,
+    )
+    assert wo.status_code == 200, wo.text
+    wo_data = wo.json()
+    assert wo_data["written_off_amount"] == 150_000
+    write_off_id = wo_data["write_offs"][0]["id"]
+
+    rev = client.post(
+        f"/expected-inflows/{inflow['id']}/write-offs/{write_off_id}/reverse",
+        json={"note": "Client paid later"},
+        headers=headers,
+    )
+    assert rev.status_code == 200, rev.text
+    rev_data = rev.json()
+    assert rev_data["written_off_amount"] == 0
+
+    # Original write-off still present with its fields intact.
+    assert len(rev_data["write_offs"]) == 1
+    orig_wo = rev_data["write_offs"][0]
+    assert orig_wo["amount"] == 150_000
+    assert orig_wo["reason"] == "Client insolvent"
+    assert orig_wo["reversed_at"] is not None
+    assert orig_wo["reversal_note"] == "Client paid later"
+
+    # Activity contains both WRITTEN_OFF and WRITE_OFF_REVERSED.
+    activity_types = {item["activity_type"] for item in rev_data["activity"]}
+    assert "WRITTEN_OFF" in activity_types
+    assert "WRITE_OFF_REVERSED" in activity_types
+
+
+def test_write_off_reversal_reopens_closed_promise(client):
+    """Reversing a write-off that closed the Promise reopens it."""
+    headers = create_user_and_token(client, "t8reopen", "t8reopen@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 300_000, today)
+
+    # Write off full amount → auto-close.
+    wo = client.post(
+        f"/expected-inflows/{inflow['id']}/write-off",
+        json={"amount": 300_000, "reason": "Lost cause", "written_off_date": today.isoformat()},
+        headers=headers,
+    )
+    assert wo.status_code == 200, wo.text
+    assert wo.json()["status"] == "CLOSED"
+    assert wo.json()["display_state"] == "WRITTEN_OFF"
+
+    write_off_id = wo.json()["write_offs"][0]["id"]
+    rev = client.post(
+        f"/expected-inflows/{inflow['id']}/write-offs/{write_off_id}/reverse",
+        json={},
+        headers=headers,
+    )
+    assert rev.status_code == 200, rev.text
+    assert rev.json()["status"] == "OPEN"
+    assert rev.json()["display_state"] == "EXPECTED"
+    assert rev.json()["outstanding_amount"] == 300_000
+
+
+def test_write_off_reversal_prevents_double_reversal(client):
+    """Reversing the same write-off twice is rejected."""
+    headers = create_user_and_token(client, "t8double", "t8double@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 200_000, today)
+
+    wo = client.post(
+        f"/expected-inflows/{inflow['id']}/write-off",
+        json={"amount": 50_000, "reason": "Disputed", "written_off_date": today.isoformat()},
+        headers=headers,
+    )
+    write_off_id = wo.json()["write_offs"][0]["id"]
+
+    r1 = client.post(
+        f"/expected-inflows/{inflow['id']}/write-offs/{write_off_id}/reverse",
+        json={},
+        headers=headers,
+    )
+    assert r1.status_code == 200
+
+    r2 = client.post(
+        f"/expected-inflows/{inflow['id']}/write-offs/{write_off_id}/reverse",
+        json={},
+        headers=headers,
+    )
+    assert r2.status_code == 409
+
+
+def test_write_off_reversal_after_mixed_settlement(client):
+    """Reversing a write-off in a mixed settlement restores correct math."""
+    headers = create_user_and_token(client, "t8mixed", "t8mixed@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    wallet = _wallet(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 600_000, today)
+
+    # Receive 400k.
+    client.post(
+        f"/expected-inflows/{inflow['id']}/realize",
+        json={
+            "actual_amount": 400_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 400_000}],
+            "idempotency_key": "t8-mixed-receipt",
+        },
+        headers=headers,
+    )
+    # Write off the remaining 200k → mixed settlement.
+    wo = client.post(
+        f"/expected-inflows/{inflow['id']}/write-off",
+        json={"amount": 200_000, "reason": "Balance forgiven", "written_off_date": today.isoformat()},
+        headers=headers,
+    )
+    assert wo.status_code == 200, wo.text
+    assert wo.json()["status"] == "CLOSED"
+    assert wo.json()["display_state"] == "SETTLED"
+    assert wo.json()["received_amount"] == 400_000
+    assert wo.json()["written_off_amount"] == 200_000
+    assert wo.json()["outstanding_amount"] == 0
+
+    # Reverse the write-off.
+    write_off_id = wo.json()["write_offs"][0]["id"]
+    rev = client.post(
+        f"/expected-inflows/{inflow['id']}/write-offs/{write_off_id}/reverse",
+        json={"note": "Customer will pay after all"},
+        headers=headers,
+    )
+    assert rev.status_code == 200, rev.text
+    assert rev.json()["status"] == "OPEN"
+    assert rev.json()["display_state"] == "EXPECTED"
+    assert rev.json()["written_off_amount"] == 0
+    assert rev.json()["outstanding_amount"] == 200_000
+    assert rev.json()["received_amount"] == 400_000
+
+
+def test_receipt_then_write_off_then_reverse_both_in_any_order(client):
+    """Receipt + write-off can be reversed in any order (ADR 0014)."""
+    headers = create_user_and_token(client, "t8anyorder", "t8anyorder@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    wallet = _wallet(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 500_000, today)
+
+    # Receive 300k.
+    r = client.post(
+        f"/expected-inflows/{inflow['id']}/realize",
+        json={
+            "actual_amount": 300_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 300_000}],
+            "idempotency_key": "t8-order-receipt",
+        },
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+
+    # Write off 100k.
+    wo = client.post(
+        f"/expected-inflows/{inflow['id']}/write-off",
+        json={"amount": 100_000, "reason": "Partial dispute", "written_off_date": today.isoformat()},
+        headers=headers,
+    )
+    assert wo.status_code == 200, wo.text
+
+    detail = client.get(f"/expected-inflows/{inflow['id']}", headers=headers)
+    assert detail.json()["outstanding_amount"] == 100_000
+    assert detail.json()["status"] == "OPEN"
+
+    # Reverse write-off first (while receipt still stands).
+    rev_wo = client.post(
+        f"/expected-inflows/{inflow['id']}/write-offs/{wo.json()['write_offs'][0]['id']}/reverse",
+        json={},
+        headers=headers,
+    )
+    assert rev_wo.status_code == 200, rev_wo.text
+    assert rev_wo.json()["written_off_amount"] == 0
+    assert rev_wo.json()["outstanding_amount"] == 200_000
+
+    # Then reverse receipt.
+    rev_r = client.post(
+        f"/expected-inflows/{inflow['id']}/realizations/{r.json()['inflows'][0]['realizations'][0]['id']}/reverse",
+        json={},
+        headers=headers,
+    )
+    assert rev_r.status_code == 200, rev_r.text
+    assert rev_r.json()["received_amount"] == 0
+    assert rev_r.json()["outstanding_amount"] == 500_000
+    assert rev_r.json()["status"] == "OPEN"

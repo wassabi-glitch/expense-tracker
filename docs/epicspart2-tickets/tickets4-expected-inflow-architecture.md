@@ -179,16 +179,16 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 2: Enforce Promise cap, auto-close, and auto-reopen.
 - Ticket 5: Build Schedule cards, inline actions, and drawer anchoring.
 
-- [ ] Expected Inflow exposes a receipt reversal command.
-- [ ] Receipt reversal preserves the original realization record as history.
-- [ ] Receipt reversal appends compensating expected-inflow allocation history or equivalent immutable reversal facts.
-- [ ] Receipt reversal reverses linked wallet/entity ledger effects through the shared financial-event reversal behavior.
-- [ ] Receipt reversal recalculates schedule received amounts.
-- [ ] Receipt reversal recalculates Promise received, outstanding, lifecycle, and display state.
-- [ ] Receipt reversal works after later write-offs when the math remains valid.
-- [ ] Receipt reversal blocks already-reversed or invalid realization targets.
-- [ ] UI exposes receipt reversal from the timeline or receipt history context.
-- [ ] Tests cover full receipt reversal, partial receipt reversal, reversal after closure, auto-reopen, wallet projection, and original-history visibility.
+- [x] Expected Inflow exposes a receipt reversal command.
+- [x] Receipt reversal preserves the original realization record as history.
+- [x] Receipt reversal appends compensating expected-inflow allocation history or equivalent immutable reversal facts.
+- [x] Receipt reversal reverses linked wallet/entity ledger effects through the shared financial-event reversal behavior.
+- [x] Receipt reversal recalculates schedule received amounts.
+- [x] Receipt reversal recalculates Promise received, outstanding, lifecycle, and display state.
+- [x] Receipt reversal works after later write-offs when the math remains valid.
+- [x] Receipt reversal blocks already-reversed or invalid realization targets.
+- [x] UI exposes receipt reversal from the timeline or receipt history context.
+- [x] Tests cover full receipt reversal, partial receipt reversal, reversal after closure, auto-reopen, wallet projection, and original-history visibility.
 
 ## Ticket 8: Make Write-Off Reversal Preserve Append-Only History
 
@@ -200,16 +200,16 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 2: Enforce Promise cap, auto-close, and auto-reopen.
 - Ticket 6: Replace raw expected-inflow history with a unified timeline.
 
-- [ ] Write-off reversal preserves the original write-off as a visible historical fact.
-- [ ] Write-off reversal appends reversal history instead of relying on silent deletion.
-- [ ] Write-off reversal works in any order relative to other financial action reversals.
-- [ ] Write-off reversal recalculates schedule written-off amount.
-- [ ] Write-off reversal recalculates Promise written-off, outstanding, lifecycle, and display state.
-- [ ] Write-off reversal can reopen a closed Promise when outstanding becomes positive.
-- [ ] Timeline shows original write-off and reversal distinctly.
-- [ ] UI prevents reversing the same write-off twice.
-- [ ] Tests cover partial write-off reversal, full write-off reversal, mixed settlement reversal, reversal after closure, and original-history visibility.
-- [ ] Existing write-off reversal behavior is migrated without losing audit readability.
+- [x] Write-off reversal preserves the original write-off as a visible historical fact.
+- [x] Write-off reversal appends reversal history instead of relying on silent deletion.
+- [x] Write-off reversal works in any order relative to other financial action reversals.
+- [x] Write-off reversal recalculates schedule written-off amount.
+- [x] Write-off reversal recalculates Promise written-off, outstanding, lifecycle, and display state.
+- [x] Write-off reversal can reopen a closed Promise when outstanding becomes positive.
+- [x] Timeline shows original write-off and reversal distinctly.
+- [x] UI prevents reversing the same write-off twice.
+- [x] Tests cover partial write-off reversal, full write-off reversal, mixed settlement reversal, reversal after closure, and original-history visibility.
+- [x] Existing write-off reversal behavior is migrated without losing audit readability.
 
 ## Ticket 9: Add Leaves-Only Reschedule Reversal
 

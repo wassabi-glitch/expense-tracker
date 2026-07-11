@@ -85,19 +85,33 @@ function buildTimelineEvents(item) {
     note: item.note || null,
   });
 
-  // 2. Receipts
+  // 2. Receipts — each receipt is one event; reversed ones get a follow-up
   for (const realization of item.realizations || []) {
+    const isReversed = !!realization.reversed_at;
     events.push({
       id: `receipt-${realization.id}`,
       type: "RECEIVED",
       date: realization.received_date,
       amount: realization.actual_amount,
       note: realization.note || null,
+      realizationId: realization.id,
+      reversed: isReversed,
     });
+    if (realization.reversed_at) {
+      events.push({
+        id: `receipt-reversed-${realization.id}`,
+        type: "RECEIPT_REVERSED",
+        date: realization.reversed_at.slice(0, 10),
+        amount: realization.actual_amount,
+        note: realization.reversal_note || "Receipt reversed",
+        realizationId: realization.id,
+      });
+    }
   }
 
   // 3. Write-offs (each write-off is one event; reversed ones get a follow-up)
   for (const writeOff of item.write_offs || []) {
+    const isReversed = !!writeOff.reversed_at;
     events.push({
       id: `write-off-${writeOff.id}`,
       type: "WRITTEN_OFF",
@@ -105,6 +119,8 @@ function buildTimelineEvents(item) {
       amount: writeOff.amount,
       note: writeOff.reason || null,
       scheduleId: writeOff.schedule_id,
+      writeOffId: writeOff.id,
+      reversed: isReversed,
     });
     if (writeOff.reversed_at) {
       events.push({
@@ -114,6 +130,7 @@ function buildTimelineEvents(item) {
         amount: writeOff.amount,
         note: writeOff.reversal_note || "Write-off reversed",
         scheduleId: writeOff.schedule_id,
+        writeOffId: writeOff.id,
       });
     }
   }
@@ -166,7 +183,7 @@ function buildTimelineEvents(item) {
 }
 
 
-export function UnifiedTimeline({ item }) {
+export function UnifiedTimeline({ item, onReverseReceipt, onReverseWriteOff, pending }) {
   const events = buildTimelineEvents(item);
 
   if (events.length === 0) {
@@ -185,6 +202,11 @@ export function UnifiedTimeline({ item }) {
           tone: "text-muted-foreground",
         };
         const Icon = config.icon;
+        // Determine if this event is reversible (not already reversed).
+        const isReversibleReceipt =
+          event.type === "RECEIVED" && event.realizationId != null && !event.reversed && onReverseReceipt;
+        const isReversibleWriteOff =
+          event.type === "WRITTEN_OFF" && event.writeOffId != null && !event.reversed && onReverseWriteOff;
 
         return (
           <div key={event.id} className="relative flex gap-4 pb-5 pl-10">
@@ -205,6 +227,26 @@ export function UnifiedTimeline({ item }) {
                   <span className="text-xs text-muted-foreground">
                     {formatDisplayDate(event.date)}
                   </span>
+                )}
+                {isReversibleReceipt && (
+                  <button
+                    type="button"
+                    className="text-xs text-amber-600 hover:text-amber-700 dark:text-amber-400 underline disabled:opacity-50"
+                    disabled={pending}
+                    onClick={() => onReverseReceipt(event.realizationId)}
+                  >
+                    Reverse
+                  </button>
+                )}
+                {isReversibleWriteOff && (
+                  <button
+                    type="button"
+                    className="text-xs text-amber-600 hover:text-amber-700 dark:text-amber-400 underline disabled:opacity-50"
+                    disabled={pending}
+                    onClick={() => onReverseWriteOff(event.writeOffId)}
+                  >
+                    Reverse
+                  </button>
                 )}
               </div>
 

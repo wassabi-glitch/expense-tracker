@@ -49,6 +49,11 @@ export async function reverseExpectedInflowWriteOff(id, writeOffId, payload = {}
     return response.data;
 }
 
+export async function reverseExpectedInflowReceipt(id, realizationId, payload = {}) {
+    const response = await apiClient.post(`/expected-inflows/${id}/realizations/${realizationId}/reverse`, payload);
+    return response.data;
+}
+
 export async function reopenExpectedInflow(id) {
     const response = await apiClient.post(`/expected-inflows/${id}/reopen`);
     return response.data;

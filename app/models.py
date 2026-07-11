@@ -955,6 +955,8 @@ class ExpectedInflowRealization(Base):
     received_date = Column(Date, nullable=False)
     note = Column(String(200), nullable=True)
     idempotency_key = Column(String(64), nullable=True)
+    reversed_at = Column(DateTime(timezone=True), nullable=True)
+    reversal_note = Column(String(200), nullable=True)
     created_at = Column(DateTime(timezone=True),
                         server_default=func.now(), nullable=False)
 
@@ -1076,6 +1078,51 @@ class ExpectedInflowWriteOff(Base):
     promise = relationship("ExpectedInflowPromise",
                            back_populates="write_offs")
     schedule = relationship("ExpectedIncome", back_populates="write_offs")
+    reversal = relationship(
+        "ExpectedInflowWriteOffReversal",
+        back_populates="write_off",
+        uselist=False,
+    )
+
+
+class ExpectedInflowWriteOffReversal(Base):
+    """Append-only reversal record for a write-off.
+
+    Created when a user reverses a write-off. The original write-off row is
+    preserved unchanged; this record carries the reversal metadata and provides
+    a distinct audit-trail entry for the timeline.
+    """
+    __tablename__ = "expected_inflow_write_off_reversals"
+    __table_args__ = (
+        UniqueConstraint(
+            "write_off_id",
+            name="uq_expected_inflow_write_off_reversals_write_off_id",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey(
+        "users.id", ondelete="CASCADE"), nullable=False, index=True)
+    write_off_id = Column(
+        Integer,
+        ForeignKey("expected_inflow_write_offs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    promise_id = Column(
+        Integer,
+        ForeignKey("expected_inflow_promises.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    note = Column(String(200), nullable=True)
+    created_at = Column(DateTime(timezone=True),
+                        server_default=func.now(), nullable=False)
+
+    owner = relationship("User")
+    write_off = relationship(
+        "ExpectedInflowWriteOff", back_populates="reversal")
+    promise = relationship("ExpectedInflowPromise")
 
 
 class RecurringExpense(Base):

@@ -25,6 +25,7 @@ import {
   useCancelExpectedInflowMutation,
   useRealizeExpectedInflowMutation,
   useRescheduleExpectedInflowMutation,
+  useReverseExpectedInflowReceiptMutation,
   useReverseExpectedInflowWriteOffMutation,
   useSaveExpectedInflowMutation,
   useWriteOffExpectedInflowMutation,
@@ -55,6 +56,7 @@ export default function ExpectedInflowDetails() {
   const rescheduleMutation = useRescheduleExpectedInflowMutation();
   const writeOffMutation = useWriteOffExpectedInflowMutation();
   const reverseWriteOffMutation = useReverseExpectedInflowWriteOffMutation();
+  const reverseReceiptMutation = useReverseExpectedInflowReceiptMutation();
   const cancelMutation = useCancelExpectedInflowMutation();
 
   const [editing, setEditing] = useState(false);
@@ -62,6 +64,8 @@ export default function ExpectedInflowDetails() {
   const [rescheduling, setRescheduling] = useState(null);
   const [writingOff, setWritingOff] = useState(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [reverseReceiptId, setReverseReceiptId] = useState(null);
+  const [reverseWriteOffId, setReverseWriteOffId] = useState(null);
 
   // Extract anchor schedule id from URL hash (#schedule-123)
   const anchorScheduleId = useMemo(() => {
@@ -110,6 +114,7 @@ export default function ExpectedInflowDetails() {
     rescheduleMutation.isPending ||
     writeOffMutation.isPending ||
     reverseWriteOffMutation.isPending ||
+    reverseReceiptMutation.isPending ||
     cancelMutation.isPending;
 
   const run = async (operation, successMessage) => {
@@ -225,7 +230,12 @@ export default function ExpectedInflowDetails() {
       {/* Unified timeline — replaces separate Activity, Schedule history, and Write-offs tables */}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">History</h2>
-        <UnifiedTimeline item={item} />
+        <UnifiedTimeline
+          item={item}
+          pending={pending}
+          onReverseReceipt={(realizationId) => setReverseReceiptId(realizationId)}
+          onReverseWriteOff={(writeOffId) => setReverseWriteOffId(writeOffId)}
+        />
       </section>
 
       {/* Dialogs — target a specific schedule when launched from a ScheduleCard */}
@@ -280,6 +290,32 @@ export default function ExpectedInflowDetails() {
         title="Cancel expected inflow"
         description={item.title}
         onConfirm={() => run(() => cancelMutation.mutateAsync(item.id), "Expected inflow cancelled")}
+      />
+
+      <ConfirmDialog
+        open={reverseReceiptId != null}
+        onOpenChange={(open) => { if (!open) setReverseReceiptId(null); }}
+        title="Reverse receipt"
+        description="This will void the wallet transaction and restore the outstanding amount. The original receipt record will remain visible in the history."
+        onConfirm={() =>
+          run(
+            () => reverseReceiptMutation.mutateAsync({ id: item.id, realizationId: reverseReceiptId, payload: {} }),
+            "Receipt reversed",
+          ).then(() => setReverseReceiptId(null))
+        }
+      />
+
+      <ConfirmDialog
+        open={reverseWriteOffId != null}
+        onOpenChange={(open) => { if (!open) setReverseWriteOffId(null); }}
+        title="Reverse write-off"
+        description="This will restore the written-off amount as outstanding. The original write-off record will remain visible in the history."
+        onConfirm={() =>
+          run(
+            () => reverseWriteOffMutation.mutateAsync({ id: item.id, writeOffId: reverseWriteOffId, payload: {} }),
+            "Write-off reversed",
+          ).then(() => setReverseWriteOffId(null))
+        }
       />
     </div>
   );

@@ -13,6 +13,7 @@ from app.services.financial_event_ledger_service import (
     PostEntityLeg,
     PostWalletLeg,
     post_financial_event,
+    void_financial_event,
 )
 from app.services.goal_funding_service import sync_debt_goal_targets
 from app.services.wallet_service import WalletService
@@ -58,6 +59,8 @@ def _source_key(row: models.ExpectedIncome) -> tuple[str, int]:
 
 
 def _valid_realization(realization: models.ExpectedInflowRealization) -> bool:
+    if realization.reversed_at is not None:
+        return False
     links = list(realization.event_links or [])
     return bool(links) and all(
         link.financial_event is not None
@@ -1124,6 +1127,8 @@ def serialize_promise(
                 received_date=realization.received_date,
                 note=realization.note,
                 event_ids=event_ids,
+                reversed_at=realization.reversed_at,
+                reversal_note=realization.reversal_note,
                 created_at=realization.created_at,
             ))
             activity.append(schemas.ExpectedInflowActivityOut(
@@ -1133,6 +1138,15 @@ def serialize_promise(
                 amount=int(realization.actual_amount),
                 note=realization.note,
             ))
+            # Ticket 7: Emit receipt reversal activity when the realization was reversed.
+            if realization.reversed_at is not None:
+                activity.append(schemas.ExpectedInflowActivityOut(
+                    id=f"receipt-reversed-{realization.id}",
+                    activity_type="RECEIPT_REVERSED",
+                    activity_date=realization.reversed_at.date(),
+                    amount=int(realization.actual_amount),
+                    note=realization.reversal_note,
+                ))
         for schedule in schedules:
             if schedule.close_reason == "RESCHEDULED" and schedule.closed_at:
                 activity.append(schemas.ExpectedInflowActivityOut(
@@ -1146,12 +1160,23 @@ def serialize_promise(
         for write_off in promise.write_offs or []:
             activity.append(schemas.ExpectedInflowActivityOut(
                 id=f"write-off-{write_off.id}",
-                activity_type="WRITE_OFF_REVERSED" if write_off.reversed_at else "WRITTEN_OFF",
-                activity_date=(write_off.reversed_at.date() if write_off.reversed_at else write_off.written_off_date),
+                activity_type="WRITTEN_OFF",
+                activity_date=write_off.written_off_date,
                 amount=int(write_off.amount),
                 schedule_id=int(write_off.schedule_id),
-                note=(write_off.reversal_note if write_off.reversed_at else write_off.reason),
+                note=write_off.reason,
             ))
+            # Ticket 8: Emit reversal as a separate activity entry so the
+            # timeline shows both the original write-off AND its reversal.
+            if write_off.reversed_at is not None:
+                activity.append(schemas.ExpectedInflowActivityOut(
+                    id=f"write-off-reversed-{write_off.id}",
+                    activity_type="WRITE_OFF_REVERSED",
+                    activity_date=write_off.reversed_at.date(),
+                    amount=int(write_off.amount),
+                    schedule_id=int(write_off.schedule_id),
+                    note=write_off.reversal_note,
+                ))
     return schemas.ExpectedInflowPromiseOut(
         id=int(promise.id),
         owner_id=int(promise.owner_id),
@@ -1645,9 +1670,79 @@ def reverse_write_off(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="expected_inflow.write_off_not_found")
     if write_off.reversed_at is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.write_off_already_reversed")
+    note = payload.note.strip() if payload.note else None
+    # Ticket 8: Append-only reversal — create a dedicated reversal record
+    # rather than silently mutating the write-off. The original write-off
+    # row remains an immutable historical fact; the reversal is a new row.
+    reversal = models.ExpectedInflowWriteOffReversal(
+        owner_id=owner_id,
+        write_off_id=int(write_off.id),
+        promise_id=int(promise.id),
+        note=note,
+    )
+    db.add(reversal)
+    # Denormalised convenience columns so math queries stay simple.
     write_off.reversed_at = datetime.now(timezone.utc)
-    write_off.reversal_note = payload.note.strip() if payload.note else None
+    write_off.reversal_note = note
     _sync_schedule(write_off.schedule)
+    _sync_promise(promise)
+    db.flush()
+    return promise
+
+
+def reverse_realization(
+    db: Session,
+    owner_id: int,
+    promise_id: int,
+    realization_id: int,
+    payload: schemas.ExpectedInflowRealizationReverseCreate,
+    *,
+    user_tz: object = None,
+) -> models.ExpectedInflowPromise:
+    """Reverse a receipt (realization) while preserving the original history.
+
+    Ticket 7: First-class receipt reversal. The original realization is
+    preserved as an immutable historical fact. The linked financial events
+    are voided through the shared ledger reversal seam, wallet/entity
+    ledger correctness is maintained, and schedule/Promise math is
+    recalculated.
+    """
+    if user_tz is None:
+        from datetime import timezone as tz_mod
+        from zoneinfo import ZoneInfo
+        user_tz = ZoneInfo("UTC")
+    promise = get_promise_or_404(db, owner_id, promise_id, lock=True)
+    realization = db.query(models.ExpectedInflowRealization).filter(
+        models.ExpectedInflowRealization.id == realization_id,
+        models.ExpectedInflowRealization.promise_id == promise_id,
+        models.ExpectedInflowRealization.owner_id == owner_id,
+    ).with_for_update().first()
+    if realization is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="expected_inflow.realization_not_found")
+    if realization.reversed_at is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.realization_already_reversed")
+    # Void every linked financial event through the shared ledger seam.
+    for link in realization.event_links or []:
+        event = link.financial_event
+        if event is not None and event.status == models.FinancialEventStatus.POSTED:
+            void_financial_event(
+                db,
+                event=event,
+                owner_id=owner_id,
+                user_tz=user_tz,
+                void_reason="Receipt reversed",
+            )
+    # Mark the realization as reversed — original row stays as history.
+    realization.reversed_at = datetime.now(timezone.utc)
+    realization.reversal_note = payload.note.strip() if payload.note else None
+    # Recalculate every schedule that received money from this realization.
+    allocated_schedule_ids = {
+        int(allocation.expected_inflow_id)
+        for allocation in realization.allocations or []
+    }
+    for schedule in promise.schedules or []:
+        if int(schedule.id) in allocated_schedule_ids:
+            _sync_schedule(schedule)
     _sync_promise(promise)
     db.flush()
     return promise

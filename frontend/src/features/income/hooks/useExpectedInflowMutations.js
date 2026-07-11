@@ -7,6 +7,7 @@ import {
   realizeExpectedInflow,
   reopenExpectedInflow,
   rescheduleExpectedInflow,
+  reverseExpectedInflowReceipt,
   reverseExpectedInflowWriteOff,
   updateExpectedInflow,
   writeOffExpectedInflow,
@@ -65,5 +66,11 @@ export function useDeleteExpectedInflowMutation() {
 export function useReverseExpectedInflowWriteOffMutation() {
   return useExpectedMutation(({ id, writeOffId, payload }) => (
     reverseExpectedInflowWriteOff(id, writeOffId, payload)
+  ));
+}
+
+export function useReverseExpectedInflowReceiptMutation() {
+  return useExpectedMutation(({ id, realizationId, payload }) => (
+    reverseExpectedInflowReceipt(id, realizationId, payload)
   ));
 }

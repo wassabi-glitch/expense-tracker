@@ -195,6 +195,7 @@ export {
     cancelExpectedInflow,
     writeOffExpectedInflow,
     reverseExpectedInflowWriteOff,
+    reverseExpectedInflowReceipt,
     reopenExpectedInflow,
     reconcileExpectedInflow,
     getExpectedInflowTimeline,

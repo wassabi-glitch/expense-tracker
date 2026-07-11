@@ -257,6 +257,24 @@ def reverse_expected_inflow_write_off(
     return _serialize(db, current_user.id, promise_id, today)
 
 
+@router.post("/{promise_id}/realizations/{realization_id}/reverse", response_model=schemas.ExpectedInflowPromiseOut)
+def reverse_expected_inflow_realization(
+    promise_id: int,
+    realization_id: int,
+    payload: schemas.ExpectedInflowRealizationReverseCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz=Depends(get_effective_user_timezone),
+):
+    """Ticket 7: Reverse a receipt while preserving the original realization as history."""
+    today = _today(user_tz)
+    service.reverse_realization(
+        db, current_user.id, promise_id, realization_id, payload, user_tz=user_tz,
+    )
+    db.commit()
+    return _serialize(db, current_user.id, promise_id, today)
+
+
 @router.post("/{promise_id}/reopen", response_model=schemas.ExpectedInflowPromiseOut)
 def reopen_expected_inflow(
     promise_id: int,

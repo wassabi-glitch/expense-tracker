@@ -716,12 +716,20 @@ class ExpectedInflowWriteOffReverseCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ExpectedInflowRealizationReverseCreate(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=200)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class ExpectedInflowRealizationOut(BaseModel):
     id: int
     actual_amount: int
     received_date: date
     note: Optional[str] = None
     event_ids: List[int] = Field(default_factory=list)
+    reversed_at: Optional[datetime] = None
+    reversal_note: Optional[str] = None
     created_at: datetime
 
 
@@ -755,6 +763,14 @@ class ExpectedInflowWriteOffOut(BaseModel):
     written_off_date: date
     reversed_at: Optional[datetime] = None
     reversal_note: Optional[str] = None
+    created_at: datetime
+
+
+class ExpectedInflowWriteOffReversalOut(BaseModel):
+    id: int
+    write_off_id: int
+    promise_id: int
+    note: Optional[str] = None
     created_at: datetime
 
 
