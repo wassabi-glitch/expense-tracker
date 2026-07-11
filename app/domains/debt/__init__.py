@@ -33,7 +33,6 @@ Debt policy:
 
 from app.domains.debt._debt_service import (
     POSTED_DEBT_LEDGER_STATUS,
-    LOCKED_DEBT_STATUSES,
     create_debt_ledger_entry,
     get_debt_total_charges,
     get_debt_total_charges_by_debt_ids,
@@ -63,7 +62,6 @@ from app.domains.debt._policy import (
 __all__ = [
     # debt_service
     "POSTED_DEBT_LEDGER_STATUS",
-    "LOCKED_DEBT_STATUSES",
     "create_debt_ledger_entry",
     "get_debt_total_charges",
     "get_debt_total_charges_by_debt_ids",

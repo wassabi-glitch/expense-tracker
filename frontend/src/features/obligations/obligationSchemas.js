@@ -47,6 +47,7 @@ export const debtCreateFormSchema = z.object({
     .refine((v) => v.length >= 1, "debts.validation.counterparty_name.required")
     .refine((v) => v.length <= 100, "debts.validation.counterparty_name.length"),
   initial_amount: amountSchema,
+  opening_charge_amount: z.number().int().min(0).max(MAX_DEBT_AMOUNT).optional(),
   debt_type: z.enum(["OWING", "OWED"], {
     errorMap: () => ({ message: "debts.validation.debt_type.invalid" }),
   }),
@@ -62,17 +63,6 @@ export const debtCreateFormSchema = z.object({
     "IMPORTED_BALANCE",
   ]).optional(),
   counterparty_kind: z.enum(["PERSON", "BANK", "COMPANY", "STORE", "GOVERNMENT", "OTHER"]).optional(),
-  product_kind: z.enum([
-    "INFORMAL_DEBT",
-    "BANK_LOAN",
-    "CAR_LOAN",
-    "MORTGAGE",
-    "STORE_INSTALLMENT",
-    "SERVICE_PAY_LATER",
-    "PERSONAL_REIMBURSEMENT",
-    "CLIENT_RECEIVABLE",
-    "OTHER",
-  ]).optional().nullable(),
   date: requiredDateSchema,
   expected_return_date: requiredDateSchema,
   wallet_id: z.number().int().optional().nullable(),
@@ -130,17 +120,6 @@ export const debtUpdateFormSchema = z.object({
     "IMPORTED_BALANCE",
   ]).optional(),
   counterparty_kind: z.enum(["PERSON", "BANK", "COMPANY", "STORE", "GOVERNMENT", "OTHER"]).optional(),
-  product_kind: z.enum([
-    "INFORMAL_DEBT",
-    "BANK_LOAN",
-    "CAR_LOAN",
-    "MORTGAGE",
-    "STORE_INSTALLMENT",
-    "SERVICE_PAY_LATER",
-    "PERSONAL_REIMBURSEMENT",
-    "CLIENT_RECEIVABLE",
-    "OTHER",
-  ]).optional().nullable(),
   expense_category: z.string().optional().nullable(),
   expense_subcategory_id: z.number().int().optional().nullable(),
   project_id: z.number().int().optional().nullable(),
@@ -158,6 +137,9 @@ export const debtUpdateFormSchema = z.object({
 
 export const debtPaymentFormSchema = z.object({
   amount: amountSchema,
+  allocation_mode: z.enum(["AUTOMATIC", "CHARGES_FIRST", "PRINCIPAL_FIRST", "CUSTOM"]).optional(),
+  principal_amount: z.number().int().positive().max(MAX_DEBT_AMOUNT).optional().nullable(),
+  charge_amount: z.number().int().positive().max(MAX_DEBT_AMOUNT).optional().nullable(),
   date: z.string().optional().nullable(),
   wallet_id: z.number().int().optional().nullable(),
   wallet_allocations: z.array(walletAllocationSchema).optional(),

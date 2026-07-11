@@ -2,7 +2,11 @@
 from datetime import date, timedelta
 
 from app import models
-from tests.helpers import create_budget, create_user_and_token, user_timezone_today
+from tests.helpers import (
+    create_budget,
+    create_user_and_token,
+    user_timezone_today,
+)
 
 
 def _default_wallet(client, headers):
@@ -338,12 +342,10 @@ def test_legacy_mark_paid_without_real_category_cannot_default_to_deprecated_cat
         debt_type=models.DebtType.OWING,
         origin_kind=models.DebtOriginKind.FINANCED_ASSET_PURCHASE,
         counterparty_kind=models.DebtCounterpartyKind.STORE,
-        product_kind=models.DebtProductKind.STORE_INSTALLMENT,
         counterparty_name="Old Store",
         initial_amount=100_000,
         remaining_amount=100_000,
         currency="UZS",
-        status=models.DebtStatus.ACTIVE,
         date=today,
         expected_return_date=today,
         is_money_transferred=False,
@@ -714,12 +716,10 @@ def test_pristine_payment_plan_delete_does_not_touch_legacy_linked_debt(client, 
         debt_type=models.DebtType.OWING,
         origin_kind=models.DebtOriginKind.FINANCED_ASSET_PURCHASE,
         counterparty_kind=models.DebtCounterpartyKind.STORE,
-        product_kind=models.DebtProductKind.STORE_INSTALLMENT,
         counterparty_name="Legacy Store",
         initial_amount=5_400_000,
         remaining_amount=5_400_000,
         currency="UZS",
-        status=models.DebtStatus.ACTIVE,
         date=user_timezone_today(),
         expected_return_date=user_timezone_today(),
         is_money_transferred=False,
@@ -1042,7 +1042,7 @@ def test_payment_plan_write_off_tracks_written_off_amount_and_can_be_undone(clie
         session.query(models.PaymentPlanLedgerEntry)
         .filter(
             models.PaymentPlanLedgerEntry.plan_id == plan["id"],
-            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.ADJUSTMENT,
+            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.WRITE_OFF,
             models.PaymentPlanLedgerEntry.event_subtype == "PAYMENT_PLAN_WRITE_OFF",
         )
         .first()
@@ -1086,3 +1086,1252 @@ def test_legacy_mark_paid_uses_plan_owned_ledger(client):
     details = client.get(f"/payment-plans/{plan['id']}/details", headers=headers).json()
     assert details["plan"]["remaining_amount"] == 600_000
     # assert any(item["entry_type"] == "PAYMENT" for item in details["plan_activity"])
+
+
+# ---------------------------------------------------------------------------
+# Ticket 7: Schedule Model Foundation & Flat-Total Preview
+# ---------------------------------------------------------------------------
+
+
+def test_flat_total_schedule_preview_generates_correct_rows(client):
+    """Preview a flat-total schedule and verify row count, amounts, and totals."""
+    headers = create_user_and_token(client, "previewflat1", "previewflat1@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "STORE_INSTALLMENT",
+            "total_price": 12_000_000,
+            "down_payment": 3_000_000,
+            "payment_count": 12,
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+
+    assert data["schedule_model"] == "FLAT_TOTAL"
+    assert data["total_principal"] == 9_000_000
+    assert data["total_charges"] == 0
+    assert data["total_to_pay"] == 9_000_000
+    assert data["payment_count"] == 12
+    assert data["frequency"] == "MONTHLY"
+    assert len(data["rows"]) == 12
+    # First 11 rows should all be base_payment (750,000), last row gets remainder
+    base = 9_000_000 // 12  # 750,000
+    for i, row in enumerate(data["rows"]):
+        assert row["component_type"] == "PRINCIPAL"
+        if i < 11:
+            assert row["amount"] == base, f"Row {i}: expected {base}, got {row['amount']}"
+        else:
+            expected_last = base + (9_000_000 % 12)  # 750,000
+            assert row["amount"] == expected_last, f"Last row: expected {expected_last}, got {row['amount']}"
+
+
+def test_flat_total_preview_rejects_missing_total_price(client):
+    """Preview without total_price returns 400."""
+    headers = create_user_and_token(client, "previewflat2", "previewflat2@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "STORE_INSTALLMENT",
+            "payment_count": 6,
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 400, response.text
+
+
+def test_flat_total_creation_stores_schedule_model(client):
+    """Creating a store installment plan stores FLAT_TOTAL schedule_model."""
+    headers = create_user_and_token(client, "createflat1", "createflat1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    start = user_timezone_today()
+    plan = _create_payment_plan(
+        client,
+        headers,
+        item_name="Test Flat Plan",
+        plan_type="STORE_INSTALLMENT",
+        total_price=6_000_000,
+        down_payment=1_000_000,
+        months=6,
+        frequency="MONTHLY",
+        start_date=start.isoformat(),
+        expense_category="Electronics",
+    )
+    assert plan["schedule_model"] == "FLAT_TOTAL"
+    assert plan["schedule_rule"]["source"] == "FLAT_TOTAL"
+    # Verify payment count
+    assert plan["payment_count"] == 6
+    assert len(plan["payments"]) == 6
+    # All rows should be PRINCIPAL
+    for p in plan["payments"]:
+        assert p["component_type"] == "PRINCIPAL"
+
+
+def test_product_financing_defaults_to_flat_total(client):
+    """PRODUCT_FINANCING plan type defaults to FLAT_TOTAL schedule model."""
+    headers = create_user_and_token(client, "newtest1", "newtest1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    start = user_timezone_today()
+    plan = _create_payment_plan(
+        client,
+        headers,
+        item_name="Laptop Financing",
+        plan_type="PRODUCT_FINANCING",
+        total_price=8_000_000,
+        down_payment=0,
+        months=4,
+        frequency="MONTHLY",
+        start_date=start.isoformat(),
+        expense_category="Electronics",
+    )
+    assert plan["schedule_model"] == "FLAT_TOTAL"
+
+
+def test_flat_total_zero_remaining_creates_paid_plan(client):
+    """Flat plan with down_payment >= total_price creates PAID status with no rows."""
+    headers = create_user_and_token(client, "newtest2", "newtest2@example.com", "Password123!")
+    start = user_timezone_today()
+    # Create a budget large enough
+    create_budget(
+        client, headers,
+        category="Electronics",
+        monthly_limit=10_000_000,
+        budget_year=start.year,
+        budget_month=start.month,
+    )
+    plan = _create_payment_plan(
+        client,
+        headers,
+        item_name="Fully Paid",
+        plan_type="STORE_INSTALLMENT",
+        total_price=1_000_000,
+        down_payment=1_000_000,
+        months=1,
+        frequency="MONTHLY",
+        start_date=start.isoformat(),
+        expense_category="Electronics",
+    )
+    assert plan["remaining_amount"] == 0
+    assert len(plan["payments"]) == 0
+
+
+# ---------------------------------------------------------------------------
+# Ticket 8: Amortized Loan Schedules & Installment Grouping
+# ---------------------------------------------------------------------------
+
+
+def test_amortized_schedule_preview_generates_both_component_types(client):
+    """Preview an amortized loan schedule. Should produce CHARGE and PRINCIPAL rows."""
+    headers = create_user_and_token(client, "newtest3", "newtest3@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "BANK_LOAN",
+            "schedule_model": "AMORTIZED_LOAN",
+            "principal": 4_070_000,
+            "annual_interest_rate": 19.9,
+            "payment_count": 3,
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+
+    assert data["schedule_model"] == "AMORTIZED_LOAN"
+    # Should have CHARGE and PRINCIPAL rows
+    charge_rows = [r for r in data["rows"] if r["component_type"] == "CHARGE"]
+    principal_rows = [r for r in data["rows"] if r["component_type"] == "PRINCIPAL"]
+    assert len(charge_rows) == 3
+    assert len(principal_rows) == 3
+    assert data["total_charges"] > 0
+    assert data["total_principal"] == 4_070_000
+    # Total must match ADR 0028 example (within rounding)
+    assert abs(data["total_to_pay"] - 4_205_728) < 10
+
+
+def test_amortized_rows_have_installment_grouping(client):
+    """Amortized schedule rows should have installment_number grouping CHARGE+PRINCIPAL."""
+    headers = create_user_and_token(client, "newtest4", "newtest4@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "BANK_LOAN",
+            "schedule_model": "AMORTIZED_LOAN",
+            "principal": 4_070_000,
+            "annual_interest_rate": 19.9,
+            "payment_count": 3,
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+
+    # Each installment should have exactly two rows: CHARGE then PRINCIPAL
+    installment_numbers = [r["installment_number"] for r in data["rows"]]
+    assert installment_numbers == [1, 1, 2, 2, 3, 3]
+
+    # Check grouping by installment
+    for inst_num in [1, 2, 3]:
+        inst_rows = [r for r in data["rows"] if r["installment_number"] == inst_num]
+        assert len(inst_rows) == 2, f"Installment {inst_num}: expected 2 rows, got {len(inst_rows)}"
+        assert inst_rows[0]["component_type"] == "CHARGE"
+        assert inst_rows[1]["component_type"] == "PRINCIPAL"
+        # Same due date within installment
+        assert inst_rows[0]["due_date"] == inst_rows[1]["due_date"]
+
+
+def test_amortized_schedule_preview_rejects_missing_principal(client):
+    """Amortized preview without principal returns 400."""
+    headers = create_user_and_token(client, "newtest5", "newtest5@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "BANK_LOAN",
+            "schedule_model": "AMORTIZED_LOAN",
+            "annual_interest_rate": 19.9,
+            "payment_count": 3,
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 400, response.text
+
+
+def test_amortized_schedule_preview_rejects_missing_rate(client):
+    """Amortized preview without annual_interest_rate returns 400."""
+    headers = create_user_and_token(client, "newtest6", "newtest6@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "BANK_LOAN",
+            "schedule_model": "AMORTIZED_LOAN",
+            "principal": 4_070_000,
+            "payment_count": 3,
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 400, response.text
+
+
+def test_amortized_creation_stores_schedule_model_and_metadata(client):
+    """Creating a bank loan plan with interest stores AMORTIZED_LOAN and metadata."""
+    headers = create_user_and_token(client, "newtest7", "newtest7@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    start = user_timezone_today()
+    plan = _create_payment_plan(
+        client,
+        headers,
+        item_name="Car Loan",
+        store_or_bank_name="AutoBank",
+        plan_type="BANK_LOAN",
+        total_price=4_070_000,  # principal
+        down_payment=0,
+        months=3,
+        frequency="MONTHLY",
+        start_date=start.isoformat(),
+        expense_category="Transport",
+        annual_interest_rate=19.9,
+    )
+    assert plan["schedule_model"] == "AMORTIZED_LOAN"
+    assert plan["schedule_rule"]["source"] == "AMORTIZED_LOAN"
+    assert plan["generation_metadata"] is not None
+    assert plan["generation_metadata"]["principal"] == 4_070_000
+
+    # Should have both CHARGE and PRINCIPAL rows
+    payments = plan["payments"]
+    charge_rows = [p for p in payments if p["component_type"] == "CHARGE"]
+    principal_rows = [p for p in payments if p["component_type"] == "PRINCIPAL"]
+    assert len(charge_rows) == 3
+    assert len(principal_rows) == 3
+
+    # Installment grouping
+    for p in charge_rows + principal_rows:
+        assert p["installment_number"] is not None
+
+
+def test_amortized_zero_rate_falls_back_to_flat_total(client):
+    """Bank loan without interest rate falls back to flat-total behavior."""
+    headers = create_user_and_token(client, "newtest8", "newtest8@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    start = user_timezone_today()
+    plan = _create_payment_plan(
+        client,
+        headers,
+        item_name="Zero Rate Loan",
+        store_or_bank_name="Family Bank",
+        plan_type="BANK_LOAN",
+        total_price=3_000_000,
+        down_payment=0,
+        months=3,
+        frequency="MONTHLY",
+        start_date=start.isoformat(),
+        expense_category="Transport",
+    )
+    # Plan stores AMORTIZED_LOAN as schedule_model (it's a BANK_LOAN default)
+    # but row generation used flat-total fallback since rate is 0
+    assert plan["remaining_amount"] == 3_000_000
+    assert len(plan["payments"]) == 3
+    # All rows should be PRINCIPAL (no CHARGE rows with 0% interest)
+    for p in plan["payments"]:
+        assert p["component_type"] == "PRINCIPAL"
+    # Even division: 1,000,000 each
+    for p in plan["payments"]:
+        assert p["amount"] == 1_000_000
+
+
+def test_amortized_non_monthly_biweekly_frequency(client):
+    """Preview amortized schedule with BIWEEKLY frequency."""
+    headers = create_user_and_token(client, "newtest9", "newtest9@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "BANK_LOAN",
+            "schedule_model": "AMORTIZED_LOAN",
+            "principal": 2_000_000,
+            "annual_interest_rate": 12.0,
+            "payment_count": 4,
+            "frequency": "BIWEEKLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["schedule_model"] == "AMORTIZED_LOAN"
+    assert data["frequency"] == "BIWEEKLY"
+    assert data["payment_count"] == 4
+    # 4 installments, each with CHARGE + PRINCIPAL = 8 rows
+    assert len(data["rows"]) == 8
+
+
+def test_preview_rejects_past_first_due_date(client):
+    """Preview with a first_due_date in the past returns 400."""
+    headers = create_user_and_token(client, "newtest10", "newtest10@example.com", "Password123!")
+    from datetime import date as dt_date, timedelta
+    past = dt_date.today() - timedelta(days=1)
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "STORE_INSTALLMENT",
+            "total_price": 5_000_000,
+            "payment_count": 6,
+            "frequency": "MONTHLY",
+            "first_due_date": past.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 400, response.text
+
+
+def test_preview_uses_months_as_payment_count_fallback(client):
+    """Preview with months but no payment_count uses months."""
+    headers = create_user_and_token(client, "newtest11", "newtest11@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "STORE_INSTALLMENT",
+            "total_price": 6_000_000,
+            "months": 3,
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["payment_count"] == 3
+    assert len(data["rows"]) == 3
+
+
+def test_amortized_schedule_total_principal_matches_input(client):
+    """The sum of PRINCIPAL rows must equal the input principal exactly."""
+    headers = create_user_and_token(client, "newtest12", "newtest12@example.com", "Password123!")
+    start = user_timezone_today()
+    for principal in [1_000_000, 4_070_000, 10_000_000, 5_555_555]:
+        response = client.post(
+            "/payment-plans/preview",
+            json={
+                "plan_type": "BANK_LOAN",
+                "schedule_model": "AMORTIZED_LOAN",
+                "principal": principal,
+                "annual_interest_rate": 15.0,
+                "payment_count": 6,
+                "frequency": "MONTHLY",
+                "first_due_date": start.isoformat(),
+            },
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        total_principal = sum(
+            r["amount"] for r in data["rows"] if r["component_type"] == "PRINCIPAL"
+        )
+        assert total_principal == principal, (
+            f"Principal {principal}: sum of PRINCIPAL rows = {total_principal}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Ticket 9: Manual Contract Schedule Creation
+# ---------------------------------------------------------------------------
+
+
+def test_manual_schedule_preview_returns_user_entered_rows(client):
+    """Preview with manual rows returns the exact rows the user entered."""
+    headers = create_user_and_token(client, "manualprev1", "manualprev1@example.com", "Password123!")
+    start = user_timezone_today()
+    manual_rows = [
+        {"due_date": start.isoformat(), "component_type": "CHARGE", "amount": 75_000, "installment_number": 1},
+        {"due_date": start.isoformat(), "component_type": "PRINCIPAL", "amount": 1_330_000, "installment_number": 1},
+        {"due_date": (start + timedelta(days=31)).isoformat(), "component_type": "CHARGE", "amount": 45_000, "installment_number": 2},
+        {"due_date": (start + timedelta(days=31)).isoformat(), "component_type": "PRINCIPAL", "amount": 1_360_000, "installment_number": 2},
+    ]
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "OTHER",
+            "schedule_model": "MANUAL_CONTRACT_SCHEDULE",
+            "manual_rows": manual_rows,
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["schedule_model"] == "MANUAL_CONTRACT_SCHEDULE"
+    assert data["total_principal"] == 1_330_000 + 1_360_000
+    assert data["total_charges"] == 75_000 + 45_000
+    assert data["total_to_pay"] == data["total_principal"] + data["total_charges"]
+    assert len(data["rows"]) == 4
+    # Rows should preserve user-entered amounts exactly
+    amounts = [r["amount"] for r in data["rows"]]
+    assert 75_000 in amounts
+    assert 1_330_000 in amounts
+    assert 45_000 in amounts
+    assert 1_360_000 in amounts
+
+
+def test_manual_schedule_preview_rejects_missing_rows(client):
+    """Manual preview without manual_rows returns 400."""
+    headers = create_user_and_token(client, "manualprev2", "manualprev2@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "OTHER",
+            "schedule_model": "MANUAL_CONTRACT_SCHEDULE",
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 400, response.text
+
+
+def test_manual_schedule_preview_rejects_invalid_component_type(client):
+    """Manual preview rejects rows with invalid component_type."""
+    headers = create_user_and_token(client, "manualprev3", "manualprev3@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "OTHER",
+            "schedule_model": "MANUAL_CONTRACT_SCHEDULE",
+            "manual_rows": [
+                {"due_date": start.isoformat(), "component_type": "INVALID", "amount": 100_000},
+            ],
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 400, response.text
+
+
+def test_manual_schedule_preview_rejects_zero_amount(client):
+    """Manual preview rejects rows with zero or negative amount."""
+    headers = create_user_and_token(client, "manualprev4", "manualprev4@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "OTHER",
+            "schedule_model": "MANUAL_CONTRACT_SCHEDULE",
+            "manual_rows": [
+                {"due_date": start.isoformat(), "component_type": "PRINCIPAL", "amount": -100},
+            ],
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    # Zero is rejected by Pydantic (gt=0), negative is rejected by domain logic
+    assert response.status_code in (400, 422), response.text
+
+
+def test_manual_schedule_preview_auto_assigns_installment_numbers(client):
+    """Manual rows without installment_number get them auto-assigned by due_date."""
+    headers = create_user_and_token(client, "manualprev5", "manualprev5@example.com", "Password123!")
+    start = user_timezone_today()
+    response = client.post(
+        "/payment-plans/preview",
+        json={
+            "plan_type": "OTHER",
+            "schedule_model": "MANUAL_CONTRACT_SCHEDULE",
+            "manual_rows": [
+                {"due_date": start.isoformat(), "component_type": "CHARGE", "amount": 50_000},
+                {"due_date": start.isoformat(), "component_type": "PRINCIPAL", "amount": 500_000},
+                {"due_date": (start + timedelta(days=31)).isoformat(), "component_type": "PRINCIPAL", "amount": 500_000},
+            ],
+            "frequency": "MONTHLY",
+            "first_due_date": start.isoformat(),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    # Same due_date rows should share installment number
+    inst_nums = [r["installment_number"] for r in data["rows"]]
+    assert inst_nums[0] == inst_nums[1]  # CHARGE + PRINCIPAL same installment
+    assert inst_nums[1] != inst_nums[2]  # Different due date = different installment
+
+
+def test_manual_schedule_creation_preserves_user_rows(client):
+    """Creating a plan with manual rows stores exact row amounts."""
+    headers = create_user_and_token(client, "manualcreate1", "manualcreate1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    start = user_timezone_today()
+
+    plan = _create_payment_plan(
+        client,
+        headers,
+        item_name="Exact Contract",
+        plan_type="OTHER",
+        schedule_model="MANUAL_CONTRACT_SCHEDULE",
+        total_price=2_810_000,
+        down_payment=0,
+        months=2,
+        frequency="MONTHLY",
+        start_date=start.isoformat(),
+        expense_category="Electronics",
+        manual_rows=[
+            {"due_date": start.isoformat(), "component_type": "CHARGE", "amount": 75_000, "installment_number": 1},
+            {"due_date": start.isoformat(), "component_type": "PRINCIPAL", "amount": 1_330_000, "installment_number": 1},
+            {"due_date": (start + timedelta(days=31)).isoformat(), "component_type": "CHARGE", "amount": 45_000, "installment_number": 2},
+            {"due_date": (start + timedelta(days=31)).isoformat(), "component_type": "PRINCIPAL", "amount": 1_360_000, "installment_number": 2},
+        ],
+    )
+    assert plan["schedule_model"] == "MANUAL_CONTRACT_SCHEDULE"
+    assert plan["schedule_rule"]["source"] == "MANUAL_CONTRACT_SCHEDULE"
+    payments = plan["payments"]
+    assert len(payments) == 4
+    # Exact amounts preserved
+    amounts = sorted([p["amount"] for p in payments])
+    assert amounts == [45_000, 75_000, 1_330_000, 1_360_000]
+
+
+# ---------------------------------------------------------------------------
+# Ticket 10: Row Settlement State & Derived Overdue
+# ---------------------------------------------------------------------------
+
+
+def test_payment_row_settlement_state_unpaid(client):
+    """Fresh rows have settlement_state = UNPAID."""
+    headers = create_user_and_token(client, "settle1", "settle1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers)
+    for p in plan["payments"]:
+        assert p["settlement_state"] == "UNPAID"
+        assert p["settlement_label"] == "unpaid"
+        assert p["remaining_amount"] == p["amount"]
+
+
+def test_payment_row_settlement_state_partial_after_payment(client, session):
+    """A partially paid row shows settlement_state = PARTIAL."""
+    headers = create_user_and_token(client, "settle2", "settle2@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers)
+
+    # Make a partial payment on the first row
+    first_row = plan["payments"][0]
+    resp = client.post(
+        f"/payment-plans/{plan['id']}/payments",
+        json={
+            "amount": first_row["amount"] // 2,
+            "wallet_allocations": [{"wallet_id": _default_wallet(client, headers)["id"], "amount": first_row["amount"] // 2}],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+
+    # Re-fetch plan to get enriched rows
+    refreshed = client.get(f"/payment-plans/{plan['id']}", headers=headers).json()
+    first = refreshed["payments"][0]
+    assert first["settlement_state"] == "PARTIAL"
+    assert first["settlement_label"] == "partial"
+    assert first["remaining_amount"] == first["amount"] // 2
+
+
+def test_payment_row_settlement_state_settled_after_full_payment(client, session):
+    """A fully paid row shows settlement_state = SETTLED, label = paid."""
+    headers = create_user_and_token(client, "settle3", "settle3@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=2, total_price=900_000, down_payment=0)
+
+    # Pay the first row in full
+    first_row = plan["payments"][0]
+    wallet_id = _default_wallet(client, headers)["id"]
+    resp = client.post(
+        f"/payment-plans/{plan['id']}/payments",
+        json={
+            "amount": first_row["amount"],
+            "wallet_allocations": [{"wallet_id": wallet_id, "amount": first_row["amount"]}],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+
+    refreshed = client.get(f"/payment-plans/{plan['id']}", headers=headers).json()
+    paid_row = refreshed["payments"][0]
+    assert paid_row["settlement_state"] == "SETTLED"
+    assert paid_row["settlement_label"] == "paid"
+    assert paid_row["remaining_amount"] == 0
+    # Settled rows should have null time_status
+    assert paid_row["time_status"] is None
+
+
+def test_payment_row_time_status_on_track(client):
+    """Future-dated unpaid rows show time_status = ON_TRACK."""
+    headers = create_user_and_token(client, "settle4", "settle4@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    # Create plan starting next month
+    start = user_timezone_today()
+    future_start = start + timedelta(days=60)
+    plan = _create_payment_plan(
+        client,
+        headers,
+        start_date=future_start.isoformat(),
+        months=1,
+        total_price=500_000,
+        down_payment=0,
+    )
+    for p in plan["payments"]:
+        assert p["time_status"] == "ON_TRACK"
+        assert p["settlement_state"] == "UNPAID"
+
+
+def test_payment_row_time_status_overdue(client):
+    """Past-due unpaid rows show time_status = OVERDUE."""
+    headers = create_user_and_token(client, "settle5", "settle5@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    # Create plan with a start date far enough in the past that the first
+    # payment (start + 1 period for flat-total) is before today.
+    past_date = user_timezone_today() - timedelta(days=60)
+    plan = _create_payment_plan(
+        client,
+        headers,
+        start_date=past_date.isoformat(),
+        months=1,
+        total_price=500_000,
+        down_payment=0,
+        frequency="MONTHLY",
+    )
+    for p in plan["payments"]:
+        assert p["time_status"] == "OVERDUE"
+        assert p["settlement_state"] == "UNPAID"
+
+
+def test_payment_row_settlement_label_written_off(client):
+    """A fully written-off row shows label = written_off."""
+    headers = create_user_and_token(client, "settle6", "settle6@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=500_000, down_payment=0)
+
+    # Write off the row
+    row_id = plan["payments"][0]["id"]
+    resp = client.post(
+        f"/payment-plans/payments/{row_id}/write-off",
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["settlement_state"] == "SETTLED"
+    assert resp.json()["settlement_label"] == "written_off"
+    assert resp.json()["remaining_amount"] == 0
+    assert resp.json()["time_status"] is None
+
+
+def test_payment_row_enriched_fields_in_list(client):
+    """All rows in a list response include derived settlement and time fields."""
+    headers = create_user_and_token(client, "settle7", "settle7@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    _create_payment_plan(client, headers, months=3, total_price=1_500_000, down_payment=0)
+
+    response = client.get("/payment-plans", headers=headers)
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert len(data["items"]) >= 1
+    for plan in data["items"]:
+        for p in plan["payments"]:
+            assert "settlement_state" in p
+            assert "settlement_label" in p
+            assert "time_status" in p
+            assert "remaining_amount" in p
+            # Verify internal consistency
+            if p["settlement_state"] == "UNPAID":
+                assert p["remaining_amount"] == p["amount"]
+            elif p["settlement_state"] == "SETTLED":
+                assert p["remaining_amount"] == 0
+                assert p["time_status"] is None
+
+
+# ---------------------------------------------------------------------------
+# Ticket 11: Waterfall CHARGE-before-PRINCIPAL ordering
+# ---------------------------------------------------------------------------
+
+
+def test_waterfall_pays_charge_before_principal_same_due_date(client, session):
+    """Within the same due date, CHARGE rows are allocated before PRINCIPAL."""
+    headers = create_user_and_token(client, "wfall1", "wfall1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    wallet_id = _default_wallet(client, headers)["id"]
+    start = user_timezone_today()
+
+    # Create an amortized plan with Electronics category (budgets already exist)
+    plan = _create_payment_plan(
+        client, headers,
+        item_name="Waterfall Test",
+        plan_type="BANK_LOAN",
+        total_price=2_000_000,
+        down_payment=0,
+        months=2,
+        frequency="MONTHLY",
+        start_date=start.isoformat(),
+        expense_category="Electronics",
+        annual_interest_rate=12.0,
+    )
+    payments = _sorted_payments(plan)
+    # First two rows: installment 1 (CHARGE then PRINCIPAL, same due_date)
+    assert len(payments) >= 3  # 2 CHARGE + 2 PRINCIPAL = 4 rows
+    charge_row = [p for p in payments if p["component_type"] == "CHARGE"][0]
+    principal_row = [p for p in payments if p["component_type"] == "PRINCIPAL"][0]
+    assert charge_row["due_date"] == principal_row["due_date"]
+
+    # Pay an amount that partially covers CHARGE + some PRINCIPAL
+    charge_amount = charge_row["amount"]
+    extra = 50_000
+    pay_amount = charge_amount + extra
+
+    resp = client.post(
+        f"/payment-plans/{plan['id']}/payments",
+        json={
+            "amount": pay_amount,
+            "wallet_allocations": [{"wallet_id": wallet_id, "amount": pay_amount}],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    details = resp.json()
+
+    # CHARGE row should be fully paid, PRINCIPAL row partially paid
+    refreshed_charge = [
+        p for p in details["plan"]["payments"]
+        if p["id"] == charge_row["id"]
+    ][0]
+    refreshed_principal = [
+        p for p in details["plan"]["payments"]
+        if p["id"] == principal_row["id"]
+    ][0]
+    assert refreshed_charge["settlement_state"] == "SETTLED"
+    assert refreshed_principal["settlement_state"] == "PARTIAL"
+    assert refreshed_principal["remaining_amount"] == principal_row["amount"] - extra
+
+
+def test_waterfall_oversized_payment_up_to_remaining(client, session):
+    """A payment equal to the total unpaid schedule is accepted (not rejected)."""
+    headers = create_user_and_token(client, "wfall2", "wfall2@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    wallet_id = _default_wallet(client, headers)["id"]
+    plan = _create_payment_plan(client, headers, months=3, total_price=900_000, down_payment=0)
+
+    total_unpaid = sum(p["remaining_amount"] for p in plan["payments"])
+    # Pay the total remaining
+    resp = client.post(
+        f"/payment-plans/{plan['id']}/payments",
+        json={
+            "amount": total_unpaid,
+            "wallet_allocations": [{"wallet_id": wallet_id, "amount": total_unpaid}],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    # All rows should be settled
+    for p in resp.json()["plan"]["payments"]:
+        assert p["settlement_state"] == "SETTLED"
+
+
+# ---------------------------------------------------------------------------
+# Ticket 12: First-Class Write-Offs
+# ---------------------------------------------------------------------------
+
+
+def test_row_write_off_uses_wrte_off_ledger_entry_type(client, session):
+    """Row write-off creates a WRITE_OFF ledger entry, not ADJUSTMENT."""
+    headers = create_user_and_token(client, "woff1", "woff1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+    row = plan["payments"][0]
+
+    resp = client.post(
+        f"/payment-plans/payments/{row['id']}/write-off",
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    entry = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.plan_id == plan["id"],
+            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.WRITE_OFF,
+        )
+        .first()
+    )
+    assert entry is not None
+    assert entry.event_subtype == "PAYMENT_PLAN_WRITE_OFF"
+    # No ADJUSTMENT entries for this write-off
+    adj_entry = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.plan_id == plan["id"],
+            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.ADJUSTMENT,
+            models.PaymentPlanLedgerEntry.event_subtype == "PAYMENT_PLAN_WRITE_OFF",
+        )
+        .first()
+    )
+    assert adj_entry is None
+
+
+def test_row_write_off_custom_amount(client, session):
+    """Writing off a custom partial amount leaves the row PARTIAL."""
+    headers = create_user_and_token(client, "woff2", "woff2@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+    row = plan["payments"][0]
+
+    # Write off only 100k of the 300k row
+    resp = client.post(
+        f"/payment-plans/payments/{row['id']}/write-off",
+        json={"amount": 100_000, "note": "Partial forgiveness"},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["written_off_amount"] == 100_000
+    assert data["settlement_state"] == "PARTIAL"
+    assert data["remaining_amount"] == 200_000
+
+
+def test_plan_level_write_off_allocates_across_rows(client, session):
+    """Plan-level write-off distributes across unsettled rows in waterfall order."""
+    headers = create_user_and_token(client, "woff3", "woff3@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=3, total_price=900_000, down_payment=0)
+    # Each row is 300,000
+
+    # Write off 500,000 across the plan
+    resp = client.post(
+        f"/payment-plans/{plan['id']}/write-off",
+        json={"amount": 500_000, "note": "Seller settlement discount"},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+
+    # First row should be fully written off (300k), second partially (200k)
+    rows = _sorted_payments(data["plan"])
+    assert rows[0]["settlement_state"] == "SETTLED"
+    assert rows[0]["written_off_amount"] == 300_000
+    assert rows[0]["remaining_amount"] == 0
+
+    assert rows[1]["settlement_state"] == "PARTIAL"
+    assert rows[1]["written_off_amount"] == 200_000
+    assert rows[1]["remaining_amount"] == 100_000
+
+    # Third row untouched
+    assert rows[2]["settlement_state"] == "UNPAID"
+    assert rows[2]["written_off_amount"] == 0
+
+    # Plan remaining should be 400,000 (3×300k - 500k write-off)
+    assert data["plan"]["remaining_amount"] == 400_000
+
+    # Activity should show write-off entries
+    assert any(
+        item["entry_type"] == "WRITE_OFF"
+        for item in data["plan_activity"]
+    )
+
+
+def test_plan_level_write_off_rejects_excess(client, session):
+    """Plan-level write-off exceeding total remaining returns 400."""
+    headers = create_user_and_token(client, "woff4", "woff4@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+
+    resp = client.post(
+        f"/payment-plans/{plan['id']}/write-off",
+        json={"amount": 500_000, "note": "Too much"},
+        headers=headers,
+    )
+    assert resp.status_code == 400, resp.text
+
+
+def test_write_off_does_not_create_wallet_movement(client, session):
+    """Write-offs (row and plan) do not create wallet ledger entries."""
+    headers = create_user_and_token(client, "woff5", "woff5@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=2, total_price=600_000, down_payment=0)
+
+    # Row write-off
+    row_id = plan["payments"][0]["id"]
+    client.post(f"/payment-plans/payments/{row_id}/write-off", headers=headers)
+
+    # Plan write-off
+    client.post(
+        f"/payment-plans/{plan['id']}/write-off",
+        json={"amount": 300_000, "note": "Plan-level"},
+        headers=headers,
+    )
+
+    # Verify no wallet movement for write-off entries
+    write_off_entries = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.plan_id == plan["id"],
+            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.WRITE_OFF,
+        )
+        .all()
+    )
+    assert len(write_off_entries) == 2
+    for entry in write_off_entries:
+        assert entry.financial_event_id is None  # No wallet event linked
+
+
+# ---------------------------------------------------------------------------
+# Ticket 13: Append-Only Reversals
+# ---------------------------------------------------------------------------
+
+
+def test_write_off_undo_is_append_only(client, session):
+    """Undoing a write-off preserves the original WRITE_OFF entry and appends REVERSAL."""
+    headers = create_user_and_token(client, "rev1", "rev1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+    row = plan["payments"][0]
+
+    # Write off the row
+    client.post(f"/payment-plans/payments/{row['id']}/write-off", headers=headers)
+
+    # Undo the write-off
+    undone = client.post(f"/payment-plans/payments/{row['id']}/undo-write-off", headers=headers)
+    assert undone.status_code == 200, undone.text
+
+    # Original WRITE_OFF should still exist
+    write_off_entry = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.plan_id == plan["id"],
+            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.WRITE_OFF,
+        )
+        .first()
+    )
+    assert write_off_entry is not None, "Original WRITE_OFF entry must be preserved"
+
+    # REVERSAL entry should exist
+    reversal_entry = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.plan_id == plan["id"],
+            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.REVERSAL,
+        )
+        .first()
+    )
+    assert reversal_entry is not None, "REVERSAL entry must be created"
+
+    # Row state restored
+    data = undone.json()
+    assert data["written_off_amount"] == 0
+    assert data["settlement_state"] == "UNPAID"
+
+
+def test_undo_charge_creates_reversal_entry(client, session):
+    """Undoing a charge appends a REVERSAL entry and preserves the original CHARGE."""
+    headers = create_user_and_token(client, "rev2", "rev2@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+
+    # Add a charge
+    client.post(
+        f"/payment-plans/{plan['id']}/charges",
+        json={"charge_type": "FEE", "amount": 50_000},
+        headers=headers,
+    )
+
+    # Undo the charge
+    undone = client.post(f"/payment-plans/{plan['id']}/charges/undo-latest", headers=headers)
+    assert undone.status_code == 200, undone.text
+
+    # Original CHARGE should still exist
+    charge_entry = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.plan_id == plan["id"],
+            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.CHARGE,
+        )
+        .first()
+    )
+    assert charge_entry is not None, "Original CHARGE entry must be preserved"
+
+    # REVERSAL should exist
+    reversal_entry = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.plan_id == plan["id"],
+            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.REVERSAL,
+        )
+        .first()
+    )
+    assert reversal_entry is not None, "REVERSAL entry must be created"
+
+
+# ---------------------------------------------------------------------------
+# Ticket 14: Derived Plan Totals & Archive
+# ---------------------------------------------------------------------------
+
+
+def test_plan_response_includes_derived_totals(client):
+    """Plan response includes remaining_principal, remaining_charges, lifecycle, time_status."""
+    headers = create_user_and_token(client, "derived1", "derived1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=3, total_price=900_000, down_payment=0)
+
+    assert "remaining_principal" in plan
+    assert "remaining_charges" in plan
+    assert "lifecycle_status" in plan
+    assert "time_status" in plan
+    assert plan["lifecycle_status"] == "OPEN"
+    assert plan["time_status"] == "ON_TRACK"
+    # Flat-total plan: all remaining is principal, zero charges
+    assert plan["remaining_principal"] == 900_000
+    assert plan["remaining_charges"] == 0
+
+
+def test_plan_lifecycle_closed_when_fully_paid(client, session):
+    """A fully paid plan shows lifecycle_status = CLOSED and time_status = null."""
+    headers = create_user_and_token(client, "derived2", "derived2@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    wallet_id = _default_wallet(client, headers)["id"]
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+
+    # Pay in full
+    client.post(
+        f"/payment-plans/{plan['id']}/payments",
+        json={"amount": 300_000, "wallet_allocations": [{"wallet_id": wallet_id, "amount": 300_000}]},
+        headers=headers,
+    )
+
+    refreshed = client.get(f"/payment-plans/{plan['id']}", headers=headers).json()
+    assert refreshed["lifecycle_status"] == "CLOSED"
+    assert refreshed["time_status"] is None
+    assert refreshed["remaining_amount"] == 0
+    assert refreshed["remaining_principal"] == 0
+    assert refreshed["remaining_charges"] == 0
+
+
+def test_archive_preserves_financial_state(client, session):
+    """Archiving a plan sets archived_at but does not change lifecycle or time status."""
+    headers = create_user_and_token(client, "archive1", "archive1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+
+    # Archive
+    archived = client.post(f"/payment-plans/{plan['id']}/archive", headers=headers)
+    assert archived.status_code == 200, archived.text
+    data = archived.json()
+    assert data["archived_at"] is not None
+    assert data["lifecycle_status"] == "OPEN"  # Still open — balance hasn't changed
+    assert data["remaining_amount"] == 300_000  # Balances unchanged
+    assert len(data["payments"]) == 1  # Rows unchanged
+
+
+def test_unarchive_clears_archived_at(client, session):
+    """Unarchiving clears archived_at without touching financial data."""
+    headers = create_user_and_token(client, "archive2", "archive2@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+
+    client.post(f"/payment-plans/{plan['id']}/archive", headers=headers)
+    restored = client.post(f"/payment-plans/{plan['id']}/unarchive", headers=headers)
+    assert restored.status_code == 200, restored.text
+    data = restored.json()
+    assert data["archived_at"] is None
+    assert data["lifecycle_status"] == "OPEN"
+    assert data["remaining_amount"] == 300_000
+
+
+def test_pristine_delete_allowed_after_archive_restore(client):
+    """A plan that was archived and restored but never had payments is still pristine."""
+    headers = create_user_and_token(client, "archive3", "archive3@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+
+    # Archive and restore — no financial activity
+    client.post(f"/payment-plans/{plan['id']}/archive", headers=headers)
+    client.post(f"/payment-plans/{plan['id']}/unarchive", headers=headers)
+
+    # Should still be deletable (pristine check uses activity, not archive state)
+    resp = client.delete(f"/payment-plans/{plan['id']}", headers=headers)
+    assert resp.status_code == 204
+
+
+# ---------------------------------------------------------------------------
+# Ticket 15: Cross-Domain Regression
+# ---------------------------------------------------------------------------
+
+
+def test_payment_plan_payment_does_not_create_debt_ledger_entries(client, session):
+    """A payment plan payment must not create rows in the Debt ledger."""
+    headers = create_user_and_token(client, "xdomain1", "xdomain1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    wallet_id = _default_wallet(client, headers)["id"]
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+
+    # Count Debt ledger entries before
+    before = session.query(models.DebtLedgerEntry).count()
+
+    client.post(
+        f"/payment-plans/{plan['id']}/payments",
+        json={"amount": 300_000, "wallet_allocations": [{"wallet_id": wallet_id, "amount": 300_000}]},
+        headers=headers,
+    )
+
+    after = session.query(models.DebtLedgerEntry).count()
+    assert after == before, "Payment Plan payment must not create Debt ledger entries"
+
+
+def test_payment_plan_ledger_uses_only_plan_owned_types(client, session):
+    """All Payment Plan ledger entries use Payment Plan entry types, not Debt types."""
+    headers = create_user_and_token(client, "xdomain2", "xdomain2@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    wallet_id = _default_wallet(client, headers)["id"]
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+
+    # Create payment
+    client.post(
+        f"/payment-plans/{plan['id']}/payments",
+        json={"amount": 150_000, "wallet_allocations": [{"wallet_id": wallet_id, "amount": 150_000}]},
+        headers=headers,
+    )
+    # Write off
+    row_id = plan["payments"][0]["id"]
+    client.post(f"/payment-plans/payments/{row_id}/write-off", json={"amount": 50_000}, headers=headers)
+
+    # All entries should use Payment Plan types
+    entries = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(models.PaymentPlanLedgerEntry.plan_id == plan["id"])
+        .all()
+    )
+    valid_types = {e.value for e in models.PaymentPlanLedgerEntryType}
+    for entry in entries:
+        assert entry.entry_type.value in valid_types, (
+            f"Entry {entry.id} has unexpected type: {entry.entry_type}"
+        )
+
+
+def test_plan_response_does_not_leak_debt_vocabulary(client):
+    """Payment Plan responses must not contain Debt product-kind or legacy status values."""
+    headers = create_user_and_token(client, "xdomain3", "xdomain3@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+
+    plan_str = str(plan)
+    # No Debt product vocabulary
+    for banned in ("MORTGAGE", "CLIENT_RECEIVABLE", "PERSONAL_REIMBURSEMENT", "INFORMAL_DEBT"):
+        assert banned not in plan_str, f"Debt product vocabulary leaked: {banned}"
+
+    # Row status should use settlement state, not legacy SKIPPED as primary
+    for p in plan["payments"]:
+        assert "settlement_state" in p
+
+
+def test_timezone_consistency_across_plan_responses(client):
+    """Plan time_status uses effective user timezone for overdue derivation."""
+    headers = create_user_and_token(client, "xdomain4", "xdomain4@example.com", "Password123!")
+    # Set an explicit timezone
+    headers["X-Timezone"] = "Asia/Tashkent"
+    _create_payment_plan_budgets(client, headers)
+
+    # Create plan with past due date — should be overdue in any reasonable tz
+    from datetime import date as dt_date, timedelta
+    past = dt_date.today() - timedelta(days=60)
+    plan = _create_payment_plan(
+        client, headers,
+        start_date=past.isoformat(),
+        months=1,
+        total_price=300_000,
+        down_payment=0,
+        frequency="MONTHLY",
+    )
+    # First payment = past + 1 month ≈ 30 days ago → should be overdue
+    assert plan["time_status"] == "OVERDUE"
+
+
+def test_immutable_history_no_hard_delete_in_write_off_flow(client, session):
+    """Write-off flow must never hard-delete posted ledger entries."""
+    headers = create_user_and_token(client, "xdomain5", "xdomain5@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+    row = plan["payments"][0]
+
+    # Capture count before write-off
+    before_entries = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(models.PaymentPlanLedgerEntry.plan_id == plan["id"])
+        .count()
+    )
+
+    # Write off
+    client.post(f"/payment-plans/payments/{row['id']}/write-off", headers=headers)
+
+    # Undo write-off
+    client.post(f"/payment-plans/payments/{row['id']}/undo-write-off", headers=headers)
+
+    # After undo, we should have MORE entries than before (original + WRITE_OFF + REVERSAL)
+    after_entries = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(models.PaymentPlanLedgerEntry.plan_id == plan["id"])
+        .count()
+    )
+    assert after_entries > before_entries, (
+        f"Expected entries to grow (append-only), but got {before_entries} → {after_entries}"
+    )

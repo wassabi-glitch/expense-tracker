@@ -266,7 +266,8 @@ def test_non_pristine_debt_delete_is_blocked_but_pristine_delete_still_works(cli
     assert deleted.status_code == 204, deleted.text
 
 
-def test_debt_creation_derives_initial_amount_from_wallet_rows(client, session):
+def test_debt_creation_principal_and_wallet_movement_are_separate(client, session):
+    """ADR 0027: principal and wallet movement are independent facts."""
     headers = create_user_and_token(client, "debtroutesinitialmulti", "debtroutesinitialmulti@example.com", "Password123!")
     default_wallet = _default_wallet(client, headers)
     user = _user(session, "debtroutesinitialmulti@example.com")
@@ -277,7 +278,7 @@ def test_debt_creation_derives_initial_amount_from_wallet_rows(client, session):
         json={
             "debt_type": "OWING",
             "counterparty_name": "Friend",
-            "initial_amount": 1,
+            "initial_amount": 5_000_000,
             "currency": "UZS",
             "date": user_timezone_today().isoformat(),
             "expected_return_date": user_timezone_today().isoformat(),
@@ -292,10 +293,13 @@ def test_debt_creation_derives_initial_amount_from_wallet_rows(client, session):
 
     assert response.status_code == 201, response.text
     debt = response.json()
-    assert debt["initial_amount"] == 3_000_000
-    assert debt["remaining_amount"] == 3_000_000
+    # initial_amount is the principal (stays as specified)
+    assert debt["initial_amount"] == 5_000_000
+    # remaining = principal + opening_charges = 5_000_000
+    assert debt["remaining_amount"] == 5_000_000
     assert debt["is_money_transferred"] is True
-    assert debt["initial_wallet_id"] is None
+    # Wallet movement (3M) differs from principal (5M) — allowed by ADR 0027
+    assert debt["initial_wallet_id"] is None  # multi-wallet → no single id
 
     session.expire_all()
     wallet_one = session.query(models.Wallet).filter_by(id=default_wallet["id"]).first()
@@ -313,7 +317,8 @@ def test_debt_creation_derives_initial_amount_from_wallet_rows(client, session):
     assert sorted(leg.amount for leg in event.wallet_legs) == [1_000_000, 2_000_000]
 
     initial_entry = session.query(models.DebtLedgerEntry).filter_by(debt_id=debt["id"]).first()
-    assert initial_entry.amount_delta == 3_000_000
+    # INITIAL entry records principal (5M), not wallet movement (3M) — ADR 0027
+    assert initial_entry.amount_delta == 5_000_000
     assert initial_entry.wallet_id is None
     assert initial_entry.financial_event_id == event.id
 
@@ -334,7 +339,6 @@ def test_formal_bank_debt_disbursement_uses_loan_reference_type(client, session)
             "is_money_transferred": True,
             "origin_kind": "CASH_BORROWED",
             "counterparty_kind": "BANK",
-            "product_kind": "BANK_LOAN",
             "initial_wallet_allocations": [
                 {"wallet_id": wallet["id"], "amount": 5_000_000},
             ],
@@ -355,6 +359,7 @@ def test_formal_bank_debt_disbursement_uses_loan_reference_type(client, session)
 
 
 def test_debt_creation_wallet_rows_imply_money_moved(client):
+    """Wallet allocations trigger money transfer; principal is independent (ADR 0027)."""
     headers = create_user_and_token(client, "debtroutesinitialrows", "debtroutesinitialrows@example.com", "Password123!")
     wallet = _default_wallet(client, headers)
 
@@ -363,7 +368,7 @@ def test_debt_creation_wallet_rows_imply_money_moved(client):
         json={
             "debt_type": "OWING",
             "counterparty_name": "Friend",
-            "initial_amount": 1,
+            "initial_amount": 750_000,
             "currency": "UZS",
             "date": user_timezone_today().isoformat(),
             "expected_return_date": user_timezone_today().isoformat(),
@@ -549,7 +554,6 @@ def test_damage_compensation_i_owe_payment_posts_as_expense(client, session):
             "debt_type": "OWING",
             "origin_kind": "DAMAGE_COMPENSATION",
             "counterparty_kind": "PERSON",
-            "product_kind": "PERSONAL_REIMBURSEMENT",
             "counterparty_name": "Neighbor",
             "initial_amount": 800_000,
             "currency": "UZS",
@@ -599,7 +603,6 @@ def test_damage_compensation_owed_to_me_payment_is_not_income(client, session):
             "debt_type": "OWED",
             "origin_kind": "DAMAGE_COMPENSATION",
             "counterparty_kind": "PERSON",
-            "product_kind": "PERSONAL_REIMBURSEMENT",
             "counterparty_name": "Friend",
             "initial_amount": 600_000,
             "currency": "UZS",
@@ -882,7 +885,6 @@ def test_partial_and_formal_debts_use_component_aware_forgiveness(client, sessio
         headers,
         wallet["id"],
         counterparty_kind="BANK",
-        product_kind="BANK_LOAN",
     )
     forgiven = client.post(
         f"/debts/{formal_debt['id']}/forgiveness",

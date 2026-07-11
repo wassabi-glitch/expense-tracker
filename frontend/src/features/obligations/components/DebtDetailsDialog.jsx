@@ -493,7 +493,7 @@ export function DebtDetailsDialog({ debt, open, onOpenChange, appLang = "en" }) 
                 {currentDebt?.description || currentDebt?.counterparty_name || "Debt details"}
               </DialogTitle>
               <DialogDescription>
-                {currentDebt?.counterparty_name} - {currentDebt?.product_kind || currentDebt?.origin_kind || "Debt"} - {stateLabel}
+                {currentDebt?.counterparty_name} - {currentDebt?.origin_kind || "Debt"} - {stateLabel}
               </DialogDescription>
             </div>
             <div className="flex flex-wrap gap-2">

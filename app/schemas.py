@@ -30,7 +30,6 @@ from .models import (
     DebtLedgerEntrySource,
     DebtLedgerEntryType,
     DebtOriginKind,
-    DebtProductKind,
     DebtType,
     ExpectedIncomeStatus,
     ExpectedInflowKind,
@@ -40,6 +39,7 @@ from .models import (
     PaymentPlanStatus,
     PaymentPlanPaymentStatus,
     PaymentPlanPaymentComponentType,
+    ScheduleModel,
     WalletType,
     AccountingType,
     TransactionType,
@@ -3350,7 +3350,6 @@ class DebtBase(BaseModel):
     debt_type: DebtType
     origin_kind: DebtOriginKind = DebtOriginKind.IMPORTED_BALANCE
     counterparty_kind: DebtCounterpartyKind = DebtCounterpartyKind.OTHER
-    product_kind: Optional[DebtProductKind] = None
     counterparty_name: str
     initial_amount: int = Field(gt=0)
     currency: str = "UZS"
@@ -3388,6 +3387,18 @@ class DebtInitialWalletAllocationIn(BaseModel):
 
 
 class DebtCreate(DebtBase):
+    """Payload for creating a Debt.
+
+    ``initial_amount`` is the original principal.  ``opening_charge_amount``
+    (default 0) covers upfront interest, fees, or other charges that are part
+    of the obligation from day one.
+
+    Starting balance = initial_amount + opening_charge_amount.
+
+    Wallet movement (if any) is declared separately via
+    ``initial_wallet_allocations`` and may differ from the starting balance.
+    """
+    opening_charge_amount: int = Field(default=0, ge=0)
     is_money_transferred: bool = False
     initial_wallet_id: Optional[int] = None
     initial_wallet_allocations: List[DebtInitialWalletAllocationIn] = Field(
@@ -3421,7 +3432,6 @@ class DebtUpdate(BaseModel):
     expected_return_date: Optional[dt.date] = None
     origin_kind: Optional[DebtOriginKind] = None
     counterparty_kind: Optional[DebtCounterpartyKind] = None
-    product_kind: Optional[DebtProductKind] = None
     initial_amount: Optional[int] = Field(default=None, gt=0)
     expense_category: Optional[ExpenseCategory] = None
     expense_subcategory_id: Optional[int] = None
@@ -3478,13 +3488,35 @@ class DebtTransactionWalletAllocationIn(BaseModel):
     amount: int = Field(gt=0)
 
 
+class DebtPaymentAllocationMode(str, Enum):
+    """How a payment amount is split between principal and charges."""
+    AUTOMATIC = "AUTOMATIC"          # charges-first (visible default)
+    CHARGES_FIRST = "CHARGES_FIRST"  # clear all charges, then principal
+    PRINCIPAL_FIRST = "PRINCIPAL_FIRST"  # clear all principal, then charges
+    CUSTOM = "CUSTOM"                # user specifies exact split
+
+
 class DebtPaymentCreate(BaseModel):
     amount: int = Field(gt=0)
+    allocation_mode: DebtPaymentAllocationMode = DebtPaymentAllocationMode.AUTOMATIC
+    principal_amount: Optional[int] = Field(default=None, gt=0)
+    charge_amount: Optional[int] = Field(default=None, gt=0)
     date: Optional[dt.date] = None
     note: Optional[str] = None
     wallet_allocations: List[DebtTransactionWalletAllocationIn] = Field(
         default_factory=list)
     income_source_id: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_custom_split(self):
+        if self.allocation_mode == DebtPaymentAllocationMode.CUSTOM:
+            principal = self.principal_amount or 0
+            charge = self.charge_amount or 0
+            if principal <= 0 and charge <= 0:
+                raise ValueError("debts.payment.custom_split_required")
+            if principal + charge != self.amount:
+                raise ValueError("debts.payment.custom_split_mismatch")
+        return self
 
 
 class DebtTransactionWalletAllocationOut(BaseModel):
@@ -3715,6 +3747,7 @@ class PaymentPlanBase(BaseModel):
     item_name: str
     store_or_bank_name: Optional[str] = None
     plan_type: PaymentPlanType = PaymentPlanType.STORE_INSTALLMENT
+    schedule_model: Optional[ScheduleModel] = None
     total_price: int = Field(gt=0)
     down_payment: int = Field(ge=0)
     months: int = Field(gt=0)
@@ -3739,6 +3772,14 @@ class PaymentPlanBase(BaseModel):
         return _validate_supported_user_date(v, "validation.date_too_early")
 
 
+class PaymentPlanManualRowIn(BaseModel):
+    """A single manually-entered schedule row for preview or creation."""
+    due_date: date
+    component_type: str = "PRINCIPAL"  # PRINCIPAL or CHARGE
+    amount: int = Field(gt=0)
+    installment_number: Optional[int] = None
+
+
 class PaymentPlanCreate(PaymentPlanBase):
     wallet_allocations: List[PaymentPlanWalletAllocationIn] = Field(
         default_factory=list)
@@ -3746,6 +3787,9 @@ class PaymentPlanCreate(PaymentPlanBase):
     track_as_asset: bool = False
     asset_current_value: Optional[int] = Field(default=None, ge=0)
     loan_disbursement_wallet_id: Optional[int] = None
+    annual_interest_rate: Optional[float] = Field(default=None, ge=0, le=200)
+    generation_metadata: Optional[Dict[str, Any]] = None
+    manual_rows: Optional[List[PaymentPlanManualRowIn]] = None
 
 
 class PaymentPlanUpdate(BaseModel):
@@ -3826,6 +3870,12 @@ class PaymentPlanPaymentOut(PaymentPlanPaymentBase):
     event_id: Optional[int] = None
     expense_id: Optional[int] = None
     payment_plan_ledger_entry_id: Optional[int] = None
+    installment_number: Optional[int] = None
+    # Derived fields (computed by router, not stored)
+    settlement_state: Optional[str] = None
+    settlement_label: Optional[str] = None
+    time_status: Optional[str] = None
+    remaining_amount: int = 0
     allocations: List[PaymentPlanPaymentAllocationOut] = []
     created_at: datetime
     updated_at: datetime
@@ -3843,7 +3893,15 @@ class PaymentPlanOut(PaymentPlanBase):
     payment_count: int
     regular_payment_amount: int
     schedule_rule: Optional[Dict[str, Any]] = None
+    schedule_model: Optional[str] = None
+    generation_metadata: Optional[Dict[str, Any]] = None
     status: PaymentPlanStatus
+    archived_at: Optional[datetime] = None
+    # Derived plan-level fields (computed by router, not stored)
+    remaining_principal: Optional[int] = None
+    remaining_charges: Optional[int] = None
+    lifecycle_status: Optional[str] = None
+    time_status: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
@@ -3879,6 +3937,59 @@ class PaymentPlanPaymentRecordCreate(BaseModel):
     wallet_allocations: List[PaymentPlanWalletAllocationIn] = Field(
         default_factory=list)
     note: Optional[str] = Field(default=None, max_length=200)
+
+
+# --- SCHEDULE PREVIEW SCHEMAS ---
+
+
+class PaymentPlanSchedulePreviewRow(BaseModel):
+    """A single row in a schedule preview."""
+    due_date: date
+    component_type: str  # PRINCIPAL or CHARGE
+    amount: int
+    installment_number: Optional[int] = None
+
+
+class PaymentPlanSchedulePreviewOut(BaseModel):
+    """Response for schedule preview before plan creation."""
+    schedule_model: str
+    total_principal: int
+    total_charges: int
+    total_to_pay: int
+    final_due_date: date
+    payment_count: int
+    frequency: str
+    rows: List[PaymentPlanSchedulePreviewRow]
+
+
+class PaymentPlanSchedulePreviewIn(BaseModel):
+    """Request body for generating a schedule preview."""
+    plan_type: PaymentPlanType = PaymentPlanType.STORE_INSTALLMENT
+    schedule_model: Optional[ScheduleModel] = None
+    # Flat-total fields
+    total_price: Optional[int] = Field(default=None, gt=0)
+    down_payment: Optional[int] = Field(default=None, ge=0)
+    # Amortized fields
+    principal: Optional[int] = Field(default=None, gt=0)
+    annual_interest_rate: Optional[float] = Field(default=None, ge=0, le=200)
+    # Manual schedule fields
+    manual_rows: Optional[List[PaymentPlanManualRowIn]] = None
+    # Shared fields
+    payment_count: Optional[int] = Field(default=None, gt=0)
+    months: Optional[int] = Field(default=None, gt=0)
+    frequency: PaymentPlanFrequency = PaymentPlanFrequency.MONTHLY
+    first_due_date: Optional[date] = None
+    start_date: Optional[date] = None
+
+    @field_validator("first_due_date", "start_date")
+    @classmethod
+    def validate_dates(cls, v: Optional[date]):
+        if v is not None:
+            return _validate_supported_user_date(v, "validation.date_too_early")
+        return v
+
+
+# --- ACTIVITY / DETAIL SCHEMAS ---
 
 
 class PaymentPlanActivityItemOut(BaseModel):
@@ -3917,6 +4028,18 @@ class MarkPaidIn(BaseModel):
     wallet_allocations: List[PaymentPlanWalletAllocationIn] = Field(
         default_factory=list)
     category: Optional[ExpenseCategory] = None
+    note: Optional[str] = None
+
+
+class PaymentPlanRowWriteOffIn(BaseModel):
+    """Request body for writing off a single payment row."""
+    amount: Optional[int] = Field(default=None, gt=0)
+    note: Optional[str] = None
+
+
+class PaymentPlanWriteOffIn(BaseModel):
+    """Request body for plan-level write-off."""
+    amount: int = Field(gt=0)
     note: Optional[str] = None
 
 

@@ -287,7 +287,7 @@ def test_session_finalize_creates_split_reimbursement_debts(client, session):
     ]
     for debt in splits:
         assert debt.remaining_amount == debt.initial_amount
-        assert debt.status == models.DebtStatus.ACTIVE
+        assert debt.remaining_amount > 0  # open lifecycle (ADR 0026)
         ledgers = session.query(models.DebtLedgerEntry).filter(
             models.DebtLedgerEntry.debt_id == debt.id,
         ).all()

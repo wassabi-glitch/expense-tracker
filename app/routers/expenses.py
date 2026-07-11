@@ -416,7 +416,6 @@ def _build_expense_detail_out(
                 debt_type=item.debt_type,
                 counterparty_name=item.counterparty_name,
                 remaining_amount=int(item.remaining_amount),
-                status=item.status,
             )
             for item in related_debts
         ],
@@ -908,13 +907,11 @@ def create_expense(
                 debt_type=models.DebtType.OWED,
                 origin_kind=models.DebtOriginKind.SPLIT_REIMBURSEMENT,
                 counterparty_kind=models.DebtCounterpartyKind.PERSON,
-                product_kind=models.DebtProductKind.PERSONAL_REIMBURSEMENT,
                 counterparty_name=split.contact_name,
                 initial_amount=split.amount,
                 remaining_amount=split.amount,
                 currency=wallet_allocations[0][0].currency,
                 description=expense.title,
-                status=models.DebtStatus.ACTIVE,
                 date=expense.date,
                 expected_return_date=expense.date,
                 linked_event_id=new_event.id,

@@ -9,27 +9,6 @@ from app import models
 from app.domains.debt._debt_service import POSTED_DEBT_LEDGER_STATUS
 
 
-OPEN_DEBT_STATUSES = {
-    models.DebtStatus.ACTIVE,
-    models.DebtStatus.OVERDUE,
-    models.DebtStatus.DEFAULTED,
-    models.DebtStatus.IN_COLLECTION,
-}
-
-CLOSED_DEBT_STATUSES = {
-    models.DebtStatus.PAID,
-    models.DebtStatus.FORGIVEN,
-    models.DebtStatus.WRITTEN_OFF,
-}
-
-FORMAL_PRODUCT_KINDS = {
-    models.DebtProductKind.BANK_LOAN,
-    models.DebtProductKind.CAR_LOAN,
-    models.DebtProductKind.MORTGAGE,
-    models.DebtProductKind.STORE_INSTALLMENT,
-    models.DebtProductKind.SERVICE_PAY_LATER,
-}
-
 INFORMAL_ORIGIN_KINDS = {
     models.DebtOriginKind.CASH_BORROWED,
     models.DebtOriginKind.CASH_LENT,
@@ -37,6 +16,9 @@ INFORMAL_ORIGIN_KINDS = {
     models.DebtOriginKind.SPLIT_REIMBURSEMENT,
     models.DebtOriginKind.PERSONAL_REIMBURSEMENT,
     models.DebtOriginKind.DAMAGE_COMPENSATION,
+    models.DebtOriginKind.RECEIVABLE_INCOME,
+    models.DebtOriginKind.IMPORTED_BALANCE,
+    models.DebtOriginKind.FINANCED_ASSET_PURCHASE,
 }
 
 REVERSIBLE_ENTRY_TYPES = {
@@ -131,11 +113,16 @@ def _as_value(value):
 
 
 def is_formal_debt(debt: models.Debt) -> bool:
-    product_kind = _as_value(debt.product_kind)
+    """A Debt is formal when the counterparty is a bank, government, or formal
+    details exist (institution, contract number, collateral, etc.).
+
+    ADR 0026 removes ``DebtProductKind`` from standalone Debt; formality is
+    now inferred from counterparty and the optional formal-details record.
+    """
     counterparty_kind = _as_value(debt.counterparty_kind)
     return (
-        product_kind in {item.value for item in FORMAL_PRODUCT_KINDS}
-        or counterparty_kind in {
+        counterparty_kind
+        in {
             models.DebtCounterpartyKind.BANK.value,
             models.DebtCounterpartyKind.GOVERNMENT.value,
         }
@@ -145,18 +132,9 @@ def is_formal_debt(debt: models.Debt) -> bool:
 
 def is_informal_debt(debt: models.Debt) -> bool:
     origin_kind = _as_value(debt.origin_kind)
-    product_kind = _as_value(debt.product_kind)
-    return (
-        not is_formal_debt(debt)
-        and (
-            origin_kind in {item.value for item in INFORMAL_ORIGIN_KINDS}
-            or product_kind
-            in {
-                models.DebtProductKind.INFORMAL_DEBT.value,
-                models.DebtProductKind.PERSONAL_REIMBURSEMENT.value,
-            }
-        )
-    )
+    return not is_formal_debt(debt) and origin_kind in {
+        item.value for item in INFORMAL_ORIGIN_KINDS
+    }
 
 
 def is_open_debt(debt: models.Debt) -> bool:
@@ -168,7 +146,8 @@ def is_closed_debt(debt: models.Debt) -> bool:
 
 
 def is_archived_debt(debt: models.Debt) -> bool:
-    return getattr(debt, "archived_at", None) is not None or debt.status == models.DebtStatus.ARCHIVED
+    """Archive is purely ``archived_at``-based (ADR 0026)."""
+    return getattr(debt, "archived_at", None) is not None
 
 
 def is_pristine_debt(db: Session, debt: models.Debt) -> bool:
@@ -209,8 +188,6 @@ def _evaluate_debt_state(
         models.DebtActionKind.FORGIVE_FULL,
         models.DebtActionKind.ADJUST_BALANCE,
         models.DebtActionKind.LINK_ASSET,
-        models.DebtActionKind.SET_COLLATERAL,
-        models.DebtActionKind.RESTRUCTURE_TERMS,
     }:
         if not is_open_debt(debt):
             return decision.blocked("debts.policy.closed_debt_immutable")
@@ -225,19 +202,8 @@ def _evaluate_action_meaning(
     action_kind: models.DebtActionKind,
     decision: DebtActionDecision,
 ) -> DebtActionDecision:
-    if action_kind in {
-        models.DebtActionKind.FORGIVE_PARTIAL,
-        models.DebtActionKind.FORGIVE_FULL,
-    }:
-        return decision
-
-    if action_kind in {
-        models.DebtActionKind.SET_COLLATERAL,
-        models.DebtActionKind.RESTRUCTURE_TERMS,
-    }:
-        if is_formal_debt(debt):
-            return decision
-        return decision.blocked("debts.policy.formal_action_only")
+    # FORGIVE actions are always available on open debts (checked above).
+    # SET_COLLATERAL / RESTRUCTURE_TERMS were removed per ADR 0027.
 
     if action_kind == models.DebtActionKind.LINK_ASSET:
         if debt.origin_kind == models.DebtOriginKind.FINANCED_ASSET_PURCHASE or is_formal_debt(debt):

@@ -51,7 +51,6 @@ def test_future_timeline_aggregates_all_event_types(client, session):
         counterparty_name="John Doe",
         initial_amount=500_000,
         remaining_amount=500_000,
-        status=models.DebtStatus.ACTIVE,
         date=today,
         expected_return_date=today,
     )
@@ -66,7 +65,6 @@ def test_future_timeline_aggregates_all_event_types(client, session):
         counterparty_name="Jane Doe",
         initial_amount=200_000,
         remaining_amount=200_000,
-        status=models.DebtStatus.ACTIVE,
         date=today,
         expected_return_date=today,
     )
@@ -186,7 +184,6 @@ def test_timeline_uses_payment_plan_schedule_rows_not_linked_debt(client, sessio
         counterparty_name="Hidden phone debt",
         initial_amount=500_000,
         remaining_amount=500_000,
-        status=models.DebtStatus.ACTIVE,
         date=today,
         expected_return_date=today,
         expense_category=models.ExpenseCategory.ELECTRONICS,
@@ -257,7 +254,6 @@ def test_timeline_excludes_fully_paid_items_and_uses_remaining_amount(client, se
         counterparty_name="Bob",
         initial_amount=1_000_000,
         remaining_amount=200_000,
-        status=models.DebtStatus.ACTIVE,
         date=today,
         expected_return_date=today,
     )

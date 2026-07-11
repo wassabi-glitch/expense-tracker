@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 # pyrefly: ignore [missing-import]
-from sqlalchemy import func, or_
+from sqlalchemy import func
 # pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session, joinedload
 
@@ -54,22 +54,11 @@ CONSUMPTION_ORIGIN_KINDS = {
     models.DebtOriginKind.DEFERRED_EXPENSE,
     models.DebtOriginKind.FINANCED_ASSET_PURCHASE,
 }
-FORMAL_SCHEDULE_PRODUCT_KINDS = {
-    models.DebtProductKind.MORTGAGE,
-    models.DebtProductKind.CAR_LOAN,
-    models.DebtProductKind.STORE_INSTALLMENT,
-    models.DebtProductKind.SERVICE_PAY_LATER,
-}
-ACTIVE_PAYABLE_DEBT_STATUSES = (
-    models.DebtStatus.ACTIVE,
-    models.DebtStatus.OVERDUE,
-    models.DebtStatus.DEFAULTED,
-    models.DebtStatus.IN_COLLECTION,
-)
-
-
 def _is_debt_archived(debt: models.Debt) -> bool:
-    return getattr(debt, "archived_at", None) is not None or debt.status == models.DebtStatus.ARCHIVED
+    """Archive state is derived purely from ``archived_at`` — never from the
+    legacy ``DebtStatus`` column.  ADR 0026 keeps archive separate from
+    lifecycle and time status."""
+    return getattr(debt, "archived_at", None) is not None
 
 
 def _debt_lifecycle_status(debt: models.Debt) -> schemas.DebtLifecycleStatus:
@@ -89,6 +78,36 @@ def _debt_time_status(
     if due_date is not None and due_date < today:
         return schemas.DebtTimeStatus.OVERDUE
     return schemas.DebtTimeStatus.ON_TRACK
+
+
+def _resolve_payment_allocation(
+    db: Session,
+    debt: models.Debt,
+    payload: schemas.DebtPaymentCreate,
+) -> tuple[int | None, int | None]:
+    """Compute principal/charge overrides from the allocation mode.
+
+    Returns (principal_override, charge_override) — both None means
+    "let the payment service decide automatically" (charges-first).
+    """
+    mode = payload.allocation_mode
+    amount = int(payload.amount)
+
+    if mode == schemas.DebtPaymentAllocationMode.CUSTOM:
+        return int(payload.principal_amount or 0), int(payload.charge_amount or 0)
+
+    charge_balance = _posted_charge_balance(db, debt.id)
+    principal_balance = max(0, int(debt.remaining_amount or 0) - charge_balance)
+
+    if mode == schemas.DebtPaymentAllocationMode.PRINCIPAL_FIRST:
+        principal = min(amount, principal_balance)
+        charge = amount - principal
+        return principal, charge
+
+    # AUTOMATIC and CHARGES_FIRST both default to charges-first (ADR 0027)
+    charge = min(amount, charge_balance)
+    principal = amount - charge
+    return principal, charge
 
 
 def _matches_debt_lifecycle_filter(debt: models.Debt, lifecycle_status: schemas.DebtLifecycleStatus | None) -> bool:
@@ -182,22 +201,6 @@ def _infer_debt_origin_kind(payload: schemas.DebtCreate) -> models.DebtOriginKin
     if payload.income_source_id is not None:
         return models.DebtOriginKind.RECEIVABLE_INCOME
     return models.DebtOriginKind.PERSONAL_REIMBURSEMENT
-
-
-def _infer_debt_product_kind(
-    payload: schemas.DebtCreate,
-    origin_kind: models.DebtOriginKind,
-) -> models.DebtProductKind:
-    if payload.product_kind is not None:
-        return payload.product_kind
-    if origin_kind == models.DebtOriginKind.RECEIVABLE_INCOME:
-        return models.DebtProductKind.CLIENT_RECEIVABLE
-    if origin_kind in (
-        models.DebtOriginKind.SPLIT_REIMBURSEMENT,
-        models.DebtOriginKind.PERSONAL_REIMBURSEMENT,
-    ):
-        return models.DebtProductKind.PERSONAL_REIMBURSEMENT
-    return models.DebtProductKind.INFORMAL_DEBT
 
 
 def _infer_counterparty_kind(
@@ -336,7 +339,6 @@ def _build_wallet_obligation_out(wallet: models.Wallet, *, today: date) -> schem
         debt_type=models.DebtType.OWING,
         origin_kind=models.DebtOriginKind.IMPORTED_BALANCE,
         counterparty_kind=models.DebtCounterpartyKind.OTHER,
-        product_kind=None,
         counterparty_name=wallet.name,
         initial_amount=amount,
         remaining_amount=amount,
@@ -376,8 +378,6 @@ def _debt_workflow_warnings(debt: models.Debt, *, today: date) -> list[str]:
     if _is_debt_archived(debt):
         return warnings
 
-    if debt.product_kind in FORMAL_SCHEDULE_PRODUCT_KINDS:
-        warnings.append("debts.warning.formal_scheduled_debt_consider_payment_plan")
     if (
         debt.debt_type == models.DebtType.OWING
         and _debt_lifecycle_status(debt) == schemas.DebtLifecycleStatus.OPEN
@@ -508,23 +508,6 @@ def _raise_policy_denied(decision) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=decision.reason_code or "debts.policy.action_blocked",
         )
-
-
-def _reconcile_debt_preserving_lifecycle(db: Session, debt: models.Debt) -> models.Debt:
-    previous_status = debt.status
-    reconciled = reconcile_debt(db, debt.id)
-    if (
-        int(reconciled.remaining_amount or 0) > 0
-        and previous_status
-        in (
-            models.DebtStatus.OVERDUE,
-            models.DebtStatus.DEFAULTED,
-            models.DebtStatus.IN_COLLECTION,
-        )
-    ):
-        reconciled.status = previous_status
-        db.flush()
-    return reconciled
 
 
 def _posted_charge_balance(db: Session, debt_id: int) -> int:
@@ -836,11 +819,6 @@ def _initial_transfer_reference_type(debt: models.Debt) -> str:
         and debt.counterparty_kind == models.DebtCounterpartyKind.BANK
     ):
         return models.ReferenceType.LOAN_DISBURSEMENT
-    if (
-        debt.debt_type == models.DebtType.OWING
-        and debt.product_kind == models.DebtProductKind.BANK_LOAN
-    ):
-        return models.ReferenceType.LOAN_DISBURSEMENT
     return models.ReferenceType.DEBT_INITIAL
 
 
@@ -848,10 +826,13 @@ def _record_initial_transfer_event(
     db: Session,
     debt: models.Debt,
     wallet_allocations: list[tuple[models.Wallet, int]],
+    *,
+    wallet_movement_total: int = 0,
 ) -> models.FinancialEvent:
     if not wallet_allocations:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="wallets.at_least_one_required")
 
+    movement = wallet_movement_total or sum(int(amt) for _, amt in wallet_allocations)
     event = models.FinancialEvent(
         owner_id=debt.owner_id,
         title=f"{debt.counterparty_name}"[:100],
@@ -888,7 +869,7 @@ def _record_initial_transfer_event(
         models.EntityLedger(
             event_id=event.id,
             label=f"Initial debt for {debt.counterparty_name}"[:100],
-            amount=int(debt.initial_amount),
+            amount=int(movement),
             debt_id=debt.id,
         )
     )
@@ -1301,7 +1282,6 @@ def get_debt_summary(
             models.Debt.debt_type == models.DebtType.OWING,
             models.Debt.remaining_amount > 0,
             models.Debt.archived_at.is_(None),
-            models.Debt.status != models.DebtStatus.ARCHIVED,
         )
         .scalar()
     ) or 0
@@ -1313,7 +1293,6 @@ def get_debt_summary(
             models.Debt.debt_type == models.DebtType.OWED,
             models.Debt.remaining_amount > 0,
             models.Debt.archived_at.is_(None),
-            models.Debt.status != models.DebtStatus.ARCHIVED,
         )
         .scalar()
     ) or 0
@@ -1346,15 +1325,19 @@ def create_debt(
         )
 
     origin_kind = _infer_debt_origin_kind(payload)
-    product_kind = _infer_debt_product_kind(payload, origin_kind)
     counterparty_kind = _infer_counterparty_kind(payload, origin_kind)
     initial_wallet_allocations = _resolve_initial_wallet_allocations(db, current_user.id, payload)
     is_money_transferred = bool(initial_wallet_allocations)
-    initial_amount = (
+
+    principal = int(payload.initial_amount)
+    opening_charges = int(payload.opening_charge_amount)
+    starting_balance = principal + opening_charges
+    wallet_movement_total = (
         sum(int(amount) for _, amount in initial_wallet_allocations)
         if is_money_transferred
-        else int(payload.initial_amount)
+        else 0
     )
+
     single_initial_wallet_id = (
         initial_wallet_allocations[0][0].id
         if len(initial_wallet_allocations) == 1
@@ -1381,15 +1364,13 @@ def create_debt(
         debt_type=payload.debt_type,
         origin_kind=origin_kind,
         counterparty_kind=counterparty_kind,
-        product_kind=product_kind,
         counterparty_name=payload.counterparty_name,
-        initial_amount=initial_amount,
-        remaining_amount=initial_amount,
+        initial_amount=principal,
+        remaining_amount=starting_balance,
         currency=payload.currency,
         description=payload.description,
         date=payload.date if payload.date else today_in_tz(user_tz),
         expected_return_date=payload.expected_return_date,
-        status=models.DebtStatus.ACTIVE,
         initial_wallet_id=single_initial_wallet_id,
         is_money_transferred=is_money_transferred,
         expense_category=payload.expense_category,
@@ -1406,23 +1387,42 @@ def create_debt(
 
     initial_event = None
     if debt.is_money_transferred:
-        event = _record_initial_transfer_event(db, debt, initial_wallet_allocations)
+        event = _record_initial_transfer_event(
+            db, debt, initial_wallet_allocations,
+            wallet_movement_total=wallet_movement_total,
+        )
         debt.linked_event_id = event.id
         initial_event = event
 
+    # INITIAL ledger entry = principal (ADR 0027)
     create_debt_ledger_entry(
         db,
         owner_id=current_user.id,
         debt_id=debt.id,
         entry_type=models.DebtLedgerEntryType.INITIAL,
-        amount_delta=debt.initial_amount,
-        principal_delta=debt.initial_amount,
+        amount_delta=principal,
+        principal_delta=principal,
         entry_date=debt.date,
         financial_event_id=initial_event.id if initial_event is not None else None,
         wallet_id=single_initial_wallet_id,
-        note=f"Initial debt for {debt.counterparty_name}",
+        note=f"Principal for {debt.counterparty_name}",
     )
-    _reconcile_debt_preserving_lifecycle(db, debt)
+
+    # CHARGE ledger entry = opening charges (only when > 0, ADR 0027)
+    if opening_charges > 0:
+        create_debt_ledger_entry(
+            db,
+            owner_id=current_user.id,
+            debt_id=debt.id,
+            entry_type=models.DebtLedgerEntryType.CHARGE,
+            amount_delta=opening_charges,
+            charge_delta=opening_charges,
+            entry_date=debt.date,
+            event_subtype="OPENING_CHARGE",
+            note=f"Opening charges for {debt.counterparty_name}",
+        )
+
+    reconcile_debt(db, debt.id)
     sync_debt_goal_targets(db, current_user.id, debt.id)
 
     db.commit()
@@ -1449,9 +1449,9 @@ def list_debts(
     if debt_type:
         query = query.filter(models.Debt.debt_type == debt_type)
     if archived is True:
-        query = query.filter(or_(models.Debt.archived_at.is_not(None), models.Debt.status == models.DebtStatus.ARCHIVED))
+        query = query.filter(models.Debt.archived_at.is_not(None))
     elif archived is False or not include_archived:
-        query = query.filter(models.Debt.archived_at.is_(None), models.Debt.status != models.DebtStatus.ARCHIVED)
+        query = query.filter(models.Debt.archived_at.is_(None))
     if search:
         query = query.filter(models.Debt.counterparty_name.ilike(f"%{search}%"))
 
@@ -1667,8 +1667,6 @@ def _restore_debt_from_archive(
     _raise_policy_denied(evaluate_debt_action(db, debt, models.DebtActionKind.RESTORE))
 
     debt.archived_at = None
-    if debt.status == models.DebtStatus.ARCHIVED:
-        debt.status = models.DebtStatus.PAID if int(debt.remaining_amount or 0) <= 0 else models.DebtStatus.ACTIVE
     db.commit()
     db.refresh(debt)
     return _build_debt_out_with_ledger_totals(db, debt, today=today_in_tz(user_tz))
@@ -1905,7 +1903,7 @@ def update_debt(
     for field, value in update_data.items():
         setattr(debt, field, value)
 
-    _reconcile_debt_preserving_lifecycle(db, debt)
+    reconcile_debt(db, debt.id)
     sync_debt_goal_targets(db, current_user.id, debt.id)
     db.commit()
     db.refresh(debt)
@@ -1977,7 +1975,7 @@ def create_transaction(
         note=payload.note,
         income_source_id=payload.income_source_id,
     )
-    _reconcile_debt_preserving_lifecycle(db, debt)
+    reconcile_debt(db, debt.id)
     sync_debt_goal_targets(db, current_user.id, debt.id)
     db.commit()
     db.refresh(debt_transaction)
@@ -2007,7 +2005,7 @@ def delete_transaction(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="debts.transaction.not_found")
 
     debt = _get_owned_debt_or_404(db, current_user.id, transaction.debt_id)
-    if _is_debt_archived(debt) or debt.status == models.DebtStatus.FORGIVEN:
+    if _is_debt_archived(debt) or int(debt.remaining_amount or 0) <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.transaction.debt_archived")
     if transaction.wallet and not transaction.wallet.is_active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="debts.transaction.wallet_archived")
@@ -2049,6 +2047,7 @@ def record_debt_payment(
     _raise_policy_denied(evaluate_debt_action(db, debt, models.DebtActionKind.RECORD_PAYMENT))
 
     transaction_date = payload.date or today_in_tz(user_tz)
+    principal_override, charge_override = _resolve_payment_allocation(db, debt, payload)
     debt_transaction, _ = create_debt_payment_service(
         db,
         debt,
@@ -2057,6 +2056,8 @@ def record_debt_payment(
         wallet_allocations=payload.wallet_allocations,
         note=payload.note,
         income_source_id=payload.income_source_id,
+        principal_amount_override=principal_override,
+        charge_amount_override=charge_override,
     )
     reconcile_debt(db, debt.id)
     sync_debt_goal_targets(db, current_user.id, debt.id)
@@ -2151,7 +2152,6 @@ def forgive_debt(
         )
     reconcile_debt(db, debt.id)
     sync_debt_goal_targets(db, current_user.id, debt.id)
-    debt.status = models.DebtStatus.FORGIVEN
     db.commit()
     db.refresh(debt)
     return _build_debt_out_with_ledger_totals(db, debt, today=today_in_tz(user_tz))
@@ -2205,10 +2205,8 @@ def forgive_debt_amount(
             "charge_amount": int(charge_amount),
         },
     )
-    _reconcile_debt_preserving_lifecycle(db, debt)
+    reconcile_debt(db, debt.id)
     sync_debt_goal_targets(db, current_user.id, debt.id)
-    if forgiveness_amount == remaining:
-        debt.status = models.DebtStatus.FORGIVEN
     db.commit()
     db.refresh(debt)
     return _build_debt_out_with_ledger_totals(db, debt, today=today_in_tz(user_tz))
@@ -2242,7 +2240,7 @@ def adjust_debt_balance(
             note=payload.note or "Debt balance corrected",
             extra_data=extra_data,
         )
-    _reconcile_debt_preserving_lifecycle(db, debt)
+    reconcile_debt(db, debt.id)
     sync_debt_goal_targets(db, current_user.id, debt.id)
     db.commit()
     db.refresh(debt)
@@ -2308,7 +2306,7 @@ def reverse_debt_ledger_entry(
         entry_date=reversal_date,
         note=payload.note or "Debt ledger entry reversed",
     )
-    _reconcile_debt_preserving_lifecycle(db, debt)
+    reconcile_debt(db, debt.id)
     sync_debt_goal_targets(db, current_user.id, debt.id)
     db.commit()
     db.refresh(debt)
