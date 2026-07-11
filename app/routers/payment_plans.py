@@ -728,8 +728,17 @@ def _build_enriched_plan_response(
     is not available).
     """
     base = schemas.PaymentPlanOut.model_validate(plan)
+    # Sort payments deterministically: due_date asc, CHARGE before PRINCIPAL, id asc
+    sorted_payments = sorted(
+        (plan.payments or []),
+        key=lambda p: (
+            p.due_date,
+            0 if _payment_component_type(p) == models.PaymentPlanPaymentComponentType.CHARGE else 1,
+            p.id or 0,
+        ),
+    )
     enriched_payments: list[schemas.PaymentPlanPaymentOut] = []
-    for payment in (plan.payments or []):
+    for payment in sorted_payments:
         pout = schemas.PaymentPlanPaymentOut.model_validate(payment)
         ss = _row_settlement_state(
             int(payment.amount),
@@ -747,15 +756,15 @@ def _build_enriched_plan_response(
         pout.remaining_amount = _remaining_payment_amount(payment)
         enriched_payments.append(pout)
 
-    # Compute plan-level derived fields
+    # Compute plan-level derived fields from sorted payments
     remaining_principal = sum(
         _remaining_payment_amount(p)
-        for p in (plan.payments or [])
+        for p in sorted_payments
         if _payment_component_type(p) == models.PaymentPlanPaymentComponentType.PRINCIPAL
     )
     remaining_charges = sum(
         _remaining_payment_amount(p)
-        for p in (plan.payments or [])
+        for p in sorted_payments
         if _payment_component_type(p) == models.PaymentPlanPaymentComponentType.CHARGE
     )
     total_remaining = remaining_principal + remaining_charges
@@ -771,7 +780,7 @@ def _build_enriched_plan_response(
         local_today = today_in_tz(user_tz)
         has_overdue = any(
             _remaining_payment_amount(p) > 0 and p.due_date < local_today
-            for p in (plan.payments or [])
+            for p in sorted_payments
         )
         time_status = "OVERDUE" if has_overdue else "ON_TRACK"
 
