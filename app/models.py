@@ -1961,6 +1961,7 @@ class PaymentPlan(Base):
         server_default=ScheduleModel.FLAT_TOTAL.value,
     )
     generation_metadata = Column(JSON, nullable=True)
+    archived_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True),
                         server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(

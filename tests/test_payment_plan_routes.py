@@ -2036,3 +2036,304 @@ def test_write_off_does_not_create_wallet_movement(client, session):
     assert len(write_off_entries) == 2
     for entry in write_off_entries:
         assert entry.financial_event_id is None  # No wallet event linked
+
+
+# ---------------------------------------------------------------------------
+# Ticket 13: Append-Only Reversals
+# ---------------------------------------------------------------------------
+
+
+def test_write_off_undo_is_append_only(client, session):
+    """Undoing a write-off preserves the original WRITE_OFF entry and appends REVERSAL."""
+    headers = create_user_and_token(client, "rev1", "rev1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+    row = plan["payments"][0]
+
+    # Write off the row
+    client.post(f"/payment-plans/payments/{row['id']}/write-off", headers=headers)
+
+    # Undo the write-off
+    undone = client.post(f"/payment-plans/payments/{row['id']}/undo-write-off", headers=headers)
+    assert undone.status_code == 200, undone.text
+
+    # Original WRITE_OFF should still exist
+    write_off_entry = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.plan_id == plan["id"],
+            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.WRITE_OFF,
+        )
+        .first()
+    )
+    assert write_off_entry is not None, "Original WRITE_OFF entry must be preserved"
+
+    # REVERSAL entry should exist
+    reversal_entry = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.plan_id == plan["id"],
+            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.REVERSAL,
+        )
+        .first()
+    )
+    assert reversal_entry is not None, "REVERSAL entry must be created"
+
+    # Row state restored
+    data = undone.json()
+    assert data["written_off_amount"] == 0
+    assert data["settlement_state"] == "UNPAID"
+
+
+def test_undo_charge_creates_reversal_entry(client, session):
+    """Undoing a charge appends a REVERSAL entry and preserves the original CHARGE."""
+    headers = create_user_and_token(client, "rev2", "rev2@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+
+    # Add a charge
+    client.post(
+        f"/payment-plans/{plan['id']}/charges",
+        json={"charge_type": "FEE", "amount": 50_000},
+        headers=headers,
+    )
+
+    # Undo the charge
+    undone = client.post(f"/payment-plans/{plan['id']}/charges/undo-latest", headers=headers)
+    assert undone.status_code == 200, undone.text
+
+    # Original CHARGE should still exist
+    charge_entry = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.plan_id == plan["id"],
+            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.CHARGE,
+        )
+        .first()
+    )
+    assert charge_entry is not None, "Original CHARGE entry must be preserved"
+
+    # REVERSAL should exist
+    reversal_entry = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.plan_id == plan["id"],
+            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.REVERSAL,
+        )
+        .first()
+    )
+    assert reversal_entry is not None, "REVERSAL entry must be created"
+
+
+# ---------------------------------------------------------------------------
+# Ticket 14: Derived Plan Totals & Archive
+# ---------------------------------------------------------------------------
+
+
+def test_plan_response_includes_derived_totals(client):
+    """Plan response includes remaining_principal, remaining_charges, lifecycle, time_status."""
+    headers = create_user_and_token(client, "derived1", "derived1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=3, total_price=900_000, down_payment=0)
+
+    assert "remaining_principal" in plan
+    assert "remaining_charges" in plan
+    assert "lifecycle_status" in plan
+    assert "time_status" in plan
+    assert plan["lifecycle_status"] == "OPEN"
+    assert plan["time_status"] == "ON_TRACK"
+    # Flat-total plan: all remaining is principal, zero charges
+    assert plan["remaining_principal"] == 900_000
+    assert plan["remaining_charges"] == 0
+
+
+def test_plan_lifecycle_closed_when_fully_paid(client, session):
+    """A fully paid plan shows lifecycle_status = CLOSED and time_status = null."""
+    headers = create_user_and_token(client, "derived2", "derived2@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    wallet_id = _default_wallet(client, headers)["id"]
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+
+    # Pay in full
+    client.post(
+        f"/payment-plans/{plan['id']}/payments",
+        json={"amount": 300_000, "wallet_allocations": [{"wallet_id": wallet_id, "amount": 300_000}]},
+        headers=headers,
+    )
+
+    refreshed = client.get(f"/payment-plans/{plan['id']}", headers=headers).json()
+    assert refreshed["lifecycle_status"] == "CLOSED"
+    assert refreshed["time_status"] is None
+    assert refreshed["remaining_amount"] == 0
+    assert refreshed["remaining_principal"] == 0
+    assert refreshed["remaining_charges"] == 0
+
+
+def test_archive_preserves_financial_state(client, session):
+    """Archiving a plan sets archived_at but does not change lifecycle or time status."""
+    headers = create_user_and_token(client, "archive1", "archive1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+
+    # Archive
+    archived = client.post(f"/payment-plans/{plan['id']}/archive", headers=headers)
+    assert archived.status_code == 200, archived.text
+    data = archived.json()
+    assert data["archived_at"] is not None
+    assert data["lifecycle_status"] == "OPEN"  # Still open — balance hasn't changed
+    assert data["remaining_amount"] == 300_000  # Balances unchanged
+    assert len(data["payments"]) == 1  # Rows unchanged
+
+
+def test_unarchive_clears_archived_at(client, session):
+    """Unarchiving clears archived_at without touching financial data."""
+    headers = create_user_and_token(client, "archive2", "archive2@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+
+    client.post(f"/payment-plans/{plan['id']}/archive", headers=headers)
+    restored = client.post(f"/payment-plans/{plan['id']}/unarchive", headers=headers)
+    assert restored.status_code == 200, restored.text
+    data = restored.json()
+    assert data["archived_at"] is None
+    assert data["lifecycle_status"] == "OPEN"
+    assert data["remaining_amount"] == 300_000
+
+
+def test_pristine_delete_allowed_after_archive_restore(client):
+    """A plan that was archived and restored but never had payments is still pristine."""
+    headers = create_user_and_token(client, "archive3", "archive3@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+
+    # Archive and restore — no financial activity
+    client.post(f"/payment-plans/{plan['id']}/archive", headers=headers)
+    client.post(f"/payment-plans/{plan['id']}/unarchive", headers=headers)
+
+    # Should still be deletable (pristine check uses activity, not archive state)
+    resp = client.delete(f"/payment-plans/{plan['id']}", headers=headers)
+    assert resp.status_code == 204
+
+
+# ---------------------------------------------------------------------------
+# Ticket 15: Cross-Domain Regression
+# ---------------------------------------------------------------------------
+
+
+def test_payment_plan_payment_does_not_create_debt_ledger_entries(client, session):
+    """A payment plan payment must not create rows in the Debt ledger."""
+    headers = create_user_and_token(client, "xdomain1", "xdomain1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    wallet_id = _default_wallet(client, headers)["id"]
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+
+    # Count Debt ledger entries before
+    before = session.query(models.DebtLedgerEntry).count()
+
+    client.post(
+        f"/payment-plans/{plan['id']}/payments",
+        json={"amount": 300_000, "wallet_allocations": [{"wallet_id": wallet_id, "amount": 300_000}]},
+        headers=headers,
+    )
+
+    after = session.query(models.DebtLedgerEntry).count()
+    assert after == before, "Payment Plan payment must not create Debt ledger entries"
+
+
+def test_payment_plan_ledger_uses_only_plan_owned_types(client, session):
+    """All Payment Plan ledger entries use Payment Plan entry types, not Debt types."""
+    headers = create_user_and_token(client, "xdomain2", "xdomain2@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    wallet_id = _default_wallet(client, headers)["id"]
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+
+    # Create payment
+    client.post(
+        f"/payment-plans/{plan['id']}/payments",
+        json={"amount": 150_000, "wallet_allocations": [{"wallet_id": wallet_id, "amount": 150_000}]},
+        headers=headers,
+    )
+    # Write off
+    row_id = plan["payments"][0]["id"]
+    client.post(f"/payment-plans/payments/{row_id}/write-off", json={"amount": 50_000}, headers=headers)
+
+    # All entries should use Payment Plan types
+    entries = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(models.PaymentPlanLedgerEntry.plan_id == plan["id"])
+        .all()
+    )
+    valid_types = {e.value for e in models.PaymentPlanLedgerEntryType}
+    for entry in entries:
+        assert entry.entry_type.value in valid_types, (
+            f"Entry {entry.id} has unexpected type: {entry.entry_type}"
+        )
+
+
+def test_plan_response_does_not_leak_debt_vocabulary(client):
+    """Payment Plan responses must not contain Debt product-kind or legacy status values."""
+    headers = create_user_and_token(client, "xdomain3", "xdomain3@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+
+    plan_str = str(plan)
+    # No Debt product vocabulary
+    for banned in ("MORTGAGE", "CLIENT_RECEIVABLE", "PERSONAL_REIMBURSEMENT", "INFORMAL_DEBT"):
+        assert banned not in plan_str, f"Debt product vocabulary leaked: {banned}"
+
+    # Row status should use settlement state, not legacy SKIPPED as primary
+    for p in plan["payments"]:
+        assert "settlement_state" in p
+
+
+def test_timezone_consistency_across_plan_responses(client):
+    """Plan time_status uses effective user timezone for overdue derivation."""
+    headers = create_user_and_token(client, "xdomain4", "xdomain4@example.com", "Password123!")
+    # Set an explicit timezone
+    headers["X-Timezone"] = "Asia/Tashkent"
+    _create_payment_plan_budgets(client, headers)
+
+    # Create plan with past due date — should be overdue in any reasonable tz
+    from datetime import date as dt_date, timedelta
+    past = dt_date.today() - timedelta(days=60)
+    plan = _create_payment_plan(
+        client, headers,
+        start_date=past.isoformat(),
+        months=1,
+        total_price=300_000,
+        down_payment=0,
+        frequency="MONTHLY",
+    )
+    # First payment = past + 1 month ≈ 30 days ago → should be overdue
+    assert plan["time_status"] == "OVERDUE"
+
+
+def test_immutable_history_no_hard_delete_in_write_off_flow(client, session):
+    """Write-off flow must never hard-delete posted ledger entries."""
+    headers = create_user_and_token(client, "xdomain5", "xdomain5@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+    row = plan["payments"][0]
+
+    # Capture count before write-off
+    before_entries = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(models.PaymentPlanLedgerEntry.plan_id == plan["id"])
+        .count()
+    )
+
+    # Write off
+    client.post(f"/payment-plans/payments/{row['id']}/write-off", headers=headers)
+
+    # Undo write-off
+    client.post(f"/payment-plans/payments/{row['id']}/undo-write-off", headers=headers)
+
+    # After undo, we should have MORE entries than before (original + WRITE_OFF + REVERSAL)
+    after_entries = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(models.PaymentPlanLedgerEntry.plan_id == plan["id"])
+        .count()
+    )
+    assert after_entries > before_entries, (
+        f"Expected entries to grow (append-only), but got {before_entries} → {after_entries}"
+    )

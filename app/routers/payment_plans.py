@@ -1,4 +1,4 @@
-from datetime import date, tzinfo
+from datetime import date, datetime, timezone, tzinfo
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -749,9 +749,46 @@ def _build_enriched_plan_response(
         pout.remaining_amount = _remaining_payment_amount(payment)
         enriched_payments.append(pout)
 
+    # Compute plan-level derived fields
+    remaining_principal = sum(
+        _remaining_payment_amount(p)
+        for p in (plan.payments or [])
+        if _payment_component_type(p) == models.PaymentPlanPaymentComponentType.PRINCIPAL
+    )
+    remaining_charges = sum(
+        _remaining_payment_amount(p)
+        for p in (plan.payments or [])
+        if _payment_component_type(p) == models.PaymentPlanPaymentComponentType.CHARGE
+    )
+    total_remaining = remaining_principal + remaining_charges
+
+    # Plan lifecycle: OPEN when any obligation remains, CLOSED otherwise
+    lifecycle_status = "OPEN" if total_remaining > 0 else "CLOSED"
+
+    # Plan time status: OVERDUE if any unsettled row is past due
+    time_status: str | None = None
+    if lifecycle_status == "CLOSED":
+        time_status = None
+    elif user_tz is not None:
+        local_today = today_in_tz(user_tz)
+        has_overdue = any(
+            _remaining_payment_amount(p) > 0 and p.due_date < local_today
+            for p in (plan.payments or [])
+        )
+        time_status = "OVERDUE" if has_overdue else "ON_TRACK"
+
+    plan_data = base.model_dump()
+    # Exclude derived fields from the base dump — we set them explicitly
+    for field in ("remaining_principal", "remaining_charges", "lifecycle_status", "time_status"):
+        plan_data.pop(field, None)
+
     return schemas.PaymentPlanWithPaymentsOut(
-        **base.model_dump(),
+        **plan_data,
         payments=enriched_payments,
+        remaining_principal=remaining_principal,
+        remaining_charges=remaining_charges,
+        lifecycle_status=lifecycle_status,
+        time_status=time_status,
     )
 
 
@@ -1931,6 +1968,11 @@ def undo_write_off_payment(
     current_user: models.User = Depends(oauth2.get_current_user),
     user_tz: tzinfo = Depends(get_effective_user_timezone),
 ):
+    """Undo the latest write-off on a row by appending a REVERSAL entry.
+
+    The original WRITE_OFF entry is preserved. Row written_off_amount is
+    restored. No wallet movement is created (write-offs never touched wallets).
+    """
     rate_headers = enforce_payment_plans_write_rate_limit(current_user.id)
     for key, value in rate_headers.items():
         response.headers[key] = value
@@ -1939,7 +1981,6 @@ def undo_write_off_payment(
         db.query(models.PaymentPlanPayment)
         .options(
             selectinload(models.PaymentPlanPayment.plan),
-            selectinload(models.PaymentPlanPayment.ledger_entry),
         )
         .filter(
             models.PaymentPlanPayment.id == payment_id,
@@ -1949,32 +1990,117 @@ def undo_write_off_payment(
     )
     if not payment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="payment_plans.payment_not_found")
-    
-    if payment.status != models.PaymentPlanPaymentStatus.PAID or not payment.payment_plan_ledger_entry_id:
-         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.not_written_off")
-         
-    ledger_entry = payment.ledger_entry
-    if (
-        ledger_entry is None
-        or ledger_entry.entry_type != models.PaymentPlanLedgerEntryType.WRITE_OFF
-        or ledger_entry.event_subtype != "PAYMENT_PLAN_WRITE_OFF"
-    ):
+
+    if int(payment.written_off_amount or 0) <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.not_written_off")
 
     plan = payment.plan
+    if plan.status == models.PaymentPlanStatus.ARCHIVED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.archived_locked")
 
-    # Reverse remaining amount
-    plan.remaining_amount = int(plan.remaining_amount or 0) + int(payment.written_off_amount or 0)
+    # Find the latest WRITE_OFF ledger entry for this row (not already reversed)
+    latest_write_off = (
+        db.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.plan_id == plan.id,
+            models.PaymentPlanLedgerEntry.owner_id == current_user.id,
+            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.WRITE_OFF,
+            models.PaymentPlanLedgerEntry.status == "POSTED",
+        )
+        .order_by(models.PaymentPlanLedgerEntry.entry_date.desc(), models.PaymentPlanLedgerEntry.id.desc())
+        .first()
+    )
+    if latest_write_off is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.not_written_off")
 
-    payment.written_off_amount = 0
-    payment.payment_plan_ledger_entry_id = None
+    # Check this entry hasn't already been reversed
+    already_reversed = (
+        db.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.reverses_entry_id == latest_write_off.id,
+        )
+        .first()
+    )
+    if already_reversed is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.already_reversed")
+
+    # Guard: only the latest entry on the plan may be reversed (undo stack)
+    newer_entries = (
+        db.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.plan_id == plan.id,
+            models.PaymentPlanLedgerEntry.owner_id == current_user.id,
+            models.PaymentPlanLedgerEntry.status == "POSTED",
+            models.PaymentPlanLedgerEntry.entry_date > latest_write_off.entry_date,
+        )
+        .first()
+    )
+    if newer_entries is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="payment_plans.undo.newer_entries_exist",
+        )
+
+    written_off_amount = int(payment.written_off_amount or 0)
+    # Find the specific write-off allocation on this row that matches this entry
+    write_off_allocation = (
+        db.query(models.PaymentPlanPaymentAllocation)
+        .filter(
+            models.PaymentPlanPaymentAllocation.payment_plan_payment_id == payment.id,
+            models.PaymentPlanPaymentAllocation.payment_plan_ledger_entry_id == latest_write_off.id,
+        )
+        .first()
+    )
+    undo_amount = int(write_off_allocation.amount) if write_off_allocation else written_off_amount
+
+    # Restore plan and row state
+    plan.remaining_amount = int(plan.remaining_amount or 0) + undo_amount
+    payment.written_off_amount = max(0, int(payment.written_off_amount or 0) - undo_amount)
     if _remaining_payment_amount(payment) > 0:
-        payment.status = models.PaymentPlanPaymentStatus.PENDING if not payment.paid_amount else models.PaymentPlanPaymentStatus.PARTIAL
+        payment.status = (
+            models.PaymentPlanPaymentStatus.PENDING
+            if not int(payment.paid_amount or 0)
+            else models.PaymentPlanPaymentStatus.PARTIAL
+        )
+    payment.payment_plan_ledger_entry_id = None
 
-    db.delete(ledger_entry)
+    # Create the REVERSAL entry (append-only, preserves original WRITE_OFF)
+    component_type = _payment_component_type(payment)
+    principal_delta = undo_amount if component_type == models.PaymentPlanPaymentComponentType.PRINCIPAL else 0
+    charge_delta = undo_amount if component_type == models.PaymentPlanPaymentComponentType.CHARGE else 0
+    entry_date = today_in_tz(user_tz)
 
-    if ledger_entry.source_transaction_id:
-        db.query(models.PaymentPlanTransaction).filter_by(id=ledger_entry.source_transaction_id).delete()
+    reversal_entry = models.PaymentPlanLedgerEntry(
+        owner_id=current_user.id,
+        plan_id=plan.id,
+        reverses_entry_id=latest_write_off.id,
+        entry_type=models.PaymentPlanLedgerEntryType.REVERSAL,
+        event_subtype="WRITE_OFF_REVERSAL",
+        amount_delta=undo_amount,
+        principal_delta=int(principal_delta),
+        charge_delta=int(charge_delta),
+        balance_after=int(plan.remaining_amount or 0),
+        entry_date=entry_date,
+        source=models.PaymentPlanLedgerEntrySource.USER,
+        note="Undo write-off",
+    )
+    db.add(reversal_entry)
+    db.flush()
+
+    # Create allocation record for the reversal
+    db.add(
+        models.PaymentPlanPaymentAllocation(
+            owner_id=current_user.id,
+            payment_plan_payment_id=payment.id,
+            payment_plan_ledger_entry_id=reversal_entry.id,
+            amount=undo_amount,
+            paid_date=entry_date,
+            note="Write-off reversal",
+        )
+    )
+
+    if plan.status != models.PaymentPlanStatus.ARCHIVED:
+        plan.status = models.PaymentPlanStatus.ACTIVE
 
     db.commit()
     db.refresh(payment)
@@ -2051,6 +2177,119 @@ def add_payment_plan_charge(
     db.commit()
     db.refresh(plan)
     return _build_enriched_plan_response(plan, user_tz)
+
+
+@router.post("/{plan_id}/charges/undo-latest", response_model=schemas.PaymentPlanDetailsOut)
+def undo_latest_charge(
+    plan_id: int,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
+):
+    """Undo the latest charge on a plan by appending a REVERSAL entry.
+
+    The original CHARGE entry and charge row are preserved. Only the most
+    recent unreversed CHARGE entry may be reversed.
+    """
+    rate_headers = enforce_payment_plans_write_rate_limit(current_user.id)
+    for key, value in rate_headers.items():
+        response.headers[key] = value
+
+    plan = _get_owned_plan_or_404(db, current_user.id, plan_id)
+    if plan.status == models.PaymentPlanStatus.ARCHIVED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.archived_locked")
+
+    # Find the latest unreversed CHARGE entry
+    latest_charge = (
+        db.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.plan_id == plan.id,
+            models.PaymentPlanLedgerEntry.owner_id == current_user.id,
+            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.CHARGE,
+            models.PaymentPlanLedgerEntry.status == "POSTED",
+        )
+        .order_by(models.PaymentPlanLedgerEntry.entry_date.desc(), models.PaymentPlanLedgerEntry.id.desc())
+        .first()
+    )
+    if latest_charge is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.undo.no_charge")
+
+    # Check not already reversed
+    already_reversed = (
+        db.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.reverses_entry_id == latest_charge.id,
+        )
+        .first()
+    )
+    if already_reversed is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.already_reversed")
+
+    # Guard: only latest entry may be reversed
+    newer_entries = (
+        db.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.plan_id == plan.id,
+            models.PaymentPlanLedgerEntry.owner_id == current_user.id,
+            models.PaymentPlanLedgerEntry.status == "POSTED",
+            models.PaymentPlanLedgerEntry.entry_date > latest_charge.entry_date,
+        )
+        .first()
+    )
+    if newer_entries is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="payment_plans.undo.newer_entries_exist",
+        )
+
+    # Find the associated charge row
+    charge_row = (
+        db.query(models.PaymentPlanPayment)
+        .filter(
+            models.PaymentPlanPayment.payment_plan_charge_id == latest_charge.source_charge_id,
+        )
+        .first()
+    )
+
+    # Append REVERSAL entry (append-only)
+    reversal_amount = -int(latest_charge.amount_delta)
+    entry_date = today_in_tz(user_tz)
+
+    reversal_entry = models.PaymentPlanLedgerEntry(
+        owner_id=current_user.id,
+        plan_id=plan.id,
+        reverses_entry_id=latest_charge.id,
+        entry_type=models.PaymentPlanLedgerEntryType.REVERSAL,
+        event_subtype="CHARGE_REVERSAL",
+        amount_delta=reversal_amount,
+        principal_delta=-int(latest_charge.principal_delta or 0),
+        charge_delta=-int(latest_charge.charge_delta or 0),
+        balance_after=int(plan.remaining_amount or 0) + reversal_amount,
+        entry_date=entry_date,
+        source=models.PaymentPlanLedgerEntrySource.USER,
+        note="Undo charge",
+    )
+    db.add(reversal_entry)
+    db.flush()
+
+    # Restore plan remaining
+    plan.remaining_amount = int(plan.remaining_amount or 0) - int(latest_charge.amount_delta)
+    if plan.status != models.PaymentPlanStatus.ARCHIVED:
+        plan.status = (
+            models.PaymentPlanStatus.PAID
+            if int(plan.remaining_amount or 0) <= 0 and _unpaid_schedule_total(plan) <= 0
+            else models.PaymentPlanStatus.ACTIVE
+        )
+
+    # Mark the charge row as reversed/settled if it was untouched
+    if charge_row is not None and _remaining_payment_amount(charge_row) == int(charge_row.amount):
+        charge_row.status = models.PaymentPlanPaymentStatus.PAID
+        charge_row.written_off_amount = int(charge_row.amount)
+
+    db.commit()
+    db.refresh(plan)
+    return _build_payment_plan_details(db, plan)
 
 
 @router.post("/{plan_id}/write-off", response_model=schemas.PaymentPlanDetailsOut)
@@ -2161,6 +2400,61 @@ def write_off_plan(
     db.commit()
     db.refresh(plan)
     return _build_payment_plan_details(db, plan)
+
+
+@router.post("/{plan_id}/archive", response_model=schemas.PaymentPlanWithPaymentsOut)
+def archive_payment_plan(
+    plan_id: int,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
+):
+    """Archive a payment plan. Sets archived_at without changing financial state.
+
+    Archive is a visibility/filing action. It does not change rows,
+    allocations, ledger entries, balances, lifecycle, or time status.
+    An archived plan can be restored (unarchived).
+    """
+    rate_headers = enforce_payment_plans_write_rate_limit(current_user.id)
+    for key, value in rate_headers.items():
+        response.headers[key] = value
+
+    plan = _get_owned_plan_or_404(db, current_user.id, plan_id)
+    if plan.archived_at is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.already_archived")
+
+    plan.archived_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(plan)
+    return _build_enriched_plan_response(plan, user_tz)
+
+
+@router.post("/{plan_id}/unarchive", response_model=schemas.PaymentPlanWithPaymentsOut)
+def unarchive_payment_plan(
+    plan_id: int,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
+):
+    """Restore an archived payment plan. Clears archived_at.
+
+    Restoring does not change rows, allocations, ledger entries, balances,
+    lifecycle, or time status. It simply clears the archive timestamp.
+    """
+    rate_headers = enforce_payment_plans_write_rate_limit(current_user.id)
+    for key, value in rate_headers.items():
+        response.headers[key] = value
+
+    plan = _get_owned_plan_or_404(db, current_user.id, plan_id)
+    if plan.archived_at is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.not_archived")
+
+    plan.archived_at = None
+    db.commit()
+    db.refresh(plan)
+    return _build_enriched_plan_response(plan, user_tz)
 
 
 @router.delete("/{plan_id}", status_code=status.HTTP_204_NO_CONTENT)

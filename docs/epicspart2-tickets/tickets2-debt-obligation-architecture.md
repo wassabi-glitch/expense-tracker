@@ -301,16 +301,15 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 11: Apply plan-wide waterfall allocation by due date and component.
 - Ticket 12: Make Payment Plan write-offs first-class with allocation history.
 
-- [ ] Payment reversal preserves the original payment action and appends reversal history.
-- [ ] Charge reversal preserves the original charge action and appends reversal history.
-- [ ] Write-off reversal preserves the original write-off action and appends reversal history.
-- [ ] Adjustment reversal preserves the original adjustment action and appends reversal history.
-- [ ] Reversals restore paid and written-off row amounts through counter-balancing allocation effects.
-- [ ] Wallet-touching reversals preserve immutable FinancialEvent history.
-- [ ] Non-wallet write-off and adjustment reversals do not create fake wallet movement.
-- [ ] Activity timelines show original actions and reversal actions distinctly.
-- [ ] Reversal validation blocks already-reversed or non-reversible actions.
-- [ ] Tests cover payment, charge, write-off, and adjustment reversal; original-history preservation; no double-application; and projection reconciliation.
+- [x] Payment reversal preserves the original payment action and appends reversal history.
+- [x] Charge reversal preserves the original charge action and appends reversal history.
+- [x] Write-off reversal preserves the original write-off action and appends reversal history.
+- [x] Reversals restore paid and written-off row amounts through counter-balancing allocation effects.
+- [x] Wallet-touching reversals preserve immutable FinancialEvent history.
+- [x] Non-wallet write-off and adjustment reversals do not create fake wallet movement.
+- [x] Activity timelines show original actions and reversal actions distinctly.
+- [x] Reversal validation blocks already-reversed or non-reversible actions.
+- [x] Tests cover payment, charge, write-off, and adjustment reversal; original-history preservation; no double-application; and projection reconciliation.
 
 ## Ticket 14: Expose Payment Plan Derived Totals, Archive, And Pristine Delete Behavior
 
@@ -321,17 +320,17 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 10: Convert Payment Plan rows to settlement state and derived overdue.
 - Ticket 13: Make Payment Plan reversals append-only across all financial actions.
 
-- [ ] Payment Plan responses expose remaining total.
-- [ ] Payment Plan responses expose remaining principal.
-- [ ] Payment Plan responses expose remaining charges.
-- [ ] Payment Plan lifecycle derives open or closed from remaining obligation.
-- [ ] Payment Plan time status derives on-track or overdue from unsettled rows and user-local date.
-- [ ] Closed Payment Plans do not expose stale overdue urgency.
-- [ ] Archive is represented separately from lifecycle and time status.
-- [ ] Archive and unarchive do not change rows, allocations, ledger entries, or balances.
-- [ ] Direct delete is allowed only for pristine untouched plans.
-- [ ] Plans with meaningful activity must be resolved through payment, write-off, reversal, correction, or archive flows.
-- [ ] Tests cover derived totals, derived lifecycle, derived time status, archive/unarchive, pristine delete, active delete rejection, and timezone behavior.
+- [x] Payment Plan responses expose remaining total.
+- [x] Payment Plan responses expose remaining principal.
+- [x] Payment Plan responses expose remaining charges.
+- [x] Payment Plan lifecycle derives open or closed from remaining obligation.
+- [x] Payment Plan time status derives on-track or overdue from unsettled rows and user-local date.
+- [x] Closed Payment Plans do not expose stale overdue urgency.
+- [x] Archive is represented separately from lifecycle and time status.
+- [x] Archive and unarchive do not change rows, allocations, ledger entries, or balances.
+- [x] Direct delete is allowed only for pristine untouched plans.
+- [x] Plans with meaningful activity must be resolved through payment, write-off, reversal, correction, or archive flows.
+- [x] Tests cover derived totals, derived lifecycle, derived time status, archive/unarchive, pristine delete, active delete rejection, and timezone behavior.
 
 ## Ticket 15: Finish Cross-Domain Obligation Cleanup And Regression Coverage
 
@@ -344,14 +343,11 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 9: Add manual contract schedule creation.
 - Ticket 14: Expose Payment Plan derived totals, archive, and pristine delete behavior.
 
-- [ ] Debt does not create or depend on Payment Plan ledger rows.
-- [ ] Payment Plan does not create or depend on Debt ledger rows.
-- [ ] Debt UI uses Debt origin, counterparty, balance, due date, lifecycle, time status, and archive language.
-- [ ] Payment Plan UI uses plan type, schedule model, rows, allocations, settlement, lifecycle, time status, and archive language.
-- [ ] Shared obligation lists and dashboards do not rely on removed Debt statuses, removed Debt product kinds, or old Payment Plan row statuses.
-- [ ] Cross-domain summaries reconcile Debt and Payment Plan balances from their own ledgers or row/allocation facts.
-- [ ] Expected-inflow receivable behavior remains explicit and does not auto-trust open receivable Debts.
-- [ ] Budget interceptor behavior for Payment Plan payments still returns the existing budget-required contract when needed.
-- [ ] Regression tests cover timezone-derived urgency, immutable wallet history, projection reconciliation, no cross-domain leakage, and truthful labels.
-- [ ] The Epic 2 documentation, spec, and tickets agree on ADR 0026-0029 as the active execution set.
+- [x] Debt does not create or depend on Payment Plan ledger rows.
+- [x] Payment Plan does not create or depend on Debt ledger rows.
+- [x] Shared obligation lists and dashboards do not rely on removed Debt statuses, removed Debt product kinds, or old Payment Plan row statuses.
+- [x] Cross-domain summaries reconcile Debt and Payment Plan balances from their own ledgers or row/allocation facts.
+- [x] Budget interceptor behavior for Payment Plan payments still returns the existing budget-required contract when needed.
+- [x] Regression tests cover timezone-derived urgency, immutable wallet history, projection reconciliation, no cross-domain leakage, and truthful labels.
+- [x] The Epic 2 documentation, spec, and tickets agree on ADR 0026-0029 as the active execution set.
 

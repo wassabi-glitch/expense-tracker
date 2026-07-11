@@ -3896,6 +3896,12 @@ class PaymentPlanOut(PaymentPlanBase):
     schedule_model: Optional[str] = None
     generation_metadata: Optional[Dict[str, Any]] = None
     status: PaymentPlanStatus
+    archived_at: Optional[datetime] = None
+    # Derived plan-level fields (computed by router, not stored)
+    remaining_principal: Optional[int] = None
+    remaining_charges: Optional[int] = None
+    lifecycle_status: Optional[str] = None
+    time_status: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
