@@ -394,10 +394,13 @@ def _post_earned(
 ) -> list[models.FinancialEvent]:
     """Create a posted INCOME FinancialEvent for earned income through the
     ledger seam."""
+    # Ticket 1: Use Promise title as the primary ledger title.
+    # Source context stays available through entity_legs (income_source_id)
+    # and the serialized source_label / source relationship.
     event = post_financial_event(
         db,
         owner_id=owner_id,
-        title=f"{_source_label(row)} received"[:100],
+        title=row.promise.title[:100],
         event_type=models.TransactionType.INCOME,
         date=received_date,
         description=note or row.note,
@@ -456,7 +459,14 @@ def _post_receivable(
         .distinct()
         .all()
     ]
-    return db.query(models.FinancialEvent).filter(models.FinancialEvent.id.in_(event_ids)).all()
+    events = db.query(models.FinancialEvent).filter(models.FinancialEvent.id.in_(event_ids)).all()
+    # Ticket 1: Override auto-generated titles with the Promise title.
+    # The debt payment service generates counterparty-based titles by default;
+    # for expected-inflow-driven receipts the user-authored Promise title is the
+    # source of truth.
+    for event in events:
+        event.title = row.promise.title[:100]
+    return events
 
 
 def _post_refund(
@@ -472,10 +482,13 @@ def _post_refund(
     if amount > refundable:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expenses.refund_exceeds_total")
 
+    # Ticket 1: Use Promise title as the primary ledger title.
+    # Refund type is communicated through event_type=REFUND, badges, and metadata,
+    # not through a generated title prefix.
     event = post_financial_event(
         db,
         owner_id=owner_id,
-        title="Partial Refund" if amount < refundable else "Refund",
+        title=row.promise.title[:100],
         event_type=models.TransactionType.REFUND,
         date=received_date,
         description=note or original.title,
@@ -535,9 +548,12 @@ def _post_asset_sale(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="assets.not_found")
     if asset.status != "owned":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="assets.already_closed")
+    # Ticket 1: Use Promise title as the primary ledger title.
+    # Asset-sale type is communicated through reference_type=ASSET_SALE and the
+    # asset link, not through an "Asset Sale:" prefix in the title.
     event = models.FinancialEvent(
         owner_id=owner_id,
-        title=f"Asset Sale: {asset.title}"[:100],
+        title=row.promise.title[:100],
         description=note or asset.description,
         event_type=models.TransactionType.INCOME,
         reference_type=models.ReferenceType.ASSET_SALE,
@@ -1099,13 +1115,16 @@ def list_cashflow(
 
 
 def _source_title(kind: models.ExpectedInflowKind, source_object) -> str:
+    """Fallback Promise title when the user does not provide one.
+    Ticket 1: REFUND titles must not include "Refund:" prefix — the refund type
+    is communicated through kind, event_type, and badges."""
     if kind == models.ExpectedInflowKind.EARNED:
         return source_object.name
     if kind == models.ExpectedInflowKind.RECEIVABLE:
         return source_object.counterparty_name
     if kind == models.ExpectedInflowKind.ASSET_SALE:
         return source_object.title
-    return f"Refund: {source_object.title}"
+    return source_object.title
 
 
 def create_promise(

@@ -1694,3 +1694,391 @@ def test_non_pristine_schedule_data_preserved_in_history(client):
     assert len(data["write_offs"]) >= 1
     # Schedules preserved.
     assert len(data["schedules"]) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Ticket 1: Ledger identity — Promise title is the primary ledger title
+# ---------------------------------------------------------------------------
+
+
+def test_earned_receipt_title_equals_promise_title(client, session):
+    """Receiving an earned Expected Inflow posts Money In with the Promise title."""
+    headers = create_user_and_token(client, "t1earned", "t1earned@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers, "Freelance client")
+    wallet = _wallet(client, headers)
+
+    inflow = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "EARNED",
+            "source_id": source["id"],
+            "title": "Website redesign — phase 1",
+            "amount": 500_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert inflow.status_code == 201, inflow.text
+    assert inflow.json()["title"] == "Website redesign — phase 1"
+
+    realized = client.post(
+        f"/expected-inflows/{inflow.json()['id']}/realize",
+        json={
+            "actual_amount": 500_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 500_000}],
+            "idempotency_key": "t1-earned-title",
+        },
+        headers=headers,
+    )
+    assert realized.status_code == 200, realized.text
+    event_id = realized.json()["realization"]["event_ids"][0]
+    event = session.query(models.FinancialEvent).filter(models.FinancialEvent.id == event_id).first()
+    assert event.title == "Website redesign — phase 1"
+    # Source context is available through entity leg, not the title.
+    entity_leg = session.query(models.EntityLedger).filter(
+        models.EntityLedger.event_id == event_id,
+    ).first()
+    assert entity_leg.income_source_id == source["id"]
+
+
+def test_receivable_receipt_title_equals_promise_title(client, session):
+    """Receiving a receivable Expected Inflow posts Money In with the Promise title."""
+    headers = create_user_and_token(client, "t1recv", "t1recv@example.com", "Password123!")
+    today = user_timezone_today()
+    wallet = _wallet(client, headers)
+
+    debt = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWED",
+            "counterparty_name": "Ali",
+            "initial_amount": 500_000,
+            "currency": "UZS",
+            "date": today.isoformat(),
+            "expected_return_date": today.isoformat(),
+            "is_money_transferred": False,
+        },
+        headers=headers,
+    )
+    assert debt.status_code == 201, debt.text
+
+    inflow = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "RECEIVABLE",
+            "debt_id": debt.json()["id"],
+            "title": "Ali repayment — March",
+            "amount": 300_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert inflow.status_code == 201, inflow.text
+    assert inflow.json()["title"] == "Ali repayment — March"
+
+    realized = client.post(
+        f"/expected-inflows/{inflow.json()['id']}/realize",
+        json={
+            "actual_amount": 300_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 300_000}],
+            "idempotency_key": "t1-recv-title",
+        },
+        headers=headers,
+    )
+    assert realized.status_code == 200, realized.text
+    for event_id in realized.json()["realization"]["event_ids"]:
+        event = session.query(models.FinancialEvent).filter(models.FinancialEvent.id == event_id).first()
+        assert event.title == "Ali repayment — March", f"Event {event_id} title mismatch"
+
+
+def test_refund_receipt_title_equals_promise_title(client, session):
+    """Receiving a refund Expected Inflow posts Money In with the Promise title,
+    not with 'Refund' or 'Partial Refund'."""
+    headers = create_user_and_token(client, "t1refund", "t1refund@example.com", "Password123!")
+    today = user_timezone_today()
+    wallet = _wallet(client, headers)
+    create_budget(client, headers, category="Groceries", monthly_limit=1_000_000)
+
+    expense = create_expense(client, headers, title="Returned groceries", amount=200_000, category="Groceries")
+    assert expense.status_code == 201, expense.text
+
+    inflow = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "REFUND",
+            "refund_event_id": expense.json()["id"],
+            "title": "Grocery refund — damaged items",
+            "amount": 150_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert inflow.status_code == 201, inflow.text
+
+    realized = client.post(
+        f"/expected-inflows/{inflow.json()['id']}/realize",
+        json={
+            "actual_amount": 150_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 150_000}],
+            "idempotency_key": "t1-refund-title",
+        },
+        headers=headers,
+    )
+    assert realized.status_code == 200, realized.text
+    event_id = realized.json()["realization"]["event_ids"][0]
+    event = session.query(models.FinancialEvent).filter(models.FinancialEvent.id == event_id).first()
+    # Title must be the Promise title, NOT "Refund", "Partial Refund", or "Refund for ..."
+    assert event.title == "Grocery refund — damaged items"
+    assert "Refund" not in event.title
+    assert "REFUND" not in event.title
+    # Refund type is communicated through event_type, not the title.
+    assert event.event_type == models.TransactionType.REFUND
+    # Original expense link preserved.
+    assert event.linked_event_id == expense.json()["id"]
+
+
+def test_asset_sale_receipt_title_equals_promise_title(client, session):
+    """Receiving an asset-sale Expected Inflow posts Money In with the Promise title,
+    not with 'Asset Sale:' prefix."""
+    headers = create_user_and_token(client, "t1asset", "t1asset@example.com", "Password123!")
+    today = user_timezone_today()
+    wallet = _wallet(client, headers)
+
+    asset = client.post(
+        "/assets",
+        json={
+            "title": "Old phone",
+            "purchase_value": 500_000,
+            "current_value": 300_000,
+            "status": "owned",
+        },
+        headers=headers,
+    )
+    assert asset.status_code == 201, asset.text
+
+    inflow = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "ASSET_SALE",
+            "asset_id": asset.json()["id"],
+            "title": "Phone sale to colleague",
+            "amount": 300_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert inflow.status_code == 201, inflow.text
+
+    realized = client.post(
+        f"/expected-inflows/{inflow.json()['id']}/realize",
+        json={
+            "actual_amount": 300_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 300_000}],
+            "idempotency_key": "t1-asset-title",
+        },
+        headers=headers,
+    )
+    assert realized.status_code == 200, realized.text
+    event_id = realized.json()["realization"]["event_ids"][0]
+    event = session.query(models.FinancialEvent).filter(models.FinancialEvent.id == event_id).first()
+    # Title must be the Promise title, NOT "Asset Sale: Old phone"
+    assert event.title == "Phone sale to colleague"
+    assert "Asset Sale" not in event.title
+    # Asset-sale type is communicated through reference_type, not the title.
+    assert event.reference_type == models.ReferenceType.ASSET_SALE
+
+
+def test_no_source_kind_uses_generic_titles(client, session):
+    """Prove no source-kind receipt path uses generic titles such as
+    'client payment received', 'refund received', or 'asset sale received'."""
+    headers = create_user_and_token(client, "t1generic", "t1generic@example.com", "Password123!")
+    today = user_timezone_today()
+    wallet = _wallet(client, headers)
+
+    # --- EARNED ---
+    source = _source(client, headers, "Consulting")
+    earned = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "EARNED",
+            "source_id": source["id"],
+            "title": "Q3 consulting invoice",
+            "amount": 200_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert earned.status_code == 201, earned.text
+    r = client.post(
+        f"/expected-inflows/{earned.json()['id']}/realize",
+        json={
+            "actual_amount": 200_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 200_000}],
+            "idempotency_key": "t1-generic-earned",
+        },
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    event_id = r.json()["realization"]["event_ids"][0]
+    event = session.query(models.FinancialEvent).filter(models.FinancialEvent.id == event_id).first()
+    assert event.title == "Q3 consulting invoice"
+
+    # --- RECEIVABLE ---
+    debt = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWED",
+            "counterparty_name": "Bob",
+            "initial_amount": 200_000,
+            "currency": "UZS",
+            "date": today.isoformat(),
+            "expected_return_date": today.isoformat(),
+            "is_money_transferred": False,
+        },
+        headers=headers,
+    )
+    assert debt.status_code == 201, debt.text
+    receivable = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "RECEIVABLE",
+            "debt_id": debt.json()["id"],
+            "title": "Bob loan return",
+            "amount": 100_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert receivable.status_code == 201, receivable.text
+    r2 = client.post(
+        f"/expected-inflows/{receivable.json()['id']}/realize",
+        json={
+            "actual_amount": 100_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 100_000}],
+            "idempotency_key": "t1-generic-recv",
+        },
+        headers=headers,
+    )
+    assert r2.status_code == 200, r2.text
+    for eid in r2.json()["realization"]["event_ids"]:
+        ev = session.query(models.FinancialEvent).filter(models.FinancialEvent.id == eid).first()
+        assert ev.title == "Bob loan return", f"Receivable event {eid} title mismatch: {ev.title}"
+
+    # --- REFUND ---
+    create_budget(client, headers, category="Electronics", monthly_limit=500_000)
+    expense = create_expense(client, headers, title="Printer ink", amount=50_000, category="Electronics")
+    assert expense.status_code == 201, expense.text
+    refund = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "REFUND",
+            "refund_event_id": expense.json()["id"],
+            "title": "Printer ink refund",
+            "amount": 50_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert refund.status_code == 201, refund.text
+    r3 = client.post(
+        f"/expected-inflows/{refund.json()['id']}/realize",
+        json={
+            "actual_amount": 50_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 50_000}],
+            "idempotency_key": "t1-generic-refund",
+        },
+        headers=headers,
+    )
+    assert r3.status_code == 200, r3.text
+    eid3 = r3.json()["realization"]["event_ids"][0]
+    ev3 = session.query(models.FinancialEvent).filter(models.FinancialEvent.id == eid3).first()
+    assert ev3.title == "Printer ink refund"
+    assert ev3.event_type == models.TransactionType.REFUND  # type is in event_type
+
+    # --- ASSET_SALE ---
+    asset = client.post(
+        "/assets",
+        json={"title": "Desk", "purchase_value": 100_000, "current_value": 80_000, "status": "owned"},
+        headers=headers,
+    )
+    assert asset.status_code == 201, asset.text
+    sale = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "ASSET_SALE",
+            "asset_id": asset.json()["id"],
+            "title": "Desk sale",
+            "amount": 80_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert sale.status_code == 201, sale.text
+    r4 = client.post(
+        f"/expected-inflows/{sale.json()['id']}/realize",
+        json={
+            "actual_amount": 80_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 80_000}],
+            "idempotency_key": "t1-generic-asset",
+        },
+        headers=headers,
+    )
+    assert r4.status_code == 200, r4.text
+    eid4 = r4.json()["realization"]["event_ids"][0]
+    ev4 = session.query(models.FinancialEvent).filter(models.FinancialEvent.id == eid4).first()
+    assert ev4.title == "Desk sale"
+    assert ev4.reference_type == models.ReferenceType.ASSET_SALE  # type is in reference_type
+
+
+def test_source_analytics_use_source_relationships_not_title_parsing(client, session):
+    """Prove source analytics still use source relationships rather than parsing the title.
+    The entity leg carries the income_source_id even though the title is user-authored."""
+    headers = create_user_and_token(client, "t1analytics", "t1analytics@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers, "Analytics client")
+    wallet = _wallet(client, headers)
+
+    inflow = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "EARNED",
+            "source_id": source["id"],
+            "title": "Custom project name — NOT the source name",
+            "amount": 300_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert inflow.status_code == 201, inflow.text
+
+    realized = client.post(
+        f"/expected-inflows/{inflow.json()['id']}/realize",
+        json={
+            "actual_amount": 300_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 300_000}],
+            "idempotency_key": "t1-analytics",
+        },
+        headers=headers,
+    )
+    assert realized.status_code == 200, realized.text
+    event_id = realized.json()["realization"]["event_ids"][0]
+
+    # The ledger event title is user-authored — NOT the source name.
+    event = session.query(models.FinancialEvent).filter(models.FinancialEvent.id == event_id).first()
+    assert event.title == "Custom project name — NOT the source name"
+
+    # The entity ledger still carries the source relationship for analytics.
+    entity_leg = session.query(models.EntityLedger).filter(
+        models.EntityLedger.event_id == event_id,
+    ).first()
+    assert entity_leg.income_source_id == source["id"]
