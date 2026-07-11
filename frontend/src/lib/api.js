@@ -195,7 +195,8 @@ export {
     cancelExpectedInflow,
     writeOffExpectedInflow,
     reverseExpectedInflowWriteOff,
-    reopenExpectedInflow,
-    reconcileExpectedInflow,
+    reverseExpectedInflowReceipt,
+    reverseExpectedInflowReschedule,
     getExpectedInflowTimeline,
+    getCashflow,
 } from "./api/expectedInflows";

@@ -1656,14 +1656,15 @@ def test_expected_income_mark_received_preserves_expectation_and_links_wallet_ev
     assert wallets.status_code == 200, wallets.text
     wallet = wallets.json()[0]
 
+    # Ticket 2: exact receipt (not over-receipt) — over-receipt is now rejected
     received = client.post(
         f"/budgets/expected-incomes/{expected['id']}/mark-received",
         json={
-            "received_amount": 2_500_000,
+            "received_amount": 2_000_000,
             "date": today.isoformat(),
-            "note": "Client paid extra",
+            "note": "Client paid on time",
             "wallet_allocations": [
-                {"wallet_id": wallet["id"], "amount": 2_500_000},
+                {"wallet_id": wallet["id"], "amount": 2_000_000},
             ],
         },
         headers=headers,
@@ -1682,12 +1683,12 @@ def test_expected_income_mark_received_preserves_expectation_and_links_wallet_ev
     )
     assert summary.status_code == 200, summary.text
     assert summary.json()["expected_income_remaining"] == 0
-    assert summary.json()["backing_total"] == 12_500_000
+    assert summary.json()["backing_total"] == 12_000_000
 
     entries = client.get("/income/entries", headers=headers)
     assert entries.status_code == 200, entries.text
     linked_entry = next(item for item in entries.json()["items"] if item["id"] == payload["linked_transaction_id"])
-    assert linked_entry["amount"] == 2_500_000
+    assert linked_entry["amount"] == 2_000_000
     assert linked_entry["source_id"] == source["id"]
 
 
@@ -1782,10 +1783,11 @@ def test_budget_month_summary_exposes_expected_income_lifecycle_totals_and_items
     wallets = client.get("/wallets", headers=headers)
     assert wallets.status_code == 200, wallets.text
     wallet = wallets.json()[0]
+    # Ticket 2: exact receipt (not over-receipt) — over-receipt is now rejected
     received = client.post(
         f"/budgets/expected-incomes/{received_source['id']}/mark-received",
         json={
-            "received_amount": 2_500_000,
+            "received_amount": 2_000_000,
             "date": today.isoformat(),
             "wallet_id": wallet["id"],
         },
@@ -1860,7 +1862,7 @@ def test_budget_month_summary_exposes_expected_income_lifecycle_totals_and_items
     assert summary.status_code == 200, summary.text
     payload = summary.json()
     assert payload["expected_income_remaining"] == 1_500_000
-    assert payload["backing_total"] == 14_000_000
+    assert payload["backing_total"] == 13_500_000
 
     totals = {item["status"]: item for item in payload["expected_income_totals"]}
     assert totals["EXPECTED"] == {"status": "EXPECTED", "count": 1, "amount": 1_500_000, "received_amount": 0}
@@ -1930,13 +1932,13 @@ def test_expected_income_status_cannot_bypass_lifecycle_commands(client):
     )
     assert created.status_code == 201, created.text
 
+    # Ticket 10: Legacy status values removed — cannot bypass lifecycle commands.
     status_update = client.patch(
         f"/budgets/expected-incomes/{expected['id']}",
         json={"status": "RECEIVED"},
         headers=headers,
     )
-    assert status_update.status_code == 409, status_update.text
-    assert status_update.json()["detail"] == "expected_inflow.use_lifecycle_command"
+    assert status_update.status_code == 422, status_update.text
 
     summary = client.get(
         f"/budgets/month-summary?budget_year={today.year}&budget_month={today.month}",

@@ -171,7 +171,7 @@ export function ExpectedInflowEditorDialog({
   );
 }
 
-export function ReceiveExpectedInflowDialog({ item, open, onOpenChange, wallets, todayISO, onSubmit, pending }) {
+export function ReceiveExpectedInflowDialog({ item, open, onOpenChange, wallets, todayISO, onSubmit, pending, targetSchedule }) {
   const schedules = useMemo(() => activeSchedules(item), [item]);
   const [actualAmount, setActualAmount] = useState("");
   const [receivedDate, setReceivedDate] = useState(todayISO);
@@ -182,14 +182,22 @@ export function ReceiveExpectedInflowDialog({ item, open, onOpenChange, wallets,
 
   useEffect(() => {
     if (!open || !item) return;
-    const amount = Number(item.outstanding_amount || 0);
+    // If a specific schedule was targeted, pre-fill its remaining amount
+    const targetId = targetSchedule?.id;
+    const targetRemaining = targetId ? Number(targetSchedule.remaining_amount || 0) : Number(item.outstanding_amount || 0);
+    const amount = Math.min(targetRemaining, Number(item.outstanding_amount || 0));
     setActualAmount(formatAmountInput(String(amount), maxAmountDigits));
     setReceivedDate(todayISO);
     setWalletRows(wallets[0] ? [{ wallet_id: String(wallets[0].id), amount: String(amount) }] : []);
-    setScheduleRows(distributeAmount(amount, schedules));
+    // If targeting a specific schedule, pre-select that schedule
+    if (targetId) {
+      setScheduleRows([{ schedule_id: String(targetId), amount: String(amount) }]);
+    } else {
+      setScheduleRows(distributeAmount(amount, schedules));
+    }
     setNote("");
     setError("");
-  }, [item, open, schedules, todayISO, wallets]);
+  }, [item, open, schedules, todayISO, wallets, targetSchedule]);
 
   if (!item) return null;
   const actual = parseAmountInput(actualAmount);
@@ -247,7 +255,7 @@ export function ReceiveExpectedInflowDialog({ item, open, onOpenChange, wallets,
   );
 }
 
-export function RescheduleExpectedInflowDialog({ item, open, onOpenChange, todayISO, onSubmit, pending }) {
+export function RescheduleExpectedInflowDialog({ item, open, onOpenChange, todayISO, onSubmit, pending, targetSchedule }) {
   const schedules = useMemo(() => activeSchedules(item), [item]);
   const [sourceScheduleId, setSourceScheduleId] = useState("");
   const [rows, setRows] = useState([]);
@@ -256,9 +264,11 @@ export function RescheduleExpectedInflowDialog({ item, open, onOpenChange, today
 
   useEffect(() => {
     if (!open || !item || schedules.length === 0) return;
-    setSourceScheduleId(String(schedules[0].id));
+    // If a specific schedule was targeted, pre-select it as the source
+    const targetId = targetSchedule?.id ? String(targetSchedule.id) : String(schedules[0].id);
+    setSourceScheduleId(targetId);
     setError("");
-  }, [item, open, schedules]);
+  }, [item, open, schedules, targetSchedule]);
   useEffect(() => {
     if (!open || !source) return;
     setRows([{ amount: String(source.remaining_amount), due_date: nextMonthDate(source.due_date, todayISO), note: "" }]);
@@ -297,18 +307,21 @@ export function RescheduleExpectedInflowDialog({ item, open, onOpenChange, today
   );
 }
 
-export function WriteOffExpectedInflowDialog({ item, open, onOpenChange, todayISO, onSubmit, pending }) {
+export function WriteOffExpectedInflowDialog({ item, open, onOpenChange, todayISO, onSubmit, pending, targetSchedule }) {
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
   const [writtenOffDate, setWrittenOffDate] = useState(todayISO);
   const [error, setError] = useState("");
   useEffect(() => {
     if (!open || !item) return;
-    setAmount(formatAmountInput(String(item.outstanding_amount), maxAmountDigits));
+    // If a specific schedule was targeted, pre-fill its remaining amount
+    const targetRemaining = targetSchedule?.id ? Number(targetSchedule.remaining_amount || 0) : Number(item.outstanding_amount || 0);
+    const initialAmount = Math.min(targetRemaining, Number(item.outstanding_amount || 0));
+    setAmount(formatAmountInput(String(initialAmount), maxAmountDigits));
     setReason("");
     setWrittenOffDate(todayISO);
     setError("");
-  }, [item, open, todayISO]);
+  }, [item, open, todayISO, targetSchedule]);
   if (!item) return null;
   const submit = async () => {
     const value = parseAmountInput(amount);
@@ -316,8 +329,13 @@ export function WriteOffExpectedInflowDialog({ item, open, onOpenChange, todayIS
       setError("Enter an amount within the outstanding balance and a reason.");
       return;
     }
+    const payload = { amount: value, reason: reason.trim(), written_off_date: writtenOffDate };
+    // Target specific schedule when launched from a ScheduleCard
+    if (targetSchedule?.id) {
+      payload.schedule_allocations = [{ schedule_id: targetSchedule.id, amount: value }];
+    }
     try {
-      await onSubmit({ amount: value, reason: reason.trim(), written_off_date: writtenOffDate });
+      await onSubmit(payload);
       onOpenChange(false);
     } catch (requestError) {
       setError(requestError?.message || "Amount could not be written off.");

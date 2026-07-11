@@ -19,7 +19,18 @@ export default defineConfig({
     ].reduce((acc, route) => {
       // These are paths where the frontend React Router UI uses the EXACT same 
       // root path as the backend API Python router.
-      const collidingUiRoutes = ["/expenses", "/budgets", "/analytics", "/income", "/savings", "/debts", "/wallets", "/assets"];
+      const collidingUiRoutes = [
+        "/expenses",
+        "/budgets",
+        "/analytics",
+        "/income",
+        "/money-in",
+        "/savings",
+        "/debts",
+        "/wallets",
+        "/assets",
+        "/projects",
+      ];
       const isColliding = collidingUiRoutes.includes(route);
 
       acc[route] = {

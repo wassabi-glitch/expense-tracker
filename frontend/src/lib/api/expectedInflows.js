@@ -49,17 +49,22 @@ export async function reverseExpectedInflowWriteOff(id, writeOffId, payload = {}
     return response.data;
 }
 
-export async function reopenExpectedInflow(id) {
-    const response = await apiClient.post(`/expected-inflows/${id}/reopen`);
+export async function reverseExpectedInflowReceipt(id, realizationId, payload = {}) {
+    const response = await apiClient.post(`/expected-inflows/${id}/realizations/${realizationId}/reverse`, payload);
     return response.data;
 }
 
-export async function reconcileExpectedInflow(id) {
-    const response = await apiClient.post(`/expected-inflows/${id}/reconcile`);
+export async function reverseExpectedInflowReschedule(id, scheduleId) {
+    const response = await apiClient.post(`/expected-inflows/${id}/reschedules/${scheduleId}/reverse`);
     return response.data;
 }
 
 export async function getExpectedInflowTimeline(params) {
     const response = await apiClient.get("/expected-inflows/timeline", { params });
+    return Array.isArray(response.data) ? response.data : [];
+}
+
+export async function getCashflow(params) {
+    const response = await apiClient.get("/expected-inflows/cashflow", { params });
     return Array.isArray(response.data) ? response.data : [];
 }

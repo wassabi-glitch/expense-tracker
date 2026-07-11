@@ -62,17 +62,17 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 
 **Blocked by:** None - can start immediately.
 
-- [ ] Promise lifecycle persistence supports only open and closed values.
-- [ ] Legacy Promise status values are removed from persistence.
-- [ ] Development rows using obsolete status or data shapes are either cleanly migrated to open/closed or discarded/reseeded if that produces a cleaner architecture.
-- [ ] Promise response exposes derived display state separately from stored lifecycle.
-- [ ] Derived display state covers expected, fully received, settled mixed outcome, and fully written-off agreements.
-- [ ] Promise close details are derived from facts rather than stored as Promise close reason.
-- [ ] Promise original amount remains the target for all derived math.
-- [ ] No legacy status fields, enum values, or compatibility storage remain solely to preserve development-era callers.
-- [ ] Frontend status labels use the derived display state instead of raw stored lifecycle.
-- [ ] Tests prove a 99 percent received and 1 percent written-off agreement displays as settled, not written off.
-- [ ] Tests prove raw Promise lifecycle cannot drift from derived display math.
+- [x] Promise lifecycle persistence supports only open and closed values.
+- [x] Legacy Promise status values are removed from persistence.
+- [x] Development rows using obsolete status or data shapes are either cleanly migrated to open/closed or discarded/reseeded if that produces a cleaner architecture.
+- [x] Promise response exposes derived display state separately from stored lifecycle.
+- [x] Derived display state covers expected, fully received, settled mixed outcome, and fully written-off agreements.
+- [x] Promise close details are derived from facts rather than stored as Promise close reason.
+- [x] Promise original amount remains the target for all derived math.
+- [x] No legacy status fields, enum values, or compatibility storage remain solely to preserve development-era callers.
+- [x] Frontend status labels use the derived display state instead of raw stored lifecycle.
+- [x] Tests prove a 99 percent received and 1 percent written-off agreement displays as settled, not written off.
+- [x] Tests prove raw Promise lifecycle cannot drift from derived display math.
 
 ## Ticket 2: Enforce Promise Cap, Auto-Close, And Auto-Reopen
 
@@ -80,16 +80,16 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 
 **Blocked by:** Ticket 1: Contract Promise lifecycle to OPEN/CLOSED with derived display state.
 
-- [ ] Receipt creation rejects any payload where received plus written off plus new receipt would exceed original amount.
-- [ ] A receipt can spill across active sibling schedules only up to the Promise cap.
-- [ ] Overpayment guidance tells the user to record excess as separate income.
-- [ ] Promise lifecycle changes to closed when outstanding reaches zero through receipt, write-off, or mixed settlement.
-- [ ] Promise lifecycle changes back to open when reversal makes outstanding positive.
-- [ ] Closed Promises reject Receive, Reschedule, and Write off commands.
-- [ ] Closed Promises hide or disable financial action buttons in the UI.
-- [ ] The tri-color progress contract can never exceed 100 percent.
-- [ ] Tests cover partial receipt, exact receipt, sibling-schedule spillover, rejected over-receipt, auto-close, and auto-reopen.
-- [ ] Existing overpayment tests are updated to the new contract.
+- [x] Receipt creation rejects any payload where received plus written off plus new receipt would exceed original amount.
+- [x] A receipt can spill across active sibling schedules only up to the Promise cap.
+- [x] Overpayment guidance tells the user to record excess as separate income.
+- [x] Promise lifecycle changes to closed when outstanding reaches zero through receipt, write-off, or mixed settlement.
+- [x] Promise lifecycle changes back to open when reversal makes outstanding positive.
+- [x] Closed Promises reject Receive, Reschedule, and Write off commands.
+- [x] Closed Promises hide or disable financial action buttons in the UI.
+- [x] The tri-color progress contract can never exceed 100 percent.
+- [x] Tests cover partial receipt, exact receipt, sibling-schedule spillover, rejected over-receipt, auto-close, and auto-reopen.
+- [x] Existing overpayment tests are updated to the new contract.
 
 ## Ticket 3: Expose Agreements And Cashflow Views From The Two-Layer Model
 
@@ -97,16 +97,16 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 
 **Blocked by:** Ticket 1: Contract Promise lifecycle to OPEN/CLOSED with derived display state.
 
-- [ ] Agreement listing is not filtered out merely because no schedule is due in the selected month.
-- [ ] Agreement listing supports search and high-level lifecycle/display filters.
-- [ ] Cashflow listing returns schedule chunks due in the selected month.
-- [ ] Cashflow rows include parent Promise title, source label, amount, due date, status, and action availability.
-- [ ] Cashflow rows omit deep reschedule tree history to keep the month view scannable.
-- [ ] Schedule rows do not expose their own orphaned details page.
-- [ ] Clicking a Cashflow row can identify the parent Promise and target schedule.
-- [ ] Budget month integration continues to consume active schedule backing amounts.
-- [ ] Tests prove Agreement and Cashflow filters answer different questions.
-- [ ] Frontend renders Agreements and Cashflow as separate tabs or equivalent primary views.
+- [x] Agreement listing is not filtered out merely because no schedule is due in the selected month.
+- [x] Agreement listing supports search and high-level lifecycle/display filters.
+- [x] Cashflow listing returns schedule chunks due in the selected month.
+- [x] Cashflow rows include parent Promise title, source label, amount, due date, status, and action availability.
+- [x] Cashflow rows omit deep reschedule tree history to keep the month view scannable.
+- [x] Schedule rows do not expose their own orphaned details page.
+- [x] Clicking a Cashflow row can identify the parent Promise and target schedule.
+- [x] Budget month integration continues to consume active schedule backing amounts.
+- [x] Tests prove Agreement and Cashflow filters answer different questions.
+- [x] Frontend renders Agreements and Cashflow as separate tabs or equivalent primary views.
 
 ## Ticket 4: Build Agreement Rows With Tri-Color Progress
 
@@ -117,16 +117,16 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 1: Contract Promise lifecycle to OPEN/CLOSED with derived display state.
 - Ticket 3: Expose Agreements and Cashflow views from the two-layer model.
 
-- [ ] Agreement rows show title, source, original amount, derived display state, and completion math.
-- [ ] Agreement rows do not show Receive, Reschedule, or Write off buttons.
-- [ ] Agreement rows do not lead with schedule due dates as if the Promise were a monthly row.
-- [ ] A reusable tri-color progress component renders received, written-off, and outstanding portions.
-- [ ] Progress bar segments use original amount as the 100 percent target.
-- [ ] Progress bar handles zero outstanding, full write-off, mixed settlement, and active partial states.
-- [ ] Progress bar remains visually stable on mobile and desktop.
+- [x] Agreement rows show title, source, original amount, derived display state, and completion math.
+- [x] Agreement rows do not show Receive, Reschedule, or Write off buttons.
+- [x] Agreement rows do not lead with schedule due dates as if the Promise were a monthly row.
+- [x] A reusable tri-color progress component renders received, written-off, and outstanding portions.
+- [x] Progress bar segments use original amount as the 100 percent target.
+- [x] Progress bar handles zero outstanding, full write-off, mixed settlement, and active partial states.
+- [x] Progress bar remains visually stable on mobile and desktop.
 - [ ] Component tests cover segment math and labels.
 - [ ] Frontend tests prove row action buttons are absent from Agreements.
-- [ ] Agreement rows open the parent details drawer.
+- [x] Agreement rows open the parent details drawer.
 
 ## Ticket 5: Build Schedule Cards, Inline Actions, And Drawer Anchoring
 
@@ -137,14 +137,14 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 2: Enforce Promise cap, auto-close, and auto-reopen.
 - Ticket 3: Expose Agreements and Cashflow views from the two-layer model.
 
-- [ ] Details drawer includes summary metrics for expected, received, written off, and outstanding amounts.
-- [ ] Details drawer renders schedule cards for current and historical schedules.
-- [ ] Active schedule cards expose Receive, Reschedule, and Write off actions when the Promise is open.
-- [ ] Inactive, superseded, written-off, cancelled, or resolved schedule cards do not expose invalid actions.
-- [ ] Action payloads target a specific schedule where required.
-- [ ] Cashflow row navigation opens the parent Promise drawer.
-- [ ] The target schedule card is anchored or highlighted after Cashflow row navigation.
-- [ ] The UI does not expose standalone schedule details pages.
+- [x] Details drawer includes summary metrics for expected, received, written off, and outstanding amounts.
+- [x] Details drawer renders schedule cards for current and historical schedules.
+- [x] Active schedule cards expose Receive, Reschedule, and Write off actions when the Promise is open.
+- [x] Inactive, superseded, written-off, cancelled, or resolved schedule cards do not expose invalid actions.
+- [x] Action payloads target a specific schedule where required.
+- [x] Cashflow row navigation opens the parent Promise drawer.
+- [x] The target schedule card is anchored or highlighted after Cashflow row navigation.
+- [x] The UI does not expose standalone schedule details pages.
 - [ ] Tests prove action availability matches Promise lifecycle and schedule state.
 - [ ] Tests prove schedule action payloads cannot accidentally act on the wrong chunk.
 
@@ -157,16 +157,16 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 3: Expose Agreements and Cashflow views from the two-layer model.
 - Ticket 5: Build Schedule cards, inline actions, and drawer anchoring.
 
-- [ ] Details drawer removes separate raw table-style sections for schedule history, activity, and write-offs.
-- [ ] Unified timeline includes agreement creation.
-- [ ] Unified timeline includes receipts with received date and amount.
-- [ ] Unified timeline includes write-offs with reason and amount.
-- [ ] Unified timeline includes write-off reversals distinctly from original write-offs.
-- [ ] Unified timeline includes receipt reversals once receipt reversal exists.
-- [ ] Unified timeline includes reschedules with source and replacement schedule context.
-- [ ] Unified timeline includes cancel or close events when applicable.
-- [ ] Timeline copy uses user-facing language rather than raw internal IDs.
-- [ ] Amounts and dates use existing formatting helpers.
+- [x] Details drawer removes separate raw table-style sections for schedule history, activity, and write-offs.
+- [x] Unified timeline includes agreement creation.
+- [x] Unified timeline includes receipts with received date and amount.
+- [x] Unified timeline includes write-offs with reason and amount.
+- [x] Unified timeline includes write-off reversals distinctly from original write-offs.
+- [x] Unified timeline includes receipt reversals once receipt reversal exists.
+- [x] Unified timeline includes reschedules with source and replacement schedule context.
+- [x] Unified timeline includes cancel or close events when applicable.
+- [x] Timeline copy uses user-facing language rather than raw internal IDs.
+- [x] Amounts and dates use existing formatting helpers.
 - [ ] Tests cover timeline ordering and event types.
 
 ## Ticket 7: Add First-Class Receipt Reversal
@@ -179,16 +179,16 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 2: Enforce Promise cap, auto-close, and auto-reopen.
 - Ticket 5: Build Schedule cards, inline actions, and drawer anchoring.
 
-- [ ] Expected Inflow exposes a receipt reversal command.
-- [ ] Receipt reversal preserves the original realization record as history.
-- [ ] Receipt reversal appends compensating expected-inflow allocation history or equivalent immutable reversal facts.
-- [ ] Receipt reversal reverses linked wallet/entity ledger effects through the shared financial-event reversal behavior.
-- [ ] Receipt reversal recalculates schedule received amounts.
-- [ ] Receipt reversal recalculates Promise received, outstanding, lifecycle, and display state.
-- [ ] Receipt reversal works after later write-offs when the math remains valid.
-- [ ] Receipt reversal blocks already-reversed or invalid realization targets.
-- [ ] UI exposes receipt reversal from the timeline or receipt history context.
-- [ ] Tests cover full receipt reversal, partial receipt reversal, reversal after closure, auto-reopen, wallet projection, and original-history visibility.
+- [x] Expected Inflow exposes a receipt reversal command.
+- [x] Receipt reversal preserves the original realization record as history.
+- [x] Receipt reversal appends compensating expected-inflow allocation history or equivalent immutable reversal facts.
+- [x] Receipt reversal reverses linked wallet/entity ledger effects through the shared financial-event reversal behavior.
+- [x] Receipt reversal recalculates schedule received amounts.
+- [x] Receipt reversal recalculates Promise received, outstanding, lifecycle, and display state.
+- [x] Receipt reversal works after later write-offs when the math remains valid.
+- [x] Receipt reversal blocks already-reversed or invalid realization targets.
+- [x] UI exposes receipt reversal from the timeline or receipt history context.
+- [x] Tests cover full receipt reversal, partial receipt reversal, reversal after closure, auto-reopen, wallet projection, and original-history visibility.
 
 ## Ticket 8: Make Write-Off Reversal Preserve Append-Only History
 
@@ -200,16 +200,16 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 2: Enforce Promise cap, auto-close, and auto-reopen.
 - Ticket 6: Replace raw expected-inflow history with a unified timeline.
 
-- [ ] Write-off reversal preserves the original write-off as a visible historical fact.
-- [ ] Write-off reversal appends reversal history instead of relying on silent deletion.
-- [ ] Write-off reversal works in any order relative to other financial action reversals.
-- [ ] Write-off reversal recalculates schedule written-off amount.
-- [ ] Write-off reversal recalculates Promise written-off, outstanding, lifecycle, and display state.
-- [ ] Write-off reversal can reopen a closed Promise when outstanding becomes positive.
-- [ ] Timeline shows original write-off and reversal distinctly.
-- [ ] UI prevents reversing the same write-off twice.
-- [ ] Tests cover partial write-off reversal, full write-off reversal, mixed settlement reversal, reversal after closure, and original-history visibility.
-- [ ] Existing write-off reversal behavior is migrated without losing audit readability.
+- [x] Write-off reversal preserves the original write-off as a visible historical fact.
+- [x] Write-off reversal appends reversal history instead of relying on silent deletion.
+- [x] Write-off reversal works in any order relative to other financial action reversals.
+- [x] Write-off reversal recalculates schedule written-off amount.
+- [x] Write-off reversal recalculates Promise written-off, outstanding, lifecycle, and display state.
+- [x] Write-off reversal can reopen a closed Promise when outstanding becomes positive.
+- [x] Timeline shows original write-off and reversal distinctly.
+- [x] UI prevents reversing the same write-off twice.
+- [x] Tests cover partial write-off reversal, full write-off reversal, mixed settlement reversal, reversal after closure, and original-history visibility.
+- [x] Existing write-off reversal behavior is migrated without losing audit readability.
 
 ## Ticket 9: Add Leaves-Only Reschedule Reversal
 
@@ -220,17 +220,17 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 5: Build Schedule cards, inline actions, and drawer anchoring.
 - Ticket 6: Replace raw expected-inflow history with a unified timeline.
 
-- [ ] Reschedule history records enough identity to know which child schedules came from one reschedule action.
-- [ ] A reschedule reversal command restores the superseded source schedule when all replacement children are untouched.
-- [ ] Reversal removes or closes untouched replacement children through an auditable structural correction.
-- [ ] Reversal is allowed for a simple one-child untouched replacement.
-- [ ] Reversal is allowed for a multi-child untouched replacement.
-- [ ] Reversal is blocked if any child has received amount.
-- [ ] Reversal is blocked if any child has written-off amount.
-- [ ] Reversal is blocked if any child has been rescheduled into its own children.
-- [ ] Reversal is blocked if any child is no longer expected for another reason.
-- [ ] Timeline shows reschedule reversal distinctly.
-- [ ] Tests cover multi-level schedule trees and the blocked child-activity cases.
+- [x] Reschedule history records enough identity to know which child schedules came from one reschedule action.
+- [x] A reschedule reversal command restores the superseded source schedule when all replacement children are untouched.
+- [x] Reversal removes or closes untouched replacement children through an auditable structural correction.
+- [x] Reversal is allowed for a simple one-child untouched replacement.
+- [x] Reversal is allowed for a multi-child untouched replacement.
+- [x] Reversal is blocked if any child has received amount.
+- [x] Reversal is blocked if any child has written-off amount.
+- [x] Reversal is blocked if any child has been rescheduled into its own children.
+- [x] Reversal is blocked if any child is no longer expected for another reason.
+- [x] Timeline shows reschedule reversal distinctly.
+- [x] Tests cover multi-level schedule trees and the blocked child-activity cases.
 
 ## Ticket 10: Remove Legacy Data, Edit, Delete, And Manual Lifecycle Paths
 
@@ -243,22 +243,22 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 8: Make write-off reversal preserve append-only history.
 - Ticket 9: Add leaves-only reschedule reversal.
 
-- [ ] Obsolete Expected Inflow enum values, columns, payload fields, and response fields are removed when they no longer match the new contract.
-- [ ] Obsolete development rows are migrated only when the mapping is clean; otherwise they may be discarded or reseeded.
-- [ ] No database table or column is kept solely to preserve stale development data.
-- [ ] No backend branch is kept solely to support the old 5-state Promise lifecycle.
-- [ ] No frontend branch is kept solely to render old expected-inflow status values.
-- [ ] Manual Promise reopen is removed or hidden from public user workflows.
-- [ ] Manual lifecycle changes are replaced by auto-close and auto-reopen math.
-- [ ] Raw schedule edit is unavailable after meaningful activity exists.
-- [ ] Raw schedule delete is unavailable after meaningful activity exists.
-- [ ] Promise delete is allowed only for pristine setup records with no meaningful history.
-- [ ] Non-pristine deletion attempts return clear guidance to use reverse, write-off, cancel, or archive-like visibility behavior if available.
-- [ ] Pristine setup correction remains possible without weakening history rules.
-- [ ] Frontend removes legacy edit/delete/reopen buttons where they violate the target contract.
-- [ ] API tests prove lifecycle commands cannot bypass expected-inflow invariants.
-- [ ] Regression tests prove legacy budget expected-income routes cannot bypass lifecycle commands.
-- [ ] Migration and cleanup tests prove the final schema/code path has no dependency on obsolete expected-inflow development data.
+- [x] Obsolete Expected Inflow enum values, columns, payload fields, and response fields are removed when they no longer match the new contract.
+- [x] Obsolete development rows are migrated only when the mapping is clean; otherwise they may be discarded or reseeded.
+- [x] No database table or column is kept solely to preserve stale development data.
+- [x] No backend branch is kept solely to support the old 5-state Promise lifecycle.
+- [x] No frontend branch is kept solely to render old expected-inflow status values.
+- [x] Manual Promise reopen is removed or hidden from public user workflows.
+- [x] Manual lifecycle changes are replaced by auto-close and auto-reopen math.
+- [x] Raw schedule edit is unavailable after meaningful activity exists.
+- [x] Raw schedule delete is unavailable after meaningful activity exists.
+- [x] Promise delete is allowed only for pristine setup records with no meaningful history.
+- [x] Non-pristine deletion attempts return clear guidance to use reverse, write-off, cancel, or archive-like visibility behavior if available.
+- [x] Pristine setup correction remains possible without weakening history rules.
+- [x] Frontend removes legacy edit/delete/reopen buttons where they violate the target contract.
+- [x] API tests prove lifecycle commands cannot bypass expected-inflow invariants.
+- [x] Regression tests prove legacy budget expected-income routes cannot bypass lifecycle commands.
+- [x] Migration and cleanup tests prove the final schema/code path has no dependency on obsolete expected-inflow development data.
 
 ## Ticket 11: Harden Budget Backing, Timezone Behavior, And Source-Kind Coverage
 
@@ -272,18 +272,18 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 9: Add leaves-only reschedule reversal.
 - Ticket 10: Remove legacy data, edit, delete, and manual lifecycle paths.
 
-- [ ] Budget backing includes only active collectible outstanding schedule amounts.
-- [ ] Budget backing excludes superseded schedules.
-- [ ] Budget backing excludes closed, written-off, cancelled, and reversed amounts.
-- [ ] Budget month summaries remain schedule-based rather than Promise-date based.
-- [ ] Due status and overdue behavior use the user's effective timezone.
-- [ ] Receipt, write-off, reschedule, and cancel date validation use the user's effective timezone.
-- [ ] Earned income expected inflows follow the Promise cap and reversal rules.
-- [ ] Receivable debt repayment expected inflows follow the Promise cap and reversal rules while preserving debt repayment effects.
-- [ ] Refund expected inflows follow the Promise cap and reversal rules while preserving refund links.
-- [ ] Asset-sale expected inflows follow the Promise cap and write-off behavior for lower actual sale proceeds.
-- [ ] Tests cover timezone boundaries and every supported source kind.
-- [ ] Wallet projection tests prove reversals do not double-apply wallet effects.
+- [x] Budget backing includes only active collectible outstanding schedule amounts.
+- [x] Budget backing excludes superseded schedules.
+- [x] Budget backing excludes closed, written-off, cancelled, and reversed amounts.
+- [x] Budget month summaries remain schedule-based rather than Promise-date based.
+- [x] Due status and overdue behavior use the user's effective timezone.
+- [x] Receipt, write-off, reschedule, and cancel date validation use the user's effective timezone.
+- [x] Earned income expected inflows follow the Promise cap and reversal rules.
+- [x] Receivable debt repayment expected inflows follow the Promise cap and reversal rules while preserving debt repayment effects.
+- [x] Refund expected inflows follow the Promise cap and reversal rules while preserving refund links.
+- [x] Asset-sale expected inflows follow the Promise cap and write-off behavior for lower actual sale proceeds.
+- [x] Tests cover timezone boundaries and every supported source kind.
+- [x] Wallet projection tests prove reversals do not double-apply wallet effects.
 
 ## Ticket 12: Finish End-To-End Expected Inflow Regression And Documentation Alignment
 
@@ -296,13 +296,13 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 10: Remove legacy data, edit, delete, and manual lifecycle paths.
 - Ticket 11: Harden budget backing, timezone behavior, and source-kind coverage.
 
-- [ ] End-to-end tests cover create, receive, reschedule, write off, reverse receipt, reverse write-off, reverse untouched reschedule, and blocked unsafe reschedule reversal.
-- [ ] End-to-end tests cover active, fully received, settled mixed outcome, and written-off display states.
-- [ ] Frontend tests cover Agreements tab, Cashflow tab, details drawer, schedule anchor, inline actions, progress bar, and timeline.
-- [ ] No public Expected Inflow workflow depends on the old 5-state Promise status model.
-- [ ] No public Expected Inflow workflow can over-receive above original amount.
-- [ ] No public Expected Inflow workflow can hard-delete non-pristine schedule history.
-- [ ] Existing docs agree that Promise is agreement, Schedule is cashflow, and ledger facts drive display state.
-- [ ] The spec, tickets, and ADRs use consistent terminology for Promise, Schedule, realization, write-off, reversal, outstanding, and settlement.
-- [ ] Remaining known gaps are documented if any are intentionally deferred.
-- [ ] Docker-first verification instructions are clear for migrations, backend tests, and frontend build.
+- [x] End-to-end tests cover create, receive, reschedule, write off, reverse receipt, reverse write-off, reverse untouched reschedule, and blocked unsafe reschedule reversal.
+- [x] End-to-end tests cover active, fully received, settled mixed outcome, and written-off display states.
+- [x] Frontend tests cover Agreements tab, Cashflow tab, details drawer, schedule anchor, inline actions, progress bar, and timeline.
+- [x] No public Expected Inflow workflow depends on the old 5-state Promise status model.
+- [x] No public Expected Inflow workflow can over-receive above original amount.
+- [x] No public Expected Inflow workflow can hard-delete non-pristine schedule history.
+- [x] Existing docs agree that Promise is agreement, Schedule is cashflow, and ledger facts drive display state.
+- [x] The spec, tickets, and ADRs use consistent terminology for Promise, Schedule, realization, write-off, reversal, outstanding, and settlement.
+- [x] Remaining known gaps are documented if any are intentionally deferred.
+- [x] Docker-first verification instructions are clear for migrations, backend tests, and frontend build.

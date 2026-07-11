@@ -355,8 +355,6 @@ class ExpectedIncomeStatus(str, enum.Enum):
     RESOLVED = "RESOLVED"
     SUPERSEDED = "SUPERSEDED"
     WRITTEN_OFF = "WRITTEN_OFF"
-    RECEIVED = "RECEIVED"
-    MISSED = "MISSED"
     CANCELLED = "CANCELLED"
 
 
@@ -368,11 +366,30 @@ class ExpectedInflowKind(str, enum.Enum):
 
 
 class ExpectedInflowPromiseStatus(str, enum.Enum):
+    """Stored Promise lifecycle — only OPEN or CLOSED.
+    Display state is derived separately via PromiseDisplayState."""
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+
+
+class PromiseDisplayState(str, enum.Enum):
+    """Derived Promise display state — never stored, always computed from facts."""
     EXPECTED = "EXPECTED"
-    PARTIALLY_RECEIVED = "PARTIALLY_RECEIVED"
-    RESOLVED = "RESOLVED"
-    CANCELLED = "CANCELLED"
+    FULLY_RECEIVED = "FULLY_RECEIVED"
+    SETTLED = "SETTLED"
     WRITTEN_OFF = "WRITTEN_OFF"
+
+
+class ScheduleReadState(str, enum.Enum):
+    """Derived schedule settlement/read labels — never stored as source of truth."""
+    OUTSTANDING = "OUTSTANDING"
+    PARTIAL = "PARTIAL"
+    FULLY_RECEIVED = "FULLY_RECEIVED"
+    WRITTEN_OFF = "WRITTEN_OFF"
+    SETTLED = "SETTLED"
+    OVERDUE = "OVERDUE"
+    SUPERSEDED = "SUPERSEDED"
+    CANCELLED = "CANCELLED"
 
 
 class ProjectStatus(str, enum.Enum):
@@ -778,10 +795,11 @@ class ExpectedInflowPromise(Base):
     title = Column(String(100), nullable=False)
     original_amount = Column(BigInteger, nullable=False)
     status = Column(
-        Enum(ExpectedInflowPromiseStatus),
+        String(32),
         nullable=False,
-        default=ExpectedInflowPromiseStatus.EXPECTED,
+        default=ExpectedInflowPromiseStatus.OPEN.value,
     )
+    """Stored lifecycle: OPEN or CLOSED. Display state derived via PromiseDisplayState."""
     backing_eligible = Column(Boolean, nullable=False, default=True)
     note = Column(String(200), nullable=True)
     closed_at = Column(DateTime(timezone=True), nullable=True)
@@ -935,6 +953,8 @@ class ExpectedInflowRealization(Base):
     received_date = Column(Date, nullable=False)
     note = Column(String(200), nullable=True)
     idempotency_key = Column(String(64), nullable=True)
+    reversed_at = Column(DateTime(timezone=True), nullable=True)
+    reversal_note = Column(String(200), nullable=True)
     created_at = Column(DateTime(timezone=True),
                         server_default=func.now(), nullable=False)
 
@@ -1056,6 +1076,51 @@ class ExpectedInflowWriteOff(Base):
     promise = relationship("ExpectedInflowPromise",
                            back_populates="write_offs")
     schedule = relationship("ExpectedIncome", back_populates="write_offs")
+    reversal = relationship(
+        "ExpectedInflowWriteOffReversal",
+        back_populates="write_off",
+        uselist=False,
+    )
+
+
+class ExpectedInflowWriteOffReversal(Base):
+    """Append-only reversal record for a write-off.
+
+    Created when a user reverses a write-off. The original write-off row is
+    preserved unchanged; this record carries the reversal metadata and provides
+    a distinct audit-trail entry for the timeline.
+    """
+    __tablename__ = "expected_inflow_write_off_reversals"
+    __table_args__ = (
+        UniqueConstraint(
+            "write_off_id",
+            name="uq_expected_inflow_write_off_reversals_write_off_id",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey(
+        "users.id", ondelete="CASCADE"), nullable=False, index=True)
+    write_off_id = Column(
+        Integer,
+        ForeignKey("expected_inflow_write_offs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    promise_id = Column(
+        Integer,
+        ForeignKey("expected_inflow_promises.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    note = Column(String(200), nullable=True)
+    created_at = Column(DateTime(timezone=True),
+                        server_default=func.now(), nullable=False)
+
+    owner = relationship("User")
+    write_off = relationship(
+        "ExpectedInflowWriteOff", back_populates="reversal")
+    promise = relationship("ExpectedInflowPromise")
 
 
 class RecurringExpense(Base):

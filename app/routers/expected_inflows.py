@@ -35,6 +35,8 @@ def list_expected_inflows(
     budget_month: int | None = Query(default=None, ge=1, le=12),
     view: Literal["all", "active", "history"] = "all",
     kind: models.ExpectedInflowKind | None = None,
+    search: str | None = Query(default=None, min_length=1, max_length=100),
+    display_state: models.PromiseDisplayState | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
     user_tz=Depends(get_effective_user_timezone),
@@ -46,6 +48,27 @@ def list_expected_inflows(
         budget_year=budget_year,
         budget_month=budget_month,
         view=view,
+        kind=kind,
+        search=search,
+        display_state=display_state,
+    )
+
+
+@router.get("/cashflow", response_model=list[schemas.ExpectedInflowCashflowRowOut])
+def list_cashflow(
+    budget_year: int = Query(ge=schemas.MIN_BUDGET_YEAR),
+    budget_month: int = Query(ge=1, le=12),
+    kind: models.ExpectedInflowKind | None = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz=Depends(get_effective_user_timezone),
+):
+    return service.list_cashflow(
+        db,
+        current_user.id,
+        today=_today(user_tz),
+        budget_year=budget_year,
+        budget_month=budget_month,
         kind=kind,
     )
 
@@ -69,6 +92,7 @@ def expected_inflow_timeline(
                 continue
             state = service._schedule_state(schedule)
             remaining = service.remaining_amount(schedule)
+            read_state = service.schedule_read_state(schedule, today=today)
             items.append(schemas.ExpectedInflowTimelineItemOut(
                 id=int(schedule.id),
                 kind=service._promise_kind(promise),
@@ -78,6 +102,7 @@ def expected_inflow_timeline(
                 received_amount=service.received_amount(schedule),
                 remaining_amount=remaining,
                 status=state,
+                read_state=read_state,
                 backing_eligible=bool(promise.backing_eligible),
                 is_overdue=service._schedule_is_active(schedule) and schedule.due_date < today,
             ))
@@ -232,30 +257,35 @@ def reverse_expected_inflow_write_off(
     return _serialize(db, current_user.id, promise_id, today)
 
 
-@router.post("/{promise_id}/reopen", response_model=schemas.ExpectedInflowPromiseOut)
-def reopen_expected_inflow(
+@router.post("/{promise_id}/realizations/{realization_id}/reverse", response_model=schemas.ExpectedInflowPromiseOut)
+def reverse_expected_inflow_realization(
     promise_id: int,
+    realization_id: int,
+    payload: schemas.ExpectedInflowRealizationReverseCreate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
     user_tz=Depends(get_effective_user_timezone),
 ):
+    """Ticket 7: Reverse a receipt while preserving the original realization as history."""
     today = _today(user_tz)
-    promise = service.get_promise_or_404(db, current_user.id, promise_id, lock=True)
-    service.reopen_promise(promise)
+    service.reverse_realization(
+        db, current_user.id, promise_id, realization_id, payload, user_tz=user_tz,
+    )
     db.commit()
     return _serialize(db, current_user.id, promise_id, today)
 
 
-@router.post("/{promise_id}/reconcile", response_model=schemas.ExpectedInflowPromiseOut)
-def reconcile_expected_inflow(
+@router.post("/{promise_id}/reschedules/{schedule_id}/reverse", response_model=schemas.ExpectedInflowPromiseOut)
+def reverse_expected_inflow_reschedule(
     promise_id: int,
+    schedule_id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
     user_tz=Depends(get_effective_user_timezone),
 ):
+    """Ticket 9: Reverse a reschedule when all children are untouched."""
     today = _today(user_tz)
-    promise = service.get_promise_or_404(db, current_user.id, promise_id, lock=True)
-    service.reconcile_promise(promise)
+    service.reverse_reschedule(db, current_user.id, promise_id, schedule_id)
     db.commit()
     return _serialize(db, current_user.id, promise_id, today)
 

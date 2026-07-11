@@ -34,6 +34,8 @@ from .models import (
     ExpectedIncomeStatus,
     ExpectedInflowKind,
     ExpectedInflowPromiseStatus,
+    PromiseDisplayState,
+    ScheduleReadState,
     PaymentPlanFrequency,
     PaymentPlanType,
     PaymentPlanStatus,
@@ -714,12 +716,20 @@ class ExpectedInflowWriteOffReverseCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ExpectedInflowRealizationReverseCreate(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=200)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class ExpectedInflowRealizationOut(BaseModel):
     id: int
     actual_amount: int
     received_date: date
     note: Optional[str] = None
     event_ids: List[int] = Field(default_factory=list)
+    reversed_at: Optional[datetime] = None
+    reversal_note: Optional[str] = None
     created_at: datetime
 
 
@@ -735,6 +745,8 @@ class ExpectedInflowScheduleOut(BaseModel):
     budget_year: int
     budget_month: int
     status: ExpectedIncomeStatus
+    structural_lifecycle: ExpectedIncomeStatus = ExpectedIncomeStatus.EXPECTED
+    read_state: ScheduleReadState = ScheduleReadState.OUTSTANDING
     close_reason: Optional[str] = None
     is_active: bool
     is_overdue: bool
@@ -751,6 +763,14 @@ class ExpectedInflowWriteOffOut(BaseModel):
     written_off_date: date
     reversed_at: Optional[datetime] = None
     reversal_note: Optional[str] = None
+    created_at: datetime
+
+
+class ExpectedInflowWriteOffReversalOut(BaseModel):
+    id: int
+    write_off_id: int
+    promise_id: int
+    note: Optional[str] = None
     created_at: datetime
 
 
@@ -784,6 +804,7 @@ class ExpectedInflowPromiseOut(BaseModel):
     budget_year: Optional[int] = None
     budget_month: Optional[int] = None
     status: ExpectedInflowPromiseStatus
+    display_state: PromiseDisplayState = PromiseDisplayState.EXPECTED
     backing_eligible: bool
     backing_amount: int
     period_scheduled_amount: int
@@ -853,8 +874,27 @@ class ExpectedInflowTimelineItemOut(BaseModel):
     received_amount: int
     remaining_amount: int
     status: ExpectedIncomeStatus
+    read_state: ScheduleReadState = ScheduleReadState.OUTSTANDING
     backing_eligible: bool
     is_overdue: bool
+
+
+class ExpectedInflowCashflowRowOut(BaseModel):
+    """Single schedule chunk with parent Promise context for the Cashflow view."""
+    schedule_id: int
+    promise_id: int
+    promise_title: str
+    source_label: str
+    kind: ExpectedInflowKind
+    amount: int
+    received_amount: int
+    remaining_amount: int
+    due_date: date
+    budget_year: int
+    budget_month: int
+    read_state: ScheduleReadState = ScheduleReadState.OUTSTANDING
+    is_overdue: bool
+    promise_is_open: bool
 
 
 class MoneyInKind(str, Enum):
