@@ -334,6 +334,7 @@ class PaymentPlanLedgerEntryType(str, enum.Enum):
     PAYMENT = "PAYMENT"
     CHARGE = "CHARGE"
     ADJUSTMENT = "ADJUSTMENT"
+    WRITE_OFF = "WRITE_OFF"
     REVERSAL = "REVERSAL"
 
 

@@ -4025,6 +4025,18 @@ class MarkPaidIn(BaseModel):
     note: Optional[str] = None
 
 
+class PaymentPlanRowWriteOffIn(BaseModel):
+    """Request body for writing off a single payment row."""
+    amount: Optional[int] = Field(default=None, gt=0)
+    note: Optional[str] = None
+
+
+class PaymentPlanWriteOffIn(BaseModel):
+    """Request body for plan-level write-off."""
+    amount: int = Field(gt=0)
+    note: Optional[str] = None
+
+
 class PaymentPlanChargeCreate(BaseModel):
     charge_type: str
     amount: int = Field(gt=0)

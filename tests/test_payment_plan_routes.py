@@ -1043,7 +1043,7 @@ def test_payment_plan_write_off_tracks_written_off_amount_and_can_be_undone(clie
         session.query(models.PaymentPlanLedgerEntry)
         .filter(
             models.PaymentPlanLedgerEntry.plan_id == plan["id"],
-            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.ADJUSTMENT,
+            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.WRITE_OFF,
             models.PaymentPlanLedgerEntry.event_subtype == "PAYMENT_PLAN_WRITE_OFF",
         )
         .first()
@@ -1805,3 +1805,234 @@ def test_payment_row_enriched_fields_in_list(client):
             elif p["settlement_state"] == "SETTLED":
                 assert p["remaining_amount"] == 0
                 assert p["time_status"] is None
+
+
+# ---------------------------------------------------------------------------
+# Ticket 11: Waterfall CHARGE-before-PRINCIPAL ordering
+# ---------------------------------------------------------------------------
+
+
+def test_waterfall_pays_charge_before_principal_same_due_date(client, session):
+    """Within the same due date, CHARGE rows are allocated before PRINCIPAL."""
+    headers = create_user_and_token(client, "wfall1", "wfall1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    wallet_id = _default_wallet(client, headers)["id"]
+    start = user_timezone_today()
+
+    # Create an amortized plan with Electronics category (budgets already exist)
+    plan = _create_payment_plan(
+        client, headers,
+        item_name="Waterfall Test",
+        plan_type="BANK_LOAN",
+        total_price=2_000_000,
+        down_payment=0,
+        months=2,
+        frequency="MONTHLY",
+        start_date=start.isoformat(),
+        expense_category="Electronics",
+        annual_interest_rate=12.0,
+    )
+    payments = _sorted_payments(plan)
+    # First two rows: installment 1 (CHARGE then PRINCIPAL, same due_date)
+    assert len(payments) >= 3  # 2 CHARGE + 2 PRINCIPAL = 4 rows
+    charge_row = [p for p in payments if p["component_type"] == "CHARGE"][0]
+    principal_row = [p for p in payments if p["component_type"] == "PRINCIPAL"][0]
+    assert charge_row["due_date"] == principal_row["due_date"]
+
+    # Pay an amount that partially covers CHARGE + some PRINCIPAL
+    charge_amount = charge_row["amount"]
+    extra = 50_000
+    pay_amount = charge_amount + extra
+
+    resp = client.post(
+        f"/payment-plans/{plan['id']}/payments",
+        json={
+            "amount": pay_amount,
+            "wallet_allocations": [{"wallet_id": wallet_id, "amount": pay_amount}],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    details = resp.json()
+
+    # CHARGE row should be fully paid, PRINCIPAL row partially paid
+    refreshed_charge = [
+        p for p in details["plan"]["payments"]
+        if p["id"] == charge_row["id"]
+    ][0]
+    refreshed_principal = [
+        p for p in details["plan"]["payments"]
+        if p["id"] == principal_row["id"]
+    ][0]
+    assert refreshed_charge["settlement_state"] == "SETTLED"
+    assert refreshed_principal["settlement_state"] == "PARTIAL"
+    assert refreshed_principal["remaining_amount"] == principal_row["amount"] - extra
+
+
+def test_waterfall_oversized_payment_up_to_remaining(client, session):
+    """A payment equal to the total unpaid schedule is accepted (not rejected)."""
+    headers = create_user_and_token(client, "wfall2", "wfall2@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    wallet_id = _default_wallet(client, headers)["id"]
+    plan = _create_payment_plan(client, headers, months=3, total_price=900_000, down_payment=0)
+
+    total_unpaid = sum(p["remaining_amount"] for p in plan["payments"])
+    # Pay the total remaining
+    resp = client.post(
+        f"/payment-plans/{plan['id']}/payments",
+        json={
+            "amount": total_unpaid,
+            "wallet_allocations": [{"wallet_id": wallet_id, "amount": total_unpaid}],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    # All rows should be settled
+    for p in resp.json()["plan"]["payments"]:
+        assert p["settlement_state"] == "SETTLED"
+
+
+# ---------------------------------------------------------------------------
+# Ticket 12: First-Class Write-Offs
+# ---------------------------------------------------------------------------
+
+
+def test_row_write_off_uses_wrte_off_ledger_entry_type(client, session):
+    """Row write-off creates a WRITE_OFF ledger entry, not ADJUSTMENT."""
+    headers = create_user_and_token(client, "woff1", "woff1@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+    row = plan["payments"][0]
+
+    resp = client.post(
+        f"/payment-plans/payments/{row['id']}/write-off",
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    entry = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.plan_id == plan["id"],
+            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.WRITE_OFF,
+        )
+        .first()
+    )
+    assert entry is not None
+    assert entry.event_subtype == "PAYMENT_PLAN_WRITE_OFF"
+    # No ADJUSTMENT entries for this write-off
+    adj_entry = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.plan_id == plan["id"],
+            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.ADJUSTMENT,
+            models.PaymentPlanLedgerEntry.event_subtype == "PAYMENT_PLAN_WRITE_OFF",
+        )
+        .first()
+    )
+    assert adj_entry is None
+
+
+def test_row_write_off_custom_amount(client, session):
+    """Writing off a custom partial amount leaves the row PARTIAL."""
+    headers = create_user_and_token(client, "woff2", "woff2@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+    row = plan["payments"][0]
+
+    # Write off only 100k of the 300k row
+    resp = client.post(
+        f"/payment-plans/payments/{row['id']}/write-off",
+        json={"amount": 100_000, "note": "Partial forgiveness"},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["written_off_amount"] == 100_000
+    assert data["settlement_state"] == "PARTIAL"
+    assert data["remaining_amount"] == 200_000
+
+
+def test_plan_level_write_off_allocates_across_rows(client, session):
+    """Plan-level write-off distributes across unsettled rows in waterfall order."""
+    headers = create_user_and_token(client, "woff3", "woff3@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=3, total_price=900_000, down_payment=0)
+    # Each row is 300,000
+
+    # Write off 500,000 across the plan
+    resp = client.post(
+        f"/payment-plans/{plan['id']}/write-off",
+        json={"amount": 500_000, "note": "Seller settlement discount"},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+
+    # First row should be fully written off (300k), second partially (200k)
+    rows = _sorted_payments(data["plan"])
+    assert rows[0]["settlement_state"] == "SETTLED"
+    assert rows[0]["written_off_amount"] == 300_000
+    assert rows[0]["remaining_amount"] == 0
+
+    assert rows[1]["settlement_state"] == "PARTIAL"
+    assert rows[1]["written_off_amount"] == 200_000
+    assert rows[1]["remaining_amount"] == 100_000
+
+    # Third row untouched
+    assert rows[2]["settlement_state"] == "UNPAID"
+    assert rows[2]["written_off_amount"] == 0
+
+    # Plan remaining should be 400,000 (3×300k - 500k write-off)
+    assert data["plan"]["remaining_amount"] == 400_000
+
+    # Activity should show write-off entries
+    assert any(
+        item["entry_type"] == "WRITE_OFF"
+        for item in data["plan_activity"]
+    )
+
+
+def test_plan_level_write_off_rejects_excess(client, session):
+    """Plan-level write-off exceeding total remaining returns 400."""
+    headers = create_user_and_token(client, "woff4", "woff4@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=1, total_price=300_000, down_payment=0)
+
+    resp = client.post(
+        f"/payment-plans/{plan['id']}/write-off",
+        json={"amount": 500_000, "note": "Too much"},
+        headers=headers,
+    )
+    assert resp.status_code == 400, resp.text
+
+
+def test_write_off_does_not_create_wallet_movement(client, session):
+    """Write-offs (row and plan) do not create wallet ledger entries."""
+    headers = create_user_and_token(client, "woff5", "woff5@example.com", "Password123!")
+    _create_payment_plan_budgets(client, headers)
+    plan = _create_payment_plan(client, headers, months=2, total_price=600_000, down_payment=0)
+
+    # Row write-off
+    row_id = plan["payments"][0]["id"]
+    client.post(f"/payment-plans/payments/{row_id}/write-off", headers=headers)
+
+    # Plan write-off
+    client.post(
+        f"/payment-plans/{plan['id']}/write-off",
+        json={"amount": 300_000, "note": "Plan-level"},
+        headers=headers,
+    )
+
+    # Verify no wallet movement for write-off entries
+    write_off_entries = (
+        session.query(models.PaymentPlanLedgerEntry)
+        .filter(
+            models.PaymentPlanLedgerEntry.plan_id == plan["id"],
+            models.PaymentPlanLedgerEntry.entry_type == models.PaymentPlanLedgerEntryType.WRITE_OFF,
+        )
+        .all()
+    )
+    assert len(write_off_entries) == 2
+    for entry in write_off_entries:
+        assert entry.financial_event_id is None  # No wallet event linked

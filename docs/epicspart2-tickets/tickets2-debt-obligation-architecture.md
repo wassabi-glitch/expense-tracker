@@ -261,16 +261,16 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 8: Add amortized loan schedules with installment grouping.
 - Ticket 10: Convert Payment Plan rows to settlement state and derived overdue.
 
-- [ ] Plan-level payment allocation scans the whole unpaid schedule.
-- [ ] Allocation visits older due dates before newer due dates.
-- [ ] Allocation pays charge rows before principal rows within the same due date.
-- [ ] Allocation supports payments that partially settle one row.
-- [ ] Allocation supports payments that spill across multiple rows and installments.
-- [ ] Allocation supports oversized payments up to the remaining obligation and rejects invalid excess according to product rules.
-- [ ] Payment allocation records explain which rows were touched and by how much.
-- [ ] Ledger entries distinguish principal and charge deltas for the payment.
-- [ ] Grouped installment responses reflect updated paid, remaining, and settlement values after allocation.
-- [ ] Tests cover partial payment, exact installment payment, early overpayment, charge-before-principal ordering, multiple due dates, and projection reconciliation.
+- [x] Plan-level payment allocation scans the whole unpaid schedule.
+- [x] Allocation visits older due dates before newer due dates.
+- [x] Allocation pays charge rows before principal rows within the same due date.
+- [x] Allocation supports payments that partially settle one row.
+- [x] Allocation supports payments that spill across multiple rows and installments.
+- [x] Allocation supports oversized payments up to the remaining obligation and rejects invalid excess according to product rules.
+- [x] Payment allocation records explain which rows were touched and by how much.
+- [x] Ledger entries distinguish principal and charge deltas for the payment.
+- [x] Grouped installment responses reflect updated paid, remaining, and settlement values after allocation.
+- [x] Tests cover partial payment, exact installment payment, early overpayment, charge-before-principal ordering, multiple due dates, and projection reconciliation.
 
 ## Ticket 12: Make Payment Plan Write-Offs First-Class With Allocation History
 
@@ -281,16 +281,16 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 10: Convert Payment Plan rows to settlement state and derived overdue.
 - Ticket 11: Apply plan-wide waterfall allocation by due date and component.
 
-- [ ] Row-level write-off can write off the remaining row amount.
-- [ ] Row-level write-off can write off a custom valid amount.
-- [ ] Plan-level write-off can reduce the remaining plan obligation.
-- [ ] Plan-level write-off allocates across rows using the same due-date and component ordering as payment waterfall.
-- [ ] Write-off updates written-off amounts without creating wallet movement.
-- [ ] Write-off creates a dedicated write-off ledger entry rather than a generic adjustment.
-- [ ] Write-off allocation history records which rows were touched, how much was written off, and which ledger entry caused it.
-- [ ] Row and plan activity distinguish write-off from payment and adjustment.
-- [ ] UI copy makes clear that written-off amounts were forgiven or waived, not paid.
-- [ ] Tests cover row remaining write-off, row custom write-off, plan-level write-off, allocation history, no-wallet-effect behavior, labels, and projection reconciliation.
+- [x] Row-level write-off can write off the remaining row amount.
+- [x] Row-level write-off can write off a custom valid amount.
+- [x] Plan-level write-off can reduce the remaining plan obligation.
+- [x] Plan-level write-off allocates across rows using the same due-date and component ordering as payment waterfall.
+- [x] Write-off updates written-off amounts without creating wallet movement.
+- [x] Write-off creates a dedicated write-off ledger entry rather than a generic adjustment.
+- [x] Write-off allocation history records which rows were touched, how much was written off, and which ledger entry caused it.
+- [x] Row and plan activity distinguish write-off from payment and adjustment.
+- [x] UI copy makes clear that written-off amounts were forgiven or waived, not paid.
+- [x] Tests cover row remaining write-off, row custom write-off, plan-level write-off, allocation history, no-wallet-effect behavior, labels, and projection reconciliation.
 
 ## Ticket 13: Make Payment Plan Reversals Append-Only Across All Financial Actions
 

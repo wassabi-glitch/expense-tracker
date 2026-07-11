@@ -340,14 +340,24 @@ def _enrich_plan_payments(
 
 
 def _active_unpaid_payments(plan: models.PaymentPlan) -> list[models.PaymentPlanPayment]:
-    """Return unsettled payment rows in due-date order."""
+    """Return unsettled payment rows in waterfall order.
+
+    Waterfall ordering:
+    1. Oldest due date first
+    2. Within the same due date: CHARGE rows before PRINCIPAL rows
+    3. Within the same component type: lower id first (stable tie-break)
+    """
     return sorted(
         [
             payment
             for payment in (plan.payments or [])
             if _remaining_payment_amount(payment) > 0
         ],
-        key=lambda payment: (payment.due_date, payment.id or 0),
+        key=lambda payment: (
+            payment.due_date,
+            0 if _payment_component_type(payment) == models.PaymentPlanPaymentComponentType.CHARGE else 1,
+            payment.id or 0,
+        ),
     )
 
 
@@ -359,6 +369,12 @@ def _build_schedule_allocation_plan(
     plan: models.PaymentPlan,
     amount: int,
 ) -> list[tuple[models.PaymentPlanPayment, int]]:
+    """Allocate a payment amount across the whole unpaid schedule in waterfall order.
+
+    Returns a list of (payment_row, allocation_amount) tuples.
+    Accepts payments up to the total remaining obligation; rejects only
+    amounts that exceed the unpaid schedule total.
+    """
     remaining_to_allocate = int(amount)
     allocations: list[tuple[models.PaymentPlanPayment, int]] = []
     for payment in _active_unpaid_payments(plan):
@@ -369,7 +385,7 @@ def _build_schedule_allocation_plan(
             allocations.append((payment, allocation_amount))
             remaining_to_allocate -= allocation_amount
 
-    if remaining_to_allocate != 0:
+    if remaining_to_allocate > 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.payment.amount_exceeds_schedule")
     return allocations
 
@@ -1804,7 +1820,8 @@ def mark_payment_paid(
 @router.post("/payments/{payment_id}/write-off", response_model=schemas.PaymentPlanPaymentOut)
 def write_off_payment(
     payment_id: int,
-    response: Response,
+    payload: schemas.PaymentPlanRowWriteOffIn = schemas.PaymentPlanRowWriteOffIn(),
+    response: Response = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
     user_tz: tzinfo = Depends(get_effective_user_timezone),
@@ -1826,8 +1843,6 @@ def write_off_payment(
     )
     if not payment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="payment_plans.payment_not_found")
-    if payment.status == models.PaymentPlanPaymentStatus.PAID:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.already_paid")
 
     plan = payment.plan
     if plan.status == models.PaymentPlanStatus.ARCHIVED:
@@ -1837,30 +1852,38 @@ def write_off_payment(
     if remaining_for_payment <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.already_paid")
 
+    # Determine write-off amount: explicit custom amount or full remaining
+    write_off_amount = int(payload.amount) if payload.amount is not None else remaining_for_payment
+    if write_off_amount <= 0 or write_off_amount > remaining_for_payment:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="payment_plans.write_off.invalid_amount",
+        )
+
     component_type = _payment_component_type(payment)
-    principal_delta = remaining_for_payment if component_type == models.PaymentPlanPaymentComponentType.PRINCIPAL else 0
-    charge_delta = remaining_for_payment if component_type == models.PaymentPlanPaymentComponentType.CHARGE else 0
+    principal_delta = write_off_amount if component_type == models.PaymentPlanPaymentComponentType.PRINCIPAL else 0
+    charge_delta = write_off_amount if component_type == models.PaymentPlanPaymentComponentType.CHARGE else 0
     paid_date = today_in_tz(user_tz)
 
     payment_plan_transaction = models.PaymentPlanTransaction(
         owner_id=current_user.id,
         plan_id=plan.id,
-        amount=remaining_for_payment,
+        amount=write_off_amount,
         date=paid_date,
-        note=payment.note or "Write-off",
+        note=payload.note or "Write-off",
     )
     db.add(payment_plan_transaction)
     db.flush()
 
-    plan.remaining_amount = int(plan.remaining_amount or 0) - remaining_for_payment
+    plan.remaining_amount = int(plan.remaining_amount or 0) - write_off_amount
 
     ledger_entry = models.PaymentPlanLedgerEntry(
         owner_id=current_user.id,
         plan_id=plan.id,
         source_transaction_id=payment_plan_transaction.id,
-        entry_type=models.PaymentPlanLedgerEntryType.ADJUSTMENT,
+        entry_type=models.PaymentPlanLedgerEntryType.WRITE_OFF,
         event_subtype="PAYMENT_PLAN_WRITE_OFF",
-        amount_delta=-int(remaining_for_payment),
+        amount_delta=-write_off_amount,
         principal_delta=-int(principal_delta),
         charge_delta=-int(charge_delta),
         balance_after=int(plan.remaining_amount or 0),
@@ -1871,7 +1894,20 @@ def write_off_payment(
     db.add(ledger_entry)
     db.flush()
 
-    payment.written_off_amount = int(payment.written_off_amount or 0) + int(remaining_for_payment)
+    # Create write-off allocation record
+    db.add(
+        models.PaymentPlanPaymentAllocation(
+            owner_id=current_user.id,
+            payment_plan_payment_id=payment.id,
+            payment_plan_transaction_id=payment_plan_transaction.id,
+            payment_plan_ledger_entry_id=ledger_entry.id,
+            amount=write_off_amount,
+            paid_date=paid_date,
+            note=payload.note or "Write-off",
+        )
+    )
+
+    payment.written_off_amount = int(payment.written_off_amount or 0) + write_off_amount
     payment.payment_plan_ledger_entry_id = ledger_entry.id
     if _remaining_payment_amount(payment) <= 0:
         payment.status = models.PaymentPlanPaymentStatus.PAID
@@ -1881,7 +1917,7 @@ def write_off_payment(
             if int(plan.remaining_amount or 0) <= 0 and _unpaid_schedule_total(plan) <= 0
             else models.PaymentPlanStatus.ACTIVE
         )
-    
+
     db.commit()
     db.refresh(payment)
     return _enrich_payment_response(payment, user_tz)
@@ -1920,7 +1956,7 @@ def undo_write_off_payment(
     ledger_entry = payment.ledger_entry
     if (
         ledger_entry is None
-        or ledger_entry.entry_type != models.PaymentPlanLedgerEntryType.ADJUSTMENT
+        or ledger_entry.entry_type != models.PaymentPlanLedgerEntryType.WRITE_OFF
         or ledger_entry.event_subtype != "PAYMENT_PLAN_WRITE_OFF"
     ):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.not_written_off")
@@ -2015,6 +2051,117 @@ def add_payment_plan_charge(
     db.commit()
     db.refresh(plan)
     return _build_enriched_plan_response(plan, user_tz)
+
+
+@router.post("/{plan_id}/write-off", response_model=schemas.PaymentPlanDetailsOut)
+def write_off_plan(
+    plan_id: int,
+    payload: schemas.PaymentPlanWriteOffIn,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz: tzinfo = Depends(get_effective_user_timezone),
+):
+    """Write off (forgive) an amount across the whole plan using waterfall
+    allocation.
+
+    Distributes the write-off across unsettled rows in waterfall order
+    (oldest due date first, CHARGE before PRINCIPAL within same due date).
+    No wallet money moves. Each touched row gets a WRITE_OFF ledger entry
+    and an allocation record.
+    """
+    rate_headers = enforce_payment_plans_write_rate_limit(current_user.id)
+    for key, value in rate_headers.items():
+        response.headers[key] = value
+
+    plan = _get_owned_plan_or_404(db, current_user.id, plan_id)
+    if plan.status == models.PaymentPlanStatus.ARCHIVED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.archived_locked")
+
+    total_remaining = _unpaid_schedule_total(plan)
+    if total_remaining <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="payment_plans.write_off.nothing_to_write_off")
+
+    write_off_amount = int(payload.amount)
+    if write_off_amount <= 0 or write_off_amount > total_remaining:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="payment_plans.write_off.amount_exceeds_remaining",
+        )
+
+    # Allocate across rows using the same waterfall as payments
+    allocations = _build_schedule_allocation_plan(plan, write_off_amount)
+    paid_date = today_in_tz(user_tz)
+
+    plan_remaining_before = int(plan.remaining_amount or 0)
+    total_principal = 0
+    total_charges = 0
+
+    for payment, alloc_amount in allocations:
+        component_type = _payment_component_type(payment)
+        principal_delta = alloc_amount if component_type == models.PaymentPlanPaymentComponentType.PRINCIPAL else 0
+        charge_delta = alloc_amount if component_type == models.PaymentPlanPaymentComponentType.CHARGE else 0
+        total_principal += principal_delta
+        total_charges += charge_delta
+
+        plan.remaining_amount = int(plan.remaining_amount or 0) - alloc_amount
+
+        txn = models.PaymentPlanTransaction(
+            owner_id=current_user.id,
+            plan_id=plan.id,
+            amount=alloc_amount,
+            date=paid_date,
+            note=payload.note or "Plan write-off",
+        )
+        db.add(txn)
+        db.flush()
+
+        ledger_entry = models.PaymentPlanLedgerEntry(
+            owner_id=current_user.id,
+            plan_id=plan.id,
+            source_transaction_id=txn.id,
+            entry_type=models.PaymentPlanLedgerEntryType.WRITE_OFF,
+            event_subtype="PAYMENT_PLAN_WRITE_OFF",
+            amount_delta=-alloc_amount,
+            principal_delta=-int(principal_delta),
+            charge_delta=-int(charge_delta),
+            balance_after=int(plan.remaining_amount or 0),
+            entry_date=paid_date,
+            source=models.PaymentPlanLedgerEntrySource.USER,
+            note=txn.note,
+        )
+        db.add(ledger_entry)
+        db.flush()
+
+        # Write-off allocation record
+        db.add(
+            models.PaymentPlanPaymentAllocation(
+                owner_id=current_user.id,
+                payment_plan_payment_id=payment.id,
+                payment_plan_transaction_id=txn.id,
+                payment_plan_ledger_entry_id=ledger_entry.id,
+                amount=alloc_amount,
+                paid_date=paid_date,
+                note=payload.note or "Plan write-off",
+            )
+        )
+
+        payment.written_off_amount = int(payment.written_off_amount or 0) + alloc_amount
+        payment.payment_plan_ledger_entry_id = ledger_entry.id
+        if _remaining_payment_amount(payment) <= 0:
+            payment.status = models.PaymentPlanPaymentStatus.PAID
+
+    if plan.status != models.PaymentPlanStatus.ARCHIVED:
+        plan.status = (
+            models.PaymentPlanStatus.PAID
+            if int(plan.remaining_amount or 0) <= 0 and _unpaid_schedule_total(plan) <= 0
+            else models.PaymentPlanStatus.ACTIVE
+        )
+
+    db.commit()
+    db.refresh(plan)
+    return _build_payment_plan_details(db, plan)
+
 
 @router.delete("/{plan_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_payment_plan(
