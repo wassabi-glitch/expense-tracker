@@ -197,16 +197,16 @@ Assumption: the Epicspart2 ledger foundation, Debt architecture, and Expected In
 - Ticket 7: Prompt explicit receivable Debt to Expected Inflow planning.
 - Ticket 8: Support receivable split repayment schedules.
 
-- [ ] Debt expected return date is treated as the contractual deadline.
-- [ ] Expected Inflow schedule due date is treated as the tactical cash arrival date.
-- [ ] Updating a Debt expected return date does not mutate linked Expected Inflow schedule due dates.
-- [ ] Rescheduling an Expected Inflow does not mutate the linked Debt expected return date.
-- [ ] Debt overdue state derives from Debt deadline and user-local today.
-- [ ] Expected Inflow monthly cashflow placement derives from schedule due date and user-local month.
-- [ ] A late receivable can remain overdue while its Expected Inflow projects the new expected cash date.
-- [ ] UI copy distinguishes contractual deadline from expected cash date where both are visible.
-- [ ] Tests cover a missed-deadline scenario where the Debt is overdue and the inflow is scheduled in the future.
-- [ ] Timezone-boundary tests prove both date concepts use the effective user timezone.
+- [x] Debt expected return date is treated as the contractual deadline.
+- [x] Expected Inflow schedule due date is treated as the tactical cash arrival date.
+- [x] Updating a Debt expected return date does not mutate linked Expected Inflow schedule due dates.
+- [x] Rescheduling an Expected Inflow does not mutate the linked Debt expected return date.
+- [x] Debt overdue state derives from Debt deadline and user-local today.
+- [x] Expected Inflow monthly cashflow placement derives from schedule due date and user-local month.
+- [x] A late receivable can remain overdue while its Expected Inflow projects the new expected cash date.
+- [x] UI copy distinguishes contractual deadline from expected cash date where both are visible.
+- [x] Tests cover a missed-deadline scenario where the Debt is overdue and the inflow is scheduled in the future.
+- [x] Timezone-boundary tests prove both date concepts use the effective user timezone.
 
 ## Ticket 10: Finish Epic 5 Cross-Domain Regression Coverage
 
@@ -220,13 +220,13 @@ Assumption: the Epicspart2 ledger foundation, Debt architecture, and Expected In
 - Ticket 8: Support receivable split repayment schedules.
 - Ticket 9: Decouple Debt contractual deadlines from Inflow due dates.
 
-- [ ] Regression coverage exercises earned expected inflow, refund, receivable, asset sale, and correction Money In identity.
-- [ ] Regression coverage proves source analytics still work when ledger titles are user-authored.
-- [ ] Regression coverage proves refunds are excluded from earned-income analytics while included in wallet and category math.
-- [ ] Regression coverage proves open receivable Debts require explicit Expected Inflow creation before cashflow projection.
-- [ ] Regression coverage proves split receivable schedules and Debt balance reduction reconcile.
-- [ ] Regression coverage proves Debt deadlines and Expected Inflow due dates are independent.
-- [ ] Frontend regression coverage proves source pickers unwrap payloads and use current status vocabulary.
-- [ ] User-facing date behavior in these flows uses the effective user timezone.
-- [ ] Documentation reflects the final Epic 5 title, source, refund, receivable, and schema rules.
-- [ ] Docker backend tests and frontend build/test commands are run or clearly documented if unavailable.
+- [x] Regression coverage exercises earned expected inflow, refund, receivable, asset sale, and correction Money In identity.
+- [x] Regression coverage proves source analytics still work when ledger titles are user-authored.
+- [x] Regression coverage proves refunds are excluded from earned-income analytics while included in wallet and category math.
+- [x] Regression coverage proves open receivable Debts require explicit Expected Inflow creation before cashflow projection.
+- [x] Regression coverage proves split receivable schedules and Debt balance reduction reconcile.
+- [x] Regression coverage proves Debt deadlines and Expected Inflow due dates are independent.
+- [x] Frontend regression coverage proves source pickers unwrap payloads and use current status vocabulary.
+- [x] User-facing date behavior in these flows uses the effective user timezone.
+- [x] Documentation reflects the final Epic 5 title, source, refund, receivable, and schema rules.
+- [x] Docker backend tests and frontend build/test commands are run or clearly documented if unavailable.
