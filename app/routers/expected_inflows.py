@@ -35,6 +35,8 @@ def list_expected_inflows(
     budget_month: int | None = Query(default=None, ge=1, le=12),
     view: Literal["all", "active", "history"] = "all",
     kind: models.ExpectedInflowKind | None = None,
+    search: str | None = Query(default=None, min_length=1, max_length=100),
+    display_state: models.PromiseDisplayState | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(oauth2.get_current_user),
     user_tz=Depends(get_effective_user_timezone),
@@ -46,6 +48,27 @@ def list_expected_inflows(
         budget_year=budget_year,
         budget_month=budget_month,
         view=view,
+        kind=kind,
+        search=search,
+        display_state=display_state,
+    )
+
+
+@router.get("/cashflow", response_model=list[schemas.ExpectedInflowCashflowRowOut])
+def list_cashflow(
+    budget_year: int = Query(ge=schemas.MIN_BUDGET_YEAR),
+    budget_month: int = Query(ge=1, le=12),
+    kind: models.ExpectedInflowKind | None = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(oauth2.get_current_user),
+    user_tz=Depends(get_effective_user_timezone),
+):
+    return service.list_cashflow(
+        db,
+        current_user.id,
+        today=_today(user_tz),
+        budget_year=budget_year,
+        budget_month=budget_month,
         kind=kind,
     )
 

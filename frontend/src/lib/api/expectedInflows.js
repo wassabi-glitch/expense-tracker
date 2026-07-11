@@ -63,3 +63,8 @@ export async function getExpectedInflowTimeline(params) {
     const response = await apiClient.get("/expected-inflows/timeline", { params });
     return Array.isArray(response.data) ? response.data : [];
 }
+
+export async function getCashflow(params) {
+    const response = await apiClient.get("/expected-inflows/cashflow", { params });
+    return Array.isArray(response.data) ? response.data : [];
+}

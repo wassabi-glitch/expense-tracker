@@ -97,16 +97,16 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 
 **Blocked by:** Ticket 1: Contract Promise lifecycle to OPEN/CLOSED with derived display state.
 
-- [ ] Agreement listing is not filtered out merely because no schedule is due in the selected month.
-- [ ] Agreement listing supports search and high-level lifecycle/display filters.
-- [ ] Cashflow listing returns schedule chunks due in the selected month.
-- [ ] Cashflow rows include parent Promise title, source label, amount, due date, status, and action availability.
-- [ ] Cashflow rows omit deep reschedule tree history to keep the month view scannable.
-- [ ] Schedule rows do not expose their own orphaned details page.
-- [ ] Clicking a Cashflow row can identify the parent Promise and target schedule.
-- [ ] Budget month integration continues to consume active schedule backing amounts.
-- [ ] Tests prove Agreement and Cashflow filters answer different questions.
-- [ ] Frontend renders Agreements and Cashflow as separate tabs or equivalent primary views.
+- [x] Agreement listing is not filtered out merely because no schedule is due in the selected month.
+- [x] Agreement listing supports search and high-level lifecycle/display filters.
+- [x] Cashflow listing returns schedule chunks due in the selected month.
+- [x] Cashflow rows include parent Promise title, source label, amount, due date, status, and action availability.
+- [x] Cashflow rows omit deep reschedule tree history to keep the month view scannable.
+- [x] Schedule rows do not expose their own orphaned details page.
+- [x] Clicking a Cashflow row can identify the parent Promise and target schedule.
+- [x] Budget month integration continues to consume active schedule backing amounts.
+- [x] Tests prove Agreement and Cashflow filters answer different questions.
+- [x] Frontend renders Agreements and Cashflow as separate tabs or equivalent primary views.
 
 ## Ticket 4: Build Agreement Rows With Tri-Color Progress
 
@@ -117,16 +117,16 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 1: Contract Promise lifecycle to OPEN/CLOSED with derived display state.
 - Ticket 3: Expose Agreements and Cashflow views from the two-layer model.
 
-- [ ] Agreement rows show title, source, original amount, derived display state, and completion math.
-- [ ] Agreement rows do not show Receive, Reschedule, or Write off buttons.
-- [ ] Agreement rows do not lead with schedule due dates as if the Promise were a monthly row.
-- [ ] A reusable tri-color progress component renders received, written-off, and outstanding portions.
-- [ ] Progress bar segments use original amount as the 100 percent target.
-- [ ] Progress bar handles zero outstanding, full write-off, mixed settlement, and active partial states.
-- [ ] Progress bar remains visually stable on mobile and desktop.
+- [x] Agreement rows show title, source, original amount, derived display state, and completion math.
+- [x] Agreement rows do not show Receive, Reschedule, or Write off buttons.
+- [x] Agreement rows do not lead with schedule due dates as if the Promise were a monthly row.
+- [x] A reusable tri-color progress component renders received, written-off, and outstanding portions.
+- [x] Progress bar segments use original amount as the 100 percent target.
+- [x] Progress bar handles zero outstanding, full write-off, mixed settlement, and active partial states.
+- [x] Progress bar remains visually stable on mobile and desktop.
 - [ ] Component tests cover segment math and labels.
 - [ ] Frontend tests prove row action buttons are absent from Agreements.
-- [ ] Agreement rows open the parent details drawer.
+- [x] Agreement rows open the parent details drawer.
 
 ## Ticket 5: Build Schedule Cards, Inline Actions, And Drawer Anchoring
 

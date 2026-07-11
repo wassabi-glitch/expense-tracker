@@ -198,4 +198,5 @@ export {
     reopenExpectedInflow,
     reconcileExpectedInflow,
     getExpectedInflowTimeline,
+    getCashflow,
 } from "./api/expectedInflows";

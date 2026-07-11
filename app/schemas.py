@@ -863,6 +863,24 @@ class ExpectedInflowTimelineItemOut(BaseModel):
     is_overdue: bool
 
 
+class ExpectedInflowCashflowRowOut(BaseModel):
+    """Single schedule chunk with parent Promise context for the Cashflow view."""
+    schedule_id: int
+    promise_id: int
+    promise_title: str
+    source_label: str
+    kind: ExpectedInflowKind
+    amount: int
+    received_amount: int
+    remaining_amount: int
+    due_date: date
+    budget_year: int
+    budget_month: int
+    read_state: ScheduleReadState = ScheduleReadState.OUTSTANDING
+    is_overdue: bool
+    promise_is_open: bool
+
+
 class MoneyInKind(str, Enum):
     ALL = "all"
     INCOME = "income"

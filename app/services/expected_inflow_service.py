@@ -1213,10 +1213,17 @@ def list_promises(
     budget_month: int | None = None,
     view: str = "all",
     kind: models.ExpectedInflowKind | None = None,
+    search: str | None = None,
+    display_state: models.PromiseDisplayState | None = None,
 ) -> list[schemas.ExpectedInflowPromiseOut]:
     query = promise_query(db).filter(models.ExpectedInflowPromise.owner_id == owner_id)
     if kind is not None:
         query = query.filter(models.ExpectedInflowPromise.kind == kind.value)
+    if search:
+        pattern = f"%{search.strip()}%"
+        query = query.filter(
+            models.ExpectedInflowPromise.title.ilike(pattern)
+        )
     promises = query.order_by(models.ExpectedInflowPromise.created_at.desc()).all()
     outputs: list[schemas.ExpectedInflowPromiseOut] = []
     for promise in promises:
@@ -1227,7 +1234,12 @@ def list_promises(
             period_month=budget_month,
             include_detail=False,
         )
-        if budget_year is not None and budget_month is not None:
+        # Agreements mode: no month filtering, optional display_state filter
+        if budget_year is None and budget_month is None:
+            if display_state is not None and output.display_state != display_state:
+                continue
+        else:
+            # Cashflow mode: month filtering
             has_period_schedule = any(
                 schedule.budget_year == budget_year and schedule.budget_month == budget_month
                 for schedule in promise.schedules or []
@@ -1241,6 +1253,48 @@ def list_promises(
             continue
         outputs.append(output)
     return outputs
+
+
+def list_cashflow(
+    db: Session,
+    owner_id: int,
+    *,
+    today: date,
+    budget_year: int,
+    budget_month: int,
+    kind: models.ExpectedInflowKind | None = None,
+) -> list[schemas.ExpectedInflowCashflowRowOut]:
+    """Return schedule chunks due in the selected month with parent Promise context."""
+    query = promise_query(db).filter(models.ExpectedInflowPromise.owner_id == owner_id)
+    if kind is not None:
+        query = query.filter(models.ExpectedInflowPromise.kind == kind.value)
+    promises = query.order_by(models.ExpectedInflowPromise.created_at.desc()).all()
+    rows: list[schemas.ExpectedInflowCashflowRowOut] = []
+    for promise in promises:
+        for schedule in promise.schedules or []:
+            if schedule.budget_year != budget_year or schedule.budget_month != budget_month:
+                continue
+            # Omit superseded schedules (they're part of reschedule history)
+            if _schedule_structural_state(schedule) == models.ExpectedIncomeStatus.SUPERSEDED:
+                continue
+            read_state = schedule_read_state(schedule, today=today)
+            rows.append(schemas.ExpectedInflowCashflowRowOut(
+                schedule_id=int(schedule.id),
+                promise_id=int(promise.id),
+                promise_title=promise.title,
+                source_label=_promise_source_label(promise),
+                kind=_promise_kind(promise),
+                amount=int(schedule.amount),
+                received_amount=received_amount(schedule),
+                remaining_amount=remaining_amount(schedule),
+                due_date=schedule.due_date,
+                budget_year=int(schedule.budget_year),
+                budget_month=int(schedule.budget_month),
+                read_state=read_state,
+                is_overdue=_schedule_is_active(schedule) and schedule.due_date < today,
+                promise_is_open=promise_lifecycle(promise) == models.ExpectedInflowPromiseStatus.OPEN,
+            ))
+    return sorted(rows, key=lambda r: (r.due_date, r.schedule_id))
 
 
 def _source_title(kind: models.ExpectedInflowKind, source_object) -> str:
