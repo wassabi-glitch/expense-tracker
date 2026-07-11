@@ -123,16 +123,16 @@ Assumption: the Epicspart2 ledger foundation, Debt architecture, and Expected In
 
 **Blocked by:** Ticket 4: Apply global Money In title inheritance.
 
-- [ ] Refunds appear in Money In or wallet inflow views because cash entered a wallet.
-- [ ] Refunds appear in Expenses or category ledgers as contra-expenses.
-- [ ] A partial refund reduces net category spend by the refunded amount.
-- [ ] A full refund reduces net category spend for the original expense to zero where appropriate.
-- [ ] Refund rows are visually identified through type badges or context instead of title prefixes.
-- [ ] Earned-income totals exclude refunds.
-- [ ] Money In totals can distinguish earned income from refunds, borrowed money, sales, and corrections.
-- [ ] Budget/category summaries use net expense math after refunds.
-- [ ] Tests prove wallet balance increases and category spend decreases for the same refund.
-- [ ] Tests prove hiding refunds from either side would fail the regression suite.
+- [x] Refunds appear in Money In or wallet inflow views because cash entered a wallet.
+- [x] Refunds appear in Expenses or category ledgers as contra-expenses.
+- [x] A partial refund reduces net category spend by the refunded amount.
+- [x] A full refund reduces net category spend for the original expense to zero where appropriate.
+- [x] Refund rows are visually identified through type badges or context instead of title prefixes.
+- [x] Earned-income totals exclude refunds.
+- [x] Money In totals can distinguish earned income from refunds, borrowed money, sales, and corrections.
+- [x] Budget/category summaries use net expense math after refunds.
+- [x] Tests prove wallet balance increases and category spend decreases for the same refund.
+- [x] Tests prove hiding refunds from either side would fail the regression suite.
 
 ## Ticket 6: Harden Expected Inflow Source-Picker Read Models
 
@@ -140,16 +140,16 @@ Assumption: the Epicspart2 ledger foundation, Debt architecture, and Expected In
 
 **Blocked by:** None - can start immediately.
 
-- [ ] Earned source options include active Income Sources and stable labels.
-- [ ] Receivable source options include open OWED Debts with remaining balance.
-- [ ] Receivable source options do not depend on legacy ACTIVE status checks.
-- [ ] Refund source options unwrap feed-oriented expense payloads before filtering.
-- [ ] Refund source options inspect the inner expense transaction type.
-- [ ] Refund source options exclude refund rows so refund-of-refund links cannot be created.
-- [ ] Refund source options display real expense titles and dates rather than undefined placeholders.
-- [ ] Asset-sale source options display saleable owned assets with stable labels.
-- [ ] Expected Inflow dialogs use the shared source-picker read model instead of duplicating filtering logic.
-- [ ] Frontend tests cover each source kind and fail on legacy status or wrapper-field regressions.
+- [x] Earned source options include active Income Sources and stable labels.
+- [x] Receivable source options include open OWED Debts with remaining balance.
+- [x] Receivable source options do not depend on legacy ACTIVE status checks.
+- [x] Refund source options unwrap feed-oriented expense payloads before filtering.
+- [x] Refund source options inspect the inner expense transaction type.
+- [x] Refund source options exclude refund rows so refund-of-refund links cannot be created.
+- [x] Refund source options display real expense titles and dates rather than undefined placeholders.
+- [x] Asset-sale source options display saleable owned assets with stable labels.
+- [x] Expected Inflow dialogs use the shared source-picker read model instead of duplicating filtering logic.
+- [x] Frontend tests cover each source kind and fail on legacy status or wrapper-field regressions.
 
 ## Ticket 7: Prompt Explicit Receivable Debt To Expected Inflow Planning
 
