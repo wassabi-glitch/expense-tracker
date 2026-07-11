@@ -1484,7 +1484,6 @@ def reverse_realization(
     recalculated.
     """
     if user_tz is None:
-        from datetime import timezone as tz_mod
         from zoneinfo import ZoneInfo
         user_tz = ZoneInfo("UTC")
     promise = get_promise_or_404(db, owner_id, promise_id, lock=True)
