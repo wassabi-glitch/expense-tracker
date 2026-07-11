@@ -2082,3 +2082,467 @@ def test_source_analytics_use_source_relationships_not_title_parsing(client, ses
         models.EntityLedger.event_id == event_id,
     ).first()
     assert entity_leg.income_source_id == source["id"]
+
+
+# ---------------------------------------------------------------------------
+# Ticket 7: Explicit receivable Debt → Expected Inflow planning
+# ---------------------------------------------------------------------------
+
+
+def test_open_owed_debts_do_not_auto_project_into_cashflow(client, session):
+    """Open OWED debts do NOT appear in cashflow unless an Expected Inflow
+    is explicitly created for them."""
+    headers = create_user_and_token(client, "t7noproj", "t7noproj@example.com", "Password123!")
+    today = user_timezone_today()
+
+    # Create an OWED debt
+    debt = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWED",
+            "counterparty_name": "Non-projecting debtor",
+            "initial_amount": 500_000,
+            "currency": "UZS",
+            "date": today.isoformat(),
+            "expected_return_date": today.isoformat(),
+            "is_money_transferred": False,
+        },
+        headers=headers,
+    )
+    assert debt.status_code == 201, debt.text
+
+    # Cashflow should NOT include this debt — only Expected Inflows appear
+    cashflow = client.get(
+        f"/expected-inflows/cashflow?budget_year={today.year}&budget_month={today.month}",
+        headers=headers,
+    )
+    assert cashflow.status_code == 200, cashflow.text
+    rows = cashflow.json()
+    debt_rows = [r for r in rows if r.get("promise_title", "").lower().find("non-projecting") >= 0]
+    assert len(debt_rows) == 0
+
+    # Timeline should NOT include the debt either
+    timeline = client.get(
+        f"/expected-inflows/timeline?start_date={today.isoformat()}&end_date={today.isoformat()}",
+        headers=headers,
+    )
+    assert timeline.status_code == 200, timeline.text
+    timeline_debt_items = [
+        i for i in timeline.json()
+        if i.get("source_label") == "Non-projecting debtor"
+    ]
+    assert len(timeline_debt_items) == 0
+
+
+def test_explicit_creation_links_debt_to_expected_inflow(client, session):
+    """Users can explicitly create an Expected Inflow from a receivable Debt.
+    The inflow links back to the debt, has a user-authored title, and the debt
+    remains open until real receipt."""
+    headers = create_user_and_token(client, "t7explicit", "t7explicit@example.com", "Password123!")
+    today = user_timezone_today()
+    wallet = _wallet(client, headers)
+
+    # Create an OWED debt
+    debt = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWED",
+            "counterparty_name": "Charlie",
+            "initial_amount": 400_000,
+            "currency": "UZS",
+            "date": today.isoformat(),
+            "expected_return_date": today.isoformat(),
+            "is_money_transferred": False,
+        },
+        headers=headers,
+    )
+    assert debt.status_code == 201, debt.text
+    debt_id = debt.json()["id"]
+    assert debt.json()["remaining_amount"] == 400_000
+
+    # Create a receivable Expected Inflow linked to the debt
+    inflow = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "RECEIVABLE",
+            "debt_id": debt_id,
+            "title": "Charlie repayment — July",
+            "amount": 300_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert inflow.status_code == 201, inflow.text
+    inflow_data = inflow.json()
+    assert inflow_data["kind"] == "RECEIVABLE"
+    assert inflow_data["debt_id"] == debt_id
+    assert inflow_data["title"] == "Charlie repayment — July"
+
+    # Debt remains open — not closed by the inflow creation
+    debt_after = client.get(f"/debts/{debt_id}", headers=headers)
+    assert debt_after.status_code == 200, debt_after.text
+    assert debt_after.json()["remaining_amount"] == 400_000
+    assert debt_after.json()["lifecycle_status"] == "OPEN"
+
+    # Cashflow now includes the inflow (because it was explicitly created)
+    cashflow = client.get(
+        f"/expected-inflows/cashflow?budget_year={today.year}&budget_month={today.month}",
+        headers=headers,
+    )
+    assert cashflow.status_code == 200, cashflow.text
+    rows = cashflow.json()
+    inflow_rows = [r for r in rows if r["promise_id"] == inflow_data["id"]]
+    assert len(inflow_rows) == 1
+
+    # Receive 200k — debt balance should reduce
+    client.post(
+        f"/expected-inflows/{inflow_data['id']}/realize",
+        json={
+            "actual_amount": 200_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 200_000}],
+            "idempotency_key": "t7-explicit-receipt",
+        },
+        headers=headers,
+    )
+    debt_after_receipt = client.get(f"/debts/{debt_id}", headers=headers)
+    assert debt_after_receipt.status_code == 200, debt_after_receipt.text
+    assert debt_after_receipt.json()["remaining_amount"] == 200_000  # 400k - 200k
+
+
+# ---------------------------------------------------------------------------
+# Ticket 8: Receivable split repayment schedules
+# ---------------------------------------------------------------------------
+
+
+def test_receivable_promise_reschedule_creates_multiple_schedules(client):
+    """One receivable Debt can be planned as one Promise with multiple schedules
+    via the reschedule flow."""
+    headers = create_user_and_token(client, "t8split", "t8split@example.com", "Password123!")
+    today = user_timezone_today()
+    wallet = _wallet(client, headers)
+
+    debt = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWED",
+            "counterparty_name": "Split debtor",
+            "initial_amount": 600_000,
+            "currency": "UZS",
+            "date": today.isoformat(),
+            "expected_return_date": today.isoformat(),
+            "is_money_transferred": False,
+        },
+        headers=headers,
+    )
+    assert debt.status_code == 201, debt.text
+    debt_id = debt.json()["id"]
+
+    # Create a receivable Expected Inflow
+    inflow = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "RECEIVABLE",
+            "debt_id": debt_id,
+            "title": "Split repayment plan",
+            "amount": 600_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert inflow.status_code == 201, inflow.text
+    inflow_id = inflow.json()["id"]
+
+    # Reschedule into 3 repayment dates
+    july = _month_date(today, 1)
+    aug = _month_date(today, 2)
+    rescheduled = client.post(
+        f"/expected-inflows/{inflow_id}/reschedule",
+        json={
+            "allocations": [
+                {"amount": 200_000, "due_date": today.isoformat()},
+                {"amount": 200_000, "due_date": july.isoformat()},
+                {"amount": 200_000, "due_date": aug.isoformat()},
+            ],
+        },
+        headers=headers,
+    )
+    assert rescheduled.status_code == 200, rescheduled.text
+    result = rescheduled.json()
+    assert result["source"]["is_rescheduled"] is True
+    assert len(result["replacements"]) == 3
+
+    # Each schedule appears in its respective cashflow month
+    for month_offset, expected_amount in [(today, 200_000), (july, 200_000), (aug, 200_000)]:
+        cashflow = client.get(
+            f"/expected-inflows/cashflow?budget_year={month_offset.year}&budget_month={month_offset.month}",
+            headers=headers,
+        )
+        assert cashflow.status_code == 200, cashflow.text
+        month_rows = [r for r in cashflow.json() if r["promise_id"] == inflow_id]
+        assert len(month_rows) == 1
+        assert month_rows[0]["amount"] == expected_amount
+
+
+def test_receivable_split_receipt_reduces_debt_balance(client):
+    """Receiving one split schedule reduces both the Expected Inflow outstanding
+    and the linked Debt remaining balance."""
+    headers = create_user_and_token(client, "t8reduce", "t8reduce@example.com", "Password123!")
+    today = user_timezone_today()
+    wallet = _wallet(client, headers)
+
+    debt = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWED",
+            "counterparty_name": "Reduce debtor",
+            "initial_amount": 500_000,
+            "currency": "UZS",
+            "date": today.isoformat(),
+            "expected_return_date": today.isoformat(),
+            "is_money_transferred": False,
+        },
+        headers=headers,
+    )
+    assert debt.status_code == 201, debt.text
+    debt_id = debt.json()["id"]
+
+    inflow = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "RECEIVABLE",
+            "debt_id": debt_id,
+            "title": "Reduce test",
+            "amount": 500_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert inflow.status_code == 201, inflow.text
+    inflow_id = inflow.json()["id"]
+
+    # Reschedule into 2 parts
+    future = _month_date(today, 1)
+    rescheduled = client.post(
+        f"/expected-inflows/{inflow_id}/reschedule",
+        json={
+            "allocations": [
+                {"amount": 300_000, "due_date": today.isoformat()},
+                {"amount": 200_000, "due_date": future.isoformat()},
+            ],
+        },
+        headers=headers,
+    )
+    assert rescheduled.status_code == 200, rescheduled.text
+    replacements = rescheduled.json()["replacements"]
+    first_schedule_id = replacements[0]["id"]
+    second_schedule_id = replacements[1]["id"]
+
+    # Receive the first schedule (300k)
+    realized = client.post(
+        f"/expected-inflows/{inflow_id}/realize",
+        json={
+            "actual_amount": 300_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 300_000}],
+            "schedule_allocations": [{"schedule_id": first_schedule_id, "amount": 300_000}],
+            "idempotency_key": "t8-reduce-1",
+        },
+        headers=headers,
+    )
+    assert realized.status_code == 200, realized.text
+
+    # Expected Inflow: 300k received, 200k remaining
+    detail = client.get(f"/expected-inflows/{inflow_id}", headers=headers)
+    assert detail.json()["received_amount"] == 300_000
+    assert detail.json()["outstanding_amount"] == 200_000
+
+    # Debt: 300k reduced from 500k = 200k remaining
+    debt_after = client.get(f"/debts/{debt_id}", headers=headers)
+    assert debt_after.status_code == 200, debt_after.text
+    assert debt_after.json()["remaining_amount"] == 200_000
+
+    # Receive the second schedule (200k) — full reconciliation
+    realized2 = client.post(
+        f"/expected-inflows/{inflow_id}/realize",
+        json={
+            "actual_amount": 200_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 200_000}],
+            "schedule_allocations": [{"schedule_id": second_schedule_id, "amount": 200_000}],
+            "idempotency_key": "t8-reduce-2",
+        },
+        headers=headers,
+    )
+    assert realized2.status_code == 200, realized2.text
+
+    detail2 = client.get(f"/expected-inflows/{inflow_id}", headers=headers)
+    assert detail2.json()["received_amount"] == 500_000
+    assert detail2.json()["outstanding_amount"] == 0
+
+    debt_final = client.get(f"/debts/{debt_id}", headers=headers)
+    assert debt_final.json()["remaining_amount"] == 0
+
+
+def test_receivable_receipt_reversal_restores_inflow_and_debt(client):
+    """Reversing a receivable receipt restores both Expected Inflow outstanding
+    and the linked Debt remaining amount."""
+    headers = create_user_and_token(client, "t8reverse", "t8reverse@example.com", "Password123!")
+    today = user_timezone_today()
+    wallet = _wallet(client, headers)
+
+    debt = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWED",
+            "counterparty_name": "Reverse debtor",
+            "initial_amount": 300_000,
+            "currency": "UZS",
+            "date": today.isoformat(),
+            "expected_return_date": today.isoformat(),
+            "is_money_transferred": False,
+        },
+        headers=headers,
+    )
+    assert debt.status_code == 201, debt.text
+    debt_id = debt.json()["id"]
+
+    inflow = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "RECEIVABLE",
+            "debt_id": debt_id,
+            "title": "Reverse test",
+            "amount": 300_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert inflow.status_code == 201, inflow.text
+    inflow_id = inflow.json()["id"]
+
+    # Receive full amount
+    realized = client.post(
+        f"/expected-inflows/{inflow_id}/realize",
+        json={
+            "actual_amount": 300_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 300_000}],
+            "idempotency_key": "t8-reverse-full",
+        },
+        headers=headers,
+    )
+    assert realized.status_code == 200, realized.text
+
+    detail = client.get(f"/expected-inflows/{inflow_id}", headers=headers)
+    assert detail.json()["received_amount"] == 300_000
+    assert detail.json()["outstanding_amount"] == 0
+
+    debt_before_reversal = client.get(f"/debts/{debt_id}", headers=headers)
+    assert debt_before_reversal.json()["remaining_amount"] == 0
+
+    # Reverse the receipt
+    realization_id = detail.json()["realizations"][0]["id"]
+    reversed_resp = client.post(
+        f"/expected-inflows/{inflow_id}/realizations/{realization_id}/reverse",
+        json={"note": "Reversal test"},
+        headers=headers,
+    )
+    assert reversed_resp.status_code == 200, reversed_resp.text
+
+    # Expected Inflow restored
+    after = client.get(f"/expected-inflows/{inflow_id}", headers=headers)
+    assert after.json()["received_amount"] == 0
+    assert after.json()["outstanding_amount"] == 300_000
+
+    # Debt balance restored
+    debt_after = client.get(f"/debts/{debt_id}", headers=headers)
+    assert debt_after.status_code == 200, debt_after.text
+    assert debt_after.json()["remaining_amount"] == 300_000
+
+
+def test_receivable_three_part_repayment_full_reconcile(client):
+    """Three-part repayment plan: create → reschedule into 3 → receive each →
+    full reconciliation of inflow and debt."""
+    headers = create_user_and_token(client, "t8three", "t8three@example.com", "Password123!")
+    today = user_timezone_today()
+    wallet = _wallet(client, headers)
+
+    debt = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWED",
+            "counterparty_name": "Three-part debtor",
+            "initial_amount": 900_000,
+            "currency": "UZS",
+            "date": today.isoformat(),
+            "expected_return_date": today.isoformat(),
+            "is_money_transferred": False,
+        },
+        headers=headers,
+    )
+    assert debt.status_code == 201, debt.text
+    debt_id = debt.json()["id"]
+
+    inflow = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "RECEIVABLE",
+            "debt_id": debt_id,
+            "title": "Three-part repayment",
+            "amount": 900_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert inflow.status_code == 201, inflow.text
+    inflow_id = inflow.json()["id"]
+
+    # Reschedule into 3 parts
+    m1 = _month_date(today, 1)
+    m2 = _month_date(today, 2)
+    rescheduled = client.post(
+        f"/expected-inflows/{inflow_id}/reschedule",
+        json={
+            "allocations": [
+                {"amount": 300_000, "due_date": today.isoformat()},
+                {"amount": 300_000, "due_date": m1.isoformat()},
+                {"amount": 300_000, "due_date": m2.isoformat()},
+            ],
+        },
+        headers=headers,
+    )
+    assert rescheduled.status_code == 200, rescheduled.text
+    replacements = rescheduled.json()["replacements"]
+    assert len(replacements) == 3
+
+    # Receive each part and verify debt reduces step by step
+    for i, schedule_id in enumerate([r["id"] for r in replacements]):
+        client.post(
+            f"/expected-inflows/{inflow_id}/realize",
+            json={
+                "actual_amount": 300_000,
+                "received_date": today.isoformat(),
+                "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 300_000}],
+                "schedule_allocations": [{"schedule_id": schedule_id, "amount": 300_000}],
+                "idempotency_key": f"t8-three-{i}",
+            },
+            headers=headers,
+        )
+        detail = client.get(f"/expected-inflows/{inflow_id}", headers=headers)
+        expected_received = 300_000 * (i + 1)
+        expected_remaining = 900_000 - expected_received
+        assert detail.json()["received_amount"] == expected_received
+        assert detail.json()["outstanding_amount"] == expected_remaining
+
+        debt_after = client.get(f"/debts/{debt_id}", headers=headers)
+        assert debt_after.json()["remaining_amount"] == expected_remaining
+
+    # Full reconciliation
+    final = client.get(f"/expected-inflows/{inflow_id}", headers=headers)
+    assert final.json()["received_amount"] == 900_000
+    assert final.json()["outstanding_amount"] == 0
+    assert final.json()["status"] == "CLOSED"
+
+    debt_final = client.get(f"/debts/{debt_id}", headers=headers)
+    assert debt_final.json()["remaining_amount"] == 0

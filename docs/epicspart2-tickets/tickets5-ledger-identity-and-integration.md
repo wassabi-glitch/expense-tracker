@@ -160,16 +160,16 @@ Assumption: the Epicspart2 ledger foundation, Debt architecture, and Expected In
 - Ticket 1: Enforce Expected Inflow Entity + Memo ledger identity.
 - Ticket 6: Harden Expected Inflow source-picker read models.
 
-- [ ] Open OWED Debts do not automatically appear as Expected Inflows.
-- [ ] Open OWED Debts do not automatically project into Monthly Timeline cashflow.
-- [ ] Users can start an Expected Inflow from an open receivable Debt.
-- [ ] The prompt explains that adding the inflow means the user expects cash on a specific date.
-- [ ] Prompting appears in a planning surface such as month start, cashflow review, or receivable detail.
-- [ ] The created Expected Inflow links back to the receivable Debt.
-- [ ] The created Expected Inflow has a user-authored title and tactical due date.
-- [ ] The Debt remains open until real receipt, forgiveness, correction, or other Debt-domain action changes its balance.
-- [ ] Tests prove no auto-projection happens before explicit user action.
-- [ ] Tests prove explicit creation creates the Debt-linked Expected Inflow.
+- [x] Open OWED Debts do not automatically appear as Expected Inflows.
+- [x] Open OWED Debts do not automatically project into Monthly Timeline cashflow.
+- [x] Users can start an Expected Inflow from an open receivable Debt.
+- [x] The prompt explains that adding the inflow means the user expects cash on a specific date.
+- [x] Prompting appears in a planning surface such as month start, cashflow review, or receivable detail.
+- [x] The created Expected Inflow links back to the receivable Debt.
+- [x] The created Expected Inflow has a user-authored title and tactical due date.
+- [x] The Debt remains open until real receipt, forgiveness, correction, or other Debt-domain action changes its balance.
+- [x] Tests prove no auto-projection happens before explicit user action.
+- [x] Tests prove explicit creation creates the Debt-linked Expected Inflow.
 
 ## Ticket 8: Support Receivable Split Repayment Schedules
 
@@ -177,16 +177,16 @@ Assumption: the Epicspart2 ledger foundation, Debt architecture, and Expected In
 
 **Blocked by:** Ticket 7: Prompt explicit receivable Debt to Expected Inflow planning.
 
-- [ ] A Debt-linked Expected Inflow Promise can contain multiple schedules.
-- [ ] The total scheduled amount cannot exceed the linked Promise/debt-planning amount.
-- [ ] Users can split one receivable repayment into multiple due dates.
-- [ ] Each schedule appears in the expected cashflow month that matches its due date.
-- [ ] Receiving one schedule reduces the Expected Inflow outstanding amount.
-- [ ] Receiving one schedule reduces the linked Debt remaining balance through the established receipt/payment behavior.
-- [ ] Receiving multiple schedules reconciles to the total repayment amount.
-- [ ] Reversing a receivable receipt restores Expected Inflow outstanding amount.
-- [ ] Reversing a receivable receipt restores linked Debt remaining amount.
-- [ ] Tests cover two-part and three-part repayment plans, partial receipt, full receipt, and receipt reversal.
+- [x] A Debt-linked Expected Inflow Promise can contain multiple schedules.
+- [x] The total scheduled amount cannot exceed the linked Promise/debt-planning amount.
+- [x] Users can split one receivable repayment into multiple due dates.
+- [x] Each schedule appears in the expected cashflow month that matches its due date.
+- [x] Receiving one schedule reduces the Expected Inflow outstanding amount.
+- [x] Receiving one schedule reduces the linked Debt remaining balance through the established receipt/payment behavior.
+- [x] Receiving multiple schedules reconciles to the total repayment amount.
+- [x] Reversing a receivable receipt restores Expected Inflow outstanding amount.
+- [x] Reversing a receivable receipt restores linked Debt remaining amount.
+- [x] Tests cover two-part and three-part repayment plans, partial receipt, full receipt, and receipt reversal.
 
 ## Ticket 9: Decouple Debt Contractual Deadlines From Inflow Due Dates
 

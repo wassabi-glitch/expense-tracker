@@ -1516,6 +1516,7 @@ def reverse_realization(
     if realization.reversed_at is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="expected_inflow.realization_already_reversed")
     # Void every linked financial event through the shared ledger seam.
+    voided_event_ids: set[int] = set()
     for link in realization.event_links or []:
         event = link.financial_event
         if event is not None and event.status == models.FinancialEventStatus.POSTED:
@@ -1526,6 +1527,7 @@ def reverse_realization(
                 user_tz=user_tz,
                 void_reason="Receipt reversed",
             )
+            voided_event_ids.add(int(event.id))
     # Mark the realization as reversed — original row stays as history.
     realization.reversed_at = datetime.now(timezone.utc)
     realization.reversal_note = payload.note.strip() if payload.note else None
@@ -1538,6 +1540,24 @@ def reverse_realization(
         if int(schedule.id) in allocated_schedule_ids:
             _sync_schedule(schedule)
     _sync_promise(promise)
+    # Ticket 8: Restore the linked debt balance when reversing a receivable receipt.
+    # void_financial_event handles wallet/entity ledger reversal but does not
+    # touch the debt domain.  Mark the DebtLedgerEntries linked to the voided
+    # events as VOIDED so reconcile_debt excludes them.
+    if (
+        _promise_kind(promise) == models.ExpectedInflowKind.RECEIVABLE
+        and promise.debt_id is not None
+        and voided_event_ids
+    ):
+        db.query(models.DebtLedgerEntry).filter(
+            models.DebtLedgerEntry.debt_id == promise.debt_id,
+            models.DebtLedgerEntry.financial_event_id.in_(voided_event_ids),
+            models.DebtLedgerEntry.status == "POSTED",
+        ).update(
+            {models.DebtLedgerEntry.status: "VOIDED"},
+            synchronize_session=False,
+        )
+        reconcile_debt(db, promise.debt_id)
     db.flush()
     return promise
 

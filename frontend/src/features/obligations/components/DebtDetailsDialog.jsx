@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   Archive,
   Banknote,
+  CalendarClock,
   ClipboardList,
   Landmark,
   MinusCircle,
@@ -438,6 +440,7 @@ function ActionPanel({ mode, debt, wallets, onClose }) {
 }
 
 export function DebtDetailsDialog({ debt, open, onOpenChange, appLang = "en" }) {
+  const navigate = useNavigate();
   const detailsQuery = useDebtDetailsQuery(debt?.id, { enabled: open && !!debt?.id });
   const walletsQuery = useQuery({ queryKey: ["wallets"], queryFn: getWallets, enabled: open });
   const reverseMutation = useReverseDebtLedgerEntryMutation();
@@ -608,6 +611,24 @@ export function DebtDetailsDialog({ debt, open, onOpenChange, appLang = "en" }) 
 
           <aside className="overflow-y-auto border-t border-border bg-muted/10 p-6 lg:border-l lg:border-t-0">
             <div className="space-y-3">
+              {/* Ticket 7: Prompt explicit receivable Debt → Expected Inflow planning */}
+              {currentDebt?.debt_type === "OWED" && !isArchived ? (
+                <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    Planning ahead? Add this receivable to your expected inflows so it appears in your cashflow plan. You choose the amount and expected arrival date.
+                  </p>
+                  <Button
+                    className="h-11 w-full justify-start rounded-md"
+                    onClick={() => {
+                      onOpenChange(false);
+                      navigate("/money-in?action=add&tab=expected");
+                    }}
+                  >
+                    <CalendarClock className="mr-2 h-4 w-4" />
+                    Plan as expected inflow
+                  </Button>
+                </div>
+              ) : null}
               <Button className="h-11 w-full justify-start rounded-md" disabled={!canPayment} onClick={() => setMode(mode === "payment" ? null : "payment")}>
                 <Banknote className="mr-2 h-4 w-4" />
                 Record payment
