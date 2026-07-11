@@ -137,14 +137,14 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 2: Enforce Promise cap, auto-close, and auto-reopen.
 - Ticket 3: Expose Agreements and Cashflow views from the two-layer model.
 
-- [ ] Details drawer includes summary metrics for expected, received, written off, and outstanding amounts.
-- [ ] Details drawer renders schedule cards for current and historical schedules.
-- [ ] Active schedule cards expose Receive, Reschedule, and Write off actions when the Promise is open.
-- [ ] Inactive, superseded, written-off, cancelled, or resolved schedule cards do not expose invalid actions.
-- [ ] Action payloads target a specific schedule where required.
-- [ ] Cashflow row navigation opens the parent Promise drawer.
-- [ ] The target schedule card is anchored or highlighted after Cashflow row navigation.
-- [ ] The UI does not expose standalone schedule details pages.
+- [x] Details drawer includes summary metrics for expected, received, written off, and outstanding amounts.
+- [x] Details drawer renders schedule cards for current and historical schedules.
+- [x] Active schedule cards expose Receive, Reschedule, and Write off actions when the Promise is open.
+- [x] Inactive, superseded, written-off, cancelled, or resolved schedule cards do not expose invalid actions.
+- [x] Action payloads target a specific schedule where required.
+- [x] Cashflow row navigation opens the parent Promise drawer.
+- [x] The target schedule card is anchored or highlighted after Cashflow row navigation.
+- [x] The UI does not expose standalone schedule details pages.
 - [ ] Tests prove action availability matches Promise lifecycle and schedule state.
 - [ ] Tests prove schedule action payloads cannot accidentally act on the wrong chunk.
 
@@ -157,16 +157,16 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 3: Expose Agreements and Cashflow views from the two-layer model.
 - Ticket 5: Build Schedule cards, inline actions, and drawer anchoring.
 
-- [ ] Details drawer removes separate raw table-style sections for schedule history, activity, and write-offs.
-- [ ] Unified timeline includes agreement creation.
-- [ ] Unified timeline includes receipts with received date and amount.
-- [ ] Unified timeline includes write-offs with reason and amount.
-- [ ] Unified timeline includes write-off reversals distinctly from original write-offs.
-- [ ] Unified timeline includes receipt reversals once receipt reversal exists.
-- [ ] Unified timeline includes reschedules with source and replacement schedule context.
-- [ ] Unified timeline includes cancel or close events when applicable.
-- [ ] Timeline copy uses user-facing language rather than raw internal IDs.
-- [ ] Amounts and dates use existing formatting helpers.
+- [x] Details drawer removes separate raw table-style sections for schedule history, activity, and write-offs.
+- [x] Unified timeline includes agreement creation.
+- [x] Unified timeline includes receipts with received date and amount.
+- [x] Unified timeline includes write-offs with reason and amount.
+- [x] Unified timeline includes write-off reversals distinctly from original write-offs.
+- [x] Unified timeline includes receipt reversals once receipt reversal exists.
+- [x] Unified timeline includes reschedules with source and replacement schedule context.
+- [x] Unified timeline includes cancel or close events when applicable.
+- [x] Timeline copy uses user-facing language rather than raw internal IDs.
+- [x] Amounts and dates use existing formatting helpers.
 - [ ] Tests cover timeline ordering and event types.
 
 ## Ticket 7: Add First-Class Receipt Reversal
