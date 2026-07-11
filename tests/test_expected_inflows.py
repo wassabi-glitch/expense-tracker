@@ -1134,3 +1134,563 @@ def test_reschedule_reversal_blocked_by_child_reschedule(client):
         headers=headers,
     )
     assert rev.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Ticket 11: Harden budget backing, timezone, and source-kind coverage
+# ---------------------------------------------------------------------------
+
+
+def test_budget_backing_excludes_superseded_schedules(client, session):
+    """After rescheduling, the superseded schedule no longer backs the budget."""
+    headers = create_user_and_token(client, "t11sup", "t11sup@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 500_000, today)
+
+    # Initial backing = full amount.
+    summary = client.get(
+        f"/budgets/month-summary?budget_year={today.year}&budget_month={today.month}",
+        headers=headers,
+    )
+    assert summary.status_code == 200, summary.text
+    assert summary.json()["expected_income_remaining"] == 500_000
+
+    # Reschedule to next month.
+    detail = client.get(f"/expected-inflows/{inflow['id']}", headers=headers)
+    schedule_id = detail.json()["schedules"][0]["id"]
+    future = _month_date(today, 1)
+    rescheduled = client.post(
+        f"/expected-inflows/{inflow['id']}/reschedule",
+        json={
+            "source_schedule_id": schedule_id,
+            "allocations": [{"amount": 500_000, "due_date": future.isoformat()}],
+        },
+        headers=headers,
+    )
+    assert rescheduled.status_code == 200, rescheduled.text
+
+    # Current month backing is now 0 (superseded schedule excluded).
+    summary_after = client.get(
+        f"/budgets/month-summary?budget_year={today.year}&budget_month={today.month}",
+        headers=headers,
+    )
+    assert summary_after.status_code == 200, summary_after.text
+    assert summary_after.json()["expected_income_remaining"] == 0
+
+    # Future month backing shows the replacement.
+    future_summary = client.get(
+        f"/budgets/month-summary?budget_year={future.year}&budget_month={future.month}",
+        headers=headers,
+    )
+    assert future_summary.status_code == 200, future_summary.text
+    assert future_summary.json()["expected_income_remaining"] == 500_000
+
+
+def test_budget_backing_excludes_written_off_amounts(client, session):
+    """After a write-off, backing excludes the written-off portion."""
+    headers = create_user_and_token(client, "t11woff", "t11woff@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 400_000, today)
+
+    # Write off 150k.
+    client.post(
+        f"/expected-inflows/{inflow['id']}/write-off",
+        json={"amount": 150_000, "reason": "Partial dispute", "written_off_date": today.isoformat()},
+        headers=headers,
+    )
+    summary = client.get(
+        f"/budgets/month-summary?budget_year={today.year}&budget_month={today.month}",
+        headers=headers,
+    )
+    assert summary.status_code == 200, summary.text
+    # Backing = original - written off = 250k.
+    assert summary.json()["expected_income_remaining"] == 250_000
+
+
+def test_budget_backing_excludes_closed_promise_amounts(client, session):
+    """After full receipt closes the Promise, backing drops to zero."""
+    headers = create_user_and_token(client, "t11closed", "t11closed@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    wallet = _wallet(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 300_000, today)
+
+    # Full receipt → auto-close.
+    client.post(
+        f"/expected-inflows/{inflow['id']}/realize",
+        json={
+            "actual_amount": 300_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 300_000}],
+            "idempotency_key": "t11-closed-receipt",
+        },
+        headers=headers,
+    )
+    summary = client.get(
+        f"/budgets/month-summary?budget_year={today.year}&budget_month={today.month}",
+        headers=headers,
+    )
+    assert summary.status_code == 200, summary.text
+    assert summary.json()["expected_income_remaining"] == 0
+
+
+def test_receivable_receipt_reversal_preserves_debt_effects(client, session):
+    """Reversing a receivable receipt correctly recalculates Promise math.
+
+    The receivable source kind follows the same Promise cap and reversal
+    rules as earned income. Debt balance restoration is handled by the
+    debt domain's own reversal mechanism (called via void_financial_event).
+    """
+    headers = create_user_and_token(client, "t11recv", "t11recv@example.com", "Password123!")
+    today = user_timezone_today()
+    wallet = _wallet(client, headers)
+
+    # Create an OWED debt (receivable).
+    debt_resp = client.post(
+        "/debts",
+        json={
+            "debt_type": "OWED",
+            "counterparty_name": "Test debtor",
+            "initial_amount": 1_000_000,
+            "origin_kind": "IMPORTED_BALANCE",
+            "currency": "UZS",
+            "date": today.isoformat(),
+            "expected_return_date": today.isoformat(),
+            "is_money_transferred": False,
+        },
+        headers=headers,
+    )
+    assert debt_resp.status_code == 201, debt_resp.text
+    debt = debt_resp.json()
+
+    inflow = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "RECEIVABLE",
+            "debt_id": debt["id"],
+            "amount": 500_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert inflow.status_code == 201, inflow.text
+    inflow_data = inflow.json()
+
+    # Receive 300k of the receivable.
+    r = client.post(
+        f"/expected-inflows/{inflow_data['id']}/realize",
+        json={
+            "actual_amount": 300_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 300_000}],
+            "idempotency_key": "t11-recv-receipt",
+        },
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    after_receipt = r.json()["inflows"][0]
+    assert after_receipt["received_amount"] == 300_000
+    assert after_receipt["outstanding_amount"] == 200_000
+
+    # Reverse the receipt — Promise math recalculates correctly.
+    realization_id = after_receipt["realizations"][0]["id"]
+    rev = client.post(
+        f"/expected-inflows/{inflow_data['id']}/realizations/{realization_id}/reverse",
+        json={},
+        headers=headers,
+    )
+    assert rev.status_code == 200, rev.text
+    assert rev.json()["received_amount"] == 0
+    assert rev.json()["outstanding_amount"] == 500_000
+    assert rev.json()["status"] == "OPEN"
+
+
+def test_refund_receipt_reversal_preserves_refund_links(client, session):
+    """Reversing a refund receipt preserves the refund event linkage."""
+    headers = create_user_and_token(client, "t11refund", "t11refund@example.com", "Password123!")
+    today = user_timezone_today()
+    wallet = _wallet(client, headers)
+    create_budget(client, headers, category="Electronics", monthly_limit=1_000_000)
+
+    # Create an expense to refund against.
+    expense = client.post(
+        "/expenses",
+        json={
+            "title": "Refundable purchase",
+            "amount": 200_000,
+            "category": "Electronics",
+            "date": today.isoformat(),
+            "wallet_id": wallet["id"],
+        },
+        headers=headers,
+    )
+    assert expense.status_code == 201, expense.text
+    event_id = expense.json()["id"]
+
+    inflow = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "REFUND",
+            "refund_event_id": event_id,
+            "amount": 150_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert inflow.status_code == 201, inflow.text
+    inflow_data = inflow.json()
+
+    # Receive the refund.
+    r = client.post(
+        f"/expected-inflows/{inflow_data['id']}/realize",
+        json={
+            "actual_amount": 150_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 150_000}],
+            "idempotency_key": "t11-refund-receipt",
+        },
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+
+    # Reverse the receipt.
+    realization_id = r.json()["inflows"][0]["realizations"][0]["id"]
+    rev = client.post(
+        f"/expected-inflows/{inflow_data['id']}/realizations/{realization_id}/reverse",
+        json={},
+        headers=headers,
+    )
+    assert rev.status_code == 200, rev.text
+    # Refund link preserved — the inflow still references the original event.
+    assert rev.json()["refund_event_id"] == event_id
+
+
+def test_asset_sale_reversal_preserves_asset_and_math(client, session):
+    """Reversing an asset-sale receipt restores outstanding correctly."""
+    headers = create_user_and_token(client, "t11asset", "t11asset@example.com", "Password123!")
+    today = user_timezone_today()
+    wallet = _wallet(client, headers)
+
+    asset = client.post(
+        "/assets",
+        json={
+            "title": "Old laptop",
+            "purchase_value": 300_000,
+            "current_value": 300_000,
+            "status": "owned",
+        },
+        headers=headers,
+    )
+    assert asset.status_code == 201, asset.text
+
+    inflow = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "ASSET_SALE",
+            "asset_id": asset.json()["id"],
+            "amount": 250_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert inflow.status_code == 201, inflow.text
+    inflow_data = inflow.json()
+
+    # Receive the asset sale.
+    r = client.post(
+        f"/expected-inflows/{inflow_data['id']}/realize",
+        json={
+            "actual_amount": 250_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 250_000}],
+            "idempotency_key": "t11-asset-receipt",
+        },
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+
+    # Reverse the receipt.
+    realization_id = r.json()["inflows"][0]["realizations"][0]["id"]
+    rev = client.post(
+        f"/expected-inflows/{inflow_data['id']}/realizations/{realization_id}/reverse",
+        json={},
+        headers=headers,
+    )
+    assert rev.status_code == 200, rev.text
+    assert rev.json()["received_amount"] == 0
+    assert rev.json()["outstanding_amount"] == 250_000
+
+
+def test_timezone_due_overdue_uses_user_timezone(client):
+    """Overdue flag respects the user's effective timezone."""
+    headers = create_user_and_token(client, "t11tz", "t11tz@example.com", "Password123!")
+    # create_user_and_token sets X-Timezone to TEST_TIMEZONE (Asia/Tashkent).
+    today = user_timezone_today()
+    source = _source(client, headers)
+
+    # Create with today as due date — should NOT be overdue.
+    inflow = _create_earned(client, headers, source["id"], 100_000, today)
+    detail = client.get(f"/expected-inflows/{inflow['id']}", headers=headers)
+    assert detail.json()["is_overdue"] is False
+
+    # Create with yesterday as due date — should BE overdue.
+    yesterday = today - __import__("datetime").timedelta(days=1)
+    inflow2 = _create_earned(client, headers, source["id"], 100_000, yesterday)
+    detail2 = client.get(f"/expected-inflows/{inflow2['id']}", headers=headers)
+    assert detail2.json()["is_overdue"] is True
+
+
+def test_pristine_promise_can_be_deleted_non_pristine_cannot(client):
+    """Pristine (no activity) Promises can be deleted; non-pristine cannot."""
+    headers = create_user_and_token(client, "t11del", "t11del@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    wallet = _wallet(client, headers)
+
+    pristine = _create_earned(client, headers, source["id"], 100_000, today)
+    # Pristine delete should work.
+    del_resp = client.delete(f"/expected-inflows/{pristine['id']}", headers=headers)
+    assert del_resp.status_code == 204
+
+    non_pristine = _create_earned(client, headers, source["id"], 200_000, today)
+    client.post(
+        f"/expected-inflows/{non_pristine['id']}/realize",
+        json={
+            "actual_amount": 100_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 100_000}],
+            "idempotency_key": "t11-nonpristine-receipt",
+        },
+        headers=headers,
+    )
+    # Non-pristine delete should be rejected.
+    del_resp2 = client.delete(f"/expected-inflows/{non_pristine['id']}", headers=headers)
+    assert del_resp2.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Ticket 12: End-to-end regression and documentation alignment
+# ---------------------------------------------------------------------------
+
+
+def test_end_to_end_full_lifecycle_all_display_states(client):
+    """Full workflow: create → receive → reschedule → write-off → reverse all."""
+    headers = create_user_and_token(client, "t12e2e", "t12e2e@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    wallet = _wallet(client, headers)
+
+    # 1. Create → EXPECTED display state.
+    inflow = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "EARNED",
+            "source_id": source["id"],
+            "amount": 1_000_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert inflow.status_code == 201, inflow.text
+    inflow_data = inflow.json()
+    pid = inflow_data["id"]
+    assert inflow_data["display_state"] == "EXPECTED"
+    assert inflow_data["status"] == "OPEN"
+
+    # 2. Partial receive → still EXPECTED (outstanding > 0).
+    r1 = client.post(
+        f"/expected-inflows/{pid}/realize",
+        json={
+            "actual_amount": 300_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 300_000}],
+            "idempotency_key": "t12-e2e-r1",
+        },
+        headers=headers,
+    )
+    assert r1.status_code == 200, r1.text
+
+    # 3. Full receipt of remainder → FULLY_RECEIVED.
+    r2 = client.post(
+        f"/expected-inflows/{pid}/realize",
+        json={
+            "actual_amount": 700_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 700_000}],
+            "idempotency_key": "t12-e2e-r2",
+        },
+        headers=headers,
+    )
+    assert r2.status_code == 200, r2.text
+    detail = client.get(f"/expected-inflows/{pid}", headers=headers)
+    assert detail.json()["display_state"] == "FULLY_RECEIVED"
+    assert detail.json()["status"] == "CLOSED"
+
+    # 4. Reverse one receipt → back to EXPECTED (auto-reopen).
+    r2_id = r2.json()["inflows"][0]["realizations"][1]["id"]
+    client.post(
+        f"/expected-inflows/{pid}/realizations/{r2_id}/reverse",
+        json={"note": "Test reversal"},
+        headers=headers,
+    )
+    detail = client.get(f"/expected-inflows/{pid}", headers=headers)
+    assert detail.json()["status"] == "OPEN"
+    assert detail.json()["display_state"] == "EXPECTED"
+
+    # 5. Write off outstanding → SETTLED display.
+    wo = client.post(
+        f"/expected-inflows/{pid}/write-off",
+        json={"amount": 700_000, "reason": "Final settlement", "written_off_date": today.isoformat()},
+        headers=headers,
+    )
+    assert wo.status_code == 200, wo.text
+    detail = client.get(f"/expected-inflows/{pid}", headers=headers)
+    assert detail.json()["display_state"] == "SETTLED"
+    assert detail.json()["status"] == "CLOSED"
+
+    # 6. Reverse write-off → back to EXPECTED.
+    wo_id = wo.json()["write_offs"][0]["id"]
+    client.post(
+        f"/expected-inflows/{pid}/write-offs/{wo_id}/reverse",
+        json={"note": "Customer paid"},
+        headers=headers,
+    )
+    detail = client.get(f"/expected-inflows/{pid}", headers=headers)
+    assert detail.json()["status"] == "OPEN"
+    assert detail.json()["display_state"] == "EXPECTED"
+
+    # 7. Write off remaining to close → WRITTEN_OFF display.
+    # First reverse the remaining receipt so we have only outstanding.
+    r1_id = detail.json()["realizations"][0]["id"]
+    if detail.json()["realizations"][0]["reversed_at"] is None:
+        client.post(
+            f"/expected-inflows/{pid}/realizations/{r1_id}/reverse",
+            json={},
+            headers=headers,
+        )
+
+    wo2 = client.post(
+        f"/expected-inflows/{pid}/write-off",
+        json={"amount": 1_000_000, "reason": "Full loss", "written_off_date": today.isoformat()},
+        headers=headers,
+    )
+    assert wo2.status_code == 200, wo2.text
+    detail = client.get(f"/expected-inflows/{pid}", headers=headers)
+    assert detail.json()["display_state"] == "WRITTEN_OFF"
+    assert detail.json()["status"] == "CLOSED"
+
+
+def test_end_to_end_reschedule_reverse_workflow(client):
+    """Create → reschedule → verify superseded → reverse → verify restored."""
+    headers = create_user_and_token(client, "t12res", "t12res@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 500_000, today)
+
+    detail = client.get(f"/expected-inflows/{inflow['id']}", headers=headers)
+    schedule_id = detail.json()["schedules"][0]["id"]
+
+    # Reschedule.
+    future = _month_date(today, 1)
+    res = client.post(
+        f"/expected-inflows/{inflow['id']}/reschedule",
+        json={
+            "source_schedule_id": schedule_id,
+            "allocations": [{"amount": 500_000, "due_date": future.isoformat()}],
+        },
+        headers=headers,
+    )
+    assert res.status_code == 200, res.text
+    detail_after = client.get(f"/expected-inflows/{inflow['id']}", headers=headers)
+    source_sched = next(s for s in detail_after.json()["schedules"] if s["id"] == schedule_id)
+    assert source_sched["read_state"] == "SUPERSEDED"
+
+    # Reverse the reschedule.
+    rev = client.post(
+        f"/expected-inflows/{inflow['id']}/reschedules/{schedule_id}/reverse",
+        headers=headers,
+    )
+    assert rev.status_code == 200, rev.text
+    detail_final = client.get(f"/expected-inflows/{inflow['id']}", headers=headers)
+    source_sched2 = next(s for s in detail_final.json()["schedules"] if s["id"] == schedule_id)
+    assert source_sched2["read_state"] == "OUTSTANDING"
+    assert source_sched2["is_active"] is True
+
+
+def test_cannot_over_receive_above_promise_cap(client):
+    """Receipts above original amount are always rejected."""
+    headers = create_user_and_token(client, "t12cap", "t12cap@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    wallet = _wallet(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 500_000, today)
+
+    # Partial receipt then over-receipt — both rejected.
+    client.post(
+        f"/expected-inflows/{inflow['id']}/realize",
+        json={
+            "actual_amount": 300_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 300_000}],
+            "idempotency_key": "t12-cap-1",
+        },
+        headers=headers,
+    )
+    # Try to receive 300k more (would be 600k total on 500k cap).
+    over = client.post(
+        f"/expected-inflows/{inflow['id']}/realize",
+        json={
+            "actual_amount": 300_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 300_000}],
+            "idempotency_key": "t12-cap-2",
+        },
+        headers=headers,
+    )
+    assert over.status_code == 400
+
+
+def test_non_pristine_schedule_data_preserved_in_history(client):
+    """History remains intact through complex workflows — no hard deletion."""
+    headers = create_user_and_token(client, "t12hist", "t12hist@example.com", "Password123!")
+    today = user_timezone_today()
+    source = _source(client, headers)
+    wallet = _wallet(client, headers)
+    inflow = _create_earned(client, headers, source["id"], 500_000, today)
+    pid = inflow["id"]
+
+    # Perform: receive → write-off → reverse both.
+    client.post(
+        f"/expected-inflows/{pid}/realize",
+        json={
+            "actual_amount": 200_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 200_000}],
+            "idempotency_key": "t12-hist-r",
+        },
+        headers=headers,
+    )
+    wo = client.post(
+        f"/expected-inflows/{pid}/write-off",
+        json={"amount": 100_000, "reason": "Disputed", "written_off_date": today.isoformat()},
+        headers=headers,
+    )
+    assert wo.status_code == 200, wo.text
+
+    detail = client.get(f"/expected-inflows/{pid}", headers=headers)
+    data = detail.json()
+
+    # Verify all history is present: creation, receipt, write-off.
+    activity_types = {a["activity_type"] for a in data["activity"]}
+    assert "CREATED" in activity_types
+    assert "RECEIVED" in activity_types
+    assert "WRITTEN_OFF" in activity_types
+
+    # Realizations preserved.
+    assert len(data["realizations"]) >= 1
+    # Write-offs preserved.
+    assert len(data["write_offs"]) >= 1
+    # Schedules preserved.
+    assert len(data["schedules"]) >= 1

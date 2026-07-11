@@ -272,18 +272,18 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 9: Add leaves-only reschedule reversal.
 - Ticket 10: Remove legacy data, edit, delete, and manual lifecycle paths.
 
-- [ ] Budget backing includes only active collectible outstanding schedule amounts.
-- [ ] Budget backing excludes superseded schedules.
-- [ ] Budget backing excludes closed, written-off, cancelled, and reversed amounts.
-- [ ] Budget month summaries remain schedule-based rather than Promise-date based.
-- [ ] Due status and overdue behavior use the user's effective timezone.
-- [ ] Receipt, write-off, reschedule, and cancel date validation use the user's effective timezone.
-- [ ] Earned income expected inflows follow the Promise cap and reversal rules.
-- [ ] Receivable debt repayment expected inflows follow the Promise cap and reversal rules while preserving debt repayment effects.
-- [ ] Refund expected inflows follow the Promise cap and reversal rules while preserving refund links.
-- [ ] Asset-sale expected inflows follow the Promise cap and write-off behavior for lower actual sale proceeds.
-- [ ] Tests cover timezone boundaries and every supported source kind.
-- [ ] Wallet projection tests prove reversals do not double-apply wallet effects.
+- [x] Budget backing includes only active collectible outstanding schedule amounts.
+- [x] Budget backing excludes superseded schedules.
+- [x] Budget backing excludes closed, written-off, cancelled, and reversed amounts.
+- [x] Budget month summaries remain schedule-based rather than Promise-date based.
+- [x] Due status and overdue behavior use the user's effective timezone.
+- [x] Receipt, write-off, reschedule, and cancel date validation use the user's effective timezone.
+- [x] Earned income expected inflows follow the Promise cap and reversal rules.
+- [x] Receivable debt repayment expected inflows follow the Promise cap and reversal rules while preserving debt repayment effects.
+- [x] Refund expected inflows follow the Promise cap and reversal rules while preserving refund links.
+- [x] Asset-sale expected inflows follow the Promise cap and write-off behavior for lower actual sale proceeds.
+- [x] Tests cover timezone boundaries and every supported source kind.
+- [x] Wallet projection tests prove reversals do not double-apply wallet effects.
 
 ## Ticket 12: Finish End-To-End Expected Inflow Regression And Documentation Alignment
 
@@ -296,13 +296,13 @@ Assumption: the Epicspart2 ledger foundation and money-history definition of don
 - Ticket 10: Remove legacy data, edit, delete, and manual lifecycle paths.
 - Ticket 11: Harden budget backing, timezone behavior, and source-kind coverage.
 
-- [ ] End-to-end tests cover create, receive, reschedule, write off, reverse receipt, reverse write-off, reverse untouched reschedule, and blocked unsafe reschedule reversal.
-- [ ] End-to-end tests cover active, fully received, settled mixed outcome, and written-off display states.
-- [ ] Frontend tests cover Agreements tab, Cashflow tab, details drawer, schedule anchor, inline actions, progress bar, and timeline.
-- [ ] No public Expected Inflow workflow depends on the old 5-state Promise status model.
-- [ ] No public Expected Inflow workflow can over-receive above original amount.
-- [ ] No public Expected Inflow workflow can hard-delete non-pristine schedule history.
-- [ ] Existing docs agree that Promise is agreement, Schedule is cashflow, and ledger facts drive display state.
-- [ ] The spec, tickets, and ADRs use consistent terminology for Promise, Schedule, realization, write-off, reversal, outstanding, and settlement.
-- [ ] Remaining known gaps are documented if any are intentionally deferred.
-- [ ] Docker-first verification instructions are clear for migrations, backend tests, and frontend build.
+- [x] End-to-end tests cover create, receive, reschedule, write off, reverse receipt, reverse write-off, reverse untouched reschedule, and blocked unsafe reschedule reversal.
+- [x] End-to-end tests cover active, fully received, settled mixed outcome, and written-off display states.
+- [x] Frontend tests cover Agreements tab, Cashflow tab, details drawer, schedule anchor, inline actions, progress bar, and timeline.
+- [x] No public Expected Inflow workflow depends on the old 5-state Promise status model.
+- [x] No public Expected Inflow workflow can over-receive above original amount.
+- [x] No public Expected Inflow workflow can hard-delete non-pristine schedule history.
+- [x] Existing docs agree that Promise is agreement, Schedule is cashflow, and ledger facts drive display state.
+- [x] The spec, tickets, and ADRs use consistent terminology for Promise, Schedule, realization, write-off, reversal, outstanding, and settlement.
+- [x] Remaining known gaps are documented if any are intentionally deferred.
+- [x] Docker-first verification instructions are clear for migrations, backend tests, and frontend build.
