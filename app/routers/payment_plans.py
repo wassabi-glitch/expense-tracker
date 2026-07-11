@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session, selectinload
 from app.timezone import get_effective_user_timezone, today_in_tz
 from app.domains.payment_plans import (
     _create_payment_plan_expense_event,
-    _default_schedule_model,
     _generate_amortized_rows,
     _generate_flat_total_rows,
     _generate_manual_rows,
@@ -18,7 +17,6 @@ from app.domains.payment_plans import (
     _row_settlement_label,
     _row_settlement_state,
     _row_time_status,
-    _scheduled_due_date,
     generate_schedule_preview,
 )
 from .. import models, oauth2, schemas
@@ -2332,7 +2330,6 @@ def write_off_plan(
     allocations = _build_schedule_allocation_plan(plan, write_off_amount)
     paid_date = today_in_tz(user_tz)
 
-    plan_remaining_before = int(plan.remaining_amount or 0)
     total_principal = 0
     total_charges = 0
 

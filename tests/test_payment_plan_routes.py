@@ -5,7 +5,6 @@ from app import models
 from tests.helpers import (
     create_budget,
     create_user_and_token,
-    TEST_TIMEZONE,
     user_timezone_today,
 )
 
@@ -1727,7 +1726,6 @@ def test_payment_row_time_status_on_track(client):
     headers = create_user_and_token(client, "settle4", "settle4@example.com", "Password123!")
     _create_payment_plan_budgets(client, headers)
     # Create plan starting next month
-    from datetime import date as dt_date
     start = user_timezone_today()
     future_start = start + timedelta(days=60)
     plan = _create_payment_plan(
