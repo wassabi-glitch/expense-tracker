@@ -335,6 +335,11 @@ def test_debt_remaining_amount_is_projection(client, session):
     headers = create_user_and_token(
         client, "guardrail_b2", "guardrail_b2@example.com", "Password123!"
     )
+    today = user_timezone_today()
+    create_budget(
+        client, headers, category="Debt Charges", monthly_limit=500_000,
+        budget_year=today.year, budget_month=today.month,
+    )
     wallet = _default_wallet(client, headers)
     debt = _create_transferred_debt(client, headers, wallet["id"])
 
@@ -361,7 +366,7 @@ def test_debt_remaining_amount_is_projection(client, session):
         f"/debts/{debt['id']}/payments",
         json={
             "amount": 200_000,
-            "date": user_timezone_today().isoformat(),
+            "date": today.isoformat(),
             "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 200_000}],
         },
         headers=headers,
