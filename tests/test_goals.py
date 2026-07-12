@@ -633,7 +633,6 @@ def test_reserve_and_pay_obligation_goals_have_no_time_state(client, session):
         client, "notimestate", "notimestate@example.com", "Password123!"
     )
     _setup_premium_user_with_goal_wallet(client, headers)
-    today = user_timezone_today()
 
     reserve = client.post(
         "/goals/",
