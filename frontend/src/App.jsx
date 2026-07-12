@@ -28,6 +28,7 @@ import Expenses from "@/features/expenses/Expenses";
 import ExpenseDetails from "@/features/expenses/ExpenseDetails";
 import Income from "@/features/income/Income";
 import ExpectedInflowDetails from "@/features/income/ExpectedInflowDetails";
+import { IncomeSourcesHub } from "@/features/income/IncomeSourcesHub";
 import Budgets from "@/features/budgets/Budgets";
 import BudgetDetails from "@/features/budgets/BudgetDetails";
 import ProjectDetails from "@/features/budgets/ProjectDetails";
@@ -94,6 +95,7 @@ export default function App() {
               <Route path="/money-in" element={<Income />} />
               <Route path="/money-in/expected-inflow" element={<Income />} />
               <Route path="/money-in/expected-inflow/:id" element={<ExpectedInflowDetails />} />
+              <Route path="/money-in/sources" element={<IncomeSourcesHub />} />
               <Route path="/income" element={<LegacyMoneyInRedirect />} />
               <Route path="/budgets" element={<Budgets />} />
               <Route path="/budgets/:budgetYear/:budgetMonth/:category" element={<BudgetDetails />} />

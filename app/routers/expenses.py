@@ -2311,8 +2311,10 @@ def refund_expense(
             detail="wallets.archived_locked",
         )
 
-    is_partial = refund_amount < max_allowable or total_already_refunded > 0
-    refund_title = "Partial Refund" if is_partial else "Refund"
+    # Ticket 4: Store the original expense title as the refund event title.
+    # The refund type (partial vs full) is communicated through the linked_event_id
+    # and event_type=REFUND, not through title prefixes.
+    refund_title = original_event.title[:100]
 
     refund_event = post_financial_event(
         db,

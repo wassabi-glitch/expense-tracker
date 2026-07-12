@@ -275,7 +275,10 @@ def _record_wallet_allocated_debt_event(
     return post_financial_event(
         db,
         owner_id=debt.owner_id,
-        title=f"{debt.counterparty_name}"[:32],
+        # Ticket 4: Use the user's receipt note as the primary Money In title.
+        # Counterparty name stays available as supporting context in description
+        # and entity_legs, not as the primary title.
+        title=(debt_transaction.note or "Debt payment received")[:100],
         event_type=transaction_type,
         date=debt_transaction.date,
         description=description,

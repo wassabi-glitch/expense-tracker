@@ -1161,3 +1161,203 @@ def test_income_update_still_returns_expected_ui_shape(client, session):
     assert len(entry["wallet_allocations"]) == 1
     assert "created_at" in entry
     assert "updated_at" in entry
+
+
+# ---------------------------------------------------------------------------
+# Ticket 3: Income Sources Hub — per-source analytics
+# ---------------------------------------------------------------------------
+
+
+def _wallet(client, headers):
+    response = client.get("/wallets", headers=headers)
+    assert response.status_code == 200, response.text
+    return response.json()[0]
+
+
+def test_source_analytics_empty_source_returns_zero_metrics(client):
+    """A newly created source with no linked data returns zero metrics."""
+    headers = create_user_and_token(client, "t3empty", "t3empty@example.com", "Password123!")
+    source = client.post("/income/sources", json={"name": "Empty source"}, headers=headers)
+    assert source.status_code == 201, source.text
+    source_id = source.json()["id"]
+
+    analytics = client.get(f"/income/sources/{source_id}/analytics", headers=headers)
+    assert analytics.status_code == 200, analytics.text
+    data = analytics.json()
+    assert data["name"] == "Empty source"
+    assert data["is_active"] is True
+    assert data["promise_count"] == 0
+    assert data["lifetime_expected"] == 0
+    assert data["lifetime_received"] == 0
+    assert data["outstanding_expected"] == 0
+    assert data["entry_count"] == 0
+    assert data["entry_total_received"] == 0
+    assert data["reliability_pct"] is None
+    assert data["promise_ids"] == []
+
+
+def test_source_analytics_includes_earned_promise_metrics(client):
+    """A source linked to an earned expected inflow shows promise-level metrics."""
+    headers = create_user_and_token(client, "t3promise", "t3promise@example.com", "Password123!")
+    today = user_timezone_today()
+    source = client.post("/income/sources", json={"name": "Client X"}, headers=headers)
+    assert source.status_code == 201, source.text
+    source_id = source.json()["id"]
+
+    # Create an earned expected inflow
+    inflow = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "EARNED",
+            "source_id": source_id,
+            "title": "Project Alpha",
+            "amount": 500_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert inflow.status_code == 201, inflow.text
+
+    analytics = client.get(f"/income/sources/{source_id}/analytics", headers=headers)
+    assert analytics.status_code == 200, analytics.text
+    data = analytics.json()
+    assert data["promise_count"] == 1
+    assert data["lifetime_expected"] == 500_000
+    assert data["lifetime_received"] == 0
+    assert data["outstanding_expected"] == 500_000
+    assert data["reliability_pct"] == 0.0  # 0 received / 500k = 0%
+    assert data["promise_ids"] == [inflow.json()["id"]]
+
+
+def test_source_analytics_reflects_received_amounts(client):
+    """After receiving against a promise, received + outstanding update."""
+    headers = create_user_and_token(client, "t3received", "t3received@example.com", "Password123!")
+    today = user_timezone_today()
+    wallet = _wallet(client, headers)
+    source = client.post("/income/sources", json={"name": "Employer"}, headers=headers)
+    assert source.status_code == 201, source.text
+    source_id = source.json()["id"]
+
+    inflow = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "EARNED",
+            "source_id": source_id,
+            "title": "July salary",
+            "amount": 1_000_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert inflow.status_code == 201, inflow.text
+
+    # Receive 400k
+    client.post(
+        f"/expected-inflows/{inflow.json()['id']}/realize",
+        json={
+            "actual_amount": 400_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 400_000}],
+            "idempotency_key": "t3-received-aa",
+        },
+        headers=headers,
+    )
+
+    analytics = client.get(f"/income/sources/{source_id}/analytics", headers=headers)
+    assert analytics.status_code == 200, analytics.text
+    data = analytics.json()
+    assert data["lifetime_received"] == 400_000
+    assert data["outstanding_expected"] == 600_000
+    assert data["reliability_pct"] == 40.0  # 400k / 1M = 40%
+
+
+def test_source_analytics_reliability_full(client):
+    """Fully received promise → 100% reliability."""
+    headers = create_user_and_token(client, "t3full", "t3full@example.com", "Password123!")
+    today = user_timezone_today()
+    wallet = _wallet(client, headers)
+    source = client.post("/income/sources", json={"name": "Reliable client"}, headers=headers)
+    assert source.status_code == 201, source.text
+    source_id = source.json()["id"]
+
+    inflow = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "EARNED",
+            "source_id": source_id,
+            "amount": 300_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert inflow.status_code == 201, inflow.text
+
+    realized = client.post(
+        f"/expected-inflows/{inflow.json()['id']}/realize",
+        json={
+            "actual_amount": 300_000,
+            "received_date": today.isoformat(),
+            "wallet_allocations": [{"wallet_id": wallet["id"], "amount": 300_000}],
+            "idempotency_key": "t3-full-abcde",
+        },
+        headers=headers,
+    )
+    assert realized.status_code == 200, f"Realize failed: {realized.text}"
+
+    analytics = client.get(f"/income/sources/{source_id}/analytics", headers=headers)
+    assert analytics.status_code == 200, analytics.text
+    data = analytics.json()
+    assert data["lifetime_received"] == 300_000
+    assert data["outstanding_expected"] == 0
+    assert data["reliability_pct"] == 100.0
+
+
+def test_source_analytics_inactive_source_still_viewable(client):
+    """Inactive sources with historical data are still viewable."""
+    headers = create_user_and_token(client, "t3inactive", "t3inactive@example.com", "Password123!")
+    today = user_timezone_today()
+    source = client.post("/income/sources", json={"name": "Old client"}, headers=headers)
+    assert source.status_code == 201, source.text
+    source_id = source.json()["id"]
+
+    inflow = client.post(
+        "/expected-inflows",
+        json={
+            "kind": "EARNED",
+            "source_id": source_id,
+            "amount": 200_000,
+            "due_date": today.isoformat(),
+        },
+        headers=headers,
+    )
+    assert inflow.status_code == 201, inflow.text
+
+    # Deactivate the source
+    client.patch(f"/income/sources/{source_id}/active", json={"is_active": False}, headers=headers)
+
+    # Still viewable with historical data
+    analytics = client.get(f"/income/sources/{source_id}/analytics", headers=headers)
+    assert analytics.status_code == 200, analytics.text
+    data = analytics.json()
+    assert data["is_active"] is False
+    assert data["lifetime_expected"] == 200_000
+
+
+def test_source_analytics_404_for_missing_source(client):
+    """Non-existent source returns 404."""
+    headers = create_user_and_token(client, "t3nf", "t3nf@example.com", "Password123!")
+    resp = client.get("/income/sources/99999/analytics", headers=headers)
+    assert resp.status_code == 404
+
+
+def test_source_analytics_excludes_other_users_sources(client):
+    """User A cannot see User B's source analytics."""
+    headers_a = create_user_and_token(client, "t3crossa", "t3crossa@example.com", "Password123!")
+    headers_b = create_user_and_token(client, "t3crossb", "t3crossb@example.com", "Password123!")
+
+    source_b = client.post("/income/sources", json={"name": "B's source"}, headers=headers_b)
+    assert source_b.status_code == 201, source_b.text
+
+    # User A tries to access B's source analytics
+    resp = client.get(f"/income/sources/{source_b.json()['id']}/analytics", headers=headers_a)
+    assert resp.status_code == 404

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Check,
+  ChevronsUpDown,
   CircleDollarSign,
   Landmark,
   PackageCheck,
@@ -10,6 +12,14 @@ import {
 
 import { Button } from "@/components/ui/button";
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -18,7 +28,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { createIncomeSource } from "@/lib/api";
 import { formatAmountInput, formatDisplayDate, parseAmountInput } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { MAX_INCOME_AMOUNT } from "./incomeSchemas";
@@ -81,12 +97,33 @@ export function ExpectedInflowEditorDialog({
   const [error, setError] = useState("");
   const financialLocked = Boolean(item && !item.is_pristine);
 
+  // Ticket 2: Creatable source selection state
+  const [sourcePopoverOpen, setSourcePopoverOpen] = useState(false);
+  const [sourceSearch, setSourceSearch] = useState("");
+  const [creatingSource, setCreatingSource] = useState(false);
+
   const options = useMemo(() => {
     if (kind === "EARNED") return getEarnedOptions(sources);
     if (kind === "RECEIVABLE") return getReceivableOptions(debts);
     if (kind === "REFUND") return getRefundOptions(expenses);
     return getAssetSaleOptions(assets);
   }, [assets, debts, expenses, kind, sources]);
+
+  // Ticket 2: Filtered earned options based on search text
+  const filteredEarnedOptions = useMemo(() => {
+    if (kind !== "EARNED") return [];
+    const search = sourceSearch.trim().toLowerCase();
+    if (!search) return options;
+    return options.filter(
+      (opt) => opt.label.toLowerCase().includes(search),
+    );
+  }, [kind, options, sourceSearch]);
+
+  // Ticket 2: True when the search text does not match any existing source
+  const showCreateOption = kind === "EARNED" && sourceSearch.trim().length > 0
+    && !filteredEarnedOptions.some(
+      (opt) => opt.label.toLowerCase() === sourceSearch.trim().toLowerCase(),
+    );
 
   useEffect(() => {
     if (!open) return;
@@ -99,6 +136,7 @@ export function ExpectedInflowEditorDialog({
     setDueDate(item?.next_due_date || defaultDate);
     setNote(item?.note || "");
     setError("");
+    setSourceSearch("");
   }, [item, monthValue, open]);
 
   useEffect(() => {
@@ -106,7 +144,33 @@ export function ExpectedInflowEditorDialog({
     setSourceId(options[0]?.id ? String(options[0].id) : "");
   }, [item, kind, open, options]);
 
+  // Ticket 2: Inline income source creation
+  const handleCreateSource = async () => {
+    const name = sourceSearch.trim();
+    if (!name || creatingSource) return;
+    setCreatingSource(true);
+    setError("");
+    try {
+      const created = await createIncomeSource({ name });
+      // Select the newly created source
+      setSourceId(String(created.id));
+      setSourceSearch("");
+      setSourcePopoverOpen(false);
+    } catch (createError) {
+      const detail =
+        createError?.response?.data?.detail ||
+        createError?.message ||
+        "Could not create income source.";
+      setError(typeof detail === "string" ? detail : "Could not create income source.");
+      // Leave the draft intact — user can still pick an existing source.
+    } finally {
+      setCreatingSource(false);
+    }
+  };
+
   const optionLabel = (option) => option.label;
+  const selectedLabel = options.find((opt) => String(opt.id) === sourceId)?.label || "";
+
   const submit = async () => {
     const amountValue = parseAmountInput(amount);
     if (!title.trim() || (!item && !sourceId) || (!financialLocked && (amountValue <= 0 || !dueDate))) {
@@ -155,7 +219,88 @@ export function ExpectedInflowEditorDialog({
             </div>
           ) : null}
           {!item ? (
-            <div className="space-y-1.5"><label className="text-sm font-medium">Source</label><Select value={sourceId || undefined} onValueChange={setSourceId}><SelectTrigger><SelectValue placeholder="Select source" /></SelectTrigger><SelectContent>{options.map((option) => <SelectItem key={option.id} value={String(option.id)}>{optionLabel(option)}</SelectItem>)}</SelectContent></Select></div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Source</label>
+              {kind === "EARNED" ? (
+                /* Ticket 2: Creatable combobox for earned income sources */
+                <Popover open={sourcePopoverOpen} onOpenChange={setSourcePopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={sourcePopoverOpen}
+                      className="w-full justify-between"
+                    >
+                      {selectedLabel || "Select income source"}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                    <Command>
+                      <CommandInput
+                        placeholder="Search or create a source..."
+                        value={sourceSearch}
+                        onValueChange={setSourceSearch}
+                      />
+                      <CommandList>
+                        <CommandEmpty>
+                          {showCreateOption ? (
+                            <Button
+                              variant="ghost"
+                              className="w-full justify-start font-normal text-sm"
+                              disabled={creatingSource}
+                              onClick={handleCreateSource}
+                            >
+                              <Plus className="mr-2 h-4 w-4" />
+                              {creatingSource
+                                ? "Creating..."
+                                : `Create "${sourceSearch.trim()}"`}
+                            </Button>
+                          ) : (
+                            "No income source found."
+                          )}
+                        </CommandEmpty>
+                        <CommandGroup>
+                          {filteredEarnedOptions.map((option) => (
+                            <CommandItem
+                              key={option.id}
+                              value={option.label}
+                              onSelect={() => {
+                                setSourceId(String(option.id));
+                                setSourceSearch("");
+                                setSourcePopoverOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  sourceId === String(option.id) ? "opacity-100" : "opacity-0",
+                                )}
+                              />
+                              {option.label}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              ) : (
+                /* Non-earned kinds: plain select (debts, refunds, assets) */
+                <Select value={sourceId || undefined} onValueChange={setSourceId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select source" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {options.map((option) => (
+                      <SelectItem key={option.id} value={String(option.id)}>
+                        {optionLabel(option)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
           ) : null}
           <div className="space-y-1.5"><label className="text-sm font-medium">Title</label><Input value={title} maxLength={100} onChange={(event) => setTitle(event.target.value)} /></div>
           <div className="grid gap-3 sm:grid-cols-2">

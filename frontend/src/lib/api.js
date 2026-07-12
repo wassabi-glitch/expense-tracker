@@ -99,6 +99,7 @@ export {
 export { getThisMonthStats, getDashboardSummary, getDailyTrend, getAnalyticsHistory, getMonthToDateTrend, getCategoryBreakdown } from "./api/analytics";
 export {
     getIncomeSources,
+    getIncomeSourceAnalytics,
     createIncomeSource,
     updateIncomeSource,
     updateIncomeSourceActive,

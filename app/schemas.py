@@ -384,6 +384,35 @@ class IncomeSourceOut(IncomeSourceBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+# ---------------------------------------------------------------------------
+# Ticket 3: Income Sources Hub — lifetime analytics per source
+# ---------------------------------------------------------------------------
+
+
+class IncomeSourceAnalyticsOut(BaseModel):
+    """Per-source lifetime analytics computed from durable source links."""
+    id: int
+    name: str
+    is_active: bool
+    # Promise-level aggregates (EARNED promises only)
+    promise_count: int
+    lifetime_expected: int          # sum of original_amount across all earned promises
+    lifetime_received: int          # sum of received across all earned promise schedules
+    outstanding_expected: int       # sum of remaining across active earned schedules
+    # Money In entries linked via entity leg income_source_id (all time)
+    entry_count: int
+    entry_total_received: int
+    # Derived reliability metric: received / (received + outstanding) for active promises
+    reliability_pct: float | None   # None when there are no active promises
+    # Linked promises (summary list for display)
+    promise_ids: list[int]
+    # Timestamps
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class IncomeWalletAllocationIn(BaseModel):
     wallet_id: int
     amount: int = Field(gt=0)
