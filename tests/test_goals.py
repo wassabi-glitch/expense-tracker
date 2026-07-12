@@ -3385,6 +3385,74 @@ def test_create_goal_rejects_when_active_limit_is_reached(client, session):
     assert blocked.json()["detail"] == "goals.active_limit_reached"
 
 
+def test_archived_goal_rejects_money_actions_for_each_intent(client):
+    headers = create_user_and_token(
+        client, "archivedmoney", "archivedmoney@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers)
+
+    reserve = client.post(
+        "/goals/",
+        json={"title": "Arch reserve", "target_amount": 300_000, "intent": "RESERVE"},
+        headers=headers,
+    )
+    assert reserve.status_code == 201, reserve.text
+    reserve_id = reserve.json()["id"]
+
+    purchase = client.post(
+        "/goals/",
+        json={"title": "Arch purchase", "target_amount": 300_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    assert purchase.status_code == 201, purchase.text
+    purchase_id = purchase.json()["id"]
+
+    for goal_id in [reserve_id, purchase_id]:
+        archived = client.post(f"/goals/{goal_id}/archive", headers=headers)
+        assert archived.status_code == 200, archived.text
+        assert archived.json()["status"] == "ARCHIVED"
+
+        allocate = client.post(
+            f"/goals/{goal_id}/allocations",
+            json={"wallet_id": wallet_id, "amount": 100_000},
+            headers=headers,
+        )
+        assert allocate.status_code == 400, allocate.text
+        assert allocate.json()["detail"] == "goals.archived_read_only"
+
+
+def test_delete_goal_requires_archived_and_empty(client):
+    headers = create_user_and_token(
+        client, "deletesafety", "deletesafety@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers)
+
+    active = client.post(
+        "/goals/",
+        json={"title": "Active goal", "target_amount": 300_000, "intent": "RESERVE"},
+        headers=headers,
+    )
+    assert active.status_code == 201, active.text
+    goal_id = active.json()["id"]
+
+    delete_active = client.delete(f"/goals/{goal_id}", headers=headers)
+    assert delete_active.status_code == 400, delete_active.text
+    assert delete_active.json()["detail"] == "goals.delete_requires_archived"
+
+    client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 100_000},
+        headers=headers,
+    )
+    archived = client.post(f"/goals/{goal_id}/archive", headers=headers)
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["funded_amount"] == 0  # archived releases funds
+
+    # Now safe to delete
+    deleted = client.delete(f"/goals/{goal_id}", headers=headers)
+    assert deleted.status_code == 204, deleted.text
+
+
 def test_goal_write_rate_limit_blocks_excess_requests(client):
     try:
         for key in redis_client.scan_iter("tb:goals_lifecycle_write:*"):

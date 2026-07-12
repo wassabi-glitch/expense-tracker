@@ -122,21 +122,21 @@ Assumption: Epic 1 ledger foundation and Epic 2 Debt/Payment Plan obligation beh
 
 **Blocked by:** Ticket 2: Derive Goal time state outside stored status.
 
-- [ ] Pay Obligation Goal creation requires exactly one supported payable obligation target.
-- [ ] Pay Obligation Goal creation rejects receivable Debts.
-- [ ] Pay Obligation Goal creation rejects closed, archived, or otherwise ineligible obligation targets.
-- [ ] Only one active Pay Obligation Goal may exist for the same obligation target.
-- [ ] Full-remaining tracking normalizes target amount from the linked obligation.
-- [ ] Fixed target tracking validates the target amount against the linked obligation.
-- [ ] Pay Obligation target date is inherited or normalized from the linked obligation target when available.
-- [ ] Users cannot create a separate Goal-owned overdue status for Pay Obligation Goals.
-- [ ] Pay Obligation list/detail responses expose linked obligation context needed for urgency without storing Goal overdue state.
-- [ ] Paying from a Pay Obligation Goal reduces the linked Debt or Payment Plan through existing obligation behavior.
-- [ ] A completed or settled target updates Goal progress and status according to the active contract.
-- [ ] Reversal or obligation balance changes resync Goal target/progress where existing obligation behavior supports it.
-- [ ] Tests prove receivable Debts are rejected.
-- [ ] Tests prove duplicate active Pay Obligation Goals are rejected.
-- [ ] Tests prove linked Debt or Payment Plan urgency stays outside Goal stored status.
+- [x] Pay Obligation Goal creation requires exactly one supported payable obligation target.
+- [x] Pay Obligation Goal creation rejects receivable Debts.
+- [x] Pay Obligation Goal creation rejects closed, archived, or otherwise ineligible obligation targets.
+- [x] Only one active Pay Obligation Goal may exist for the same obligation target.
+- [x] Full-remaining tracking normalizes target amount from the linked obligation.
+- [x] Fixed target tracking validates the target amount against the linked obligation.
+- [x] Pay Obligation target date is inherited or normalized from the linked obligation target when available.
+- [x] Users cannot create a separate Goal-owned overdue status for Pay Obligation Goals.
+- [x] Pay Obligation list/detail responses expose linked obligation context needed for urgency without storing Goal overdue state.
+- [x] Paying from a Pay Obligation Goal reduces the linked Debt or Payment Plan through existing obligation behavior.
+- [x] A completed or settled target updates Goal progress and status according to the active contract.
+- [x] Reversal or obligation balance changes resync Goal target/progress where existing obligation behavior supports it.
+- [x] Tests prove receivable Debts are rejected.
+- [x] Tests prove duplicate active Pay Obligation Goals are rejected.
+- [x] Tests prove linked Debt or Payment Plan urgency stays outside Goal stored status.
 
 ## Ticket 6: Harden Goal Archive, Restore, Delete, And Read-Only Rules
 
@@ -148,18 +148,18 @@ Assumption: Epic 1 ledger foundation and Epic 2 Debt/Payment Plan obligation beh
 - Ticket 4: Enforce Planned Purchase Goal lifecycle.
 - Ticket 5: Enforce Pay Obligation Goal lifecycle.
 
-- [ ] Users can archive active Reserve, Planned Purchase, and Pay Obligation Goals when allowed by the active contract.
-- [ ] Archiving returns or releases loose protected Goal money according to established funding rules.
-- [ ] Archived Goals are hidden from normal active lists unless the user asks for archived records.
-- [ ] Archived Goals are read-only for allocate, return, use reserve, record purchase, and pay-obligation payment actions.
-- [ ] Restoring a Goal clears archive state without changing its financial history.
-- [ ] Restored Goals recompute progress and derived display state from current facts.
-- [ ] Permanent delete requires archived status.
-- [ ] Permanent delete requires no protected money remains in the Goal.
-- [ ] Permanent delete requires no consumed/released history that makes deletion unsafe under the active contract.
-- [ ] Error messages distinguish archived-read-only, restore-required, delete-requires-archived, and delete-requires-empty cases.
-- [ ] Tests cover archive, restore, and delete for each active core intent.
-- [ ] Tests prove archived Goals cannot be mutated by money actions.
+- [x] Users can archive active Reserve, Planned Purchase, and Pay Obligation Goals when allowed by the active contract.
+- [x] Archiving returns or releases loose protected Goal money according to established funding rules.
+- [x] Archived Goals are hidden from normal active lists unless the user asks for archived records.
+- [x] Archived Goals are read-only for allocate, return, use reserve, record purchase, and pay-obligation payment actions.
+- [x] Restoring a Goal clears archive state without changing its financial history.
+- [x] Restored Goals recompute progress and derived display state from current facts.
+- [x] Permanent delete requires archived status.
+- [x] Permanent delete requires no protected money remains in the Goal.
+- [x] Permanent delete requires no consumed/released history that makes deletion unsafe under the active contract.
+- [x] Error messages distinguish archived-read-only, restore-required, delete-requires-archived, and delete-requires-empty cases.
+- [x] Tests cover archive, restore, and delete for each active core intent.
+- [x] Tests prove archived Goals cannot be mutated by money actions.
 
 ## Ticket 7: Align Goal UI With The Intent Matrix
 
