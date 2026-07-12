@@ -82,17 +82,17 @@ Assumption: Epic 1 ledger foundation and Epic 2 Debt/Payment Plan obligation beh
 
 **Blocked by:** Ticket 2: Derive Goal time state outside stored status.
 
-- [ ] Reserve Goal creation ignores, rejects, or clears target-date input according to the final API contract.
-- [ ] Reserve Goal update does not allow adding a target date that creates urgency.
-- [ ] Reserve Goal list/detail responses return no time-derived urgency state.
-- [ ] Funding a Reserve Goal to its target keeps status `ACTIVE`.
-- [ ] Funding a Reserve Goal above target follows existing funding-limit rules without completing the Goal.
-- [ ] Using protected reserve money does not complete the Goal.
-- [ ] Returning protected reserve money reopens availability according to the existing funding rules.
-- [ ] Reserve Goal primary action is a reserve-use action, not complete, graduate, or purchase.
-- [ ] Archived Reserve Goals are read-only until restored.
-- [ ] Tests prove reaching target does not change Reserve status to `COMPLETED`.
-- [ ] Tests prove Reserve Goals cannot become overdue.
+- [x] Reserve Goal creation ignores, rejects, or clears target-date input according to the final API contract.
+- [x] Reserve Goal update does not allow adding a target date that creates urgency.
+- [x] Reserve Goal list/detail responses return no time-derived urgency state.
+- [x] Funding a Reserve Goal to its target keeps status `ACTIVE`.
+- [x] Funding a Reserve Goal above target follows existing funding-limit rules without completing the Goal.
+- [x] Using protected reserve money does not complete the Goal.
+- [x] Returning protected reserve money reopens availability according to the existing funding rules.
+- [x] Reserve Goal primary action is a reserve-use action, not complete, graduate, or purchase.
+- [x] Archived Reserve Goals are read-only until restored.
+- [x] Tests prove reaching target does not change Reserve status to `COMPLETED`.
+- [x] Tests prove Reserve Goals cannot become overdue.
 - [ ] Frontend tests prove Reserve target-date controls are hidden or disabled.
 
 ## Ticket 4: Enforce Planned Purchase Goal Lifecycle
@@ -101,19 +101,19 @@ Assumption: Epic 1 ledger foundation and Epic 2 Debt/Payment Plan obligation beh
 
 **Blocked by:** Ticket 2: Derive Goal time state outside stored status.
 
-- [ ] Planned Purchase Goal creation accepts no target date or one optional target date.
-- [ ] Planned Purchase Goal update can edit the optional target date while the Goal remains editable.
-- [ ] A past target date never changes stored status away from `ACTIVE`.
-- [ ] A past target date can produce a soft display warning.
-- [ ] Planned Purchase Goal completion happens through the purchase-recording action.
-- [ ] Direct status updates cannot mark a Planned Purchase complete unless they follow the accepted product contract.
-- [ ] Recording a purchase links the resulting financial record to the Goal.
-- [ ] Recording a purchase consumes or releases protected Goal money according to existing funding rules.
-- [ ] Recording the same purchase twice is rejected.
-- [ ] Completed Planned Purchase Goals are read-only for purchase actions.
-- [ ] Archive and restore behavior works for active Planned Purchase Goals.
-- [ ] Tests prove target-date drift is display-only.
-- [ ] Tests prove purchase recording is the completion path.
+- [x] Planned Purchase Goal creation accepts no target date or one optional target date.
+- [x] Planned Purchase Goal update can edit the optional target date while the Goal remains editable.
+- [x] A past target date never changes stored status away from `ACTIVE`.
+- [x] A past target date can produce a soft display warning.
+- [x] Planned Purchase Goal completion happens through the purchase-recording action.
+- [x] Direct status updates cannot mark a Planned Purchase complete unless they follow the accepted product contract.
+- [x] Recording a purchase links the resulting financial record to the Goal.
+- [x] Recording a purchase consumes or releases protected Goal money according to existing funding rules.
+- [x] Recording the same purchase twice is rejected.
+- [x] Completed Planned Purchase Goals are read-only for purchase actions.
+- [x] Archive and restore behavior works for active Planned Purchase Goals.
+- [x] Tests prove target-date drift is display-only.
+- [x] Tests prove purchase recording is the completion path.
 - [ ] Frontend tests prove the primary action is record purchase and is disabled after completion.
 
 ## Ticket 5: Enforce Pay Obligation Goal Lifecycle

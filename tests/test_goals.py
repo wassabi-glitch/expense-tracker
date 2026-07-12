@@ -640,7 +640,6 @@ def test_reserve_and_pay_obligation_goals_have_no_time_state(client, session):
         json={
             "title": "Emergency fund",
             "target_amount": 1_000_000,
-            "target_date": (today - timedelta(days=5)).isoformat(),
             "intent": "RESERVE",
         },
         headers=headers,
@@ -649,6 +648,7 @@ def test_reserve_and_pay_obligation_goals_have_no_time_state(client, session):
     assert reserve.json()["status"] == "ACTIVE"
     assert reserve.json()["time_state"] is None
     assert reserve.json()["days_until_target"] is None
+    assert reserve.json()["target_date"] is None
 
     reserve_no_date = client.post(
         "/goals/",
@@ -1273,7 +1273,12 @@ def test_update_goal_allows_title_target_date_intent_and_template_changes(client
 
     created = client.post(
         "/goals/",
-        json={"title": "Bike", "target_amount": 1_000_000, "target_date": "2026-06-01"},
+        json={
+            "title": "Bike",
+            "target_amount": 1_000_000,
+            "target_date": "2026-06-01",
+            "intent": "PLANNED_PURCHASE",
+        },
         headers=headers,
     )
     goal_id = created.json()["id"]
@@ -1345,6 +1350,121 @@ def test_reserve_goal_reaching_target_stays_active(client):
     assert payload["remaining_amount"] == 0
     assert payload["progress_percent"] == 100
     assert payload["status"] == "ACTIVE"
+
+
+def test_reserve_goal_rejects_target_date_on_create_and_update(client):
+    headers = create_user_and_token(
+        client, "reservetarget", "reservetarget@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+    today = user_timezone_today()
+
+    created = client.post(
+        "/goals/",
+        json={
+            "title": "Bad reserve",
+            "target_amount": 500_000,
+            "target_date": today.isoformat(),
+            "intent": "RESERVE",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 400, created.text
+    assert created.json()["detail"] == "goals.reserve_target_date_not_allowed"
+
+    good = client.post(
+        "/goals/",
+        json={"title": "Good reserve", "target_amount": 500_000, "intent": "RESERVE"},
+        headers=headers,
+    )
+    assert good.status_code == 201, good.text
+    goal_id = good.json()["id"]
+    assert good.json()["target_date"] is None
+
+    update = client.patch(
+        f"/goals/{goal_id}",
+        json={"target_date": today.isoformat()},
+        headers=headers,
+    )
+    assert update.status_code == 400, update.text
+    assert update.json()["detail"] == "goals.reserve_target_date_not_allowed"
+
+
+def test_reserve_goal_rejects_direct_complete_status(client):
+    headers = create_user_and_token(
+        client, "reservenocomplete", "reservenocomplete@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={"title": "Never complete", "target_amount": 500_000, "intent": "RESERVE"},
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    goal_id = created.json()["id"]
+
+    update = client.patch(
+        f"/goals/{goal_id}",
+        json={"status": "COMPLETED"},
+        headers=headers,
+    )
+    assert update.status_code == 400, update.text
+    assert update.json()["detail"] == "goals.reserve_cannot_complete"
+
+
+def test_changing_intent_to_reserve_clears_target_date(client):
+    headers = create_user_and_token(
+        client, "changetoreserve", "changetoreserve@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+    today = user_timezone_today()
+
+    created = client.post(
+        "/goals/",
+        json={
+            "title": "Will become reserve",
+            "target_amount": 500_000,
+            "target_date": today.isoformat(),
+            "intent": "PLANNED_PURCHASE",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    goal_id = created.json()["id"]
+    assert created.json()["target_date"] is not None
+
+    update = client.patch(
+        f"/goals/{goal_id}",
+        json={"intent": "RESERVE"},
+        headers=headers,
+    )
+    assert update.status_code == 200, update.text
+    assert update.json()["intent"] == "RESERVE"
+    assert update.json()["target_date"] is None
+
+
+def test_planned_purchase_rejects_direct_complete_status(client):
+    headers = create_user_and_token(
+        client, "ppnocomplete", "ppnocomplete@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={"title": "New laptop", "target_amount": 800_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    goal_id = created.json()["id"]
+
+    update = client.patch(
+        f"/goals/{goal_id}",
+        json={"status": "COMPLETED"},
+        headers=headers,
+    )
+    assert update.status_code == 400, update.text
+    assert update.json()["detail"] == "goals.planned_purchase_complete_via_purchase"
 
 
 def test_old_goal_intents_are_rejected_by_api(client):

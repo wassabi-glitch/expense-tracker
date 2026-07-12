@@ -1433,6 +1433,11 @@ def create_goal(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="goals.fund_project_frozen",
         )
+    if payload.intent == models.GoalIntent.RESERVE and payload.target_date is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="goals.reserve_target_date_not_allowed",
+        )
     _ensure_active_goal_capacity(db, current_user.id)
     _validate_goal_links(db, current_user.id, payload)
     target_amount = int(payload.target_amount)
@@ -1526,6 +1531,11 @@ def update_goal(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="goals.fund_project_frozen",
         )
+    if next_intent == models.GoalIntent.RESERVE and "target_date" in payload.model_fields_set:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="goals.reserve_target_date_not_allowed",
+        )
     next_debt_id = (
         payload.linked_debt_id
         if "linked_debt_id" in payload.model_fields_set
@@ -1579,6 +1589,8 @@ def update_goal(
         goal.currency = payload.currency
     if "intent" in payload.model_fields_set and payload.intent is not None:
         goal.intent = payload.intent
+        if goal.intent == models.GoalIntent.RESERVE:
+            goal.target_date = None
     if "debt_goal_tracking_mode" in payload.model_fields_set or next_intent == models.GoalIntent.PAY_OBLIGATION:
         goal.debt_goal_tracking_mode = normalized_debt_goal_mode if next_intent == models.GoalIntent.PAY_OBLIGATION else None
     if "template" in payload.model_fields_set:
@@ -1601,6 +1613,20 @@ def update_goal(
             goal.linked_expense_event_id = payload.linked_expense_event_id
     if "target_date" in payload.model_fields_set:
         goal.target_date = payload.target_date
+    if (
+        "status" in payload.model_fields_set
+        and payload.status == models.GoalStatus.COMPLETED
+    ):
+        if goal.intent == models.GoalIntent.RESERVE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="goals.reserve_cannot_complete",
+            )
+        if goal.intent == models.GoalIntent.PLANNED_PURCHASE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="goals.planned_purchase_complete_via_purchase",
+            )
     if (
         "status" in payload.model_fields_set
         and payload.status is not None
