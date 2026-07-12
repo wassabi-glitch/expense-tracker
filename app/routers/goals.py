@@ -1428,6 +1428,11 @@ def create_goal(
     rate_headers = enforce_goal_lifecycle_write_rate_limit(current_user.id)
     for key, value in rate_headers.items():
         response.headers[key] = value
+    if payload.intent == models.GoalIntent.FUND_PROJECT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="goals.fund_project_frozen",
+        )
     _ensure_active_goal_capacity(db, current_user.id)
     _validate_goal_links(db, current_user.id, payload)
     target_amount = int(payload.target_amount)
@@ -1516,12 +1521,11 @@ def update_goal(
         if "intent" in payload.model_fields_set and payload.intent is not None
         else goal.intent
     )
-    if (
-        "status" in payload.model_fields_set
-        and payload.status == models.GoalStatus.COMPLETED
-        and next_intent == models.GoalIntent.FUND_PROJECT
-    ):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="goals.fund_project_cannot_complete")
+    if next_intent == models.GoalIntent.FUND_PROJECT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="goals.fund_project_frozen",
+        )
     next_debt_id = (
         payload.linked_debt_id
         if "linked_debt_id" in payload.model_fields_set

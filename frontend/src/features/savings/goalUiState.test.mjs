@@ -10,30 +10,55 @@ import {
 } from "./goalUiState.js";
 import { GOAL_MUTATION_INVALIDATION_KEYS } from "./goalQueryInvalidation.js";
 
-test("goal wizard exposes Fund Project and creates the backend intent payload", () => {
+test("goal wizard does not expose frozen Fund Project intent", () => {
   assert.equal(
-    GOAL_CREATE_CHOICE_COPY.some((choice) => choice.intent === "FUND_PROJECT" && choice.title === "Fund a project"),
+    GOAL_CREATE_CHOICE_COPY.some((choice) => choice.intent === "FUND_PROJECT"),
+    false,
+  );
+  assert.equal(GOAL_CREATE_CHOICE_COPY.length, 3);
+  assert.equal(
+    GOAL_CREATE_CHOICE_COPY.every((choice) =>
+      ["RESERVE", "PLANNED_PURCHASE", "PAY_OBLIGATION"].includes(choice.intent),
+    ),
     true,
+  );
+});
+
+test("goal creation payload builds correctly for active core intents", () => {
+  assert.deepEqual(
+    buildGoalCreatePayload({
+      title: "Emergency fund",
+      target_amount: 5_000_000,
+      target_date: null,
+      intent: "RESERVE",
+    }),
+    {
+      title: "Emergency fund",
+      target_amount: 5_000_000,
+      target_date: null,
+      intent: "RESERVE",
+      currency: "UZS",
+    },
   );
 
   assert.deepEqual(
     buildGoalCreatePayload({
-      title: "Kitchen remodel",
-      target_amount: 5_000_000,
-      target_date: "2026-09-30",
-      intent: "FUND_PROJECT",
+      title: "New laptop",
+      target_amount: 3_000_000,
+      target_date: "2026-12-31",
+      intent: "PLANNED_PURCHASE",
     }),
     {
-      title: "Kitchen remodel",
-      target_amount: 5_000_000,
-      target_date: "2026-09-30",
-      intent: "FUND_PROJECT",
+      title: "New laptop",
+      target_amount: 3_000_000,
+      target_date: "2026-12-31",
+      intent: "PLANNED_PURCHASE",
       currency: "UZS",
     },
   );
 });
 
-test("active Fund Project cards expose saving actions and project graduation only", () => {
+test("existing Fund Project cards are frozen read-only without saving actions", () => {
   const state = getGoalCardUiState(
     {
       id: 10,
@@ -47,17 +72,16 @@ test("active Fund Project cards expose saving actions and project graduation onl
   );
 
   assert.equal(state.intentLabel, "Project fund");
-  assert.equal(state.canReserve, true);
-  assert.equal(state.canUnreserve, true);
+  assert.equal(state.isReadOnly, true);
+  assert.equal(state.canReserve, false);
+  assert.equal(state.canUnreserve, false);
   assert.equal(state.canPreparePayment, false);
-  assert.deepEqual(state.primaryAction, {
-    kind: "graduate-project",
-    label: "Create project",
-    disabled: false,
-  });
+  assert.equal(state.canArchive, false);
+  assert.equal(state.primaryAction, null);
+  assert.match(state.intentDescription, /frozen/i);
 });
 
-test("graduated Fund Project cards are read-only history with a project route", () => {
+test("graduated Fund Project cards remain read-only frozen history", () => {
   const state = getGoalCardUiState(
     {
       id: 10,
@@ -71,36 +95,39 @@ test("graduated Fund Project cards are read-only history with a project route", 
     { eligibleWalletCount: 2, canPreparePayment: true },
   );
 
-  assert.equal(state.statusLabel, "Graduated to project");
   assert.equal(state.isReadOnly, true);
   assert.equal(state.canReserve, false);
   assert.equal(state.canUnreserve, false);
   assert.equal(state.canPreparePayment, false);
   assert.equal(state.canArchive, false);
-  assert.equal(state.primaryAction.kind, "open-project");
-  assert.equal(state.primaryAction.label, "View project");
-  assert.equal(state.primaryAction.disabled, false);
-  assert.match(state.intentDescription, /project top-ups/);
+  assert.equal(state.primaryAction, null);
+  assert.match(state.intentDescription, /frozen/i);
 });
 
-test("graduation confirmation builds isolated-project payload and navigation state", () => {
-  const goal = {
-    id: 10,
-    title: "Studio build",
-    target_date: "2026-09-30",
-  };
-
-  assert.deepEqual(buildFundProjectGraduationPayload(goal, "2026-07-06"), {
-    project_title: "Studio build",
-    start_date: "2026-07-06",
-    target_end_date: "2026-09-30",
-    is_isolated: true,
+test("active core intents have correct primary actions", () => {
+  const reserveState = getGoalCardUiState({
+    intent: "RESERVE",
+    status: "ACTIVE",
+    unreleased_amount: 500_000,
+    funding_sources: [{ wallet_id: 1, unreleased_amount: 500_000 }],
   });
+  assert.equal(reserveState.primaryAction.kind, "use-reserve");
 
-  assert.deepEqual(buildFundProjectNavigationState({ id: 44 }, goal), {
-    projectId: 44,
-    originGoalId: 10,
+  const purchaseState = getGoalCardUiState({
+    intent: "PLANNED_PURCHASE",
+    status: "ACTIVE",
+    unreleased_amount: 500_000,
+    funding_sources: [{ wallet_id: 1, unreleased_amount: 500_000 }],
   });
+  assert.equal(purchaseState.primaryAction.kind, "record-purchase");
+
+  const obligationState = getGoalCardUiState({
+    intent: "PAY_OBLIGATION",
+    status: "ACTIVE",
+    unreleased_amount: 500_000,
+    funding_sources: [{ wallet_id: 1, unreleased_amount: 500_000 }],
+  });
+  assert.equal(obligationState.primaryAction.kind, "make-payment");
 });
 
 test("goal mutations refresh stale project, budget, wallet, and goal surfaces", () => {

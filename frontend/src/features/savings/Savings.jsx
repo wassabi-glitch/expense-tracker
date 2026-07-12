@@ -66,7 +66,6 @@ const GOAL_CREATE_ICONS = {
   RESERVE: ShieldAlert,
   PLANNED_PURCHASE: Target,
   PAY_OBLIGATION: ArrowRightLeft,
-  FUND_PROJECT: BriefcaseBusiness,
 };
 
 const GOAL_ACTION_ICONS = {
@@ -1041,7 +1040,6 @@ export default function Savings() {
       if (goalForm.intent === "RESERVE") return "What kind of money are you setting aside?";
       if (goalForm.intent === "PLANNED_PURCHASE") return "What are you planning to buy?";
       if (goalForm.intent === "PAY_OBLIGATION") return "What kind of obligation is this?";
-      if (goalForm.intent === "FUND_PROJECT") return "What project are you funding?";
       return "Tell us more";
     }
     if (createGoalStep === 3) {
@@ -1353,13 +1351,6 @@ export default function Savings() {
       openUseGoal(goal);
       return;
     }
-    if (goal.intent === "FUND_PROJECT") {
-      if (goal.status === "GRADUATED" && goal.linked_project_id) {
-        navigate("/budgets", { state: { projectId: goal.linked_project_id, originGoalId: goal.id } });
-        return;
-      }
-      setGraduateTarget(goal);
-    }
   };
 
   const canContinuePaymentStep = paymentRows.length > 0 &&
@@ -1445,23 +1436,6 @@ export default function Savings() {
             className="h-11 rounded-md text-base"
           />
           <p className="text-xs text-muted-foreground">This goal is for one planned purchase. You will record the real purchase later.</p>
-        </div>
-      );
-    }
-
-    if (createGoalStep === 2 && goalForm.intent === "FUND_PROJECT") {
-      return (
-        <div className="space-y-2">
-          <label className="text-sm font-medium">What project are you preparing for?</label>
-          <Input
-            value={goalForm.title}
-            onChange={(event) => setGoalForm((prev) => ({ ...prev, title: event.target.value }))}
-            placeholder="Wedding, renovation, launch..."
-            className="h-11 rounded-md text-base"
-          />
-          <p className="text-xs text-muted-foreground">
-            This is the saving phase. When you are ready to begin, create an isolated project and the reserved money becomes its stash.
-          </p>
         </div>
       );
     }
@@ -1570,8 +1544,6 @@ export default function Savings() {
           />
           {goalForm.intent === "RESERVE" ? (
             <p className="text-xs text-muted-foreground">Reaching this amount means the money is fully set aside. The goal can stay open.</p>
-          ) : goalForm.intent === "FUND_PROJECT" ? (
-            <p className="text-xs text-muted-foreground">Use the amount you want to prepare before this becomes an isolated project stash.</p>
           ) : (
             <p className="text-xs text-muted-foreground">Use the amount you expect to need for this purchase.</p>
           )}

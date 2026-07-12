@@ -28,11 +28,6 @@ export const GOAL_CREATE_CHOICE_COPY = [
     title: "Save toward a debt",
     description: "Prepare money for a debt you owe someone.",
   },
-  {
-    intent: "FUND_PROJECT",
-    title: "Fund a project",
-    description: "Build a saving-phase stash for a multi-expense project, then graduate it when you are ready to start.",
-  },
 ];
 
 export function buildGoalCreatePayload(parsedGoal, { linkedDebtId } = {}) {
@@ -66,12 +61,7 @@ export function getGoalIntentAction(goal) {
   if (goal?.intent === "RESERVE") return { kind: "use-reserve", label: "Use reserve" };
   if (goal?.intent === "PLANNED_PURCHASE") return { kind: "record-purchase", label: "Record purchase" };
   if (goal?.intent === "PAY_OBLIGATION") return { kind: "make-payment", label: "Make payment" };
-  if (goal?.intent === "FUND_PROJECT") {
-    if (goal.status === "GRADUATED") {
-      return { kind: "open-project", label: "View project" };
-    }
-    return { kind: "graduate-project", label: "Create project" };
-  }
+  if (goal?.intent === "FUND_PROJECT") return null;
   return null;
 }
 
@@ -82,33 +72,32 @@ export function getGoalCardUiState(goal, { eligibleWalletCount = 0, canPreparePa
   const unreleasedAmount = Number(goal?.unreleased_amount || 0);
   const fundingSourceCount = (goal?.funding_sources || []).length;
   const action = getGoalIntentAction(goal);
-  const isGraduatedFundProject = intent === "FUND_PROJECT" && status === "GRADUATED";
+  const isFrozenFundProject = intent === "FUND_PROJECT";
   const isPlannedPurchaseRecorded = intent === "PLANNED_PURCHASE" && status === "COMPLETED" && Boolean(goal?.linked_expense_event_id);
 
   const primaryActionDisabled =
     !action ||
-    (intent === "FUND_PROJECT" && isGraduatedFundProject && !goal?.linked_project_id) ||
-    (intent === "FUND_PROJECT" && !isActive && !isGraduatedFundProject) ||
+    isFrozenFundProject ||
     (intent === "PLANNED_PURCHASE" && (!isActive || isPlannedPurchaseRecorded || unreleasedAmount <= 0)) ||
     (intent === "RESERVE" && (!isActive || unreleasedAmount <= 0)) ||
     (intent === "PAY_OBLIGATION" && (!isActive || unreleasedAmount <= 0));
 
   return {
     intentLabel: GOAL_INTENT_LABELS[intent] || String(intent).replaceAll("_", " ").toLowerCase(),
-    intentDescription: isGraduatedFundProject
-      ? "This saving-phase goal became an isolated project. Future funding belongs in project top-ups."
+    intentDescription: isFrozenFundProject
+      ? "Fund Project is frozen. Existing records are read-only."
       : GOAL_INTENT_DESCRIPTIONS[intent] || "",
-    statusLabel: isGraduatedFundProject ? "Graduated to project" : status,
-    canReserve: isActive && eligibleWalletCount > 0,
-    canUnreserve: isActive && fundingSourceCount > 0,
+    statusLabel: status,
+    canReserve: isActive && !isFrozenFundProject && eligibleWalletCount > 0,
+    canUnreserve: isActive && !isFrozenFundProject && fundingSourceCount > 0,
     canPreparePayment:
       ["PLANNED_PURCHASE", "PAY_OBLIGATION", "RESERVE"].includes(intent) &&
       isActive &&
       unreleasedAmount > 0 &&
       fundingSourceCount > 0 &&
       canPreparePayment,
-    canArchive: !isGraduatedFundProject,
-    isReadOnly: isGraduatedFundProject || status === "ARCHIVED",
+    canArchive: !isFrozenFundProject,
+    isReadOnly: isFrozenFundProject || status === "ARCHIVED",
     primaryAction: action
       ? {
           ...action,
