@@ -2220,7 +2220,6 @@ def test_receivable_promise_reschedule_creates_multiple_schedules(client):
     via the reschedule flow."""
     headers = create_user_and_token(client, "t8split", "t8split@example.com", "Password123!")
     today = user_timezone_today()
-    wallet = _wallet(client, headers)
 
     debt = client.post(
         "/debts",

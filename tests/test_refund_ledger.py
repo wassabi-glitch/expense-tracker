@@ -515,7 +515,6 @@ def test_money_in_totals_distinguish_income_from_refunds(client):
         headers=headers,
     )
     assert refund_resp.status_code == 201, refund_resp.text
-    refund_title = refund_resp.json()["title"]
 
     money_in = client.get("/money-in", headers=headers)
     assert money_in.status_code == 200, money_in.text
