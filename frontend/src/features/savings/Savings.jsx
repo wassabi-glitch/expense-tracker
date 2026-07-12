@@ -1633,6 +1633,15 @@ export default function Savings() {
       );
     }
 
+    if (createGoalStep === 4 && goalForm.intent === "RESERVE") {
+      return (
+        <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
+          <p className="font-semibold text-foreground">No deadline needed</p>
+          <p className="mt-1">Reserve funds stay open as long as you want. You decide when to use the money.</p>
+        </div>
+      );
+    }
+
     if (createGoalStep === 4) {
       return (
         <div className="space-y-2">

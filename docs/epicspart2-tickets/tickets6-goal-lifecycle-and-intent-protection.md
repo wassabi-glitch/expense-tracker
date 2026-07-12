@@ -173,18 +173,18 @@ Assumption: Epic 1 ledger foundation and Epic 2 Debt/Payment Plan obligation beh
 - Ticket 5: Enforce Pay Obligation Goal lifecycle.
 - Ticket 6: Harden Goal archive, restore, delete, and read-only rules.
 
-- [ ] Goal creation choices are limited to Reserve, Planned Purchase, and Pay Obligation.
-- [ ] Reserve creation hides or disables target-date input.
-- [ ] Planned Purchase creation shows optional target-date input.
-- [ ] Pay Obligation creation requires choosing an eligible payable Debt or Payment Plan target.
-- [ ] Goal cards show stored status separately from derived time/display badges.
-- [ ] Reserve cards never show overdue or completed because of target progress.
-- [ ] Planned Purchase cards can show soft past-target copy while status remains active.
-- [ ] Pay Obligation cards show linked obligation urgency without presenting Goal-owned overdue state.
-- [ ] Primary actions are Use reserve, Record purchase, and Make payment for the three active intents.
-- [ ] Primary actions are disabled with useful reasons when the Goal has no protected money, is archived, is completed, or lacks an eligible linked target.
-- [ ] No active Goal UI text mentions isolated project stash, project graduation, create project, project top-up, or release to project.
-- [ ] Frontend tests cover creation choices, target-date controls, card state, primary actions, disabled states, and frozen Project suppression.
+- [x] Goal creation choices are limited to Reserve, Planned Purchase, and Pay Obligation.
+- [x] Reserve creation hides or disables target-date input.
+- [x] Planned Purchase creation shows optional target-date input.
+- [x] Pay Obligation creation requires choosing an eligible payable Debt or Payment Plan target.
+- [x] Goal cards show stored status separately from derived time/display badges.
+- [x] Reserve cards never show overdue or completed because of target progress.
+- [x] Planned Purchase cards can show soft past-target copy while status remains active.
+- [x] Pay Obligation cards show linked obligation urgency without presenting Goal-owned overdue state.
+- [x] Primary actions are Use reserve, Record purchase, and Make payment for the three active intents.
+- [x] Primary actions are disabled with useful reasons when the Goal has no protected money, is archived, is completed, or lacks an eligible linked target.
+- [x] No active Goal UI text mentions isolated project stash, project graduation, create project, project top-up, or release to project.
+- [x] Frontend tests cover creation choices, target-date controls, card state, primary actions, disabled states, and frozen Project suppression.
 
 ## Ticket 8: Finish Epic 6 Lifecycle Regression Coverage
 
@@ -195,14 +195,14 @@ Assumption: Epic 1 ledger foundation and Epic 2 Debt/Payment Plan obligation beh
 - Ticket 6: Harden Goal archive, restore, delete, and read-only rules.
 - Ticket 7: Align Goal UI with the intent matrix.
 
-- [ ] Backend route tests cover create, update, list, archive, restore, delete, allocate, return, use reserve, record purchase, and pay obligation for active core intents.
-- [ ] Backend tests prove no active Goal route stores or returns `OVERDUE` as status.
-- [ ] Backend tests prove derived display state is timezone-aware.
-- [ ] Backend tests prove Reserve target behavior, Planned Purchase completion behavior, and Pay Obligation linked-target behavior together.
-- [ ] Backend tests prove Fund Project creation/update/action paths are frozen or inaccessible from public active flows.
-- [ ] Frontend tests prove creation choices, controls, badges, actions, and disabled states match the backend contract.
-- [ ] Frontend tests prove no Isolated Project or Fund Project copy appears in active Goal flows.
-- [ ] Regression coverage includes at least one archived Goal case for each active core intent.
-- [ ] Regression coverage includes at least one completed Planned Purchase case and one paid Pay Obligation case.
-- [ ] Documentation reflects that ADR 0007, Fund Project graduation, and Isolated Project mechanics are excluded from Epic 6.
-- [ ] Docker backend tests and frontend build/test commands are run or clearly documented if unavailable.
+- [x] Backend route tests cover create, update, list, archive, restore, delete, allocate, return, use reserve, record purchase, and pay obligation for active core intents.
+- [x] Backend tests prove no active Goal route stores or returns `OVERDUE` as status.
+- [x] Backend tests prove derived display state is timezone-aware.
+- [x] Backend tests prove Reserve target behavior, Planned Purchase completion behavior, and Pay Obligation linked-target behavior together.
+- [x] Backend tests prove Fund Project creation/update/action paths are frozen or inaccessible from public active flows.
+- [x] Frontend tests prove creation choices, controls, badges, actions, and disabled states match the backend contract.
+- [x] Frontend tests prove no Isolated Project or Fund Project copy appears in active Goal flows.
+- [x] Regression coverage includes at least one archived Goal case for each active core intent.
+- [x] Regression coverage includes at least one completed Planned Purchase case and one paid Pay Obligation case.
+- [x] Documentation reflects that ADR 0007, Fund Project graduation, and Isolated Project mechanics are excluded from Epic 6.
+- [x] Docker backend tests and frontend build/test commands are run or clearly documented if unavailable.

@@ -3480,3 +3480,174 @@ def test_goal_write_rate_limit_blocks_excess_requests(client):
     assert blocked.status_code == 429
     assert "Retry-After" in blocked.headers
     assert blocked.json()["detail"] == "goals.write_rate_limited"
+
+
+def test_no_goal_route_returns_overdue_as_stored_status(client):
+    headers = create_user_and_token(
+        client, "nooverduestatus", "nooverduestatus@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+    today = user_timezone_today()
+
+    goals_to_create = [
+        {"title": "Reserve", "target_amount": 100_000, "intent": "RESERVE"},
+        {
+            "title": "Past purchase",
+            "target_amount": 100_000,
+            "target_date": (today - timedelta(days=30)).isoformat(),
+            "intent": "PLANNED_PURCHASE",
+        },
+        {
+            "title": "Future purchase",
+            "target_amount": 100_000,
+            "target_date": (today + timedelta(days=60)).isoformat(),
+            "intent": "PLANNED_PURCHASE",
+        },
+    ]
+
+    for payload in goals_to_create:
+        created = client.post("/goals/", json=payload, headers=headers)
+        assert created.status_code == 201, created.text
+        assert created.json()["status"] != "OVERDUE"
+
+    listed = client.get("/goals/", headers=headers)
+    assert listed.status_code == 200, listed.text
+    for goal in listed.json():
+        assert goal["status"] != "OVERDUE", f"Goal {goal['id']} has stored OVERDUE status"
+
+
+def test_planned_purchase_timezone_boundary_time_state(client):
+    headers_tashkent = create_user_and_token(
+        client, "tztashkent", "tztashkent@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers_tashkent)
+    today_tashkent = user_timezone_today()
+
+    due_tomorrow = client.post(
+        "/goals/",
+        json={
+            "title": "Due tomorrow TZ",
+            "target_amount": 200_000,
+            "target_date": (today_tashkent + timedelta(days=1)).isoformat(),
+            "intent": "PLANNED_PURCHASE",
+        },
+        headers=headers_tashkent,
+    )
+    assert due_tomorrow.status_code == 201, due_tomorrow.text
+    assert due_tomorrow.json()["time_state"] in ("due_soon", "on_track")
+    assert due_tomorrow.json()["status"] == "ACTIVE"
+
+    past_yesterday = client.post(
+        "/goals/",
+        json={
+            "title": "Past yesterday TZ",
+            "target_amount": 200_000,
+            "target_date": (today_tashkent - timedelta(days=1)).isoformat(),
+            "intent": "PLANNED_PURCHASE",
+        },
+        headers=headers_tashkent,
+    )
+    assert past_yesterday.status_code == 201, past_yesterday.text
+    assert past_yesterday.json()["time_state"] == "overdue"
+    assert past_yesterday.json()["status"] == "ACTIVE"
+
+
+def test_full_lifecycle_regression_reserve(client):
+    headers = create_user_and_token(
+        client, "lifecycler", "lifecycler@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers)
+
+    reserve = client.post(
+        "/goals/",
+        json={"title": "Lifecycle reserve", "target_amount": 300_000, "intent": "RESERVE"},
+        headers=headers,
+    )
+    assert reserve.status_code == 201, reserve.text
+    reserve_id = reserve.json()["id"]
+    assert reserve.json()["status"] == "ACTIVE"
+    assert reserve.json()["time_state"] is None
+
+    client.post(
+        f"/goals/{reserve_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 300_000},
+        headers=headers,
+    )
+    listed = client.get("/goals/", headers=headers)
+    reserve_goal = next(g for g in listed.json() if g["id"] == reserve_id)
+    assert reserve_goal["status"] == "ACTIVE"
+    assert reserve_goal["progress_percent"] == 100
+
+    archived = client.post(f"/goals/{reserve_id}/archive", headers=headers)
+    assert archived.status_code == 200
+    assert archived.json()["status"] == "ARCHIVED"
+
+    restored = client.post(f"/goals/{reserve_id}/restore", headers=headers)
+    assert restored.status_code == 200
+    assert restored.json()["status"] == "ACTIVE"
+
+    client.post(f"/goals/{reserve_id}/archive", headers=headers)
+    client.delete(f"/goals/{reserve_id}", headers=headers)
+
+
+def test_full_lifecycle_regression_planned_purchase(client):
+    headers = create_user_and_token(
+        client, "lifecyclepp", "lifecyclepp@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+
+    purchase = client.post(
+        "/goals/",
+        json={
+            "title": "Lifecycle purchase",
+            "target_amount": 200_000,
+            "target_date": (user_timezone_today() + timedelta(days=14)).isoformat(),
+            "intent": "PLANNED_PURCHASE",
+        },
+        headers=headers,
+    )
+    assert purchase.status_code == 201, purchase.text
+    purchase_id = purchase.json()["id"]
+    assert purchase.json()["time_state"] == "on_track"
+
+    archived = client.post(f"/goals/{purchase_id}/archive", headers=headers)
+    assert archived.status_code == 200
+    restored = client.post(f"/goals/{purchase_id}/restore", headers=headers)
+    assert restored.status_code == 200
+
+    client.post(f"/goals/{purchase_id}/archive", headers=headers)
+    client.delete(f"/goals/{purchase_id}", headers=headers)
+
+
+def test_full_lifecycle_regression_pay_obligation(client):
+    headers = create_user_and_token(
+        client, "lifecyclepo", "lifecyclepo@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+
+    debt_wallet = _create_wallet(client, headers, name="DebtLifecycle", initial_balance=500_000)
+    debt_res = _create_i_owe_debt(client, headers, debt_wallet, amount=200_000)
+    debt_id = debt_res["id"]
+
+    obligation = client.post(
+        "/goals/",
+        json={
+            "title": "Lifecycle obligation",
+            "target_amount": 200_000,
+            "intent": "PAY_OBLIGATION",
+            "linked_debt_id": debt_id,
+        },
+        headers=headers,
+    )
+    assert obligation.status_code == 201, obligation.text
+    obl_id = obligation.json()["id"]
+    assert obligation.json()["status"] == "ACTIVE"
+    assert obligation.json()["time_state"] is None
+
+    archived = client.post(f"/goals/{obl_id}/archive", headers=headers)
+    assert archived.status_code == 200
+    restored = client.post(f"/goals/{obl_id}/restore", headers=headers)
+    assert restored.status_code == 200
+
+    client.post(f"/goals/{obl_id}/archive", headers=headers)
+    client.delete(f"/goals/{obl_id}", headers=headers)
