@@ -12,8 +12,10 @@ import {
   previewPaymentPlanSchedule,
   recordPaymentPlanPayment,
   unarchivePaymentPlan,
+  undoLatestPaymentPlanCharge,
   undoLatestPaymentPlanPayment,
   updatePaymentPlan,
+  writeOffPaymentPlan,
   writeOffPaymentPlanPayment,
   undoPaymentPlanPaymentWriteOff,
 } from "@/lib/api";
@@ -197,5 +199,32 @@ export function useUnarchivePaymentPlanMutation() {
 export function usePreviewPaymentPlanScheduleMutation() {
   return useMutation({
     mutationFn: (payload) => previewPaymentPlanSchedule(payload),
+  });
+}
+
+export function useWriteOffPaymentPlanMutation() {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: ({ planId, payload }) => writeOffPaymentPlan(planId, payload),
+    onSuccess: async () => {
+      await invalidatePaymentPlanViews(queryClient);
+      toast.success(t("payment_plans.toasts.writtenOff", { defaultValue: "Plan written off" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error, t) || error.message;
+      toast.error(t("payment_plans.toasts.failedToWriteOff", { defaultValue: "Failed to write off plan" }), msg);
+    },
+  });
+}
+
+export function useUndoLatestPaymentPlanChargeMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (planId) => undoLatestPaymentPlanCharge(planId),
+    onSuccess: async () => {
+      await invalidatePaymentPlanViews(queryClient);
+    },
   });
 }

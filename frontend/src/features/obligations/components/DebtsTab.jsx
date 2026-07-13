@@ -256,6 +256,7 @@ function DebtCreationDialog({ open, onOpenChange, wallets, incomeSources }) {
   const [walletAllocations, setWalletAllocations] = useState(() => defaultWalletAllocation(activeArray(wallets)));
   const [expenseCategory, setExpenseCategory] = useState("");
   const [incomeSourceId, setIncomeSourceId] = useState("");
+  const [openingCharge, setOpeningCharge] = useState("");
   const [error, setError] = useState("");
 
   const activeWallets = activeArray(wallets);
@@ -369,6 +370,7 @@ function DebtCreationDialog({ open, onOpenChange, wallets, incomeSources }) {
       counterparty_kind: selectedReason.counterparty_kind,
       expense_category: selectedReason.requiresExpenseCategory ? expenseCategory : null,
       income_source_id: selectedReason.requiresIncomeSource ? Number(incomeSourceId) : null,
+      opening_charge_amount: parseAmountInput(openingCharge) || 0,
     };
 
     try {
@@ -511,6 +513,20 @@ function DebtCreationDialog({ open, onOpenChange, wallets, incomeSources }) {
                   />
                   <p className="text-xs text-muted-foreground">
                     {moneyMoved ? "This total is calculated from the wallet rows below." : "No wallet changed today, so enter the debt amount directly."}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label>Opening charges (optional)</Label>
+                  <Input
+                    value={openingCharge}
+                    onChange={(event) => setOpeningCharge(formatAmountInput(event.target.value, 15))}
+                    inputMode="numeric"
+                    placeholder="0"
+                    className="h-11 rounded-md text-base"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Upfront fees, interest, or charges present on day one.
+                    {debtAmount > 0 && parseAmountInput(openingCharge) > 0 ? ` Starting balance: ${formatUzs(debtAmount + parseAmountInput(openingCharge))} UZS.` : ""}
                   </p>
                 </div>
               </div>

@@ -63,12 +63,12 @@ Work the frontier: any ticket whose blockers are all done can start.
 
 **Blocked by:** Ticket 1: Show Payment Plan Derived State And Archive Visibility.
 
-- [ ] Row-level write-off supports full remaining and custom valid amount flows.
-- [ ] Plan-level write-off allocates across rows using backend waterfall behavior.
-- [ ] Write-off UI copy distinguishes waived or forgiven money from paid money.
-- [ ] Latest charge reversal is available when backend policy allows it.
-- [ ] Activity shows payments, charges, write-offs, and reversals distinctly.
-- [ ] Cache invalidation keeps list, detail, summary, and row state synchronized after each action.
+- [x] Row-level write-off supports full remaining and custom valid amount flows.
+- [x] Plan-level write-off allocates across rows using backend waterfall behavior.
+- [x] Write-off UI copy distinguishes waived or forgiven money from paid money.
+- [x] Latest charge reversal is available when backend policy allows it.
+- [x] Activity shows payments, charges, write-offs, and reversals distinctly.
+- [x] Cache invalidation keeps list, detail, summary, and row state synchronized after each action.
 - [ ] Tests cover row write-off, plan write-off, write-off undo, charge reversal, and no-wallet-effect behavior.
 
 ## Ticket 6: Wire Debt Creation Principal, Opening Charges, And Wallet Movement
@@ -77,11 +77,11 @@ Work the frontier: any ticket whose blockers are all done can start.
 
 **Blocked by:** None - can start immediately.
 
-- [ ] Debt creation exposes original principal separately from opening charges.
-- [ ] Starting Debt balance is previewed as principal plus opening charges.
-- [ ] Wallet movement remains optional for unpaid bills and imported balances.
-- [ ] Wallet movement can differ from the starting Debt balance when the real-world event requires it.
-- [ ] Creation review explains what balance is created and what wallet money moves today.
+- [x] Debt creation exposes original principal separately from opening charges.
+- [x] Starting Debt balance is previewed as principal plus opening charges.
+- [x] Wallet movement remains optional for unpaid bills and imported balances.
+- [x] Wallet movement can differ from the starting Debt balance when the real-world event requires it.
+- [x] Creation review explains what balance is created and what wallet money moves today.
 - [ ] Tests cover principal-only, principal-plus-charge, borrowed cash with fee, lent money with expected charge, unpaid service bill, and imported balance.
 
 ## Ticket 7: Wire Debt Component-Aware Payment Allocation
