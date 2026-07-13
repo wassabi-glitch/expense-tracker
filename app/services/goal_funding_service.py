@@ -660,7 +660,11 @@ def build_goal_with_progress(
     days_until_target = None
     time_state = None
     effective_today = today or date.today()
-    if goal.status == models.GoalStatus.ACTIVE and goal.target_date:
+    if (
+        goal.status == models.GoalStatus.ACTIVE
+        and goal.target_date
+        and goal.intent == models.GoalIntent.PLANNED_PURCHASE
+    ):
         days_until_target = (goal.target_date - effective_today).days
         if remaining_amount > 0:
             if days_until_target < 0:

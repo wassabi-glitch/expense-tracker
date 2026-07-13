@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
 
@@ -478,9 +478,9 @@ def test_goal_allocation_uses_wallet_available_without_changing_wallet_balance(c
     assert summary.json()["allocated_to_goals"] == 800_000
 
 
-def test_fund_project_goal_cannot_be_completed_through_update(client):
+def test_fund_project_goal_creation_is_frozen(client):
     headers = create_user_and_token(
-        client, "fundprojectcomplete", "fundprojectcomplete@example.com", "Password123!"
+        client, "fundprojectfrozen", "fundprojectfrozen@example.com", "Password123!"
     )
     _make_premium(client, headers)
 
@@ -489,24 +489,34 @@ def test_fund_project_goal_cannot_be_completed_through_update(client):
         json={"title": "Studio", "target_amount": 1_000_000, "intent": "FUND_PROJECT"},
         headers=headers,
     )
+    assert created.status_code == 400, created.text
+    assert created.json()["detail"] == "goals.fund_project_frozen"
+
+
+def test_fund_project_goal_update_cannot_change_intent_to_fund_project(client):
+    headers = create_user_and_token(
+        client, "fundprojectupdf", "fundprojectupdf@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={"title": "Original", "target_amount": 500_000, "intent": "RESERVE"},
+        headers=headers,
+    )
     assert created.status_code == 201, created.text
     goal_id = created.json()["id"]
 
-    completed = client.patch(
+    update = client.patch(
         f"/goals/{goal_id}",
-        json={"status": "COMPLETED"},
+        json={"intent": "FUND_PROJECT"},
         headers=headers,
     )
-    assert completed.status_code == 400
-    assert completed.json()["detail"] == "goals.fund_project_cannot_complete"
-
-    listed = client.get("/goals/", headers=headers)
-    assert listed.status_code == 200, listed.text
-    stored_goal = next(item for item in listed.json() if item["id"] == goal_id)
-    assert stored_goal["status"] == "ACTIVE"
+    assert update.status_code == 400, update.text
+    assert update.json()["detail"] == "goals.fund_project_frozen"
 
 
-def test_only_fund_project_goals_can_graduate_and_past_target_date_stays_derived(client):
+def test_only_fund_project_goals_can_graduate_and_past_target_date_stays_derived(client, session):
     headers = create_user_and_token(
         client, "fundprojectguards", "fundprojectguards@example.com", "Password123!"
     )
@@ -527,18 +537,18 @@ def test_only_fund_project_goals_can_graduate_and_past_target_date_stays_derived
     assert blocked.status_code == 400
     assert blocked.json()["detail"] == "goals.graduation_requires_fund_project"
 
-    fund_project = client.post(
-        "/goals/",
-        json={
-            "title": "Workshop",
-            "target_amount": 700_000,
-            "target_date": (today - timedelta(days=10)).isoformat(),
-            "intent": "FUND_PROJECT",
-        },
-        headers=headers,
+    user = session.query(models.User).filter(models.User.email == "fundprojectguards@example.com").first()
+    fund_project = models.Goals(
+        owner_id=user.id,
+        title="Workshop",
+        target_amount=700_000,
+        target_date=today - timedelta(days=10),
+        intent=models.GoalIntent.FUND_PROJECT,
+        status=models.GoalStatus.ACTIVE,
     )
-    assert fund_project.status_code == 201, fund_project.text
-    goal_id = fund_project.json()["id"]
+    session.add(fund_project)
+    session.commit()
+    goal_id = fund_project.id
 
     allocation = client.post(
         f"/goals/{goal_id}/allocations",
@@ -549,9 +559,9 @@ def test_only_fund_project_goals_can_graduate_and_past_target_date_stays_derived
 
     listed_before = client.get("/goals/", headers=headers)
     assert listed_before.status_code == 200, listed_before.text
-    overdue_goal = next(item for item in listed_before.json() if item["id"] == goal_id)
-    assert overdue_goal["status"] == "ACTIVE"
-    assert overdue_goal["time_state"] == "overdue"
+    listed_goal = next(item for item in listed_before.json() if item["id"] == goal_id)
+    assert listed_goal["status"] == "ACTIVE"
+    assert listed_goal["time_state"] is None  # FUND_PROJECT is frozen, no time state
 
     graduated = client.post(
         f"/goals/{goal_id}/graduate",
@@ -568,7 +578,106 @@ def test_only_fund_project_goals_can_graduate_and_past_target_date_stays_derived
     assert stored_goal["time_state"] is None
 
 
-def test_goal_graduation_is_owner_scoped(client):
+def test_planned_purchase_time_state_is_derived_from_user_timezone(client):
+    headers = create_user_and_token(
+        client, "pptimetz", "pptimetz@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+    today = user_timezone_today()
+
+    past_date = client.post(
+        "/goals/",
+        json={
+            "title": "Past target purchase",
+            "target_amount": 500_000,
+            "target_date": (today - timedelta(days=10)).isoformat(),
+            "intent": "PLANNED_PURCHASE",
+        },
+        headers=headers,
+    )
+    assert past_date.status_code == 201, past_date.text
+    assert past_date.json()["status"] == "ACTIVE"
+    assert past_date.json()["time_state"] == "overdue"
+
+    future_date = client.post(
+        "/goals/",
+        json={
+            "title": "Future target purchase",
+            "target_amount": 500_000,
+            "target_date": (today + timedelta(days=30)).isoformat(),
+            "intent": "PLANNED_PURCHASE",
+        },
+        headers=headers,
+    )
+    assert future_date.status_code == 201, future_date.text
+    assert future_date.json()["status"] == "ACTIVE"
+    assert future_date.json()["time_state"] == "on_track"
+
+    due_soon = client.post(
+        "/goals/",
+        json={
+            "title": "Due soon purchase",
+            "target_amount": 500_000,
+            "target_date": (today + timedelta(days=3)).isoformat(),
+            "intent": "PLANNED_PURCHASE",
+        },
+        headers=headers,
+    )
+    assert due_soon.status_code == 201, due_soon.text
+    assert due_soon.json()["status"] == "ACTIVE"
+    assert due_soon.json()["time_state"] == "due_soon"
+
+
+def test_reserve_and_pay_obligation_goals_have_no_time_state(client, session):
+    headers = create_user_and_token(
+        client, "notimestate", "notimestate@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+
+    reserve = client.post(
+        "/goals/",
+        json={
+            "title": "Emergency fund",
+            "target_amount": 1_000_000,
+            "intent": "RESERVE",
+        },
+        headers=headers,
+    )
+    assert reserve.status_code == 201, reserve.text
+    assert reserve.json()["status"] == "ACTIVE"
+    assert reserve.json()["time_state"] is None
+    assert reserve.json()["days_until_target"] is None
+    assert reserve.json()["target_date"] is None
+
+    reserve_no_date = client.post(
+        "/goals/",
+        json={"title": "Medical reserve", "target_amount": 500_000, "intent": "RESERVE"},
+        headers=headers,
+    )
+    assert reserve_no_date.status_code == 201, reserve_no_date.text
+    assert reserve_no_date.json()["time_state"] is None
+
+    # Create an OWING debt for pay-obligation goal using the existing helper
+    debt_wallet_id = _create_wallet(client, headers, name="DebtWallet", initial_balance=500_000)
+    debt_res = _create_i_owe_debt(client, headers, debt_wallet_id, amount=300_000, counterparty="Mom")
+    debt_id = debt_res["id"]
+
+    pay_obl = client.post(
+        "/goals/",
+        json={
+            "title": "Save for Mom loan",
+            "target_amount": 300_000,
+            "intent": "PAY_OBLIGATION",
+            "linked_debt_id": debt_id,
+        },
+        headers=headers,
+    )
+    assert pay_obl.status_code == 201, pay_obl.text
+    assert pay_obl.json()["status"] == "ACTIVE"
+    assert pay_obl.json()["time_state"] is None
+
+
+def test_goal_graduation_is_owner_scoped(client, session):
     owner_headers = create_user_and_token(
         client, "fundprojectowner", "fundprojectowner@example.com", "Password123!"
     )
@@ -579,15 +688,19 @@ def test_goal_graduation_is_owner_scoped(client):
     _make_premium(client, other_headers)
     today = user_timezone_today()
 
-    goal = client.post(
-        "/goals/",
-        json={"title": "Kitchen", "target_amount": 1_000_000, "intent": "FUND_PROJECT"},
-        headers=owner_headers,
+    owner_user = session.query(models.User).filter(models.User.email == "fundprojectowner@example.com").first()
+    goal = models.Goals(
+        owner_id=owner_user.id,
+        title="Kitchen",
+        target_amount=1_000_000,
+        intent=models.GoalIntent.FUND_PROJECT,
+        status=models.GoalStatus.ACTIVE,
     )
-    assert goal.status_code == 201, goal.text
+    session.add(goal)
+    session.commit()
 
     response = client.post(
-        f"/goals/{goal.json()['id']}/graduate",
+        f"/goals/{goal.id}/graduate",
         json={"project_title": "Kitchen project", "start_date": today.isoformat(), "is_isolated": True},
         headers=other_headers,
     )
@@ -602,13 +715,17 @@ def test_goal_graduation_validation_failure_leaves_no_partial_project(client, se
     wallet_id = _setup_premium_user_with_goal_wallet(client, headers, initial_balance=1_000_000)
     today = user_timezone_today()
 
-    goal = client.post(
-        "/goals/",
-        json={"title": "Patio", "target_amount": 800_000, "intent": "FUND_PROJECT"},
-        headers=headers,
+    user = session.query(models.User).filter(models.User.email == "fundprojectrollback@example.com").first()
+    goal = models.Goals(
+        owner_id=user.id,
+        title="Patio",
+        target_amount=800_000,
+        intent=models.GoalIntent.FUND_PROJECT,
+        status=models.GoalStatus.ACTIVE,
     )
-    assert goal.status_code == 201, goal.text
-    goal_id = goal.json()["id"]
+    session.add(goal)
+    session.commit()
+    goal_id = goal.id
 
     allocation = client.post(
         f"/goals/{goal_id}/allocations",
@@ -638,25 +755,25 @@ def test_goal_graduation_validation_failure_leaves_no_partial_project(client, se
     assert session.get(models.Goals, goal_id).status == models.GoalStatus.ACTIVE
 
 
-def test_fund_project_goal_graduates_early_with_funded_stash_and_reports_shortfall(client):
+def test_fund_project_goal_graduates_early_with_funded_stash_and_reports_shortfall(client, session):
     headers = create_user_and_token(
         client, "goalfundproject", "goalfundproject@example.com", "Password123!"
     )
     wallet_id = _setup_premium_user_with_goal_wallet(client, headers, initial_balance=2_000_000)
     today = user_timezone_today()
 
-    goal = client.post(
-        "/goals/",
-        json={
-            "title": "Wedding",
-            "target_amount": 1_000_000,
-            "target_date": "2026-12-31",
-            "intent": "FUND_PROJECT",
-        },
-        headers=headers,
+    user = session.query(models.User).filter(models.User.email == "goalfundproject@example.com").first()
+    goal = models.Goals(
+        owner_id=user.id,
+        title="Wedding",
+        target_amount=1_000_000,
+        target_date=date(2026, 12, 31),
+        intent=models.GoalIntent.FUND_PROJECT,
+        status=models.GoalStatus.ACTIVE,
     )
-    assert goal.status_code == 201, goal.text
-    goal_id = goal.json()["id"]
+    session.add(goal)
+    session.commit()
+    goal_id = goal.id
 
     allocation = client.post(
         f"/goals/{goal_id}/allocations",
@@ -1155,7 +1272,12 @@ def test_update_goal_allows_title_target_date_intent_and_template_changes(client
 
     created = client.post(
         "/goals/",
-        json={"title": "Bike", "target_amount": 1_000_000, "target_date": "2026-06-01"},
+        json={
+            "title": "Bike",
+            "target_amount": 1_000_000,
+            "target_date": "2026-06-01",
+            "intent": "PLANNED_PURCHASE",
+        },
         headers=headers,
     )
     goal_id = created.json()["id"]
@@ -1227,6 +1349,121 @@ def test_reserve_goal_reaching_target_stays_active(client):
     assert payload["remaining_amount"] == 0
     assert payload["progress_percent"] == 100
     assert payload["status"] == "ACTIVE"
+
+
+def test_reserve_goal_rejects_target_date_on_create_and_update(client):
+    headers = create_user_and_token(
+        client, "reservetarget", "reservetarget@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+    today = user_timezone_today()
+
+    created = client.post(
+        "/goals/",
+        json={
+            "title": "Bad reserve",
+            "target_amount": 500_000,
+            "target_date": today.isoformat(),
+            "intent": "RESERVE",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 400, created.text
+    assert created.json()["detail"] == "goals.reserve_target_date_not_allowed"
+
+    good = client.post(
+        "/goals/",
+        json={"title": "Good reserve", "target_amount": 500_000, "intent": "RESERVE"},
+        headers=headers,
+    )
+    assert good.status_code == 201, good.text
+    goal_id = good.json()["id"]
+    assert good.json()["target_date"] is None
+
+    update = client.patch(
+        f"/goals/{goal_id}",
+        json={"target_date": today.isoformat()},
+        headers=headers,
+    )
+    assert update.status_code == 400, update.text
+    assert update.json()["detail"] == "goals.reserve_target_date_not_allowed"
+
+
+def test_reserve_goal_rejects_direct_complete_status(client):
+    headers = create_user_and_token(
+        client, "reservenocomplete", "reservenocomplete@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={"title": "Never complete", "target_amount": 500_000, "intent": "RESERVE"},
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    goal_id = created.json()["id"]
+
+    update = client.patch(
+        f"/goals/{goal_id}",
+        json={"status": "COMPLETED"},
+        headers=headers,
+    )
+    assert update.status_code == 400, update.text
+    assert update.json()["detail"] == "goals.reserve_cannot_complete"
+
+
+def test_changing_intent_to_reserve_clears_target_date(client):
+    headers = create_user_and_token(
+        client, "changetoreserve", "changetoreserve@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+    today = user_timezone_today()
+
+    created = client.post(
+        "/goals/",
+        json={
+            "title": "Will become reserve",
+            "target_amount": 500_000,
+            "target_date": today.isoformat(),
+            "intent": "PLANNED_PURCHASE",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    goal_id = created.json()["id"]
+    assert created.json()["target_date"] is not None
+
+    update = client.patch(
+        f"/goals/{goal_id}",
+        json={"intent": "RESERVE"},
+        headers=headers,
+    )
+    assert update.status_code == 200, update.text
+    assert update.json()["intent"] == "RESERVE"
+    assert update.json()["target_date"] is None
+
+
+def test_planned_purchase_rejects_direct_complete_status(client):
+    headers = create_user_and_token(
+        client, "ppnocomplete", "ppnocomplete@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+
+    created = client.post(
+        "/goals/",
+        json={"title": "New laptop", "target_amount": 800_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    goal_id = created.json()["id"]
+
+    update = client.patch(
+        f"/goals/{goal_id}",
+        json={"status": "COMPLETED"},
+        headers=headers,
+    )
+    assert update.status_code == 400, update.text
+    assert update.json()["detail"] == "goals.planned_purchase_complete_via_purchase"
 
 
 def test_old_goal_intents_are_rejected_by_api(client):
@@ -2342,13 +2579,17 @@ def test_fund_project_goal_cannot_prepare_payment_directly(client, session):
         can_fund_goals=False,
     )
 
-    goal = client.post(
-        "/goals/",
-        json={"title": "Kitchen remodel", "target_amount": 1_000_000, "intent": "FUND_PROJECT"},
-        headers=headers,
+    user = session.query(models.User).filter(models.User.email == "fundprojectnoprep@example.com").first()
+    goal = models.Goals(
+        owner_id=user.id,
+        title="Kitchen remodel",
+        target_amount=1_000_000,
+        intent=models.GoalIntent.FUND_PROJECT,
+        status=models.GoalStatus.ACTIVE,
     )
-    assert goal.status_code == 201, goal.text
-    goal_id = goal.json()["id"]
+    session.add(goal)
+    session.commit()
+    goal_id = goal.id
     assert client.post(
         f"/goals/{goal_id}/allocations",
         json={"wallet_id": source_id, "amount": 1_000_000},
@@ -3143,6 +3384,74 @@ def test_create_goal_rejects_when_active_limit_is_reached(client, session):
     assert blocked.json()["detail"] == "goals.active_limit_reached"
 
 
+def test_archived_goal_rejects_money_actions_for_each_intent(client):
+    headers = create_user_and_token(
+        client, "archivedmoney", "archivedmoney@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers)
+
+    reserve = client.post(
+        "/goals/",
+        json={"title": "Arch reserve", "target_amount": 300_000, "intent": "RESERVE"},
+        headers=headers,
+    )
+    assert reserve.status_code == 201, reserve.text
+    reserve_id = reserve.json()["id"]
+
+    purchase = client.post(
+        "/goals/",
+        json={"title": "Arch purchase", "target_amount": 300_000, "intent": "PLANNED_PURCHASE"},
+        headers=headers,
+    )
+    assert purchase.status_code == 201, purchase.text
+    purchase_id = purchase.json()["id"]
+
+    for goal_id in [reserve_id, purchase_id]:
+        archived = client.post(f"/goals/{goal_id}/archive", headers=headers)
+        assert archived.status_code == 200, archived.text
+        assert archived.json()["status"] == "ARCHIVED"
+
+        allocate = client.post(
+            f"/goals/{goal_id}/allocations",
+            json={"wallet_id": wallet_id, "amount": 100_000},
+            headers=headers,
+        )
+        assert allocate.status_code == 400, allocate.text
+        assert allocate.json()["detail"] == "goals.archived_read_only"
+
+
+def test_delete_goal_requires_archived_and_empty(client):
+    headers = create_user_and_token(
+        client, "deletesafety", "deletesafety@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers)
+
+    active = client.post(
+        "/goals/",
+        json={"title": "Active goal", "target_amount": 300_000, "intent": "RESERVE"},
+        headers=headers,
+    )
+    assert active.status_code == 201, active.text
+    goal_id = active.json()["id"]
+
+    delete_active = client.delete(f"/goals/{goal_id}", headers=headers)
+    assert delete_active.status_code == 400, delete_active.text
+    assert delete_active.json()["detail"] == "goals.delete_requires_archived"
+
+    client.post(
+        f"/goals/{goal_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 100_000},
+        headers=headers,
+    )
+    archived = client.post(f"/goals/{goal_id}/archive", headers=headers)
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["funded_amount"] == 0  # archived releases funds
+
+    # Now safe to delete
+    deleted = client.delete(f"/goals/{goal_id}", headers=headers)
+    assert deleted.status_code == 204, deleted.text
+
+
 def test_goal_write_rate_limit_blocks_excess_requests(client):
     try:
         for key in redis_client.scan_iter("tb:goals_lifecycle_write:*"):
@@ -3170,3 +3479,174 @@ def test_goal_write_rate_limit_blocks_excess_requests(client):
     assert blocked.status_code == 429
     assert "Retry-After" in blocked.headers
     assert blocked.json()["detail"] == "goals.write_rate_limited"
+
+
+def test_no_goal_route_returns_overdue_as_stored_status(client):
+    headers = create_user_and_token(
+        client, "nooverduestatus", "nooverduestatus@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+    today = user_timezone_today()
+
+    goals_to_create = [
+        {"title": "Reserve", "target_amount": 100_000, "intent": "RESERVE"},
+        {
+            "title": "Past purchase",
+            "target_amount": 100_000,
+            "target_date": (today - timedelta(days=30)).isoformat(),
+            "intent": "PLANNED_PURCHASE",
+        },
+        {
+            "title": "Future purchase",
+            "target_amount": 100_000,
+            "target_date": (today + timedelta(days=60)).isoformat(),
+            "intent": "PLANNED_PURCHASE",
+        },
+    ]
+
+    for payload in goals_to_create:
+        created = client.post("/goals/", json=payload, headers=headers)
+        assert created.status_code == 201, created.text
+        assert created.json()["status"] != "OVERDUE"
+
+    listed = client.get("/goals/", headers=headers)
+    assert listed.status_code == 200, listed.text
+    for goal in listed.json():
+        assert goal["status"] != "OVERDUE", f"Goal {goal['id']} has stored OVERDUE status"
+
+
+def test_planned_purchase_timezone_boundary_time_state(client):
+    headers_tashkent = create_user_and_token(
+        client, "tztashkent", "tztashkent@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers_tashkent)
+    today_tashkent = user_timezone_today()
+
+    due_tomorrow = client.post(
+        "/goals/",
+        json={
+            "title": "Due tomorrow TZ",
+            "target_amount": 200_000,
+            "target_date": (today_tashkent + timedelta(days=1)).isoformat(),
+            "intent": "PLANNED_PURCHASE",
+        },
+        headers=headers_tashkent,
+    )
+    assert due_tomorrow.status_code == 201, due_tomorrow.text
+    assert due_tomorrow.json()["time_state"] in ("due_soon", "on_track")
+    assert due_tomorrow.json()["status"] == "ACTIVE"
+
+    past_yesterday = client.post(
+        "/goals/",
+        json={
+            "title": "Past yesterday TZ",
+            "target_amount": 200_000,
+            "target_date": (today_tashkent - timedelta(days=1)).isoformat(),
+            "intent": "PLANNED_PURCHASE",
+        },
+        headers=headers_tashkent,
+    )
+    assert past_yesterday.status_code == 201, past_yesterday.text
+    assert past_yesterday.json()["time_state"] == "overdue"
+    assert past_yesterday.json()["status"] == "ACTIVE"
+
+
+def test_full_lifecycle_regression_reserve(client):
+    headers = create_user_and_token(
+        client, "lifecycler", "lifecycler@example.com", "Password123!"
+    )
+    wallet_id = _setup_premium_user_with_goal_wallet(client, headers)
+
+    reserve = client.post(
+        "/goals/",
+        json={"title": "Lifecycle reserve", "target_amount": 300_000, "intent": "RESERVE"},
+        headers=headers,
+    )
+    assert reserve.status_code == 201, reserve.text
+    reserve_id = reserve.json()["id"]
+    assert reserve.json()["status"] == "ACTIVE"
+    assert reserve.json()["time_state"] is None
+
+    client.post(
+        f"/goals/{reserve_id}/allocations",
+        json={"wallet_id": wallet_id, "amount": 300_000},
+        headers=headers,
+    )
+    listed = client.get("/goals/", headers=headers)
+    reserve_goal = next(g for g in listed.json() if g["id"] == reserve_id)
+    assert reserve_goal["status"] == "ACTIVE"
+    assert reserve_goal["progress_percent"] == 100
+
+    archived = client.post(f"/goals/{reserve_id}/archive", headers=headers)
+    assert archived.status_code == 200
+    assert archived.json()["status"] == "ARCHIVED"
+
+    restored = client.post(f"/goals/{reserve_id}/restore", headers=headers)
+    assert restored.status_code == 200
+    assert restored.json()["status"] == "ACTIVE"
+
+    client.post(f"/goals/{reserve_id}/archive", headers=headers)
+    client.delete(f"/goals/{reserve_id}", headers=headers)
+
+
+def test_full_lifecycle_regression_planned_purchase(client):
+    headers = create_user_and_token(
+        client, "lifecyclepp", "lifecyclepp@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+
+    purchase = client.post(
+        "/goals/",
+        json={
+            "title": "Lifecycle purchase",
+            "target_amount": 200_000,
+            "target_date": (user_timezone_today() + timedelta(days=14)).isoformat(),
+            "intent": "PLANNED_PURCHASE",
+        },
+        headers=headers,
+    )
+    assert purchase.status_code == 201, purchase.text
+    purchase_id = purchase.json()["id"]
+    assert purchase.json()["time_state"] == "on_track"
+
+    archived = client.post(f"/goals/{purchase_id}/archive", headers=headers)
+    assert archived.status_code == 200
+    restored = client.post(f"/goals/{purchase_id}/restore", headers=headers)
+    assert restored.status_code == 200
+
+    client.post(f"/goals/{purchase_id}/archive", headers=headers)
+    client.delete(f"/goals/{purchase_id}", headers=headers)
+
+
+def test_full_lifecycle_regression_pay_obligation(client):
+    headers = create_user_and_token(
+        client, "lifecyclepo", "lifecyclepo@example.com", "Password123!"
+    )
+    _setup_premium_user_with_goal_wallet(client, headers)
+
+    debt_wallet = _create_wallet(client, headers, name="DebtLifecycle", initial_balance=500_000)
+    debt_res = _create_i_owe_debt(client, headers, debt_wallet, amount=200_000)
+    debt_id = debt_res["id"]
+
+    obligation = client.post(
+        "/goals/",
+        json={
+            "title": "Lifecycle obligation",
+            "target_amount": 200_000,
+            "intent": "PAY_OBLIGATION",
+            "linked_debt_id": debt_id,
+        },
+        headers=headers,
+    )
+    assert obligation.status_code == 201, obligation.text
+    obl_id = obligation.json()["id"]
+    assert obligation.json()["status"] == "ACTIVE"
+    assert obligation.json()["time_state"] is None
+
+    archived = client.post(f"/goals/{obl_id}/archive", headers=headers)
+    assert archived.status_code == 200
+    restored = client.post(f"/goals/{obl_id}/restore", headers=headers)
+    assert restored.status_code == 200
+
+    client.post(f"/goals/{obl_id}/archive", headers=headers)
+    client.delete(f"/goals/{obl_id}", headers=headers)

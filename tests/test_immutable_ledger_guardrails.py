@@ -612,7 +612,6 @@ def test_goal_lifecycle_does_not_create_wallet_ledger_entries(client, session):
         json={
             "title": "Guardrail Goal",
             "target_amount": 500_000,
-            "target_date": user_timezone_today().isoformat(),
             "intent": "RESERVE",
         },
         headers=headers,

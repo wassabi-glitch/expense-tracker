@@ -1,0 +1,1294 @@
+# Planned Purchase Goal Settlement Specification
+
+## 1. Purpose
+
+This document defines how wallets, protected funds, and real payments must be handled when a `Planned Purchase` goal is completed.
+
+A Planned Purchase is a terminal goal created for one specific purchase. Once the purchase is made, the goal is completed and closed.
+
+Examples include:
+
+* buying a phone;
+* buying a laptop;
+* buying furniture;
+* buying an airline ticket;
+* buying a household appliance.
+
+A Planned Purchase payment must fall into exactly one of three settlement modes:
+
+1. `DIRECT`
+2. `OFF_WALLET`
+3. `MIXED`
+
+The user must not manually select the settlement mode. The application must derive it automatically from the relationship between funding wallets and payment wallets.
+
+---
+
+# 2. Core concepts
+
+## 2.1. Funding wallet
+
+A wallet that contains protected money assigned to the goal.
+
+Example:
+
+```text
+Wallet A → 500,000 protected
+```
+
+The protected 500,000 inside Wallet A is not considered free money and cannot be used for unrelated spending.
+
+## 2.2. Payment wallet
+
+A wallet from which money actually leaves when the purchase is made.
+
+Example:
+
+```text
+Wallet B → 500,000 payment
+```
+
+The real balance of Wallet B decreases by 500,000.
+
+## 2.3. Protected amount
+
+The amount inside a specific wallet that is reserved for the current goal.
+
+## 2.4. Free amount
+
+Money inside a wallet that is not protected by any goal or obligation and can therefore be used freely.
+
+## 2.5. Payment leg
+
+The portion of a purchase paid from one wallet.
+
+Example:
+
+```text
+Wallet A → 200,000
+Wallet B → 300,000
+Wallet C → 100,000
+```
+
+This is one purchase of 600,000 with three payment legs.
+
+---
+
+# 3. Mathematical notation
+
+For each wallet `i`:
+
+```text
+Fᵢ = remaining amount protected for this goal inside wallet i
+
+Pᵢ = amount paid from wallet i for this purchase
+
+Bᵢ = real wallet balance before settlement
+
+Hᵢ = amount protected inside wallet i for other goals or obligations
+```
+
+The wallet balance available for this transaction is:
+
+```text
+Spendableᵢ = Bᵢ − Hᵢ
+```
+
+The current Planned Purchase goal allocation must not be included in `Hᵢ`.
+
+Total funded amount:
+
+```text
+G = ΣFᵢ
+```
+
+Total payment amount:
+
+```text
+Q = ΣPᵢ
+```
+
+Set of funding wallets:
+
+```text
+F = {i | Fᵢ > 0}
+```
+
+Set of payment wallets:
+
+```text
+P = {i | Pᵢ > 0}
+```
+
+Wallets that both funded the goal and participated in the payment:
+
+```text
+D = F ∩ P
+```
+
+Wallets that did not fund the goal but participated in the payment:
+
+```text
+O = P \ F
+```
+
+Where:
+
+* `D` represents Direct payment wallets;
+* `O` represents OffWallet payment wallets.
+
+---
+
+# 4. Planned Purchase lifecycle rule
+
+The payment described by this specification is the final purchase settlement.
+
+After successful settlement:
+
+```text
+ACTIVE → COMPLETED
+```
+
+The goal must not remain active.
+
+Once the goal is completed:
+
+```text
+For every funding wallet:
+current goal protection → 0
+```
+
+No wallet may retain protected money for the completed goal.
+
+Any remaining real money stays inside its original wallet. No hidden real transfer is created.
+
+---
+
+# 5. Universal invariants
+
+The following rules apply to all three settlement modes.
+
+## 5.1. The goal must have funds
+
+```text
+G > 0
+```
+
+A goal with no protected funds cannot be settled.
+
+## 5.2. The payment must be positive
+
+```text
+Q > 0
+```
+
+A goal cannot be completed with a zero-value payment.
+
+## 5.3. Payment cannot exceed total funded amount
+
+```text
+Q ≤ G
+```
+
+Example:
+
+```text
+Total funded: 1,000,000
+Total payment: 1,200,000
+```
+
+This is invalid.
+
+The Planned Purchase can only be settled within its funded capacity.
+
+## 5.4. A funding wallet cannot directly pay more than it funded
+
+For every Direct wallet:
+
+```text
+Pᵢ ≤ Fᵢ
+```
+
+Example:
+
+```text
+Wallet A funded: 400,000
+Wallet A payment: 500,000
+```
+
+This is invalid, even when another funding wallet has unused protected money.
+
+Wallets must not silently cover each other’s local Direct limits.
+
+## 5.5. Every payment wallet must have sufficient real balance
+
+For every payment wallet:
+
+```text
+Pᵢ ≤ Spendableᵢ
+```
+
+The transaction must not consume money protected for other goals or obligations.
+
+## 5.6. Amounts cannot be negative
+
+```text
+Fᵢ ≥ 0
+Pᵢ ≥ 0
+Bᵢ ≥ 0
+Hᵢ ≥ 0
+```
+
+## 5.7. Settlement must be atomic
+
+All invariants must be validated before changing any state.
+
+If one invariant fails:
+
+* no wallet balance is changed;
+* no protection is released;
+* the goal is not completed;
+* no settlement transaction is created.
+
+## 5.8. Wallet order must not affect the result
+
+Classification and settlement results must remain identical regardless of the order in which wallets are provided.
+
+## 5.9. Wallet count is unlimited
+
+The same model must support:
+
+```text
+1 funding wallet + 1 payment wallet
+2 funding wallets + 7 payment wallets
+10 funding wallets + 3 payment wallets
+N funding wallets + M payment wallets
+```
+
+No business rule may depend on a specific wallet count.
+
+---
+
+# 6. Settlement mode classification
+
+The settlement mode is determined by the relationship between funding wallets and payment wallets, not by their count.
+
+## 6.1. DIRECT
+
+```text
+P ⊆ F
+```
+
+Equivalent form:
+
+```text
+O = ∅
+D ≠ ∅
+```
+
+Meaning:
+
+> Every payment wallet previously funded the goal.
+
+Some funding wallets may remain unused during the payment.
+
+## 6.2. OFF_WALLET
+
+```text
+F ∩ P = ∅
+```
+
+Equivalent form:
+
+```text
+D = ∅
+O ≠ ∅
+```
+
+Meaning:
+
+> None of the payment wallets funded the goal.
+
+## 6.3. MIXED
+
+```text
+D ≠ ∅
+O ≠ ∅
+```
+
+Meaning:
+
+> Some payment wallets funded the goal, while other payment wallets did not.
+
+## 6.4. Modes are mutually exclusive
+
+Every valid settlement must belong to exactly one mode.
+
+A settlement cannot simultaneously be Direct and Mixed, or OffWallet and Mixed.
+
+---
+
+# 7. DIRECT mode
+
+## 7.1. Definition
+
+In Direct mode, every payment wallet belongs to the set of funding wallets.
+
+```text
+P ⊆ F
+```
+
+## 7.2. Local invariant
+
+Each payment wallet may only use the amount protected for the goal inside that same wallet:
+
+```text
+Pᵢ ≤ Fᵢ
+```
+
+Unused goal funds inside Wallet A must not increase Wallet B’s Direct payment capacity.
+
+## 7.3. Valid example
+
+Funding:
+
+```text
+Wallet A → 500,000
+Wallet B → 400,000
+Wallet C → 300,000
+```
+
+Payment:
+
+```text
+Wallet A → 450,000
+Wallet B → 300,000
+```
+
+Validation:
+
+```text
+A: 450,000 ≤ 500,000
+B: 300,000 ≤ 400,000
+
+Total payment: 750,000
+Total funded: 1,200,000
+```
+
+This is a valid Direct settlement.
+
+Wallet C does not need to participate in the payment even though it funded the goal.
+
+## 7.4. Invalid example
+
+Funding:
+
+```text
+Wallet A → 500,000
+Wallet B → 400,000
+```
+
+Payment:
+
+```text
+Wallet A → 400,000
+Wallet B → 500,000
+```
+
+The total payment does not exceed the total funded amount:
+
+```text
+900,000 ≤ 900,000
+```
+
+However, Wallet B violates its local invariant:
+
+```text
+500,000 > 400,000
+```
+
+Therefore, the settlement is invalid.
+
+## 7.5. Direct settlement behavior
+
+Each payment wallet’s real balance decreases:
+
+```text
+Bᵢ' = Bᵢ − Pᵢ
+```
+
+Once the purchase is completed, all current goal protections become zero:
+
+```text
+Fᵢ' = 0
+```
+
+Funds remaining in unused funding wallets, as well as unused protected amounts inside payment wallets, become free money.
+
+## 7.6. Direct unused amount
+
+```text
+Unused = G − Q
+```
+
+Example:
+
+```text
+Total funded: 1,200,000
+Total payment: 750,000
+Unused: 450,000
+```
+
+After completion, the remaining 450,000 becomes free money across the relevant wallets.
+
+---
+
+# 8. OFF_WALLET mode
+
+## 8.1. Definition
+
+In OffWallet mode, none of the payment wallets funded the goal.
+
+```text
+F ∩ P = ∅
+```
+
+## 8.2. Simplest example
+
+Funding:
+
+```text
+Wallet A → 500,000
+```
+
+Payment:
+
+```text
+Wallet B → 500,000
+```
+
+Wallet A does not make a real payment.
+
+Wallet B did not fund the goal, but it makes the real payment.
+
+## 8.3. N-to-M wallet example
+
+Funding:
+
+```text
+Wallet A → 400,000
+Wallet B → 300,000
+Wallet C → 300,000
+```
+
+Payment:
+
+```text
+Wallet D → 600,000
+Wallet E → 400,000
+```
+
+The funding and payment sets do not overlap:
+
+```text
+{A, B, C} ∩ {D, E} = ∅
+```
+
+Therefore, the settlement is OffWallet.
+
+The number of funding wallets does not need to equal the number of payment wallets.
+
+## 8.4. OffWallet amount invariant
+
+```text
+ΣPᵢ ≤ ΣFᵢ
+```
+
+Equivalent form:
+
+```text
+Q ≤ G
+```
+
+Payment wallets must not be paired one-to-one with funding wallets.
+
+The system must not require artificial mappings such as:
+
+```text
+Wallet A funds Wallet D payment
+Wallet B funds Wallet E payment
+```
+
+Funding wallets represent one aggregate goal capacity.
+
+## 8.5. OffWallet settlement behavior
+
+The real balances of payment wallets decrease:
+
+```text
+Bᵢ' = Bᵢ − Pᵢ
+```
+
+The real balances of funding wallets do not change because no real payment leaves them.
+
+Once the purchase is completed:
+
+```text
+All Fᵢ → 0
+```
+
+All current goal protection is removed.
+
+No real wallet transfer is created.
+
+## 8.6. Example: payment equals funded amount
+
+Funding:
+
+```text
+Wallet A → 500,000
+Wallet B → 500,000
+```
+
+Payment:
+
+```text
+Wallet C → 600,000
+Wallet D → 400,000
+```
+
+Calculation:
+
+```text
+G = 1,000,000
+Q = 1,000,000
+Unused = 0
+```
+
+Result:
+
+* Wallet C real balance: −600,000
+* Wallet D real balance: −400,000
+* Wallet A real balance: unchanged
+* Wallet B real balance: unchanged
+* Wallet A goal protection: 0
+* Wallet B goal protection: 0
+* Goal status: `COMPLETED`
+
+## 8.7. Example: payment is lower than funded amount
+
+Funding:
+
+```text
+Wallet A → 500,000
+Wallet B → 500,000
+```
+
+Payment:
+
+```text
+Wallet C → 800,000
+```
+
+Calculation:
+
+```text
+G = 1,000,000
+Q = 800,000
+Unused = 200,000
+```
+
+Because the purchase is final, the goal is completed.
+
+All goal protections are removed.
+
+The net unused amount returned to free money is:
+
+```text
+200,000
+```
+
+---
+
+# 9. MIXED mode
+
+## 9.1. Definition
+
+Mixed mode requires both of the following:
+
+* at least one funding wallet participates in the payment;
+* at least one wallet that did not fund the goal participates in the payment.
+
+```text
+D ≠ ∅
+O ≠ ∅
+```
+
+Mixed mode combines Direct and OffWallet payment portions inside one purchase.
+
+## 9.2. Simplest example
+
+Funding:
+
+```text
+Wallet A → 500,000
+```
+
+Payment:
+
+```text
+Wallet A → 200,000
+Wallet B → 300,000
+```
+
+Where:
+
+```text
+Direct portion = 200,000
+OffWallet portion = 300,000
+Total payment = 500,000
+```
+
+## 9.3. Direct portion
+
+```text
+DirectPaid = ΣPᵢ, where i ∈ D
+```
+
+## 9.4. OffWallet portion
+
+```text
+OffWalletPaid = ΣPᵢ, where i ∈ O
+```
+
+## 9.5. Remaining funded pool after Direct payment
+
+```text
+RemainingFundPool = G − DirectPaid
+```
+
+The OffWallet portion must not exceed the remaining funded pool:
+
+```text
+OffWalletPaid ≤ RemainingFundPool
+```
+
+This is equivalent to the global invariant:
+
+```text
+DirectPaid + OffWalletPaid ≤ G
+```
+
+## 9.6. Valid Mixed example
+
+Funding:
+
+```text
+Wallet A → 400,000
+Wallet B → 300,000
+```
+
+Payment:
+
+```text
+Wallet A → 200,000
+Wallet B → 100,000
+Wallet C → 400,000
+```
+
+Calculation:
+
+```text
+G = 700,000
+
+DirectPaid:
+A → 200,000
+B → 100,000
+Total DirectPaid = 300,000
+
+RemainingFundPool:
+700,000 − 300,000 = 400,000
+
+OffWalletPaid:
+C → 400,000
+```
+
+Validation:
+
+```text
+400,000 ≤ 400,000
+```
+
+This is a valid Mixed settlement.
+
+## 9.7. Invalid Mixed example
+
+Using the same funding:
+
+```text
+Wallet A → 400,000
+Wallet B → 300,000
+```
+
+Payment:
+
+```text
+Wallet A → 200,000
+Wallet B → 100,000
+Wallet C → 500,000
+```
+
+Calculation:
+
+```text
+DirectPaid = 300,000
+RemainingFundPool = 400,000
+OffWalletPaid = 500,000
+```
+
+The invariant fails:
+
+```text
+500,000 > 400,000
+```
+
+The total payment also exceeds the total funded amount:
+
+```text
+Total payment = 800,000
+Total funded = 700,000
+```
+
+Therefore, the settlement is invalid.
+
+## 9.8. Mixed settlement example
+
+Funding:
+
+```text
+Wallet A → 800,000
+```
+
+Payment:
+
+```text
+Wallet A → 200,000
+Wallet B → 300,000
+Wallet C → 100,000
+```
+
+Calculation:
+
+```text
+G = 800,000
+DirectPaid = 200,000
+OffWalletPaid = 400,000
+Q = 600,000
+Unused = 200,000
+```
+
+Real balance changes:
+
+```text
+Wallet A balance: −200,000
+Wallet B balance: −300,000
+Wallet C balance: −100,000
+```
+
+After the goal is completed:
+
+```text
+Wallet A current goal protection: 800,000 → 0
+```
+
+Wallet A’s real balance decreases only by the 200,000 that was actually paid from Wallet A.
+
+The remaining real money inside Wallet A is no longer protected by the completed goal and becomes free money.
+
+No real transfer is created between Wallet A, Wallet B, and Wallet C.
+
+---
+
+# 10. Unified mathematical settlement model
+
+All three modes can use the same final-state formulas.
+
+## 10.1. Real wallet balance
+
+For every wallet:
+
+```text
+Bᵢ' = Bᵢ − Pᵢ
+```
+
+For wallets that did not participate in the payment:
+
+```text
+Pᵢ = 0
+```
+
+Therefore, their real balances remain unchanged.
+
+## 10.2. Current goal protection
+
+After the Planned Purchase is completed:
+
+```text
+Fᵢ' = 0
+```
+
+This applies to every funding wallet.
+
+## 10.3. Free-money change per wallet
+
+Considering only the effect of the current goal settlement:
+
+```text
+ΔFreeᵢ = Fᵢ − Pᵢ
+```
+
+This formula unifies all three modes.
+
+### Funding wallet that participated in payment
+
+```text
+Fᵢ > 0
+Pᵢ > 0
+Pᵢ ≤ Fᵢ
+```
+
+Therefore:
+
+```text
+ΔFreeᵢ ≥ 0
+```
+
+### Funding wallet that did not participate in payment
+
+```text
+Fᵢ > 0
+Pᵢ = 0
+```
+
+Therefore:
+
+```text
+ΔFreeᵢ = Fᵢ
+```
+
+Its entire current goal allocation becomes free money.
+
+### OffWallet payment wallet
+
+```text
+Fᵢ = 0
+Pᵢ > 0
+```
+
+Therefore:
+
+```text
+ΔFreeᵢ = −Pᵢ
+```
+
+Its free money decreases by the amount it actually paid.
+
+## 10.4. Global free-money change
+
+Across all wallets:
+
+```text
+ΣΔFreeᵢ = ΣFᵢ − ΣPᵢ
+```
+
+Therefore:
+
+```text
+NetFreeChange = G − Q
+```
+
+Equivalent form:
+
+```text
+NetFreeChange = Unused
+```
+
+In OffWallet and Mixed settlements, a large amount of protection may be released inside funding wallets while free balances decrease inside payment wallets.
+
+The system-wide net increase in free money is only:
+
+```text
+Funded amount − Actual purchase payment
+```
+
+---
+
+# 11. Unused amount
+
+For a Planned Purchase:
+
+```text
+Unused = G − Q
+```
+
+Unused must never be negative:
+
+```text
+Unused ≥ 0
+```
+
+When:
+
+```text
+Q = G
+```
+
+Then:
+
+```text
+Unused = 0
+```
+
+When:
+
+```text
+Q < G
+```
+
+Then:
+
+```text
+Unused > 0
+```
+
+Because the goal is completed, the unused amount returns to free money across the funding wallets.
+
+---
+
+# 12. Source attribution rules
+
+## 12.1. Direct payment attribution
+
+A Direct payment is explicitly linked to the same wallet’s goal allocation:
+
+```text
+Wallet A payment → Wallet A current goal fund
+```
+
+## 12.2. OffWallet payment attribution
+
+An OffWallet payment must not be artificially paired with individual funding wallets.
+
+Example:
+
+```text
+Funding:
+Wallet A → 500,000
+Wallet B → 500,000
+
+Payment:
+Wallet C → 800,000
+```
+
+The system must not invent mappings such as:
+
+```text
+Wallet A covered 500,000
+Wallet B covered 300,000
+```
+
+or:
+
+```text
+Wallet A covered 400,000
+Wallet B covered 400,000
+```
+
+Such attribution is unnecessary for the current model.
+
+The system only needs aggregate settlement information:
+
+```text
+Total funded: 1,000,000
+OffWallet payment: 800,000
+Unused: 200,000
+```
+
+Because the Planned Purchase is completed, all funding allocations become zero regardless.
+
+## 12.3. Mixed payment attribution
+
+In Mixed mode:
+
+* the Direct portion is attributable to specific funding wallets;
+* the OffWallet portion is covered only by the aggregate remaining goal pool.
+
+The OffWallet portion must not be distributed across individual funding wallets.
+
+---
+
+# 13. Prohibited hidden behaviors
+
+The current model must not perform any of the following.
+
+## 13.1. Hidden wallet transfers
+
+The application must not create an automatic real transfer from a funding wallet to a payment wallet.
+
+## 13.2. Automatic rebalancing
+
+A funding wallet must not pay more than its local current goal fund, even when another funding wallet has unused protection.
+
+Example:
+
+```text
+Wallet A funded: 500,000
+Wallet B funded: 500,000
+
+Wallet A paid: 400,000
+Wallet B paid: 600,000
+```
+
+This is invalid.
+
+The unused 100,000 inside Wallet A must not increase Wallet B’s local Direct payment limit.
+
+## 13.3. Treating one wallet as both Direct and OffWallet
+
+When a wallet has current goal funds:
+
+```text
+Fᵢ > 0
+```
+
+and participates in the payment, it is a Direct wallet.
+
+The wallet must not use an amount above its goal fund as an OffWallet portion.
+
+Example:
+
+```text
+Wallet A funded: 200,000
+Wallet A payment: 300,000
+```
+
+This is invalid even when Wallet A has additional free money.
+
+## 13.4. Allowing payment above funded amount
+
+When the purchase cost exceeds the goal’s funded amount, the goal settlement must be rejected.
+
+The excess must not automatically be converted into an ordinary expense.
+
+## 13.5. Keeping the Planned Purchase active after settlement
+
+The payment described in this document is final.
+
+After successful settlement, the goal must become `COMPLETED`.
+
+---
+
+# 14. Partial purchases and installment payments
+
+The current Planned Purchase model is designed for one final purchase event.
+
+The following behaviors are outside the scope of this model:
+
+* paying a deposit;
+* making a partial prepayment;
+* paying the seller over multiple months;
+* installment schedules;
+* debt repayment;
+* partially completing the purchase while keeping the goal active.
+
+These lifecycles must be handled by the `Debts and Payment Plans` model.
+
+---
+
+# 15. Currency rules
+
+All `Fᵢ` and `Pᵢ` values must use one settlement currency.
+
+When wallets use different currencies, the following concerns must be resolved before entering this settlement model:
+
+* FX conversion;
+* exchange-rate locking;
+* rounding;
+* conversion gains or losses.
+
+This settlement model only accepts normalized amounts in one common currency.
+
+---
+
+# 16. Settlement-mode summary
+
+| Mode      | Classification      |         Local funding-wallet limit | Global limit |
+| --------- | ------------------- | ---------------------------------: | -----------: |
+| Direct    | `P ⊆ F`             | For every Direct wallet: `Pᵢ ≤ Fᵢ` |      `Q ≤ G` |
+| OffWallet | `F ∩ P = ∅`         |            No Direct wallet exists |      `Q ≤ G` |
+| Mixed     | `D ≠ ∅` and `O ≠ ∅` | For every Direct wallet: `Pᵢ ≤ Fᵢ` |      `Q ≤ G` |
+
+---
+
+# 17. Unified settlement sequence
+
+The AI agent should conceptually process settlement in the following order.
+
+## Phase 1: Input normalization
+
+1. Aggregate multiple payment legs from the same wallet into one `Pᵢ` value.
+2. Ignore zero-value payment legs.
+3. Normalize all amounts into the settlement currency.
+
+## Phase 2: Set construction
+
+1. Construct the funding set `F`.
+2. Construct the payment set `P`.
+3. Construct the Direct set:
+
+```text
+D = F ∩ P
+```
+
+4. Construct the OffWallet set:
+
+```text
+O = P \ F
+```
+
+## Phase 3: Mode classification
+
+```text
+O = ∅ → DIRECT
+
+D = ∅ → OFF_WALLET
+
+D ≠ ∅ and O ≠ ∅ → MIXED
+```
+
+## Phase 4: Validation
+
+Validate:
+
+1. `G > 0`
+2. `Q > 0`
+3. `Q ≤ G`
+4. For every Direct wallet: `Pᵢ ≤ Fᵢ`
+5. Every payment wallet has sufficient spendable balance
+6. Goal status is `ACTIVE`
+7. Currency normalization is valid
+
+## Phase 5: Settlement
+
+1. Subtract `Pᵢ` from each payment wallet’s real balance.
+2. Set all current goal allocations to zero.
+3. Calculate:
+
+```text
+Unused = G − Q
+```
+
+4. Store `Q` as the actual purchase cost.
+5. Store the derived settlement mode.
+6. Change goal status to `COMPLETED`.
+
+## Phase 6: Audit data
+
+The settlement record must logically preserve at least:
+
+```text
+Total funded amount at settlement
+Total payment amount
+Direct paid amount
+OffWallet paid amount
+Unused amount
+Settlement mode
+Funding wallet IDs
+Payment wallet IDs
+Payment amount per wallet
+Goal completion timestamp
+```
+
+The OffWallet portion must not be artificially attributed to individual funding wallets.
+
+---
+
+# 18. Acceptance criteria
+
+The implementation is correct only when all of the following are true:
+
+1. It supports any `N` and `M` wallet combination without wallet-count-specific cases.
+2. Every valid settlement belongs to exactly one mode.
+3. Input wallet ordering does not change the result.
+4. A Direct wallet never pays more than its current goal fund.
+5. Total payment never exceeds total funded amount.
+6. Only payment wallets experience real balance decreases.
+7. No hidden real wallet transfer is created.
+8. All current goal protections become zero after successful settlement.
+9. The goal becomes `COMPLETED` after successful settlement.
+10. Global net free-money change always equals:
+
+```text
+G − Q
+```
+
+11. If any validation fails, no partial state change occurs.
+12. OffWallet payments are not artificially paired with individual funding wallets.
+
+---
+
+# 19. Final fundamental model
+
+Planned Purchase settlement manages two separate truths:
+
+```text
+Real payment truth
++
+Goal protection truth
+```
+
+Real payment truth answers:
+
+```text
+Which wallets actually lost money, and how much?
+```
+
+Goal protection truth answers:
+
+```text
+What happened to the protected goal funds after the purchase was completed?
+```
+
+The mode only describes the relationship between funding wallets and payment wallets:
+
+```text
+Direct:
+Every payment wallet funded the goal.
+
+OffWallet:
+Funding wallets and payment wallets have no overlap.
+
+Mixed:
+Funding and non-funding payment wallets participate together.
+```
+
+The universal final-state formulas are:
+
+```text
+Real balance after settlement:
+Bᵢ' = Bᵢ − Pᵢ
+
+Current goal protection after settlement:
+Fᵢ' = 0
+
+Unused amount:
+G − Q
+
+Free-money change per wallet:
+ΔFreeᵢ = Fᵢ − Pᵢ
+
+Global free-money change:
+ΣΔFreeᵢ = G − Q
+```
+
+These formulas allow the Planned Purchase model to support all valid `N-wallet` combinations through one unified mathematical and logical framework.
