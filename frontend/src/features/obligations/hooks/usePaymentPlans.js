@@ -2,13 +2,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
   addPaymentPlanCharge,
+  archivePaymentPlan,
   createPaymentPlan,
   deletePaymentPlan,
   getPaymentPlanDetails,
   getPaymentPlans,
   getPaymentPlanSummary,
   markPaymentPlanPaymentPaid,
+  previewPaymentPlanSchedule,
   recordPaymentPlanPayment,
+  unarchivePaymentPlan,
   undoLatestPaymentPlanPayment,
   updatePaymentPlan,
   writeOffPaymentPlanPayment,
@@ -154,5 +157,45 @@ export function useUndoLatestPaymentPlanPaymentMutation() {
         await queryClient.invalidateQueries({ queryKey: ["payment_plans", "details", planId] });
       }
     },
+  });
+}
+
+export function useArchivePaymentPlanMutation() {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (planId) => archivePaymentPlan(planId),
+    onSuccess: async () => {
+      await invalidatePaymentPlanViews(queryClient);
+      toast.success(t("payment_plans.toasts.archived", { defaultValue: "Plan archived" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error, t) || error.message;
+      toast.error(t("payment_plans.toasts.failedToArchive", { defaultValue: "Failed to archive plan" }), msg);
+    },
+  });
+}
+
+export function useUnarchivePaymentPlanMutation() {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (planId) => unarchivePaymentPlan(planId),
+    onSuccess: async () => {
+      await invalidatePaymentPlanViews(queryClient);
+      toast.success(t("payment_plans.toasts.restored", { defaultValue: "Plan restored" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error, t) || error.message;
+      toast.error(t("payment_plans.toasts.failedToRestore", { defaultValue: "Failed to restore plan" }), msg);
+    },
+  });
+}
+
+export function usePreviewPaymentPlanScheduleMutation() {
+  return useMutation({
+    mutationFn: (payload) => previewPaymentPlanSchedule(payload),
   });
 }

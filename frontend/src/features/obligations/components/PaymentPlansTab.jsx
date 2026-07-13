@@ -1276,12 +1276,13 @@ function PaymentPlanCard({ plan, onOpen, onPay, onCharge, onEdit, onDelete }) {
   const today = toISODateInTimeZone();
   const overdueCount = unpaid.filter((payment) => payment.due_date < today).length;
   const nextAmount = nextPayment ? remainingForPayment(nextPayment) : 0;
-  const isPaid = plan.status === "PAID";
   const isPristine = isPristinePaymentPlan(plan);
-  const isArchived = plan.status === "ARCHIVED";
+  const isArchived = Boolean(plan.archived_at);
+  const lifecycleLabel = plan.lifecycle_status === "CLOSED" ? "Closed" : "Open";
+  const timeStatusLabel = plan.time_status === "OVERDUE" ? "Overdue" : plan.time_status === "ON_TRACK" ? "On Track" : null;
 
   return (
-    <Card className="overflow-hidden rounded-lg border-border py-0 shadow-none transition-colors hover:border-primary/35">
+    <Card className={cn("overflow-hidden rounded-lg border-border py-0 shadow-none transition-colors hover:border-primary/35", isArchived && "opacity-70")}>
       <CardContent className="p-0">
         <div className="grid xl:grid-cols-[minmax(220px,0.9fr)_minmax(380px,1.25fr)_minmax(240px,0.75fr)]">
           <section className="min-w-0 border-b border-border p-5 xl:border-b-0 xl:border-r">
@@ -1292,9 +1293,19 @@ function PaymentPlanCard({ plan, onOpen, onPay, onCharge, onEdit, onDelete }) {
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <p className="max-w-full truncate text-lg font-semibold leading-6">{plan.item_name}</p>
-                  <Badge variant="outline" className={cn("h-6 rounded-md px-2 text-[11px]", planStatusClass(plan.status))}>
-                    {plan.status}
-                  </Badge>
+                  {isArchived && (
+                    <Badge variant="secondary" className="h-6 rounded-md px-2 text-[11px]">Archived</Badge>
+                  )}
+                  {!isArchived && (
+                    <Badge variant="outline" className={cn("h-6 rounded-md px-2 text-[11px]", plan.lifecycle_status === "CLOSED" ? "border-green-300 bg-green-50 text-green-700" : "border-blue-300 bg-blue-50 text-blue-700")}>
+                      {lifecycleLabel}
+                    </Badge>
+                  )}
+                  {timeStatusLabel && !isArchived && (
+                    <Badge variant="outline" className={cn("h-6 rounded-md px-2 text-[11px]", plan.time_status === "OVERDUE" ? "border-red-300 bg-red-50 text-red-700" : "border-emerald-300 bg-emerald-50 text-emerald-700")}>
+                      {timeStatusLabel}
+                    </Badge>
+                  )}
                 </div>
                 <p className="mt-1 truncate text-sm text-muted-foreground">
                   {plan.store_or_bank_name || "No provider"} - started {formatDisplayDate(plan.start_date, "en")}
