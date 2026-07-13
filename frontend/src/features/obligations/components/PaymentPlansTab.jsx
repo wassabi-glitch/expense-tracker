@@ -298,6 +298,9 @@ function CreatePaymentPlanDialog({ open, onOpenChange, wallets }) {
   const [loanReceived, setLoanReceived] = useState(false);
   const [loanDisbursementWalletId, setLoanDisbursementWalletId] = useState("");
   const [walletAllocations, setWalletAllocations] = useState(() => defaultWalletAllocation(availableWallets));
+  const [scheduleModel, setScheduleModel] = useState("FLAT_TOTAL");
+  const [annualInterestRate, setAnnualInterestRate] = useState("");
+  const [manualRows, setManualRows] = useState([{ due_date: "", principal_amount: "", charge_amount: "", installment_group: "" }]);
   const [error, setError] = useState("");
   const defaultWalletId = availableWallets.find((wallet) => wallet.is_default)?.id || availableWallets[0]?.id;
 
@@ -369,7 +372,9 @@ function CreatePaymentPlanDialog({ open, onOpenChange, wallets }) {
           frequency,
           start_date: startDate,
           expense_category: category || undefined,
-          schedule_model: "FLAT_TOTAL",
+          schedule_model: scheduleModel,
+          annual_interest_rate: scheduleModel === "AMORTIZED_LOAN" && annualInterestRate ? parseFloat(annualInterestRate) : undefined,
+          manual_rows: scheduleModel === "MANUAL_CONTRACT_SCHEDULE" ? manualRows.filter(r => r.due_date && r.principal_amount) : undefined,
         });
         if (!cancelled) setPreviewData(result);
       } catch {
@@ -377,7 +382,7 @@ function CreatePaymentPlanDialog({ open, onOpenChange, wallets }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [step, totalSteps, open, totalValue, downValue, paymentCountValue, frequency, startDate, category, planType]);
+  }, [step, totalSteps, open, totalValue, downValue, paymentCountValue, frequency, startDate, category, planType, scheduleModel, annualInterestRate]);
 
   const resetForm = () => {
     setStep(1);
@@ -395,6 +400,9 @@ function CreatePaymentPlanDialog({ open, onOpenChange, wallets }) {
     setLoanReceived(false);
     setLoanDisbursementWalletId("");
     setWalletAllocations(defaultWalletAllocation(availableWallets));
+    setScheduleModel("FLAT_TOTAL");
+    setAnnualInterestRate("");
+    setManualRows([{ due_date: "", principal_amount: "", charge_amount: "", installment_group: "" }]);
     setPreviewData(null);
     setError("");
   };
@@ -467,6 +475,9 @@ function CreatePaymentPlanDialog({ open, onOpenChange, wallets }) {
         asset_current_value: trackAsset ? parseAmountInput(assetValue || totalPrice) : null,
         wallet_allocations: needsWallet ? normalizeWalletAllocations(walletAllocations) : [],
         loan_disbursement_wallet_id: isBankLoan && loanReceived ? Number(loanDisbursementWalletId) : null,
+        schedule_model: scheduleModel,
+        annual_interest_rate: scheduleModel === "AMORTIZED_LOAN" && annualInterestRate ? parseFloat(annualInterestRate) : undefined,
+        manual_rows: scheduleModel === "MANUAL_CONTRACT_SCHEDULE" ? manualRows.filter(r => r.due_date && r.principal_amount) : undefined,
       });
       handleOpenChange(false);
     } catch (err) {
@@ -697,6 +708,79 @@ function CreatePaymentPlanDialog({ open, onOpenChange, wallets }) {
                     className="h-11 rounded-md text-base"
                   />
                   <p className="text-xs text-muted-foreground">If left blank, Sarflog uses the total price.</p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Tickets 3 & 4: Schedule model + amortized / manual inputs */}
+          {step === 4 ? (
+            <div className="mt-5 space-y-4 border-t border-border pt-5">
+              <div className="space-y-2">
+                <Label>Schedule model</Label>
+                <div className="grid gap-2 md:grid-cols-3">
+                  {[
+                    { value: "FLAT_TOTAL", label: "Flat Total", desc: "Equal payments" },
+                    { value: "AMORTIZED_LOAN", label: "Amortized Loan", desc: "Interest + principal" },
+                    { value: "MANUAL_CONTRACT_SCHEDULE", label: "Manual Contract", desc: "Enter exact rows" },
+                  ].map((model) => (
+                    <button
+                      type="button"
+                      key={model.value}
+                      onClick={() => setScheduleModel(model.value)}
+                      className={cn(
+                        "rounded-lg border p-3 text-left text-sm transition-colors hover:border-primary/50",
+                        scheduleModel === model.value ? "border-primary bg-primary/10" : "border-border bg-card"
+                      )}
+                    >
+                      <p className="font-semibold">{model.label}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{model.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {scheduleModel === "AMORTIZED_LOAN" ? (
+                <div className="space-y-1">
+                  <Label>Annual interest rate (%)</Label>
+                  <Input type="number" min="0" max="200" step="0.01" value={annualInterestRate}
+                    onChange={(event) => setAnnualInterestRate(event.target.value)}
+                    placeholder="e.g. 18.5" className="h-11 rounded-md text-base" />
+                  <p className="text-xs text-muted-foreground">Generated schedules are planning tools, not legal guarantees.</p>
+                </div>
+              ) : null}
+
+              {scheduleModel === "MANUAL_CONTRACT_SCHEDULE" ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Manual schedule rows</Label>
+                    <Button variant="outline" size="sm" className="h-8 rounded-md text-xs"
+                      onClick={() => setManualRows([...manualRows, { due_date: "", principal_amount: "", charge_amount: "", installment_group: "" }])}>
+                      <Plus className="mr-1 h-3 w-3" /> Add row
+                    </Button>
+                  </div>
+                  <div className="max-h-48 space-y-2 overflow-y-auto">
+                    {manualRows.map((row, i) => (
+                      <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 rounded-md border border-border bg-muted/10 p-2">
+                        <Input type="date" min={MIN_SUPPORTED_USER_DATE} value={row.due_date}
+                          onChange={(e) => { const r = [...manualRows]; r[i] = { ...r[i], due_date: e.target.value }; setManualRows(r); }}
+                          className="h-9 rounded-md text-xs" placeholder="Due date" />
+                        <Input type="number" min="0" value={row.principal_amount}
+                          onChange={(e) => { const r = [...manualRows]; r[i] = { ...r[i], principal_amount: e.target.value }; setManualRows(r); }}
+                          className="h-9 rounded-md text-xs" placeholder="Principal" />
+                        <Input type="number" min="0" value={row.charge_amount}
+                          onChange={(e) => { const r = [...manualRows]; r[i] = { ...r[i], charge_amount: e.target.value }; setManualRows(r); }}
+                          className="h-9 rounded-md text-xs" placeholder="Charge" />
+                        {manualRows.length > 1 ? (
+                          <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive"
+                            onClick={() => setManualRows(manualRows.filter((_, idx) => idx !== i))}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        ) : (<span className="h-9 w-9" />)}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">Enter exact dates and amounts matching your provider agreement.</p>
                 </div>
               ) : null}
             </div>

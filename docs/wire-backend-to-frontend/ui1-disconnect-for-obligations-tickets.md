@@ -37,11 +37,11 @@ Work the frontier: any ticket whose blockers are all done can start.
 
 **Blocked by:** Ticket 2: Use Backend Preview For Flat-Total Payment Plan Creation.
 
-- [ ] Amortized-eligible plan types expose annual interest rate and schedule inputs.
-- [ ] Preview shows principal rows, charge rows, installment grouping, totals, and final due date.
-- [ ] The UI explains generated schedules as planning tools, not legal guarantees.
-- [ ] Creation preserves the selected amortized schedule model and generation metadata.
-- [ ] Payment and detail views display grouped installment meaning without hiding row-level accounting.
+- [x] Amortized-eligible plan types expose annual interest rate and schedule inputs.
+- [x] Preview shows principal rows, charge rows, installment grouping, totals, and final due date.
+- [x] The UI explains generated schedules as planning tools, not legal guarantees.
+- [x] Creation preserves the selected amortized schedule model and generation metadata.
+- [x] Payment and detail views display grouped installment meaning without hiding row-level accounting.
 - [ ] Tests cover amortized preview, missing-rate validation, creation, non-monthly frequency, and grouped display.
 
 ## Ticket 4: Wire Manual Contract Schedule Creation
@@ -50,11 +50,11 @@ Work the frontier: any ticket whose blockers are all done can start.
 
 **Blocked by:** Ticket 2: Use Backend Preview For Flat-Total Payment Plan Creation.
 
-- [ ] The creation wizard supports a manual schedule mode.
-- [ ] Users can enter due dates, principal amounts, charge amounts, and optional installment grouping.
-- [ ] Preview validates and returns the exact manual rows before creation.
-- [ ] Users can switch from generated preview to manual mode before saving.
-- [ ] Saved plans preserve manually entered rows and metadata.
+- [x] The creation wizard supports a manual schedule mode.
+- [x] Users can enter due dates, principal amounts, charge amounts, and optional installment grouping.
+- [x] Preview validates and returns the exact manual rows before creation.
+- [x] Users can switch from generated preview to manual mode before saving.
+- [x] Saved plans preserve manually entered rows and metadata.
 - [ ] Tests cover valid manual rows, invalid row validation, mixed principal and charge rows, mode switching, and creation.
 
 ## Ticket 5: Wire Payment Plan Write-Off And Charge Reversal Actions
