@@ -10,12 +10,12 @@ Work the frontier: any ticket whose blockers are all done can start.
 
 **Blocked by:** None - can start immediately.
 
-- [ ] Payment Plan list and detail views receive derived lifecycle, urgency, remaining principal, and remaining charges from backend responses.
-- [ ] User-facing urgency uses the effective user timezone.
-- [ ] Archive and restore actions are available from the Payment Plan UI.
-- [ ] Archived Payment Plans are visually filed away without changing balances, rows, allocations, or ledger entries.
-- [ ] Payment Plan filters support archive visibility separately from lifecycle and urgency.
-- [ ] The frontend no longer treats stored `ARCHIVED` status as the source of archive truth.
+- [x] Payment Plan list and detail views receive derived lifecycle, urgency, remaining principal, and remaining charges from backend responses.
+- [x] User-facing urgency uses the effective user timezone.
+- [x] Archive and restore actions are available from the Payment Plan UI.
+- [x] Archived Payment Plans are visually filed away without changing balances, rows, allocations, or ledger entries.
+- [x] Payment Plan filters support archive visibility separately from lifecycle and urgency.
+- [x] The frontend no longer treats stored `ARCHIVED` status as the source of archive truth.
 - [ ] Tests cover list urgency, detail urgency, archive, restore, and active versus archived filtering.
 
 ## Ticket 2: Use Backend Preview For Flat-Total Payment Plan Creation
@@ -24,11 +24,11 @@ Work the frontier: any ticket whose blockers are all done can start.
 
 **Blocked by:** None - can start immediately.
 
-- [ ] The creation wizard calls schedule preview before the final create action.
-- [ ] The review step shows total principal, total charges, total to pay, final due date, frequency, and generated rows.
-- [ ] Flat-total rows shown to the user match the backend preview.
-- [ ] Creation submits payload values that match the reviewed preview.
-- [ ] Local frontend row math is only a provisional hint, not the persisted schedule source of truth.
+- [x] The creation wizard calls schedule preview before the final create action.
+- [x] The review step shows total principal, total charges, total to pay, final due date, frequency, and generated rows.
+- [x] Flat-total rows shown to the user match the backend preview.
+- [x] Creation submits payload values that match the reviewed preview.
+- [x] Local frontend row math is only a provisional hint, not the persisted schedule source of truth.
 - [ ] Tests cover successful preview, preview validation errors, creation after preview, and rounding display.
 
 ## Ticket 3: Wire Amortized Loan Schedule Creation

@@ -46,6 +46,7 @@ import {
   usePaymentPlanDetailsQuery,
   usePaymentPlansQuery,
   usePaymentPlanSummaryQuery,
+  usePreviewPaymentPlanScheduleMutation,
   useRecordPaymentPlanPaymentMutation,
   useUnarchivePaymentPlanMutation,
   useUndoLatestPaymentPlanPaymentMutation,
@@ -278,9 +279,11 @@ function SummaryTile({ icon, label, value, helper, tone = "default" }) {
 
 function CreatePaymentPlanDialog({ open, onOpenChange, wallets }) {
   const mutation = useCreatePaymentPlanMutation();
+  const previewMutation = usePreviewPaymentPlanScheduleMutation();
   const availableWallets = useMemo(() => activeWallets(wallets), [wallets]);
   const bankLoanWallets = useMemo(() => loanDisbursementWallets(wallets), [wallets]);
   const [step, setStep] = useState(1);
+  const [previewData, setPreviewData] = useState(null);
   const [itemName, setItemName] = useState("");
   const [provider, setProvider] = useState("");
   const [planType, setPlanType] = useState("STORE_INSTALLMENT");
@@ -347,6 +350,35 @@ function CreatePaymentPlanDialog({ open, onOpenChange, wallets }) {
     }
   }, [loanReceived, loanDisbursementWalletId, bankLoanWallets]);
 
+  // Ticket 2: Call backend schedule preview when reaching the review step.
+  // The preview contract is the source of truth for generated rows, totals,
+  // and the final due date.  Client-side math is only a provisional hint.
+  useEffect(() => {
+    if (step !== totalSteps || !open || !totalValue || !paymentCountValue) {
+      setPreviewData(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await previewMutation.mutateAsync({
+          plan_type: planType,
+          total_price: totalValue,
+          down_payment: downValue,
+          months: paymentCountValue,
+          frequency,
+          start_date: startDate,
+          expense_category: category || undefined,
+          schedule_model: "FLAT_TOTAL",
+        });
+        if (!cancelled) setPreviewData(result);
+      } catch {
+        if (!cancelled) setPreviewData(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [step, totalSteps, open, totalValue, downValue, paymentCountValue, frequency, startDate, category, planType]);
+
   const resetForm = () => {
     setStep(1);
     setItemName("");
@@ -363,6 +395,7 @@ function CreatePaymentPlanDialog({ open, onOpenChange, wallets }) {
     setLoanReceived(false);
     setLoanDisbursementWalletId("");
     setWalletAllocations(defaultWalletAllocation(availableWallets));
+    setPreviewData(null);
     setError("");
   };
 
@@ -673,24 +706,67 @@ function CreatePaymentPlanDialog({ open, onOpenChange, wallets }) {
             <div className="space-y-4">
               <div className="rounded-lg border border-primary/20 bg-primary/10 p-4">
                 <p className="text-lg font-semibold">Sarflog will create this payment plan</p>
-                <p className="mt-1 text-sm text-muted-foreground">Check this summary before the database is updated.</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {previewData
+                    ? "Backend schedule preview confirms this plan. Review before saving."
+                    : "Check this summary before the database is updated."}
+                </p>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <SummaryTile icon={ReceiptText} label="Plan" value={paymentPlanTypeLabel(planType)} helper={itemName || "No item yet"} />
-                <SummaryTile icon={CreditCard} label="Debt balance" value={`${formatUzs(financedAmount)} UZS`} helper={`${paymentCountValue || 0} ${frequencyLabel(frequency).toLowerCase()} payments`} tone="danger" />
+                <SummaryTile
+                  icon={CreditCard}
+                  label="Debt balance"
+                  value={`${formatUzs(previewData?.total_to_pay ?? financedAmount)} UZS`}
+                  helper={`${previewData?.payment_count ?? paymentCountValue || 0} ${frequencyLabel(previewData?.frequency ?? frequency).toLowerCase()} payments`}
+                  tone="danger"
+                />
                 <SummaryTile icon={WalletCards} label="Money today" value={isBankLoan && loanReceived ? `${formatUzs(totalValue)} UZS in` : `${formatUzs(downValue)} UZS out`} helper={isBankLoan ? "Loan disbursement is borrowed money, not income" : "Only upfront payment moves today"} />
                 <SummaryTile icon={Layers3} label="Category" value={category || "Not chosen"} helper={provider || "No provider"} />
               </div>
-              <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
-                <p className="font-semibold text-foreground">Records created</p>
-                <ul className="mt-2 space-y-1">
-                  <li>Plan-owned balance starts at {formatUzs(financedAmount)} UZS.</li>
-                  <li>{paymentCountValue || 0} scheduled payment rows are generated from {startDate ? formatDisplayDate(startDate, "en") : "the first due date"}.</li>
-                  {isBankLoan && loanReceived ? <li>Wallet receives {formatUzs(totalValue)} UZS as `loan_disbursement`.</li> : null}
-                  {!isBankLoan && needsWallet ? <li>Upfront payment records {formatUzs(downValue)} UZS from selected wallet(s).</li> : null}
-                  {trackAsset ? <li>Asset record is created for {itemName || "this item"}.</li> : null}
-                </ul>
-              </div>
+              {previewData?.rows?.length > 0 ? (
+                <div className="rounded-lg border border-border bg-card p-4 text-sm">
+                  <p className="font-semibold text-foreground">Generated schedule (backend preview)</p>
+                  <div className="mt-2 max-h-48 overflow-y-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-border text-muted-foreground">
+                          <th className="py-1 font-medium">Due</th>
+                          <th className="py-1 font-medium">Principal</th>
+                          <th className="py-1 font-medium">Charge</th>
+                          <th className="py-1 font-medium">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewData.rows.map((row, i) => (
+                          <tr key={i} className="border-b border-border/50">
+                            <td className="py-1">{formatDisplayDate(row.due_date, "en")}</td>
+                            <td className="py-1 tabular-nums">{formatUzs(row.principal_amount || row.amount || 0)}</td>
+                            <td className="py-1 tabular-nums">{formatUzs(row.charge_amount || 0)}</td>
+                            <td className="py-1 tabular-nums font-medium">{formatUzs((row.principal_amount || row.amount || 0) + (row.charge_amount || 0))}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Total: {formatUzs(previewData.total_to_pay ?? 0)} UZS
+                    {previewData.total_charges > 0 ? ` (${formatUzs(previewData.total_charges)} UZS charges)` : ""}
+                    {" · "}Final due: {previewData.final_due_date ? formatDisplayDate(previewData.final_due_date, "en") : "N/A"}
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
+                  <p className="font-semibold text-foreground">Records created</p>
+                  <ul className="mt-2 space-y-1">
+                    <li>Plan-owned balance starts at {formatUzs(financedAmount)} UZS.</li>
+                    <li>{paymentCountValue || 0} scheduled payment rows are generated from {startDate ? formatDisplayDate(startDate, "en") : "the first due date"}.</li>
+                    {isBankLoan && loanReceived ? <li>Wallet receives {formatUzs(totalValue)} UZS as loan_disbursement.</li> : null}
+                    {!isBankLoan && needsWallet ? <li>Upfront payment records {formatUzs(downValue)} UZS from selected wallet(s).</li> : null}
+                    {trackAsset ? <li>Asset record is created for {itemName || "this item"}.</li> : null}
+                  </ul>
+                </div>
+              )}
             </div>
           ) : null}
         </div>
