@@ -13,6 +13,7 @@ from app.services.financial_event_ledger_service import (
     PostEntityLeg,
     PostWalletLeg,
     post_financial_event,
+    validate_wallet_epochs,
     void_financial_event,
 )
 from app.services.goal_funding_service import sync_debt_goal_targets
@@ -1297,6 +1298,21 @@ def realize_promise(
     ]
     allocations = _allocate_to_schedules(schedules, int(payload.actual_amount), explicit)
     wallets = _resolve_wallets(db, owner_id, payload.wallet_allocations, int(payload.actual_amount))
+
+    # Enforce per-wallet epoch boundaries before any money moves.
+    # Every destination wallet must have a tracking start on or before
+    # the received date.  Same-day activity on the wallet creation date
+    # is accepted.  The validation runs after wallet resolution so we
+    # know exactly which wallets are touched, and before _post_source
+    # so a rejection creates no FinancialEvent, WalletLedger, EntityLedger,
+    # realization, allocation, or wallet balance change.
+    touched_wallet_ids = {wallet.id for wallet, _ in wallets}
+    validate_wallet_epochs(
+        db,
+        wallet_ids=touched_wallet_ids,
+        event_date=received_date,
+    )
+
     events = _post_source(
         db,
         owner_id,

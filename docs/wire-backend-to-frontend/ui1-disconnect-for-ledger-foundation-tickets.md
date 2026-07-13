@@ -52,16 +52,16 @@ These tickets wire the Ledger Foundation rules through the UI-facing posted-mone
 
 **Blocked by:** Ticket 1: Surface wallet epoch errors end-to-end.
 
-- [ ] Realizing an Expected Inflow rejects a received date before any destination wallet's tracking start.
-- [ ] Same-day receipt on the destination wallet's tracking start is accepted.
-- [ ] Multi-wallet receipts validate every destination wallet.
-- [ ] Multi-wallet receipts reject the whole command if any destination wallet is invalid.
-- [ ] Rejected earned-income receipts create no Financial Event, Wallet Ledger, Entity Ledger, realization, allocation, or wallet balance change.
-- [ ] Rejected receivable receipts create no Debt payment, Debt Ledger, Financial Event, realization, allocation, or wallet balance change.
-- [ ] Rejected refund receipts create no refund event, realization, allocation, or wallet balance change.
-- [ ] Rejected asset-sale receipts create no sale event, asset closure, realization, allocation, or wallet balance change.
-- [ ] The receive dialog surfaces the shared wallet epoch error clearly.
-- [ ] Tests use explicit user timezone headers and project timezone helpers.
+- [x] Realizing an Expected Inflow rejects a received date before any destination wallet's tracking start.
+- [x] Same-day receipt on the destination wallet's tracking start is accepted.
+- [x] Multi-wallet receipts validate every destination wallet.
+- [x] Multi-wallet receipts reject the whole command if any destination wallet is invalid.
+- [x] Rejected earned-income receipts create no Financial Event, Wallet Ledger, Entity Ledger, realization, allocation, or wallet balance change.
+- [x] Rejected receivable receipts create no Debt payment, Debt Ledger, Financial Event, realization, allocation, or wallet balance change.
+- [x] Rejected refund receipts create no refund event, realization, allocation, or wallet balance change.
+- [x] Rejected asset-sale receipts create no sale event, asset closure, realization, allocation, or wallet balance change.
+- [x] The receive dialog surfaces the shared wallet epoch error clearly.
+- [x] Tests use explicit user timezone headers and project timezone helpers.
 
 ## Ticket 3: Seal Session Expense Finalization Boundaries
 
