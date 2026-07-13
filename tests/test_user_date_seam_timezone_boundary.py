@@ -194,15 +194,18 @@ class TestIssue2SessionDraftTimezoneBoundary:
     """Session draft finalization respects the user's effective local date."""
 
     def test_finalize_preserves_explicit_draft_date(self, client):
-        """When a draft has an explicit date, finalization preserves it."""
+        """When a draft has an explicit date in the current month,
+        finalization preserves it (closed-period validation applies)."""
+        from tests.helpers import user_timezone_today
+        today = user_timezone_today()
         headers = create_user_and_token(
             client, "tzsess1", "tzsess1@example.com", "Password123!"
         )
         # Budget must exist for the draft's month
         create_budget(client, headers, category="Food", monthly_limit=500,
-                      budget_year=2026, budget_month=6)
+                      budget_year=today.year, budget_month=today.month)
 
-        draft_date = date(2026, 6, 15)
+        draft_date = today
         draft = client.post(
             "/expenses/session-drafts",
             json={
