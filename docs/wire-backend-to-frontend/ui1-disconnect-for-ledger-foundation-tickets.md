@@ -103,16 +103,16 @@ These tickets wire the Ledger Foundation rules through the UI-facing posted-mone
 
 **Blocked by:** Ticket 1: Surface wallet epoch errors end-to-end.
 
-- [ ] Payment Plan setup with wallet movement rejects dates before any touched wallet's tracking start.
-- [ ] Loan or disbursement wallet movement rejects dates before the disbursement wallet's tracking start.
-- [ ] Payment Plan payment rejects paid dates before any payment wallet's tracking start.
-- [ ] Split wallet allocations reject the whole command if any touched wallet is pre-epoch.
-- [ ] Same-day setup activity remains accepted.
-- [ ] Same-day disbursement activity remains accepted.
-- [ ] Same-day payment activity remains accepted.
-- [ ] Rejected commands create no Financial Event, Wallet Ledger, Payment Plan Ledger, payment allocation, row mutation, or wallet balance change.
-- [ ] Planning-only schedule edits remain outside wallet epoch validation unless they post wallet money.
-- [ ] Payment Plan UI flows surface the shared wallet epoch error.
+- [x] Payment Plan setup with wallet movement rejects dates before any touched wallet's tracking start.
+- [x] Loan or disbursement wallet movement rejects dates before the disbursement wallet's tracking start.
+- [x] Payment Plan payment rejects paid dates before any payment wallet's tracking start.
+- [x] Split wallet allocations reject the whole command if any touched wallet is pre-epoch.
+- [x] Same-day setup activity remains accepted.
+- [x] Same-day disbursement activity remains accepted.
+- [x] Same-day payment activity remains accepted.
+- [x] Rejected commands create no Financial Event, Wallet Ledger, Payment Plan Ledger, payment allocation, row mutation, or wallet balance change.
+- [x] Planning-only schedule edits remain outside wallet epoch validation unless they post wallet money.
+- [x] Payment Plan UI flows surface the shared wallet epoch error.
 
 ## Ticket 6: Add Cross-Flow Ledger Foundation Guardrails
 
@@ -125,17 +125,17 @@ These tickets wire the Ledger Foundation rules through the UI-facing posted-mone
 - Ticket 4: Enforce wallet epochs on Debt wallet movements.
 - Ticket 5: Enforce wallet epochs on Payment Plan wallet movements.
 
-- [ ] A route/service test matrix covers expense creation.
-- [ ] A route/service test matrix covers income creation and correction reposts.
-- [ ] A route/service test matrix covers transfers.
-- [ ] A route/service test matrix covers reconciliation.
-- [ ] A route/service test matrix covers Expected Inflow receipt realization.
-- [ ] A route/service test matrix covers session expense finalization.
-- [ ] A route/service test matrix covers Debt wallet movement.
-- [ ] A route/service test matrix covers Payment Plan wallet movement.
-- [ ] Each covered flow has at least one accepted same-day epoch case.
-- [ ] Each covered flow has at least one rejected pre-epoch case.
-- [ ] Rejected flows prove no partial posted-money rows or wallet balance changes are committed.
-- [ ] Accepted flows prove wallet projection remains valid after posting.
-- [ ] Tests use user timezone helpers and explicit timezone headers where date boundaries matter.
-- [ ] The guardrail documents which planning-only, metadata-only, template, and draft flows intentionally stay out of the global Financial Event ledger.
+- [x] A route/service test matrix covers expense creation.
+- [x] A route/service test matrix covers income creation and correction reposts.
+- [x] A route/service test matrix covers transfers.
+- [x] A route/service test matrix covers reconciliation.
+- [x] A route/service test matrix covers Expected Inflow receipt realization.
+- [x] A route/service test matrix covers session expense finalization.
+- [x] A route/service test matrix covers Debt wallet movement.
+- [x] A route/service test matrix covers Payment Plan wallet movement.
+- [x] Each covered flow has at least one accepted same-day epoch case.
+- [x] Each covered flow has at least one rejected pre-epoch case.
+- [x] Rejected flows prove no partial posted-money rows or wallet balance changes are committed.
+- [x] Accepted flows prove wallet projection remains valid after posting.
+- [x] Tests use user timezone helpers and explicit timezone headers where date boundaries matter.
+- [x] The guardrail documents which planning-only, metadata-only, template, and draft flows intentionally stay out of the global Financial Event ledger.

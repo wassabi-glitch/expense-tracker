@@ -8,6 +8,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app.timezone import get_effective_user_timezone, today_in_tz
+from app.services.financial_event_ledger_service import validate_wallet_epochs
 from app.domains.payment_plans import (
     _create_payment_plan_expense_event,
     _generate_amortized_rows,
@@ -537,6 +538,13 @@ def _create_loan_disbursement_event(
     title: str,
     note: str | None = None,
 ) -> models.FinancialEvent:
+    # Ticket 5: Enforce per-wallet epoch boundaries before disbursement.
+    validate_wallet_epochs(
+        db,
+        wallet_ids={wallet.id},
+        event_date=disbursement_date,
+    )
+
     WalletService.adjust_balance(db, wallet.id, int(amount), models.TransactionType.DEBT_SETTLEMENT)
 
     event = models.FinancialEvent(
@@ -1017,6 +1025,12 @@ def _create_payment_plan_in_transaction(
     disbursement_event = None
     if payload.loan_disbursement_wallet_id is not None:
         disbursement_wallet = _get_loan_disbursement_wallet_or_404(db, owner_id, payload.loan_disbursement_wallet_id)
+        # Ticket 5: Validate wallet epoch before disbursement money movement.
+        validate_wallet_epochs(
+            db,
+            wallet_ids={disbursement_wallet.id},
+            event_date=payload.start_date,
+        )
         WalletService.adjust_balance(db, disbursement_wallet.id, remaining_amount, models.TransactionType.DEBT_SETTLEMENT)
         disbursement_event = models.FinancialEvent(
             owner_id=owner_id,
