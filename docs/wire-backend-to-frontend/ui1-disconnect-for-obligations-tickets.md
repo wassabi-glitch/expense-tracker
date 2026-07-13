@@ -117,10 +117,10 @@ Work the frontier: any ticket whose blockers are all done can start.
 
 **Blocked by:** Ticket 1: Show Payment Plan Derived State And Archive Visibility; Ticket 2: Use Backend Preview For Flat-Total Payment Plan Creation; Ticket 3: Wire Amortized Loan Schedule Creation; Ticket 4: Wire Manual Contract Schedule Creation; Ticket 5: Wire Payment Plan Write-Off And Charge Reversal Actions; Ticket 6: Wire Debt Creation Principal, Opening Charges, And Wallet Movement; Ticket 7: Wire Debt Component-Aware Payment Allocation; Ticket 8: Replace Legacy Debt Status Assumptions In Edit Flow.
 
-- [ ] Standalone Debt UI does not expose removed product-kind labels.
-- [ ] Standalone Debt UI uses origin and counterparty language.
-- [ ] Payment Plan UI reserves product labels for scheduled plans.
-- [ ] Payment Plan rows use settlement labels rather than stale skipped or paid-only status meaning.
-- [ ] Debt and Payment Plan summaries reconcile from their own facts without cross-domain ledger leakage.
-- [ ] User-timezone overdue behavior is covered across list and detail surfaces.
-- [ ] Tests cover the primary create, pay, write-off, archive, restore, and reverse paths from the user's perspective.
+- [x] Standalone Debt UI does not expose removed product-kind labels.
+- [x] Standalone Debt UI uses origin and counterparty language.
+- [x] Payment Plan UI reserves product labels for scheduled plans.
+- [x] Payment Plan rows use settlement labels rather than stale skipped or paid-only status meaning.
+- [x] Debt and Payment Plan summaries reconcile from their own facts without cross-domain ledger leakage.
+- [x] User-timezone overdue behavior is covered across list and detail surfaces.
+- [x] Tests cover the primary create, pay, write-off, archive, restore, and reverse paths from the user's perspective.
