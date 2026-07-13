@@ -90,12 +90,12 @@ Work the frontier: any ticket whose blockers are all done can start.
 
 **Blocked by:** None - can start immediately.
 
-- [ ] Debt payment UI exposes allocation mode when the Debt has principal and charge balances.
-- [ ] Automatic mode uses the backend default allocation rule.
-- [ ] Charges-first and principal-first modes send explicit allocation intent.
-- [ ] Custom mode validates that principal and charge amounts add up to the payment amount.
-- [ ] Custom mode prevents allocating more than the remaining eligible principal or charges.
-- [ ] Activity and balance cards update principal, charge, and total remaining values after payment.
+- [x] Debt payment UI exposes allocation mode when the Debt has principal and charge balances.
+- [x] Automatic mode uses the backend default allocation rule.
+- [x] Charges-first and principal-first modes send explicit allocation intent.
+- [x] Custom mode validates that principal and charge amounts add up to the payment amount.
+- [x] Custom mode prevents allocating more than the remaining eligible principal or charges.
+- [x] Activity and balance cards update principal, charge, and total remaining values after payment.
 - [ ] Tests cover all allocation modes, validation errors, successful payment, and refreshed detail state.
 
 ## Ticket 8: Replace Legacy Debt Status Assumptions In Edit Flow
@@ -104,11 +104,11 @@ Work the frontier: any ticket whose blockers are all done can start.
 
 **Blocked by:** None - can start immediately.
 
-- [ ] Debt edit amount visibility is based on derived lifecycle and archive state.
-- [ ] Open, unarchived Debts can submit valid initial amount changes.
-- [ ] Closed or archived Debts cannot change financial setup through generic edit.
-- [ ] The frontend no longer checks removed standalone Debt status fields.
-- [ ] Existing origin, counterparty, date, category, and income-source editing remains intact.
+- [x] Debt edit amount visibility is based on derived lifecycle and archive state.
+- [x] Open, unarchived Debts can submit valid initial amount changes.
+- [x] Closed or archived Debts cannot change financial setup through generic edit.
+- [x] The frontend no longer checks removed standalone Debt status fields.
+- [x] Existing origin, counterparty, date, category, and income-source editing remains intact.
 - [ ] Tests cover open edit, closed edit lockout, archived edit lockout, and no legacy status dependency.
 
 ## Ticket 9: Finish Obligation UI Contract Regression Coverage
