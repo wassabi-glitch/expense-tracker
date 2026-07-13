@@ -69,16 +69,16 @@ These tickets wire the Ledger Foundation rules through the UI-facing posted-mone
 
 **Blocked by:** Ticket 1: Surface wallet epoch errors end-to-end.
 
-- [ ] Finalizing a session expense rejects future dates using the user's effective timezone.
-- [ ] Finalizing a session expense rejects sealed closed-period dates with current-correction guidance.
-- [ ] Finalizing a session expense accepts valid current-month dates.
-- [ ] Finalizing a session expense accepts allowed grace-window cleanup dates.
-- [ ] Finalizing validates every wallet allocation against the finalized expense date.
-- [ ] Rejected finalization leaves the draft editable.
-- [ ] Rejected finalization creates no posted Financial Event, Wallet Ledger, Entity Ledger, split Debt, or wallet balance change.
-- [ ] The session composer displays localized future-date, closed-period, and wallet epoch errors.
-- [ ] Accepted session finalization still updates budgets, wallet balances, splits, and ledger projections correctly.
-- [ ] Tests use project timezone helpers rather than server-local dates.
+- [x] Finalizing a session expense rejects future dates using the user's effective timezone.
+- [x] Finalizing a session expense rejects sealed closed-period dates with current-correction guidance.
+- [x] Finalizing a session expense accepts valid current-month dates.
+- [x] Finalizing a session expense accepts allowed grace-window cleanup dates.
+- [x] Finalizing validates every wallet allocation against the finalized expense date.
+- [x] Rejected finalization leaves the draft editable.
+- [x] Rejected finalization creates no posted Financial Event, Wallet Ledger, Entity Ledger, split Debt, or wallet balance change.
+- [x] The session composer displays localized future-date, closed-period, and wallet epoch errors.
+- [x] Accepted session finalization still updates budgets, wallet balances, splits, and ledger projections correctly.
+- [x] Tests use project timezone helpers rather than server-local dates.
 
 ## Ticket 4: Enforce Wallet Epochs On Debt Wallet Movements
 
@@ -86,16 +86,16 @@ These tickets wire the Ledger Foundation rules through the UI-facing posted-mone
 
 **Blocked by:** Ticket 1: Surface wallet epoch errors end-to-end.
 
-- [ ] Debt creation with initial wallet movement rejects dates before the touched wallet's tracking start.
-- [ ] Debt creation with initial multi-wallet movement rejects if any touched wallet is pre-epoch.
-- [ ] Debt payment rejects payment dates before any payment wallet's tracking start.
-- [ ] Same-day debt initial wallet movement remains accepted.
-- [ ] Same-day debt payment remains accepted.
-- [ ] Rejected debt creation creates no Financial Event, Wallet Ledger, Debt Ledger, Debt Transaction, allocation, or wallet balance change.
-- [ ] Rejected debt payment creates no Financial Event, Wallet Ledger, Debt Ledger, Debt Transaction, allocation, or wallet balance change.
-- [ ] Metadata-only debt edits remain mutable where they do not change posted money.
-- [ ] Debt UI flows surface the shared wallet epoch error.
-- [ ] Tests cover both informal and formal debt paths where wallet money moves.
+- [x] Debt creation with initial wallet movement rejects dates before the touched wallet's tracking start.
+- [x] Debt creation with initial multi-wallet movement rejects if any touched wallet is pre-epoch.
+- [x] Debt payment rejects payment dates before any payment wallet's tracking start.
+- [x] Same-day debt initial wallet movement remains accepted.
+- [x] Same-day debt payment remains accepted.
+- [x] Rejected debt creation creates no Financial Event, Wallet Ledger, Debt Ledger, Debt Transaction, allocation, or wallet balance change.
+- [x] Rejected debt payment creates no Financial Event, Wallet Ledger, Debt Ledger, Debt Transaction, allocation, or wallet balance change.
+- [x] Metadata-only debt edits remain mutable where they do not change posted money.
+- [x] Debt UI flows surface the shared wallet epoch error.
+- [x] Tests cover both informal and formal debt paths where wallet money moves.
 
 ## Ticket 5: Enforce Wallet Epochs On Payment Plan Wallet Movements
 
