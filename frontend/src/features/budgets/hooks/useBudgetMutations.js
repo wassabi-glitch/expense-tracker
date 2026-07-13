@@ -25,7 +25,7 @@ export function useCreateBudgetMutation() {
             );
         },
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.budget.failedToCreate"), msg);
         },
     });
@@ -50,7 +50,7 @@ export function useUpdateBudgetMutation() {
             );
         },
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.budget.failedToUpdate"), msg);
         },
     });
@@ -69,7 +69,7 @@ export function useDeleteBudgetMutation() {
             toast.success(t("toasts.budget.deleted"));
         },
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.budget.failedToDelete"), msg);
         },
     });
@@ -89,7 +89,7 @@ export function useConfigureBorrowingSurvivalMutation() {
             );
         },
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.budget.failedToConfigureSurvival", { defaultValue: "Failed to configure borrowing survival" }), msg);
         },
     });
@@ -117,7 +117,7 @@ export function useReallocateBudgetMutation() {
             );
         },
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.budget.failedToReallocate", { defaultValue: "Failed to reallocate budget" }), msg);
         },
     });

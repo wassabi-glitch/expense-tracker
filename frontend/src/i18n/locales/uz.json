@@ -1310,7 +1310,10 @@
     "action_not_supported_for_cash": "Bu amal naqd pul hamyoni uchun qo'llab-quvvatlanmaydi.",
     "insufficientFunds": "Ushbu hamyonda mablag' etarli emas.",
     "archived_locked": "Hamyon arxivlangan",
-    "budget_autocreated": "Bu oy 'Bank foizlari va komissiyalari' uchun avtomatik ravishda 50 000 so'mlik byudjet yaratildi. Zarur bo'lsa, uni Byudjetlar sahifasida o'zgartirishingiz mumkin."
+    "budget_autocreated": "Bu oy 'Bank foizlari va komissiyalari' uchun avtomatik ravishda 50 000 so'mlik byudjet yaratildi. Zarur bo'lsa, uni Byudjetlar sahifasida o'zgartirishingiz mumkin.",
+    "dateBeforeEpoch": "{{requested_date}} sanasi \"{{wallet_name}}\" hamyoni kuzatilishni boshlagan {{wallet_epoch}} sanasidan oldin. Shu kunlik faoliyatga ruxsat beriladi.",
+    "dateBeforeEpochFallback": "Bu sana bir yoki bir nechta hamyonlar kuzatuvni boshlashidan oldin. Hamyon yaratilgan sana yoki undan keyingi sanani ishlating.",
+    "unknownWallet": "Noma'lum hamyon"
   },
   "wallet": {
     "label": "Hamyon",

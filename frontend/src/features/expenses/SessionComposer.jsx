@@ -323,7 +323,7 @@ export default function SessionComposer({
       toast.neutral(t("expenses.sessionStarted", { defaultValue: "Session started" }));
     },
     onError: (error) => {
-      setActionError(localizeApiError(error.message, t) || error.message);
+      setActionError(localizeApiError(error, t) || error.message);
     },
   });
 
@@ -334,7 +334,7 @@ export default function SessionComposer({
       toast.neutral(t("expenses.sessionUpdated", { defaultValue: "Session updated" }));
     },
     onError: (error) => {
-      setActionError(localizeApiError(error.message, t) || error.message);
+      setActionError(localizeApiError(error, t) || error.message);
     },
   });
 
@@ -349,7 +349,7 @@ export default function SessionComposer({
       setItemProjectId("");
       setItemProjectSubcategoryId("");
     },
-    onError: (error) => setActionError(localizeApiError(error.message, t) || error.message),
+    onError: (error) => setActionError(localizeApiError(error, t) || error.message),
   });
 
   const deleteItemMutation = useMutation({
@@ -357,7 +357,7 @@ export default function SessionComposer({
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["expenses", "session-draft", "active"] });
     },
-    onError: (error) => setActionError(localizeApiError(error.message, t) || error.message),
+    onError: (error) => setActionError(localizeApiError(error, t) || error.message),
   });
 
   const updateItemMutation = useMutation({
@@ -372,7 +372,7 @@ export default function SessionComposer({
       setEditingItemProjectId("");
       setEditingItemProjectSubcategoryId("");
     },
-    onError: (error) => setActionError(localizeApiError(error.message, t) || error.message),
+    onError: (error) => setActionError(localizeApiError(error, t) || error.message),
   });
 
   const addAllocationMutation = useMutation({
@@ -382,7 +382,7 @@ export default function SessionComposer({
       setAllocationWalletId("");
       setAllocationAmount("");
     },
-    onError: (error) => setActionError(localizeApiError(error.message, t) || error.message),
+    onError: (error) => setActionError(localizeApiError(error, t) || error.message),
   });
 
   const deleteAllocationMutation = useMutation({
@@ -390,7 +390,7 @@ export default function SessionComposer({
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["expenses", "session-draft", "active"] });
     },
-    onError: (error) => setActionError(localizeApiError(error.message, t) || error.message),
+    onError: (error) => setActionError(localizeApiError(error, t) || error.message),
   });
 
   const updateAllocationMutation = useMutation({
@@ -400,7 +400,7 @@ export default function SessionComposer({
       setEditingAllocationId(null);
       setEditingAllocationAmount("");
     },
-    onError: (error) => setActionError(localizeApiError(error.message, t) || error.message),
+    onError: (error) => setActionError(localizeApiError(error, t) || error.message),
   });
 
   const addSplitMutation = useMutation({
@@ -410,7 +410,7 @@ export default function SessionComposer({
       setSplitContactName("");
       setSplitAmount("");
     },
-    onError: (error) => setActionError(localizeApiError(error.message, t) || error.message),
+    onError: (error) => setActionError(localizeApiError(error, t) || error.message),
   });
 
   const deleteSplitMutation = useMutation({
@@ -418,7 +418,7 @@ export default function SessionComposer({
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["expenses", "session-draft", "active"] });
     },
-    onError: (error) => setActionError(localizeApiError(error.message, t) || error.message),
+    onError: (error) => setActionError(localizeApiError(error, t) || error.message),
   });
 
   const updateSplitMutation = useMutation({
@@ -429,7 +429,7 @@ export default function SessionComposer({
       setEditingSplitContactName("");
       setEditingSplitAmount("");
     },
-    onError: (error) => setActionError(localizeApiError(error.message, t) || error.message),
+    onError: (error) => setActionError(localizeApiError(error, t) || error.message),
   });
 
   const pauseMutation = useMutation({
@@ -437,7 +437,7 @@ export default function SessionComposer({
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["expenses", "session-draft", "active"] });
     },
-    onError: (error) => setActionError(localizeApiError(error.message, t) || error.message),
+    onError: (error) => setActionError(localizeApiError(error, t) || error.message),
   });
 
   const resumeMutation = useMutation({
@@ -445,7 +445,7 @@ export default function SessionComposer({
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["expenses", "session-draft", "active"] });
     },
-    onError: (error) => setActionError(localizeApiError(error.message, t) || error.message),
+    onError: (error) => setActionError(localizeApiError(error, t) || error.message),
   });
 
   const abandonMutation = useMutation({
@@ -454,7 +454,7 @@ export default function SessionComposer({
       await queryClient.invalidateQueries({ queryKey: ["expenses", "session-draft", "active"] });
       onOpenChange(false);
     },
-    onError: (error) => setActionError(localizeApiError(error.message, t) || error.message),
+    onError: (error) => setActionError(localizeApiError(error, t) || error.message),
   });
 
   const finalizeMutation = useMutation({
@@ -486,7 +486,7 @@ export default function SessionComposer({
         });
         return;
       }
-      setActionError(localizeApiError(error.message, t) || error.message);
+      setActionError(localizeApiError(error, t) || error.message);
     },
   });
 

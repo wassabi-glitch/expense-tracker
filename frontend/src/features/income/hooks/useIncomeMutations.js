@@ -25,7 +25,7 @@ export function useCreateIncomeSourceMutation() {
             toast.success(t("toasts.income.sourceCreated"), data.name);
         },
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.income.failedToCreateSource"), msg);
         },
     });
@@ -42,7 +42,7 @@ export function useUpdateIncomeSourceMutation() {
             toast.success(t("toasts.income.sourceUpdated"), data.name);
         },
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.income.failedToUpdateSource"), msg);
         },
     });
@@ -59,7 +59,7 @@ export function useDeleteIncomeSourceMutation() {
             toast.success(t("toasts.income.sourceDeleted"));
         },
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.income.failedToDeleteSource"), msg);
         },
     });
@@ -100,7 +100,7 @@ export function useToggleIncomeSourceActiveMutation() {
             for (const entry of context.previousByKey) {
                 queryClient.setQueryData(entry.queryKey, entry.data);
             }
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.income.failedToToggleSource"), msg);
         },
         onSuccess: async () => {
@@ -123,7 +123,7 @@ export function useCreateIncomeEntryMutation() {
             );
         },
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.income.failedToCreateEntry"), msg);
         },
     });
@@ -143,7 +143,7 @@ export function useUpdateIncomeEntryMutation() {
             );
         },
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.income.failedToUpdateEntry"), msg);
         },
     });
@@ -160,7 +160,7 @@ export function useDeleteIncomeEntryMutation() {
             toast.success(t("toasts.income.entryDeleted"));
         },
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.income.failedToDeleteEntry"), msg);
         },
     });

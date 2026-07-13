@@ -36,15 +36,15 @@ These tickets wire the Ledger Foundation rules through the UI-facing posted-mone
 
 **Blocked by:** None - can start immediately.
 
-- [ ] Structured wallet epoch errors preserve the backend detail object through the API client.
-- [ ] Wallet epoch errors render user-facing copy instead of an internal error code.
-- [ ] The message names the affected wallet when backend detail includes the wallet name.
-- [ ] The message includes the requested date and the wallet tracking-start date when backend detail includes them.
-- [ ] The message distinguishes wallet tracking-start failures from future-date failures.
-- [ ] The message distinguishes wallet tracking-start failures from closed-period failures.
-- [ ] The same translation path works for expenses, income, transfers, reconciliation, Expected Inflows, Debt, and Payment Plans.
-- [ ] Existing structured goal-protection and budget-required errors continue to render correctly.
-- [ ] Frontend tests cover a structured wallet epoch error with wallet name, requested date, and tracking-start date.
+- [x] Structured wallet epoch errors preserve the backend detail object through the API client.
+- [x] Wallet epoch errors render user-facing copy instead of an internal error code.
+- [x] The message names the affected wallet when backend detail includes the wallet name.
+- [x] The message includes the requested date and the wallet tracking-start date when backend detail includes them.
+- [x] The message distinguishes wallet tracking-start failures from future-date failures.
+- [x] The message distinguishes wallet tracking-start failures from closed-period failures.
+- [x] The same translation path works for expenses, income, transfers, reconciliation, Expected Inflows, Debt, and Payment Plans.
+- [x] Existing structured goal-protection and budget-required errors continue to render correctly.
+- [x] Frontend tests cover a structured wallet epoch error with wallet name, requested date, and tracking-start date.
 
 ## Ticket 2: Enforce Wallet Epochs On Expected Inflow Receipts
 

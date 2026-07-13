@@ -32,7 +32,7 @@ export function useCreateRecurringMutation() {
             );
         },
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.recurring.failedToCreate"), msg);
         },
     });
@@ -53,7 +53,7 @@ export function useUpdateRecurringMutation() {
             );
         },
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.recurring.failedToUpdate"), msg);
         },
     });
@@ -71,7 +71,7 @@ export function useDeleteRecurringMutation() {
             toast.success(t("toasts.recurring.deleted"));
         },
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.recurring.failedToDelete"), msg);
         },
     });
@@ -88,7 +88,7 @@ export function useToggleRecurringMutation() {
             await invalidateRecurringViews(queryClient);
         },
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.recurring.failedToToggle"), msg);
         },
     });
@@ -106,7 +106,7 @@ export function useSkipRecurringMutation() {
             toast.success(t("toasts.recurring.skipped"));
         },
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.recurring.failedToSkip"), msg);
         },
     });
@@ -125,7 +125,7 @@ export function useChangeRecurringWalletMutation() {
             toast.success(t("toasts.recurring.walletChanged"));
         },
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.recurring.failedToChangeWallet"), msg);
         },
     });
@@ -143,7 +143,7 @@ export function useConfirmRecurringOccurrenceMutation() {
             toast.success(t("toasts.recurring.confirmed"));
         },
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.recurring.failedToConfirm"), msg);
         },
     });

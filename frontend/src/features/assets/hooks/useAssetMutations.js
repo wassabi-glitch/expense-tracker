@@ -29,7 +29,7 @@ export function useAssetMutations() {
     onError: (error) => {
       toast.error(
         t("assets.toastCreateFailed", { defaultValue: "Failed to create asset" }),
-        localizeApiError(error.message, t) || error.message
+        localizeApiError(error, t) || error.message
       );
     },
   });
@@ -46,7 +46,7 @@ export function useAssetMutations() {
     onError: (error) => {
       toast.error(
         t("assets.toastUpdateFailed", { defaultValue: "Failed to update asset" }),
-        localizeApiError(error.message, t) || error.message
+        localizeApiError(error, t) || error.message
       );
     },
   });
@@ -63,7 +63,7 @@ export function useAssetMutations() {
     onError: (error) => {
       toast.error(
         t("assets.toastSellFailed", { defaultValue: "Failed to sell asset" }),
-        localizeApiError(error.message, t) || error.message
+        localizeApiError(error, t) || error.message
       );
     },
   });
@@ -80,7 +80,7 @@ export function useAssetMutations() {
     onError: (error) => {
       toast.error(
         t("assets.toastGiftFailed", { defaultValue: "Failed to gift asset" }),
-        localizeApiError(error.message, t) || error.message
+        localizeApiError(error, t) || error.message
       );
     },
   });
@@ -97,7 +97,7 @@ export function useAssetMutations() {
     onError: (error) => {
       toast.error(
         t("assets.toastDisposeFailed", { defaultValue: "Failed to dispose asset" }),
-        localizeApiError(error.message, t) || error.message
+        localizeApiError(error, t) || error.message
       );
     },
   });
@@ -114,7 +114,7 @@ export function useAssetMutations() {
     onError: (error) => {
       toast.error(
         t("assets.toastLostFailed", { defaultValue: "Failed to mark asset as lost" }),
-        localizeApiError(error.message, t) || error.message
+        localizeApiError(error, t) || error.message
       );
     },
   });

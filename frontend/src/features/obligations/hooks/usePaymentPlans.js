@@ -65,7 +65,7 @@ export function useUpdatePaymentPlanMutation() {
       toast.success(t("payment_plans.toasts.updated", { defaultValue: "Payment plan updated" }));
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("payment_plans.toasts.failedToUpdate", { defaultValue: "Failed to update payment plan" }), msg);
     },
   });
@@ -82,7 +82,7 @@ export function useDeletePaymentPlanMutation() {
       toast.success(t("payment_plans.toasts.deleted", { defaultValue: "Payment plan deleted" }));
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("payment_plans.toasts.failedToDelete", { defaultValue: "Failed to delete payment plan" }), msg);
     },
   });

@@ -30,7 +30,7 @@ export function useRefundExpenseMutation() {
         mutationFn: (payload) => refundExpense(payload),
         onSuccess: () => {},
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.expense.failedToRefund", { defaultValue: "Failed to Refund" }), msg);
         },
         onSettled: async () => {
@@ -47,7 +47,7 @@ export function useSplitExpenseMutation() {
     return useMutation({
         mutationFn: (payload) => splitExpense(payload),
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.expense.failedToUpdate", { defaultValue: "Failed to update expense" }), msg);
         },
         onSettled: async () => {
@@ -64,7 +64,7 @@ export function useMarkExpenseAsAssetMutation() {
     return useMutation({
         mutationFn: (payload) => markExpenseAsAsset(payload),
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("assets.toastCreateFailed", { defaultValue: "Failed to create asset" }), msg);
         },
         onSettled: async () => {
@@ -82,7 +82,7 @@ export function useMarkExpenseAsRecurringMutation() {
     return useMutation({
         mutationFn: (payload) => markExpenseAsRecurring(payload),
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.recurring.failedToCreate", { defaultValue: "Failed to create recurring expense" }), msg);
         },
         onSettled: async () => {
@@ -101,7 +101,7 @@ export function useCreateExpenseMergeGroupMutation() {
     return useMutation({
         mutationFn: (payload) => createExpenseMergeGroup(payload),
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("expenses.mergeFailed", { defaultValue: "Failed to create merge group" }), msg);
         },
         onSettled: async () => {
@@ -118,7 +118,7 @@ export function useAddExpensesToMergeGroupMutation() {
     return useMutation({
         mutationFn: ({ groupId, payload }) => addExpensesToMergeGroup(groupId, payload),
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("expenses.mergeFailed", { defaultValue: "Failed to update merge group" }), msg);
         },
         onSettled: async () => {
@@ -135,7 +135,7 @@ export function useRemoveExpenseFromMergeGroupMutation() {
     return useMutation({
         mutationFn: ({ groupId, expenseId }) => removeExpenseFromMergeGroup(groupId, expenseId),
         onError: (error) => {
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("expenses.mergeFailed", { defaultValue: "Failed to update merge group" }), msg);
         },
         onSettled: async () => {
@@ -204,7 +204,7 @@ export function useCreateExpenseMutation() {
             for (const [key, data] of context?.previousSummaries || []) {
                 queryClient.setQueryData(key, data);
             }
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.expense.failedToCreate"), msg);
         },
         onSuccess: () => {},
@@ -230,7 +230,7 @@ export function useUpdateExpenseMutation() {
             for (const [key, data] of context?.previousSummaries || []) {
                 queryClient.setQueryData(key, data);
             }
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.expense.failedToUpdate"), msg);
         },
         onSuccess: () => {},
@@ -259,7 +259,7 @@ export function useDeleteExpenseMutation() {
             for (const [key, data] of context?.previousSummaries || []) {
                 queryClient.setQueryData(key, data);
             }
-            const msg = localizeApiError(error.message, t) || error.message;
+            const msg = localizeApiError(error, t) || error.message;
             toast.error(t("toasts.expense.failedToDelete"), msg);
         },
         onSuccess: () => {},
