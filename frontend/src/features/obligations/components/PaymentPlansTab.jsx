@@ -40,12 +40,14 @@ import { formatAmountInput, formatDisplayDate, formatUzs, parseAmountInput } fro
 import { toISODateInTimeZone } from "@/lib/date";
 import {
   useAddPaymentPlanChargeMutation,
+  useArchivePaymentPlanMutation,
   useCreatePaymentPlanMutation,
   useDeletePaymentPlanMutation,
   usePaymentPlanDetailsQuery,
   usePaymentPlansQuery,
   usePaymentPlanSummaryQuery,
   useRecordPaymentPlanPaymentMutation,
+  useUnarchivePaymentPlanMutation,
   useUndoLatestPaymentPlanPaymentMutation,
   useUpdatePaymentPlanMutation,
   useWriteOffPaymentPlanPaymentMutation,
@@ -1348,7 +1350,7 @@ function PaymentPlanCard({ plan, onOpen, onPay, onCharge, onEdit, onDelete }) {
             </div>
 
             <div className="mt-4 space-y-2">
-              <Progress value={progress} className="h-2.5 bg-muted" indicatorClassName={isPaid ? "bg-emerald-500" : "bg-primary"} />
+              <Progress value={progress} className="h-2.5 bg-muted" indicatorClassName={(plan.lifecycle_status === "CLOSED") ? "bg-emerald-500" : "bg-primary"} />
               <div className="grid gap-px overflow-hidden rounded-md border border-border bg-border text-sm sm:grid-cols-3">
                 <div className="bg-background p-3">
                   <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Schedule</p>
@@ -1382,7 +1384,7 @@ function PaymentPlanCard({ plan, onOpen, onPay, onCharge, onEdit, onDelete }) {
                 <Eye className="h-4 w-4" />
                 Open
               </Button>
-              <Button className="h-10 rounded-md" disabled={!nextPayment || isPaid} onClick={() => onPay(plan)}>
+              <Button className="h-10 rounded-md" disabled={!nextPayment || (plan.lifecycle_status === "CLOSED")} onClick={() => onPay(plan)}>
                 <WalletCards className="h-4 w-4" />
                 Pay
               </Button>
@@ -1414,6 +1416,17 @@ function PaymentPlanCard({ plan, onOpen, onPay, onCharge, onEdit, onDelete }) {
                 <Plus className="h-4 w-4" />
                 Charge
               </Button>
+              {isArchived ? (
+                <Button variant="outline" className="col-span-2 h-10 rounded-md" onClick={() => onRestore(plan)}>
+                  <RotateCcw className="h-4 w-4" />
+                  Restore
+                </Button>
+              ) : (
+                <Button variant="ghost" className="col-span-2 h-10 rounded-md border border-border bg-background/60" onClick={() => onArchive(plan)}>
+                  <FileText className="h-4 w-4" />
+                  Archive
+                </Button>
+              )}
             </div>
           </aside>
         </div>
@@ -1435,9 +1448,14 @@ export function PaymentPlansTab() {
   const plansQuery = usePaymentPlansQuery({ limit: 100 });
   const walletsQuery = useQuery({ queryKey: ["wallets"], queryFn: getWallets });
   const deleteMutation = useDeletePaymentPlanMutation();
+  const archiveMutation = useArchivePaymentPlanMutation();
+  const unarchiveMutation = useUnarchivePaymentPlanMutation();
+
+  const [showArchived, setShowArchived] = useState(false);
 
   const wallets = useMemo(() => (Array.isArray(walletsQuery.data) ? walletsQuery.data : []), [walletsQuery.data]);
   const plans = useMemo(() => (Array.isArray(plansQuery.data?.items) ? plansQuery.data.items : []), [plansQuery.data]);
+  const displayedPlans = useMemo(() => showArchived ? plans : plans.filter(p => !p.archived_at), [plans, showArchived]);
   const summary = summaryQuery.data || {};
 
   useEffect(() => {
@@ -1464,6 +1482,15 @@ export function PaymentPlansTab() {
     setDeleteTarget(null);
   };
 
+  const handleArchive = async (plan) => {
+    await archiveMutation.mutateAsync(plan.id);
+    if (detailsPlan?.id === plan.id) setDetailsPlan(null);
+  };
+
+  const handleRestore = async (plan) => {
+    await unarchiveMutation.mutateAsync(plan.id);
+  };
+
   return (
     <div className="space-y-5">
       <div className="grid gap-3 md:grid-cols-4">
@@ -1480,8 +1507,16 @@ export function PaymentPlansTab() {
         </div>
       </div>
 
+      <div className="flex items-center gap-3">
+        <div className="flex-1" />
+        <div className="flex items-center gap-2">
+          <Label htmlFor="show-archived-filter" className="text-sm text-muted-foreground">Show archived</Label>
+          <Switch id="show-archived-filter" checked={showArchived} onCheckedChange={setShowArchived} />
+        </div>
+      </div>
+
       <div className="space-y-3">
-        {plans.map((plan) => (
+        {displayedPlans.map((plan) => (
           <PaymentPlanCard
             key={plan.id}
             plan={plan}
@@ -1490,9 +1525,11 @@ export function PaymentPlansTab() {
             onCharge={setChargePlan}
             onEdit={setEditPlan}
             onDelete={setDeleteTarget}
+            onArchive={handleArchive}
+            onRestore={handleRestore}
           />
         ))}
-        {!plans.length && !plansQuery.isLoading ? (
+        {!displayedPlans.length && !plansQuery.isLoading ? (
           <Card className="rounded-lg border-dashed py-0 shadow-none">
             <CardContent className="flex min-h-64 flex-col items-center justify-center gap-3 p-8 text-center">
               <FileText className="h-10 w-10 text-muted-foreground" />
