@@ -1426,7 +1426,16 @@ function PaymentPlanDetailsDialog({ plan, open, onOpenChange, onPay, onCharge, o
   );
 }
 
-function PaymentPlanCard({ plan, onOpen, onPay, onCharge, onEdit, onDelete }) {
+function PaymentPlanCard({
+  plan,
+  onOpen,
+  onPay,
+  onCharge,
+  onEdit,
+  onDelete,
+  onArchive,
+  onRestore,
+}) {
   const payments = sortedPayments(plan.payments || []);
   const unpaid = unpaidPayments(plan);
   const nextPayment = unpaid[0];
