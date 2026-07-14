@@ -36,15 +36,15 @@ These tickets wire the Ledger Foundation rules through the UI-facing posted-mone
 
 **Blocked by:** None - can start immediately.
 
-- [ ] Structured wallet epoch errors preserve the backend detail object through the API client.
-- [ ] Wallet epoch errors render user-facing copy instead of an internal error code.
-- [ ] The message names the affected wallet when backend detail includes the wallet name.
-- [ ] The message includes the requested date and the wallet tracking-start date when backend detail includes them.
-- [ ] The message distinguishes wallet tracking-start failures from future-date failures.
-- [ ] The message distinguishes wallet tracking-start failures from closed-period failures.
-- [ ] The same translation path works for expenses, income, transfers, reconciliation, Expected Inflows, Debt, and Payment Plans.
-- [ ] Existing structured goal-protection and budget-required errors continue to render correctly.
-- [ ] Frontend tests cover a structured wallet epoch error with wallet name, requested date, and tracking-start date.
+- [x] Structured wallet epoch errors preserve the backend detail object through the API client.
+- [x] Wallet epoch errors render user-facing copy instead of an internal error code.
+- [x] The message names the affected wallet when backend detail includes the wallet name.
+- [x] The message includes the requested date and the wallet tracking-start date when backend detail includes them.
+- [x] The message distinguishes wallet tracking-start failures from future-date failures.
+- [x] The message distinguishes wallet tracking-start failures from closed-period failures.
+- [x] The same translation path works for expenses, income, transfers, reconciliation, Expected Inflows, Debt, and Payment Plans.
+- [x] Existing structured goal-protection and budget-required errors continue to render correctly.
+- [x] Frontend tests cover a structured wallet epoch error with wallet name, requested date, and tracking-start date.
 
 ## Ticket 2: Enforce Wallet Epochs On Expected Inflow Receipts
 
@@ -52,16 +52,16 @@ These tickets wire the Ledger Foundation rules through the UI-facing posted-mone
 
 **Blocked by:** Ticket 1: Surface wallet epoch errors end-to-end.
 
-- [ ] Realizing an Expected Inflow rejects a received date before any destination wallet's tracking start.
-- [ ] Same-day receipt on the destination wallet's tracking start is accepted.
-- [ ] Multi-wallet receipts validate every destination wallet.
-- [ ] Multi-wallet receipts reject the whole command if any destination wallet is invalid.
-- [ ] Rejected earned-income receipts create no Financial Event, Wallet Ledger, Entity Ledger, realization, allocation, or wallet balance change.
-- [ ] Rejected receivable receipts create no Debt payment, Debt Ledger, Financial Event, realization, allocation, or wallet balance change.
-- [ ] Rejected refund receipts create no refund event, realization, allocation, or wallet balance change.
-- [ ] Rejected asset-sale receipts create no sale event, asset closure, realization, allocation, or wallet balance change.
-- [ ] The receive dialog surfaces the shared wallet epoch error clearly.
-- [ ] Tests use explicit user timezone headers and project timezone helpers.
+- [x] Realizing an Expected Inflow rejects a received date before any destination wallet's tracking start.
+- [x] Same-day receipt on the destination wallet's tracking start is accepted.
+- [x] Multi-wallet receipts validate every destination wallet.
+- [x] Multi-wallet receipts reject the whole command if any destination wallet is invalid.
+- [x] Rejected earned-income receipts create no Financial Event, Wallet Ledger, Entity Ledger, realization, allocation, or wallet balance change.
+- [x] Rejected receivable receipts create no Debt payment, Debt Ledger, Financial Event, realization, allocation, or wallet balance change.
+- [x] Rejected refund receipts create no refund event, realization, allocation, or wallet balance change.
+- [x] Rejected asset-sale receipts create no sale event, asset closure, realization, allocation, or wallet balance change.
+- [x] The receive dialog surfaces the shared wallet epoch error clearly.
+- [x] Tests use explicit user timezone headers and project timezone helpers.
 
 ## Ticket 3: Seal Session Expense Finalization Boundaries
 
@@ -69,16 +69,16 @@ These tickets wire the Ledger Foundation rules through the UI-facing posted-mone
 
 **Blocked by:** Ticket 1: Surface wallet epoch errors end-to-end.
 
-- [ ] Finalizing a session expense rejects future dates using the user's effective timezone.
-- [ ] Finalizing a session expense rejects sealed closed-period dates with current-correction guidance.
-- [ ] Finalizing a session expense accepts valid current-month dates.
-- [ ] Finalizing a session expense accepts allowed grace-window cleanup dates.
-- [ ] Finalizing validates every wallet allocation against the finalized expense date.
-- [ ] Rejected finalization leaves the draft editable.
-- [ ] Rejected finalization creates no posted Financial Event, Wallet Ledger, Entity Ledger, split Debt, or wallet balance change.
-- [ ] The session composer displays localized future-date, closed-period, and wallet epoch errors.
-- [ ] Accepted session finalization still updates budgets, wallet balances, splits, and ledger projections correctly.
-- [ ] Tests use project timezone helpers rather than server-local dates.
+- [x] Finalizing a session expense rejects future dates using the user's effective timezone.
+- [x] Finalizing a session expense rejects sealed closed-period dates with current-correction guidance.
+- [x] Finalizing a session expense accepts valid current-month dates.
+- [x] Finalizing a session expense accepts allowed grace-window cleanup dates.
+- [x] Finalizing validates every wallet allocation against the finalized expense date.
+- [x] Rejected finalization leaves the draft editable.
+- [x] Rejected finalization creates no posted Financial Event, Wallet Ledger, Entity Ledger, split Debt, or wallet balance change.
+- [x] The session composer displays localized future-date, closed-period, and wallet epoch errors.
+- [x] Accepted session finalization still updates budgets, wallet balances, splits, and ledger projections correctly.
+- [x] Tests use project timezone helpers rather than server-local dates.
 
 ## Ticket 4: Enforce Wallet Epochs On Debt Wallet Movements
 
@@ -86,16 +86,16 @@ These tickets wire the Ledger Foundation rules through the UI-facing posted-mone
 
 **Blocked by:** Ticket 1: Surface wallet epoch errors end-to-end.
 
-- [ ] Debt creation with initial wallet movement rejects dates before the touched wallet's tracking start.
-- [ ] Debt creation with initial multi-wallet movement rejects if any touched wallet is pre-epoch.
-- [ ] Debt payment rejects payment dates before any payment wallet's tracking start.
-- [ ] Same-day debt initial wallet movement remains accepted.
-- [ ] Same-day debt payment remains accepted.
-- [ ] Rejected debt creation creates no Financial Event, Wallet Ledger, Debt Ledger, Debt Transaction, allocation, or wallet balance change.
-- [ ] Rejected debt payment creates no Financial Event, Wallet Ledger, Debt Ledger, Debt Transaction, allocation, or wallet balance change.
-- [ ] Metadata-only debt edits remain mutable where they do not change posted money.
-- [ ] Debt UI flows surface the shared wallet epoch error.
-- [ ] Tests cover both informal and formal debt paths where wallet money moves.
+- [x] Debt creation with initial wallet movement rejects dates before the touched wallet's tracking start.
+- [x] Debt creation with initial multi-wallet movement rejects if any touched wallet is pre-epoch.
+- [x] Debt payment rejects payment dates before any payment wallet's tracking start.
+- [x] Same-day debt initial wallet movement remains accepted.
+- [x] Same-day debt payment remains accepted.
+- [x] Rejected debt creation creates no Financial Event, Wallet Ledger, Debt Ledger, Debt Transaction, allocation, or wallet balance change.
+- [x] Rejected debt payment creates no Financial Event, Wallet Ledger, Debt Ledger, Debt Transaction, allocation, or wallet balance change.
+- [x] Metadata-only debt edits remain mutable where they do not change posted money.
+- [x] Debt UI flows surface the shared wallet epoch error.
+- [x] Tests cover both informal and formal debt paths where wallet money moves.
 
 ## Ticket 5: Enforce Wallet Epochs On Payment Plan Wallet Movements
 
@@ -103,16 +103,16 @@ These tickets wire the Ledger Foundation rules through the UI-facing posted-mone
 
 **Blocked by:** Ticket 1: Surface wallet epoch errors end-to-end.
 
-- [ ] Payment Plan setup with wallet movement rejects dates before any touched wallet's tracking start.
-- [ ] Loan or disbursement wallet movement rejects dates before the disbursement wallet's tracking start.
-- [ ] Payment Plan payment rejects paid dates before any payment wallet's tracking start.
-- [ ] Split wallet allocations reject the whole command if any touched wallet is pre-epoch.
-- [ ] Same-day setup activity remains accepted.
-- [ ] Same-day disbursement activity remains accepted.
-- [ ] Same-day payment activity remains accepted.
-- [ ] Rejected commands create no Financial Event, Wallet Ledger, Payment Plan Ledger, payment allocation, row mutation, or wallet balance change.
-- [ ] Planning-only schedule edits remain outside wallet epoch validation unless they post wallet money.
-- [ ] Payment Plan UI flows surface the shared wallet epoch error.
+- [x] Payment Plan setup with wallet movement rejects dates before any touched wallet's tracking start.
+- [x] Loan or disbursement wallet movement rejects dates before the disbursement wallet's tracking start.
+- [x] Payment Plan payment rejects paid dates before any payment wallet's tracking start.
+- [x] Split wallet allocations reject the whole command if any touched wallet is pre-epoch.
+- [x] Same-day setup activity remains accepted.
+- [x] Same-day disbursement activity remains accepted.
+- [x] Same-day payment activity remains accepted.
+- [x] Rejected commands create no Financial Event, Wallet Ledger, Payment Plan Ledger, payment allocation, row mutation, or wallet balance change.
+- [x] Planning-only schedule edits remain outside wallet epoch validation unless they post wallet money.
+- [x] Payment Plan UI flows surface the shared wallet epoch error.
 
 ## Ticket 6: Add Cross-Flow Ledger Foundation Guardrails
 
@@ -125,17 +125,17 @@ These tickets wire the Ledger Foundation rules through the UI-facing posted-mone
 - Ticket 4: Enforce wallet epochs on Debt wallet movements.
 - Ticket 5: Enforce wallet epochs on Payment Plan wallet movements.
 
-- [ ] A route/service test matrix covers expense creation.
-- [ ] A route/service test matrix covers income creation and correction reposts.
-- [ ] A route/service test matrix covers transfers.
-- [ ] A route/service test matrix covers reconciliation.
-- [ ] A route/service test matrix covers Expected Inflow receipt realization.
-- [ ] A route/service test matrix covers session expense finalization.
-- [ ] A route/service test matrix covers Debt wallet movement.
-- [ ] A route/service test matrix covers Payment Plan wallet movement.
-- [ ] Each covered flow has at least one accepted same-day epoch case.
-- [ ] Each covered flow has at least one rejected pre-epoch case.
-- [ ] Rejected flows prove no partial posted-money rows or wallet balance changes are committed.
-- [ ] Accepted flows prove wallet projection remains valid after posting.
-- [ ] Tests use user timezone helpers and explicit timezone headers where date boundaries matter.
-- [ ] The guardrail documents which planning-only, metadata-only, template, and draft flows intentionally stay out of the global Financial Event ledger.
+- [x] A route/service test matrix covers expense creation.
+- [x] A route/service test matrix covers income creation and correction reposts.
+- [x] A route/service test matrix covers transfers.
+- [x] A route/service test matrix covers reconciliation.
+- [x] A route/service test matrix covers Expected Inflow receipt realization.
+- [x] A route/service test matrix covers session expense finalization.
+- [x] A route/service test matrix covers Debt wallet movement.
+- [x] A route/service test matrix covers Payment Plan wallet movement.
+- [x] Each covered flow has at least one accepted same-day epoch case.
+- [x] Each covered flow has at least one rejected pre-epoch case.
+- [x] Rejected flows prove no partial posted-money rows or wallet balance changes are committed.
+- [x] Accepted flows prove wallet projection remains valid after posting.
+- [x] Tests use user timezone helpers and explicit timezone headers where date boundaries matter.
+- [x] The guardrail documents which planning-only, metadata-only, template, and draft flows intentionally stay out of the global Financial Event ledger.

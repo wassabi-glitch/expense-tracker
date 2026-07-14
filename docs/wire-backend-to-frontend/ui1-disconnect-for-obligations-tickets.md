@@ -10,12 +10,12 @@ Work the frontier: any ticket whose blockers are all done can start.
 
 **Blocked by:** None - can start immediately.
 
-- [ ] Payment Plan list and detail views receive derived lifecycle, urgency, remaining principal, and remaining charges from backend responses.
-- [ ] User-facing urgency uses the effective user timezone.
-- [ ] Archive and restore actions are available from the Payment Plan UI.
-- [ ] Archived Payment Plans are visually filed away without changing balances, rows, allocations, or ledger entries.
-- [ ] Payment Plan filters support archive visibility separately from lifecycle and urgency.
-- [ ] The frontend no longer treats stored `ARCHIVED` status as the source of archive truth.
+- [x] Payment Plan list and detail views receive derived lifecycle, urgency, remaining principal, and remaining charges from backend responses.
+- [x] User-facing urgency uses the effective user timezone.
+- [x] Archive and restore actions are available from the Payment Plan UI.
+- [x] Archived Payment Plans are visually filed away without changing balances, rows, allocations, or ledger entries.
+- [x] Payment Plan filters support archive visibility separately from lifecycle and urgency.
+- [x] The frontend no longer treats stored `ARCHIVED` status as the source of archive truth.
 - [ ] Tests cover list urgency, detail urgency, archive, restore, and active versus archived filtering.
 
 ## Ticket 2: Use Backend Preview For Flat-Total Payment Plan Creation
@@ -24,11 +24,11 @@ Work the frontier: any ticket whose blockers are all done can start.
 
 **Blocked by:** None - can start immediately.
 
-- [ ] The creation wizard calls schedule preview before the final create action.
-- [ ] The review step shows total principal, total charges, total to pay, final due date, frequency, and generated rows.
-- [ ] Flat-total rows shown to the user match the backend preview.
-- [ ] Creation submits payload values that match the reviewed preview.
-- [ ] Local frontend row math is only a provisional hint, not the persisted schedule source of truth.
+- [x] The creation wizard calls schedule preview before the final create action.
+- [x] The review step shows total principal, total charges, total to pay, final due date, frequency, and generated rows.
+- [x] Flat-total rows shown to the user match the backend preview.
+- [x] Creation submits payload values that match the reviewed preview.
+- [x] Local frontend row math is only a provisional hint, not the persisted schedule source of truth.
 - [ ] Tests cover successful preview, preview validation errors, creation after preview, and rounding display.
 
 ## Ticket 3: Wire Amortized Loan Schedule Creation
@@ -37,11 +37,11 @@ Work the frontier: any ticket whose blockers are all done can start.
 
 **Blocked by:** Ticket 2: Use Backend Preview For Flat-Total Payment Plan Creation.
 
-- [ ] Amortized-eligible plan types expose annual interest rate and schedule inputs.
-- [ ] Preview shows principal rows, charge rows, installment grouping, totals, and final due date.
-- [ ] The UI explains generated schedules as planning tools, not legal guarantees.
-- [ ] Creation preserves the selected amortized schedule model and generation metadata.
-- [ ] Payment and detail views display grouped installment meaning without hiding row-level accounting.
+- [x] Amortized-eligible plan types expose annual interest rate and schedule inputs.
+- [x] Preview shows principal rows, charge rows, installment grouping, totals, and final due date.
+- [x] The UI explains generated schedules as planning tools, not legal guarantees.
+- [x] Creation preserves the selected amortized schedule model and generation metadata.
+- [x] Payment and detail views display grouped installment meaning without hiding row-level accounting.
 - [ ] Tests cover amortized preview, missing-rate validation, creation, non-monthly frequency, and grouped display.
 
 ## Ticket 4: Wire Manual Contract Schedule Creation
@@ -50,11 +50,11 @@ Work the frontier: any ticket whose blockers are all done can start.
 
 **Blocked by:** Ticket 2: Use Backend Preview For Flat-Total Payment Plan Creation.
 
-- [ ] The creation wizard supports a manual schedule mode.
-- [ ] Users can enter due dates, principal amounts, charge amounts, and optional installment grouping.
-- [ ] Preview validates and returns the exact manual rows before creation.
-- [ ] Users can switch from generated preview to manual mode before saving.
-- [ ] Saved plans preserve manually entered rows and metadata.
+- [x] The creation wizard supports a manual schedule mode.
+- [x] Users can enter due dates, principal amounts, charge amounts, and optional installment grouping.
+- [x] Preview validates and returns the exact manual rows before creation.
+- [x] Users can switch from generated preview to manual mode before saving.
+- [x] Saved plans preserve manually entered rows and metadata.
 - [ ] Tests cover valid manual rows, invalid row validation, mixed principal and charge rows, mode switching, and creation.
 
 ## Ticket 5: Wire Payment Plan Write-Off And Charge Reversal Actions
@@ -63,12 +63,12 @@ Work the frontier: any ticket whose blockers are all done can start.
 
 **Blocked by:** Ticket 1: Show Payment Plan Derived State And Archive Visibility.
 
-- [ ] Row-level write-off supports full remaining and custom valid amount flows.
-- [ ] Plan-level write-off allocates across rows using backend waterfall behavior.
-- [ ] Write-off UI copy distinguishes waived or forgiven money from paid money.
-- [ ] Latest charge reversal is available when backend policy allows it.
-- [ ] Activity shows payments, charges, write-offs, and reversals distinctly.
-- [ ] Cache invalidation keeps list, detail, summary, and row state synchronized after each action.
+- [x] Row-level write-off supports full remaining and custom valid amount flows.
+- [x] Plan-level write-off allocates across rows using backend waterfall behavior.
+- [x] Write-off UI copy distinguishes waived or forgiven money from paid money.
+- [x] Latest charge reversal is available when backend policy allows it.
+- [x] Activity shows payments, charges, write-offs, and reversals distinctly.
+- [x] Cache invalidation keeps list, detail, summary, and row state synchronized after each action.
 - [ ] Tests cover row write-off, plan write-off, write-off undo, charge reversal, and no-wallet-effect behavior.
 
 ## Ticket 6: Wire Debt Creation Principal, Opening Charges, And Wallet Movement
@@ -77,11 +77,11 @@ Work the frontier: any ticket whose blockers are all done can start.
 
 **Blocked by:** None - can start immediately.
 
-- [ ] Debt creation exposes original principal separately from opening charges.
-- [ ] Starting Debt balance is previewed as principal plus opening charges.
-- [ ] Wallet movement remains optional for unpaid bills and imported balances.
-- [ ] Wallet movement can differ from the starting Debt balance when the real-world event requires it.
-- [ ] Creation review explains what balance is created and what wallet money moves today.
+- [x] Debt creation exposes original principal separately from opening charges.
+- [x] Starting Debt balance is previewed as principal plus opening charges.
+- [x] Wallet movement remains optional for unpaid bills and imported balances.
+- [x] Wallet movement can differ from the starting Debt balance when the real-world event requires it.
+- [x] Creation review explains what balance is created and what wallet money moves today.
 - [ ] Tests cover principal-only, principal-plus-charge, borrowed cash with fee, lent money with expected charge, unpaid service bill, and imported balance.
 
 ## Ticket 7: Wire Debt Component-Aware Payment Allocation
@@ -90,12 +90,12 @@ Work the frontier: any ticket whose blockers are all done can start.
 
 **Blocked by:** None - can start immediately.
 
-- [ ] Debt payment UI exposes allocation mode when the Debt has principal and charge balances.
-- [ ] Automatic mode uses the backend default allocation rule.
-- [ ] Charges-first and principal-first modes send explicit allocation intent.
-- [ ] Custom mode validates that principal and charge amounts add up to the payment amount.
-- [ ] Custom mode prevents allocating more than the remaining eligible principal or charges.
-- [ ] Activity and balance cards update principal, charge, and total remaining values after payment.
+- [x] Debt payment UI exposes allocation mode when the Debt has principal and charge balances.
+- [x] Automatic mode uses the backend default allocation rule.
+- [x] Charges-first and principal-first modes send explicit allocation intent.
+- [x] Custom mode validates that principal and charge amounts add up to the payment amount.
+- [x] Custom mode prevents allocating more than the remaining eligible principal or charges.
+- [x] Activity and balance cards update principal, charge, and total remaining values after payment.
 - [ ] Tests cover all allocation modes, validation errors, successful payment, and refreshed detail state.
 
 ## Ticket 8: Replace Legacy Debt Status Assumptions In Edit Flow
@@ -104,11 +104,11 @@ Work the frontier: any ticket whose blockers are all done can start.
 
 **Blocked by:** None - can start immediately.
 
-- [ ] Debt edit amount visibility is based on derived lifecycle and archive state.
-- [ ] Open, unarchived Debts can submit valid initial amount changes.
-- [ ] Closed or archived Debts cannot change financial setup through generic edit.
-- [ ] The frontend no longer checks removed standalone Debt status fields.
-- [ ] Existing origin, counterparty, date, category, and income-source editing remains intact.
+- [x] Debt edit amount visibility is based on derived lifecycle and archive state.
+- [x] Open, unarchived Debts can submit valid initial amount changes.
+- [x] Closed or archived Debts cannot change financial setup through generic edit.
+- [x] The frontend no longer checks removed standalone Debt status fields.
+- [x] Existing origin, counterparty, date, category, and income-source editing remains intact.
 - [ ] Tests cover open edit, closed edit lockout, archived edit lockout, and no legacy status dependency.
 
 ## Ticket 9: Finish Obligation UI Contract Regression Coverage
@@ -117,10 +117,10 @@ Work the frontier: any ticket whose blockers are all done can start.
 
 **Blocked by:** Ticket 1: Show Payment Plan Derived State And Archive Visibility; Ticket 2: Use Backend Preview For Flat-Total Payment Plan Creation; Ticket 3: Wire Amortized Loan Schedule Creation; Ticket 4: Wire Manual Contract Schedule Creation; Ticket 5: Wire Payment Plan Write-Off And Charge Reversal Actions; Ticket 6: Wire Debt Creation Principal, Opening Charges, And Wallet Movement; Ticket 7: Wire Debt Component-Aware Payment Allocation; Ticket 8: Replace Legacy Debt Status Assumptions In Edit Flow.
 
-- [ ] Standalone Debt UI does not expose removed product-kind labels.
-- [ ] Standalone Debt UI uses origin and counterparty language.
-- [ ] Payment Plan UI reserves product labels for scheduled plans.
-- [ ] Payment Plan rows use settlement labels rather than stale skipped or paid-only status meaning.
-- [ ] Debt and Payment Plan summaries reconcile from their own facts without cross-domain ledger leakage.
-- [ ] User-timezone overdue behavior is covered across list and detail surfaces.
-- [ ] Tests cover the primary create, pay, write-off, archive, restore, and reverse paths from the user's perspective.
+- [x] Standalone Debt UI does not expose removed product-kind labels.
+- [x] Standalone Debt UI uses origin and counterparty language.
+- [x] Payment Plan UI reserves product labels for scheduled plans.
+- [x] Payment Plan rows use settlement labels rather than stale skipped or paid-only status meaning.
+- [x] Debt and Payment Plan summaries reconcile from their own facts without cross-domain ledger leakage.
+- [x] User-timezone overdue behavior is covered across list and detail surfaces.
+- [x] Tests cover the primary create, pay, write-off, archive, restore, and reverse paths from the user's perspective.

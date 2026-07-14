@@ -2,15 +2,20 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
   addPaymentPlanCharge,
+  archivePaymentPlan,
   createPaymentPlan,
   deletePaymentPlan,
   getPaymentPlanDetails,
   getPaymentPlans,
   getPaymentPlanSummary,
   markPaymentPlanPaymentPaid,
+  previewPaymentPlanSchedule,
   recordPaymentPlanPayment,
+  unarchivePaymentPlan,
+  undoLatestPaymentPlanCharge,
   undoLatestPaymentPlanPayment,
   updatePaymentPlan,
+  writeOffPaymentPlan,
   writeOffPaymentPlanPayment,
   undoPaymentPlanPaymentWriteOff,
 } from "@/lib/api";
@@ -65,7 +70,7 @@ export function useUpdatePaymentPlanMutation() {
       toast.success(t("payment_plans.toasts.updated", { defaultValue: "Payment plan updated" }));
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("payment_plans.toasts.failedToUpdate", { defaultValue: "Failed to update payment plan" }), msg);
     },
   });
@@ -82,7 +87,7 @@ export function useDeletePaymentPlanMutation() {
       toast.success(t("payment_plans.toasts.deleted", { defaultValue: "Payment plan deleted" }));
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("payment_plans.toasts.failedToDelete", { defaultValue: "Failed to delete payment plan" }), msg);
     },
   });
@@ -153,6 +158,73 @@ export function useUndoLatestPaymentPlanPaymentMutation() {
       if (planId) {
         await queryClient.invalidateQueries({ queryKey: ["payment_plans", "details", planId] });
       }
+    },
+  });
+}
+
+export function useArchivePaymentPlanMutation() {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (planId) => archivePaymentPlan(planId),
+    onSuccess: async () => {
+      await invalidatePaymentPlanViews(queryClient);
+      toast.success(t("payment_plans.toasts.archived", { defaultValue: "Plan archived" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error, t) || error.message;
+      toast.error(t("payment_plans.toasts.failedToArchive", { defaultValue: "Failed to archive plan" }), msg);
+    },
+  });
+}
+
+export function useUnarchivePaymentPlanMutation() {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (planId) => unarchivePaymentPlan(planId),
+    onSuccess: async () => {
+      await invalidatePaymentPlanViews(queryClient);
+      toast.success(t("payment_plans.toasts.restored", { defaultValue: "Plan restored" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error, t) || error.message;
+      toast.error(t("payment_plans.toasts.failedToRestore", { defaultValue: "Failed to restore plan" }), msg);
+    },
+  });
+}
+
+export function usePreviewPaymentPlanScheduleMutation() {
+  return useMutation({
+    mutationFn: (payload) => previewPaymentPlanSchedule(payload),
+  });
+}
+
+export function useWriteOffPaymentPlanMutation() {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: ({ planId, payload }) => writeOffPaymentPlan(planId, payload),
+    onSuccess: async () => {
+      await invalidatePaymentPlanViews(queryClient);
+      toast.success(t("payment_plans.toasts.writtenOff", { defaultValue: "Plan written off" }));
+    },
+    onError: (error) => {
+      const msg = localizeApiError(error, t) || error.message;
+      toast.error(t("payment_plans.toasts.failedToWriteOff", { defaultValue: "Failed to write off plan" }), msg);
+    },
+  });
+}
+
+export function useUndoLatestPaymentPlanChargeMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (planId) => undoLatestPaymentPlanCharge(planId),
+    onSuccess: async () => {
+      await invalidatePaymentPlanViews(queryClient);
     },
   });
 }

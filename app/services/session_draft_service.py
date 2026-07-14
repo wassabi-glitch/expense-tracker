@@ -20,6 +20,7 @@ from ..services.financial_event_ledger_service import (
     PostEntityLeg,
     PostWalletLeg,
     post_financial_event,
+    validate_wallet_epochs,
 )
 from ..services.goal_funding_service import validate_wallet_goal_protection_for_outflow
 from ..services.project_service import is_isolated_project
@@ -304,6 +305,17 @@ def finalize_session_draft(
     if local_today is not None and draft.date > local_today:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expenses.date_in_future")
 
+    # Ticket 3: Closed-period date validation — session finalization follows
+    # the same normal-logging-date rules as ordinary expense creation.
+    if local_today is not None:
+        from app.timezone import validate_normal_logging_date
+        validate_normal_logging_date(
+            draft.date,
+            local_today,
+            future_detail="expenses.date_in_future",
+            closed_detail="expenses.date_closed_period",
+        )
+
     items = sorted(list(draft.items), key=lambda item: (int(item.sort_order or 0), int(item.id)))
     if not items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="expenses.session_draft_empty")
@@ -454,6 +466,19 @@ def finalize_session_draft(
                 budget_id=budget.id if budget is not None else None,
             )
         )
+
+    # Ticket 3: Enforce per-wallet epoch boundaries before posting money.
+    # Session finalization must validate every wallet allocation against the
+    # finalized expense date — same as normal expense creation.
+    # This runs after all other validations so a rejection creates no posted
+    # FinancialEvent, WalletLedger, EntityLedger, split Debt, or wallet
+    # balance change, and leaves the draft editable.
+    touched_wallet_ids = {leg.wallet_id for leg in wallet_legs}
+    validate_wallet_epochs(
+        db,
+        wallet_ids=touched_wallet_ids,
+        event_date=draft.date,
+    )
 
     event = post_financial_event(
         db,

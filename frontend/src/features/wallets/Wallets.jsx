@@ -179,7 +179,7 @@ export default function Wallets() {
         color: formData.color
       });
       setIsAddDialogOpen(false);
-    } catch (err) { setSubmitError(localizeApiError(err.message, t)); }
+    } catch (err) { setSubmitError(localizeApiError(err, t)); }
   };
 
   const handleStartEdit = (w) => {
@@ -200,7 +200,7 @@ export default function Wallets() {
         }
       });
       setEditingWalletId(null);
-    } catch (err) { setSubmitError(localizeApiError(err.message, t)); }
+    } catch (err) { setSubmitError(localizeApiError(err, t)); }
   };
 
   const handleSetDefault = async (walletId) => {
@@ -216,7 +216,7 @@ export default function Wallets() {
         payload: { can_fund_goals: !wallet.can_fund_goals }
       });
     } catch (err) {
-      setSubmitError(localizeApiError(err.message, t));
+      setSubmitError(localizeApiError(err, t));
     }
   };
 
@@ -275,8 +275,12 @@ export default function Wallets() {
       await transferMutation.mutateAsync(payload);
       setTransferAmount(""); setTransferNote(""); setTransferHasFee(false); setTransferFeeAmount(""); setTransferFeeWalletId(""); setTransferFeeNote(""); setTouchedTransfer(false); setTransferError(""); setTransferConflict(null);
     } catch (err) {
-      setTransferError(localizeApiError(err.message, t));
-      setTransferConflict(["wallets.goal_protection_conflict", "wallets.fee_goal_protection_conflict"].includes(err?.detail?.code) ? err.detail : null);
+      setTransferError(localizeApiError(err, t));
+      setTransferConflict(
+        ["wallets.goal_protection_conflict", "wallets.fee_goal_protection_conflict", "wallets.date_before_epoch"].includes(err?.detail?.code)
+          ? err.detail
+          : null
+      );
     }
   };
 
@@ -561,7 +565,7 @@ export default function Wallets() {
             setArchiveTarget(null);
             setEditingWalletId(null);
           } catch (e) {
-            setSubmitError(localizeApiError(e.message, t));
+            setSubmitError(localizeApiError(e, t));
           }
         }}
       />

@@ -40,12 +40,15 @@ import { formatAmountInput, formatDisplayDate, formatUzs, parseAmountInput } fro
 import { toISODateInTimeZone } from "@/lib/date";
 import {
   useAddPaymentPlanChargeMutation,
+  useArchivePaymentPlanMutation,
   useCreatePaymentPlanMutation,
   useDeletePaymentPlanMutation,
   usePaymentPlanDetailsQuery,
   usePaymentPlansQuery,
   usePaymentPlanSummaryQuery,
+  usePreviewPaymentPlanScheduleMutation,
   useRecordPaymentPlanPaymentMutation,
+  useUnarchivePaymentPlanMutation,
   useUndoLatestPaymentPlanPaymentMutation,
   useUpdatePaymentPlanMutation,
   useWriteOffPaymentPlanPaymentMutation,
@@ -276,9 +279,11 @@ function SummaryTile({ icon, label, value, helper, tone = "default" }) {
 
 function CreatePaymentPlanDialog({ open, onOpenChange, wallets }) {
   const mutation = useCreatePaymentPlanMutation();
+  const previewMutation = usePreviewPaymentPlanScheduleMutation();
   const availableWallets = useMemo(() => activeWallets(wallets), [wallets]);
   const bankLoanWallets = useMemo(() => loanDisbursementWallets(wallets), [wallets]);
   const [step, setStep] = useState(1);
+  const [previewData, setPreviewData] = useState(null);
   const [itemName, setItemName] = useState("");
   const [provider, setProvider] = useState("");
   const [planType, setPlanType] = useState("STORE_INSTALLMENT");
@@ -293,6 +298,9 @@ function CreatePaymentPlanDialog({ open, onOpenChange, wallets }) {
   const [loanReceived, setLoanReceived] = useState(false);
   const [loanDisbursementWalletId, setLoanDisbursementWalletId] = useState("");
   const [walletAllocations, setWalletAllocations] = useState(() => defaultWalletAllocation(availableWallets));
+  const [scheduleModel, setScheduleModel] = useState("FLAT_TOTAL");
+  const [annualInterestRate, setAnnualInterestRate] = useState("");
+  const [manualRows, setManualRows] = useState([{ due_date: "", principal_amount: "", charge_amount: "", installment_group: "" }]);
   const [error, setError] = useState("");
   const defaultWalletId = availableWallets.find((wallet) => wallet.is_default)?.id || availableWallets[0]?.id;
 
@@ -345,6 +353,37 @@ function CreatePaymentPlanDialog({ open, onOpenChange, wallets }) {
     }
   }, [loanReceived, loanDisbursementWalletId, bankLoanWallets]);
 
+  // Ticket 2: Call backend schedule preview when reaching the review step.
+  // The preview contract is the source of truth for generated rows, totals,
+  // and the final due date.  Client-side math is only a provisional hint.
+  useEffect(() => {
+    if (step !== totalSteps || !open || !totalValue || !paymentCountValue) {
+      setPreviewData(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await previewMutation.mutateAsync({
+          plan_type: planType,
+          total_price: totalValue,
+          down_payment: downValue,
+          months: paymentCountValue,
+          frequency,
+          start_date: startDate,
+          expense_category: category || undefined,
+          schedule_model: scheduleModel,
+          annual_interest_rate: scheduleModel === "AMORTIZED_LOAN" && annualInterestRate ? parseFloat(annualInterestRate) : undefined,
+          manual_rows: scheduleModel === "MANUAL_CONTRACT_SCHEDULE" ? manualRows.filter(r => r.due_date && r.principal_amount) : undefined,
+        });
+        if (!cancelled) setPreviewData(result);
+      } catch {
+        if (!cancelled) setPreviewData(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [step, totalSteps, open, totalValue, downValue, paymentCountValue, frequency, startDate, category, planType, scheduleModel, annualInterestRate]);
+
   const resetForm = () => {
     setStep(1);
     setItemName("");
@@ -361,6 +400,10 @@ function CreatePaymentPlanDialog({ open, onOpenChange, wallets }) {
     setLoanReceived(false);
     setLoanDisbursementWalletId("");
     setWalletAllocations(defaultWalletAllocation(availableWallets));
+    setScheduleModel("FLAT_TOTAL");
+    setAnnualInterestRate("");
+    setManualRows([{ due_date: "", principal_amount: "", charge_amount: "", installment_group: "" }]);
+    setPreviewData(null);
     setError("");
   };
 
@@ -432,6 +475,9 @@ function CreatePaymentPlanDialog({ open, onOpenChange, wallets }) {
         asset_current_value: trackAsset ? parseAmountInput(assetValue || totalPrice) : null,
         wallet_allocations: needsWallet ? normalizeWalletAllocations(walletAllocations) : [],
         loan_disbursement_wallet_id: isBankLoan && loanReceived ? Number(loanDisbursementWalletId) : null,
+        schedule_model: scheduleModel,
+        annual_interest_rate: scheduleModel === "AMORTIZED_LOAN" && annualInterestRate ? parseFloat(annualInterestRate) : undefined,
+        manual_rows: scheduleModel === "MANUAL_CONTRACT_SCHEDULE" ? manualRows.filter(r => r.due_date && r.principal_amount) : undefined,
       });
       handleOpenChange(false);
     } catch (err) {
@@ -667,28 +713,144 @@ function CreatePaymentPlanDialog({ open, onOpenChange, wallets }) {
             </div>
           ) : null}
 
+          {/* Tickets 3 & 4: Schedule model + amortized / manual inputs */}
+          {step === 4 ? (
+            <div className="mt-5 space-y-4 border-t border-border pt-5">
+              <div className="space-y-2">
+                <Label>Schedule model</Label>
+                <div className="grid gap-2 md:grid-cols-3">
+                  {[
+                    { value: "FLAT_TOTAL", label: "Flat Total", desc: "Equal payments" },
+                    { value: "AMORTIZED_LOAN", label: "Amortized Loan", desc: "Interest + principal" },
+                    { value: "MANUAL_CONTRACT_SCHEDULE", label: "Manual Contract", desc: "Enter exact rows" },
+                  ].map((model) => (
+                    <button
+                      type="button"
+                      key={model.value}
+                      onClick={() => setScheduleModel(model.value)}
+                      className={cn(
+                        "rounded-lg border p-3 text-left text-sm transition-colors hover:border-primary/50",
+                        scheduleModel === model.value ? "border-primary bg-primary/10" : "border-border bg-card"
+                      )}
+                    >
+                      <p className="font-semibold">{model.label}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{model.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {scheduleModel === "AMORTIZED_LOAN" ? (
+                <div className="space-y-1">
+                  <Label>Annual interest rate (%)</Label>
+                  <Input type="number" min="0" max="200" step="0.01" value={annualInterestRate}
+                    onChange={(event) => setAnnualInterestRate(event.target.value)}
+                    placeholder="e.g. 18.5" className="h-11 rounded-md text-base" />
+                  <p className="text-xs text-muted-foreground">Generated schedules are planning tools, not legal guarantees.</p>
+                </div>
+              ) : null}
+
+              {scheduleModel === "MANUAL_CONTRACT_SCHEDULE" ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Manual schedule rows</Label>
+                    <Button variant="outline" size="sm" className="h-8 rounded-md text-xs"
+                      onClick={() => setManualRows([...manualRows, { due_date: "", principal_amount: "", charge_amount: "", installment_group: "" }])}>
+                      <Plus className="mr-1 h-3 w-3" /> Add row
+                    </Button>
+                  </div>
+                  <div className="max-h-48 space-y-2 overflow-y-auto">
+                    {manualRows.map((row, i) => (
+                      <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 rounded-md border border-border bg-muted/10 p-2">
+                        <Input type="date" min={MIN_SUPPORTED_USER_DATE} value={row.due_date}
+                          onChange={(e) => { const r = [...manualRows]; r[i] = { ...r[i], due_date: e.target.value }; setManualRows(r); }}
+                          className="h-9 rounded-md text-xs" placeholder="Due date" />
+                        <Input type="number" min="0" value={row.principal_amount}
+                          onChange={(e) => { const r = [...manualRows]; r[i] = { ...r[i], principal_amount: e.target.value }; setManualRows(r); }}
+                          className="h-9 rounded-md text-xs" placeholder="Principal" />
+                        <Input type="number" min="0" value={row.charge_amount}
+                          onChange={(e) => { const r = [...manualRows]; r[i] = { ...r[i], charge_amount: e.target.value }; setManualRows(r); }}
+                          className="h-9 rounded-md text-xs" placeholder="Charge" />
+                        {manualRows.length > 1 ? (
+                          <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive"
+                            onClick={() => setManualRows(manualRows.filter((_, idx) => idx !== i))}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        ) : (<span className="h-9 w-9" />)}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">Enter exact dates and amounts matching your provider agreement.</p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           {step === totalSteps ? (
             <div className="space-y-4">
               <div className="rounded-lg border border-primary/20 bg-primary/10 p-4">
                 <p className="text-lg font-semibold">Sarflog will create this payment plan</p>
-                <p className="mt-1 text-sm text-muted-foreground">Check this summary before the database is updated.</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {previewData
+                    ? "Backend schedule preview confirms this plan. Review before saving."
+                    : "Check this summary before the database is updated."}
+                </p>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <SummaryTile icon={ReceiptText} label="Plan" value={paymentPlanTypeLabel(planType)} helper={itemName || "No item yet"} />
-                <SummaryTile icon={CreditCard} label="Debt balance" value={`${formatUzs(financedAmount)} UZS`} helper={`${paymentCountValue || 0} ${frequencyLabel(frequency).toLowerCase()} payments`} tone="danger" />
+                <SummaryTile
+                  icon={CreditCard}
+                  label="Debt balance"
+                  value={`${formatUzs(previewData?.total_to_pay ?? financedAmount)} UZS`}
+                  helper={`${(previewData?.payment_count ?? paymentCountValue) || 0} ${frequencyLabel(previewData?.frequency ?? frequency).toLowerCase()} payments`}
+                  tone="danger"
+                />
                 <SummaryTile icon={WalletCards} label="Money today" value={isBankLoan && loanReceived ? `${formatUzs(totalValue)} UZS in` : `${formatUzs(downValue)} UZS out`} helper={isBankLoan ? "Loan disbursement is borrowed money, not income" : "Only upfront payment moves today"} />
                 <SummaryTile icon={Layers3} label="Category" value={category || "Not chosen"} helper={provider || "No provider"} />
               </div>
-              <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
-                <p className="font-semibold text-foreground">Records created</p>
-                <ul className="mt-2 space-y-1">
-                  <li>Plan-owned balance starts at {formatUzs(financedAmount)} UZS.</li>
-                  <li>{paymentCountValue || 0} scheduled payment rows are generated from {startDate ? formatDisplayDate(startDate, "en") : "the first due date"}.</li>
-                  {isBankLoan && loanReceived ? <li>Wallet receives {formatUzs(totalValue)} UZS as `loan_disbursement`.</li> : null}
-                  {!isBankLoan && needsWallet ? <li>Upfront payment records {formatUzs(downValue)} UZS from selected wallet(s).</li> : null}
-                  {trackAsset ? <li>Asset record is created for {itemName || "this item"}.</li> : null}
-                </ul>
-              </div>
+              {previewData?.rows?.length > 0 ? (
+                <div className="rounded-lg border border-border bg-card p-4 text-sm">
+                  <p className="font-semibold text-foreground">Generated schedule (backend preview)</p>
+                  <div className="mt-2 max-h-48 overflow-y-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-border text-muted-foreground">
+                          <th className="py-1 font-medium">Due</th>
+                          <th className="py-1 font-medium">Principal</th>
+                          <th className="py-1 font-medium">Charge</th>
+                          <th className="py-1 font-medium">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewData.rows.map((row, i) => (
+                          <tr key={i} className="border-b border-border/50">
+                            <td className="py-1">{formatDisplayDate(row.due_date, "en")}</td>
+                            <td className="py-1 tabular-nums">{formatUzs(row.principal_amount || row.amount || 0)}</td>
+                            <td className="py-1 tabular-nums">{formatUzs(row.charge_amount || 0)}</td>
+                            <td className="py-1 tabular-nums font-medium">{formatUzs((row.principal_amount || row.amount || 0) + (row.charge_amount || 0))}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Total: {formatUzs(previewData.total_to_pay ?? 0)} UZS
+                    {previewData.total_charges > 0 ? ` (${formatUzs(previewData.total_charges)} UZS charges)` : ""}
+                    {" · "}Final due: {previewData.final_due_date ? formatDisplayDate(previewData.final_due_date, "en") : "N/A"}
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
+                  <p className="font-semibold text-foreground">Records created</p>
+                  <ul className="mt-2 space-y-1">
+                    <li>Plan-owned balance starts at {formatUzs(financedAmount)} UZS.</li>
+                    <li>{paymentCountValue || 0} scheduled payment rows are generated from {startDate ? formatDisplayDate(startDate, "en") : "the first due date"}.</li>
+                    {isBankLoan && loanReceived ? <li>Wallet receives {formatUzs(totalValue)} UZS as loan_disbursement.</li> : null}
+                    {!isBankLoan && needsWallet ? <li>Upfront payment records {formatUzs(downValue)} UZS from selected wallet(s).</li> : null}
+                    {trackAsset ? <li>Asset record is created for {itemName || "this item"}.</li> : null}
+                  </ul>
+                </div>
+              )}
             </div>
           ) : null}
         </div>
@@ -1264,7 +1426,16 @@ function PaymentPlanDetailsDialog({ plan, open, onOpenChange, onPay, onCharge, o
   );
 }
 
-function PaymentPlanCard({ plan, onOpen, onPay, onCharge, onEdit, onDelete }) {
+function PaymentPlanCard({
+  plan,
+  onOpen,
+  onPay,
+  onCharge,
+  onEdit,
+  onDelete,
+  onArchive,
+  onRestore,
+}) {
   const payments = sortedPayments(plan.payments || []);
   const unpaid = unpaidPayments(plan);
   const nextPayment = unpaid[0];
@@ -1276,12 +1447,13 @@ function PaymentPlanCard({ plan, onOpen, onPay, onCharge, onEdit, onDelete }) {
   const today = toISODateInTimeZone();
   const overdueCount = unpaid.filter((payment) => payment.due_date < today).length;
   const nextAmount = nextPayment ? remainingForPayment(nextPayment) : 0;
-  const isPaid = plan.status === "PAID";
   const isPristine = isPristinePaymentPlan(plan);
-  const isArchived = plan.status === "ARCHIVED";
+  const isArchived = Boolean(plan.archived_at);
+  const lifecycleLabel = plan.lifecycle_status === "CLOSED" ? "Closed" : "Open";
+  const timeStatusLabel = plan.time_status === "OVERDUE" ? "Overdue" : plan.time_status === "ON_TRACK" ? "On Track" : null;
 
   return (
-    <Card className="overflow-hidden rounded-lg border-border py-0 shadow-none transition-colors hover:border-primary/35">
+    <Card className={cn("overflow-hidden rounded-lg border-border py-0 shadow-none transition-colors hover:border-primary/35", isArchived && "opacity-70")}>
       <CardContent className="p-0">
         <div className="grid xl:grid-cols-[minmax(220px,0.9fr)_minmax(380px,1.25fr)_minmax(240px,0.75fr)]">
           <section className="min-w-0 border-b border-border p-5 xl:border-b-0 xl:border-r">
@@ -1292,9 +1464,19 @@ function PaymentPlanCard({ plan, onOpen, onPay, onCharge, onEdit, onDelete }) {
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <p className="max-w-full truncate text-lg font-semibold leading-6">{plan.item_name}</p>
-                  <Badge variant="outline" className={cn("h-6 rounded-md px-2 text-[11px]", planStatusClass(plan.status))}>
-                    {plan.status}
-                  </Badge>
+                  {isArchived && (
+                    <Badge variant="secondary" className="h-6 rounded-md px-2 text-[11px]">Archived</Badge>
+                  )}
+                  {!isArchived && (
+                    <Badge variant="outline" className={cn("h-6 rounded-md px-2 text-[11px]", plan.lifecycle_status === "CLOSED" ? "border-green-300 bg-green-50 text-green-700" : "border-blue-300 bg-blue-50 text-blue-700")}>
+                      {lifecycleLabel}
+                    </Badge>
+                  )}
+                  {timeStatusLabel && !isArchived && (
+                    <Badge variant="outline" className={cn("h-6 rounded-md px-2 text-[11px]", plan.time_status === "OVERDUE" ? "border-red-300 bg-red-50 text-red-700" : "border-emerald-300 bg-emerald-50 text-emerald-700")}>
+                      {timeStatusLabel}
+                    </Badge>
+                  )}
                 </div>
                 <p className="mt-1 truncate text-sm text-muted-foreground">
                   {plan.store_or_bank_name || "No provider"} - started {formatDisplayDate(plan.start_date, "en")}
@@ -1337,7 +1519,7 @@ function PaymentPlanCard({ plan, onOpen, onPay, onCharge, onEdit, onDelete }) {
             </div>
 
             <div className="mt-4 space-y-2">
-              <Progress value={progress} className="h-2.5 bg-muted" indicatorClassName={isPaid ? "bg-emerald-500" : "bg-primary"} />
+              <Progress value={progress} className="h-2.5 bg-muted" indicatorClassName={(plan.lifecycle_status === "CLOSED") ? "bg-emerald-500" : "bg-primary"} />
               <div className="grid gap-px overflow-hidden rounded-md border border-border bg-border text-sm sm:grid-cols-3">
                 <div className="bg-background p-3">
                   <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Schedule</p>
@@ -1371,7 +1553,7 @@ function PaymentPlanCard({ plan, onOpen, onPay, onCharge, onEdit, onDelete }) {
                 <Eye className="h-4 w-4" />
                 Open
               </Button>
-              <Button className="h-10 rounded-md" disabled={!nextPayment || isPaid} onClick={() => onPay(plan)}>
+              <Button className="h-10 rounded-md" disabled={!nextPayment || (plan.lifecycle_status === "CLOSED")} onClick={() => onPay(plan)}>
                 <WalletCards className="h-4 w-4" />
                 Pay
               </Button>
@@ -1403,6 +1585,17 @@ function PaymentPlanCard({ plan, onOpen, onPay, onCharge, onEdit, onDelete }) {
                 <Plus className="h-4 w-4" />
                 Charge
               </Button>
+              {isArchived ? (
+                <Button variant="outline" className="col-span-2 h-10 rounded-md" onClick={() => onRestore(plan)}>
+                  <RotateCcw className="h-4 w-4" />
+                  Restore
+                </Button>
+              ) : (
+                <Button variant="ghost" className="col-span-2 h-10 rounded-md border border-border bg-background/60" onClick={() => onArchive(plan)}>
+                  <FileText className="h-4 w-4" />
+                  Archive
+                </Button>
+              )}
             </div>
           </aside>
         </div>
@@ -1424,9 +1617,14 @@ export function PaymentPlansTab() {
   const plansQuery = usePaymentPlansQuery({ limit: 100 });
   const walletsQuery = useQuery({ queryKey: ["wallets"], queryFn: getWallets });
   const deleteMutation = useDeletePaymentPlanMutation();
+  const archiveMutation = useArchivePaymentPlanMutation();
+  const unarchiveMutation = useUnarchivePaymentPlanMutation();
+
+  const [showArchived, setShowArchived] = useState(false);
 
   const wallets = useMemo(() => (Array.isArray(walletsQuery.data) ? walletsQuery.data : []), [walletsQuery.data]);
   const plans = useMemo(() => (Array.isArray(plansQuery.data?.items) ? plansQuery.data.items : []), [plansQuery.data]);
+  const displayedPlans = useMemo(() => showArchived ? plans : plans.filter(p => !p.archived_at), [plans, showArchived]);
   const summary = summaryQuery.data || {};
 
   useEffect(() => {
@@ -1453,6 +1651,15 @@ export function PaymentPlansTab() {
     setDeleteTarget(null);
   };
 
+  const handleArchive = async (plan) => {
+    await archiveMutation.mutateAsync(plan.id);
+    if (detailsPlan?.id === plan.id) setDetailsPlan(null);
+  };
+
+  const handleRestore = async (plan) => {
+    await unarchiveMutation.mutateAsync(plan.id);
+  };
+
   return (
     <div className="space-y-5">
       <div className="grid gap-3 md:grid-cols-4">
@@ -1469,8 +1676,16 @@ export function PaymentPlansTab() {
         </div>
       </div>
 
+      <div className="flex items-center gap-3">
+        <div className="flex-1" />
+        <div className="flex items-center gap-2">
+          <Label htmlFor="show-archived-filter" className="text-sm text-muted-foreground">Show archived</Label>
+          <Switch id="show-archived-filter" checked={showArchived} onCheckedChange={setShowArchived} />
+        </div>
+      </div>
+
       <div className="space-y-3">
-        {plans.map((plan) => (
+        {displayedPlans.map((plan) => (
           <PaymentPlanCard
             key={plan.id}
             plan={plan}
@@ -1479,9 +1694,11 @@ export function PaymentPlansTab() {
             onCharge={setChargePlan}
             onEdit={setEditPlan}
             onDelete={setDeleteTarget}
+            onArchive={handleArchive}
+            onRestore={handleRestore}
           />
         ))}
-        {!plans.length && !plansQuery.isLoading ? (
+        {!displayedPlans.length && !plansQuery.isLoading ? (
           <Card className="rounded-lg border-dashed py-0 shadow-none">
             <CardContent className="flex min-h-64 flex-col items-center justify-center gap-3 p-8 text-center">
               <FileText className="h-10 w-10 text-muted-foreground" />

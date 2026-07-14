@@ -1381,7 +1381,10 @@
       "balanceExceedsLimit": "Balance magnitude cannot exceed the defined limit"
     },
     "budget_autocreated": "A budget of 50,000 UZS was automatically created for 'Bank Fees & Interest' this month. Please adjust it later if needed.",
-    "action_not_supported_for_cash": "This action is not supported for Cash wallets."
+    "action_not_supported_for_cash": "This action is not supported for Cash wallets.",
+    "dateBeforeEpoch": "The date {{requested_date}} is before wallet \"{{wallet_name}}\" started tracking on {{wallet_epoch}}. Same-day activity is allowed.",
+    "dateBeforeEpochFallback": "This date is before one or more wallets started tracking. Use the wallet's creation date or a later date.",
+    "unknownWallet": "Unknown wallet"
   },
   "wallet": {
     "label": "Wallet",

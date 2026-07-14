@@ -69,3 +69,28 @@ export async function deletePaymentPlan(planId) {
   const response = await apiClient.delete(`/payment-plans/${planId}`);
   return response.data;
 }
+
+export async function previewPaymentPlanSchedule(payload) {
+  const response = await apiClient.post("/payment-plans/preview", payload);
+  return response.data;
+}
+
+export async function archivePaymentPlan(planId) {
+  const response = await apiClient.post(`/payment-plans/${planId}/archive`);
+  return response.data;
+}
+
+export async function unarchivePaymentPlan(planId) {
+  const response = await apiClient.post(`/payment-plans/${planId}/unarchive`);
+  return response.data;
+}
+
+export async function writeOffPaymentPlan(planId, payload) {
+  const response = await apiClient.post(`/payment-plans/${planId}/write-off`, payload);
+  return response.data;
+}
+
+export async function undoLatestPaymentPlanCharge(planId) {
+  const response = await apiClient.post(`/payment-plans/${planId}/charges/undo-latest`);
+  return response.data;
+}

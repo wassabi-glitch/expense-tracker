@@ -35,7 +35,7 @@ export function useCreateGoalMutation() {
       );
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("toasts.goal.failedToCreate"), msg);
     },
   });
@@ -56,7 +56,7 @@ export function useContributeToGoalMutation() {
       );
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("toasts.goal.failedToContribute"), msg);
     },
   });
@@ -76,7 +76,7 @@ export function useReturnFromGoalMutation() {
       );
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("toasts.goal.failedToReturn"), msg);
     },
   });
@@ -100,7 +100,7 @@ export function useConsumeGoalAllocationMutation() {
       );
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("toasts.goal.failedToConsume", { defaultValue: "Failed to use goal funding" }), msg);
     },
   });
@@ -123,7 +123,7 @@ export function useMoveGoalFundingMutation() {
       );
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("toasts.goal.failedToMoveFunding", { defaultValue: "Failed to move goal money" }), msg);
     },
   });
@@ -146,7 +146,7 @@ export function useUseReserveGoalMutation() {
       );
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("toasts.goal.failedToUseReserve", { defaultValue: "Failed to use reserve" }), msg);
     },
   });
@@ -175,7 +175,7 @@ export function useRecordGoalPurchaseMutation() {
       );
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("toasts.goal.failedToRecordPurchase", { defaultValue: "Failed to record purchase" }), msg);
     },
   });
@@ -198,7 +198,7 @@ export function useRecordGoalDebtPaymentMutation() {
       );
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("toasts.goal.failedToRecordDebtPayment", { defaultValue: "Failed to record debt payment" }), msg);
     },
   });
@@ -218,7 +218,7 @@ export function useGraduateGoalMutation() {
       );
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("toasts.goal.failedToGraduate"), msg);
     },
   });
@@ -238,7 +238,7 @@ export function useReleaseGoalToProjectMutation() {
       );
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("toasts.goal.failedToRelease"), msg);
     },
   });
@@ -255,7 +255,7 @@ export function useUpdateGoalMutation() {
       toast.success(t("toasts.goal.updated"), data.title);
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("toasts.goal.failedToUpdate"), msg);
     },
   });
@@ -272,7 +272,7 @@ export function useArchiveGoalMutation() {
       toast.success(t("toasts.goal.archived"));
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("toasts.goal.failedToArchive"), msg);
     },
   });
@@ -289,7 +289,7 @@ export function useRestoreGoalMutation() {
       toast.success(t("toasts.goal.restored"), data.title);
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("toasts.goal.failedToRestore"), msg);
     },
   });
@@ -306,7 +306,7 @@ export function useDeleteGoalMutation() {
       toast.success(t("toasts.goal.deleted"));
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("toasts.goal.failedToDelete"), msg);
     },
   });

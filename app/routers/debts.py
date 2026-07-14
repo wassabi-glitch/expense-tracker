@@ -37,6 +37,7 @@ from ..services.financial_event_ledger_service import (
     PostEntityLeg,
     PostWalletLeg,
     post_financial_event,
+    validate_wallet_epochs,
 )
 from ..services.session_draft_service import validate_session_item_links
 from ..services.wallet_service import WalletService
@@ -832,6 +833,14 @@ def _record_initial_transfer_event(
     if not wallet_allocations:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="wallets.at_least_one_required")
 
+    # Ticket 4: Enforce per-wallet epoch boundaries before any money moves.
+    touched_wallet_ids = {wallet.id for wallet, _ in wallet_allocations}
+    validate_wallet_epochs(
+        db,
+        wallet_ids=touched_wallet_ids,
+        event_date=debt.date,
+    )
+
     movement = wallet_movement_total or sum(int(amt) for _, amt in wallet_allocations)
     event = models.FinancialEvent(
         owner_id=debt.owner_id,
@@ -974,6 +983,18 @@ def _record_wallet_allocated_debt_event(
         description = f"{description} - {description_suffix}"
     description = _append_marker(description, _debt_txn_marker(debt_transaction.id))
     event_amount = sum(int(allocation_amount) for _, allocation_amount in allocations)
+
+    # Ticket 4: Enforce per-wallet epoch boundaries before any money moves.
+    # The EXPENSE path delegates to post_expense_event which validates epochs
+    # internally.  For non-EXPENSE paths (INCOME, DEBT_SETTLEMENT) we validate
+    # here before constructing FinancialEvent rows manually.
+    if transaction_type != models.TransactionType.EXPENSE:
+        touched_wallet_ids = {wallet.id for wallet, _ in allocations}
+        validate_wallet_epochs(
+            db,
+            wallet_ids=touched_wallet_ids,
+            event_date=debt_transaction.date,
+        )
 
     if transaction_type == models.TransactionType.EXPENSE:
         if category is None:

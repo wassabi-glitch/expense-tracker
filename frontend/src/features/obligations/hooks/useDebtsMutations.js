@@ -38,7 +38,7 @@ export function useCreateDebtMutation() {
       );
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("debts.toasts.failedToCreate"), msg);
     },
   });
@@ -60,7 +60,7 @@ export function useRecordDebtPaymentMutation() {
       );
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("debts.toasts.failedToRecordPayment"), msg);
     },
   });
@@ -85,7 +85,7 @@ export function useRecordDebtPaymentForDebtMutation() {
       );
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("debts.toasts.failedToRecordPayment"), msg);
     },
   });
@@ -107,7 +107,7 @@ export function usePayWalletBackedObligationMutation() {
       );
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("debts.toasts.failedToRecordPayment"), msg);
     },
   });
@@ -124,7 +124,7 @@ export function useUpdateDebtMutation() {
       toast.success(t("debts.toasts.updated"), data.counterparty_name);
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("debts.toasts.failedToUpdate"), msg);
     },
   });
@@ -144,7 +144,7 @@ export function useArchiveDebtMutation() {
       toast.success(t("debts.toasts.archived", { defaultValue: "Debt archived" }));
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("debts.toasts.failedToArchive", { defaultValue: "Failed to archive debt" }), msg);
     },
   });
@@ -164,7 +164,7 @@ export function useRestoreDebtMutation() {
       toast.success(t("debts.toasts.restored", { defaultValue: "Debt restored" }));
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("debts.toasts.failedToRestore", { defaultValue: "Failed to restore debt" }), msg);
     },
   });
@@ -181,7 +181,7 @@ export function useDeleteDebtMutation() {
       toast.success(t("debts.toasts.deleted"));
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("debts.toasts.failedToDelete"), msg);
     },
   });
@@ -198,7 +198,7 @@ export function useDeleteTransactionMutation() {
       toast.success(t("debts.toasts.transactionDeleted"));
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("debts.toasts.failedToDeleteTransaction"), msg);
     },
   });
@@ -218,7 +218,7 @@ export function useAddChargeMutation() {
       );
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("debts.toasts.failedToAddCharge"), msg);
     },
   });
@@ -235,7 +235,7 @@ export function useForgiveDebtMutation() {
       toast.success(t("debts.toasts.forgiven"));
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("debts.toasts.failedToForgive"), msg);
     },
   });
@@ -255,7 +255,7 @@ export function useForgiveDebtAmountMutation() {
       toast.success(t("debts.toasts.forgiven"));
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("debts.toasts.failedToForgive"), msg);
     },
   });
@@ -275,7 +275,7 @@ export function useAdjustDebtBalanceMutation() {
       toast.success(t("debts.toasts.balanceAdjusted", { defaultValue: "Debt balance adjusted" }));
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("debts.toasts.failedToAdjustBalance", { defaultValue: "Failed to adjust balance" }), msg);
     },
   });
@@ -295,7 +295,7 @@ export function useReverseDebtLedgerEntryMutation() {
       toast.success(t("debts.toasts.reversed", { defaultValue: "Debt action reversed" }));
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("debts.toasts.failedToReverse", { defaultValue: "Failed to reverse action" }), msg);
     },
   });
@@ -315,7 +315,7 @@ export function useUpdateDebtFormalDetailsMutation() {
       toast.success(t("debts.toasts.formalDetailsUpdated", { defaultValue: "Debt details updated" }));
     },
     onError: (error) => {
-      const msg = localizeApiError(error.message, t) || error.message;
+      const msg = localizeApiError(error, t) || error.message;
       toast.error(t("debts.toasts.failedToUpdate", { defaultValue: "Failed to update debt" }), msg);
     },
   });

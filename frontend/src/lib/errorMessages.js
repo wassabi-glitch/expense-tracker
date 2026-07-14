@@ -1,4 +1,37 @@
-export function localizeApiError(message, t) {
+/**
+ * Translate an API error into a user-facing message.
+ *
+ * Accepts three calling conventions for backward compatibility:
+ * - ``(error, t)`` — error object with ``.message`` and optional ``.detail`` (recommended)
+ * - ``(message, t)`` — string message (legacy)
+ * - ``(message, t, detail)`` — string message with structured detail dict
+ *
+ * When an error object is passed, structured ``.detail`` (from the API
+ * client's ``toApiError``) is automatically used for rich error messages
+ * such as wallet epoch failures that name the affected wallet.
+ *
+ * @param {Error|object|string} errorOrMessage — Error-like object or string
+ * @param {function} t — i18next ``t`` function
+ * @param {object} [detail] — Optional structured detail (only used when first arg is a string)
+ * @returns {string}
+ */
+export function localizeApiError(errorOrMessage, t, detail = undefined) {
+  // Resolve message and structured detail from the calling convention
+  let message;
+  let resolvedDetail = detail;
+
+  if (typeof errorOrMessage === "string") {
+    message = errorOrMessage;
+  } else if (errorOrMessage && typeof errorOrMessage === "object") {
+    message = errorOrMessage.message || "";
+    // Prefer explicit detail param, fall back to error object's detail
+    if (resolvedDetail === undefined) {
+      resolvedDetail = errorOrMessage.detail;
+    }
+  } else {
+    message = String(errorOrMessage || "");
+  }
+
   const raw = String(message || "");
   const msg = raw.toLowerCase();
   if (!msg) return "";
@@ -103,6 +136,19 @@ export function localizeApiError(message, t) {
   if (msg === "wallets.goal_resolution_target_unavailable") {
     return t("wallets.goalResolutionTargetUnavailable", {
       defaultValue: "The destination wallet cannot support the moved goal allocation.",
+    });
+  }
+  if (msg === "wallets.date_before_epoch") {
+    if (resolvedDetail && resolvedDetail.wallet_name) {
+      return t("wallets.dateBeforeEpoch", {
+        wallet_name: resolvedDetail.wallet_name,
+        requested_date: resolvedDetail.requested_date || "",
+        wallet_epoch: resolvedDetail.wallet_epoch || "",
+        defaultValue: resolvedDetail.message || "This date is before the wallet started tracking.",
+      });
+    }
+    return t("wallets.dateBeforeEpochFallback", {
+      defaultValue: "This date is before one or more wallets started tracking. Use the wallet's creation date or a later date.",
     });
   }
   if (msg === "expenses.invalid_sort") {
@@ -476,4 +522,65 @@ export function localizeApiError(message, t) {
   }
 
   return "";
+}
+
+/**
+ * Check if an error represents a wallet epoch (tracking-start) violation.
+ *
+ * Backend WalletEpochError detail includes ``code``, ``wallet_id``,
+ * ``wallet_name``, ``wallet_epoch``, ``requested_date``, and ``message``.
+ * This helper works with the error object produced by ``toApiError`` in
+ * the API client, which attaches the structured backend ``detail`` dict.
+ *
+ * @param {Error|object|null} error - The error object (with optional ``.detail`` and ``.message``)
+ * @returns {boolean}
+ */
+export function isWalletEpochError(error) {
+  const code = error?.detail?.code || error?.message || "";
+  return code === "wallets.date_before_epoch";
+}
+
+/**
+ * Localize a wallet epoch error using its structured backend detail.
+ *
+ * When the backend returns a ``WalletEpochError``, the error object
+ * produced by ``toApiError`` carries ``.detail`` with wallet metadata.
+ * This function builds a user-facing message from that detail.
+ *
+ * Falls back to ``localizeApiError`` when the error is not a wallet
+ * epoch error or when no structured detail is present.
+ *
+ * @param {Error|object} error - The error object (with optional ``.detail`` and ``.message``)
+ * @param {function} t - The i18next ``t`` function
+ * @returns {string}
+ */
+export function localizeWalletEpochError(error, t) {
+  if (!isWalletEpochError(error)) {
+    return localizeApiError(error?.message || "", t);
+  }
+  return localizeApiError(error?.message || "", t, error?.detail || undefined);
+}
+
+/**
+ * Check if an error represents a future-date validation failure.
+ *
+ * @param {Error|object|null} error - The error object
+ * @returns {boolean}
+ */
+export function isFutureDateError(error) {
+  const raw = String(error?.message || "");
+  const msg = raw.toLowerCase();
+  return msg === "expenses.date_in_future" || msg === "income.date_in_future";
+}
+
+/**
+ * Check if an error represents a closed-period validation failure.
+ *
+ * @param {Error|object|null} error - The error object
+ * @returns {boolean}
+ */
+export function isClosedPeriodError(error) {
+  const raw = String(error?.message || "");
+  const msg = raw.toLowerCase();
+  return msg === "expenses.date_closed_period" || msg === "income.date_closed_period";
 }
