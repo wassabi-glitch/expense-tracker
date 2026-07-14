@@ -802,7 +802,7 @@ function CreatePaymentPlanDialog({ open, onOpenChange, wallets }) {
                   icon={CreditCard}
                   label="Debt balance"
                   value={`${formatUzs(previewData?.total_to_pay ?? financedAmount)} UZS`}
-                  helper={`${previewData?.payment_count ?? paymentCountValue || 0} ${frequencyLabel(previewData?.frequency ?? frequency).toLowerCase()} payments`}
+                  helper={`${(previewData?.payment_count ?? paymentCountValue) || 0} ${frequencyLabel(previewData?.frequency ?? frequency).toLowerCase()} payments`}
                   tone="danger"
                 />
                 <SummaryTile icon={WalletCards} label="Money today" value={isBankLoan && loanReceived ? `${formatUzs(totalValue)} UZS in` : `${formatUzs(downValue)} UZS out`} helper={isBankLoan ? "Loan disbursement is borrowed money, not income" : "Only upfront payment moves today"} />

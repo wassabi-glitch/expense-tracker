@@ -170,6 +170,11 @@ export {
     undoPaymentPlanPaymentWriteOff,
     undoLatestPaymentPlanPayment,
     addPaymentPlanCharge,
+    previewPaymentPlanSchedule,
+    archivePaymentPlan,
+    unarchivePaymentPlan,
+    writeOffPaymentPlan,
+    undoLatestPaymentPlanCharge,
     deletePaymentPlan,
 } from "./api/payment-plans";
 export {
