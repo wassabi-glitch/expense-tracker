@@ -5,7 +5,7 @@ before posting money, same-day receipts are accepted, multi-wallet validation
 works, and rejected commands create no side effects.
 """
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from app import models
 from tests.helpers import (

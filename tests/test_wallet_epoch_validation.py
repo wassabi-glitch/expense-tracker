@@ -402,7 +402,7 @@ def test_income_route_rejects_pre_epoch_date(client, session):
     """
     from datetime import timedelta
 
-    headers = create_user_and_token(
+    create_user_and_token(
         client, "epochincome2", "epochincome2@example.com", "Password123!"
     )
     user = session.query(models.User).filter(models.User.email == "epochincome2@example.com").first()
