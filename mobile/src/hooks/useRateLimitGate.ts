@@ -17,7 +17,10 @@ export function useRateLimitGate(opts: { onExpire?: () => void } = {}) {
   const [isRateLimited, setIsRateLimited] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onExpireRef = useRef(onExpire);
-  onExpireRef.current = onExpire;
+
+  useEffect(() => {
+    onExpireRef.current = onExpire;
+  }, [onExpire]);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {

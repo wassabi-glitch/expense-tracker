@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { View } from 'react-native';
 import { Button } from '@/components/ui/button';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -12,33 +12,32 @@ import { useRateLimitGate } from '@/hooks/useRateLimitGate';
 export default function SignInRoute() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { t } = useTranslation();
   const signInMutation = useNativeSignInMutation();
   const { signIn } = useAuthStore();
   const [fieldErrors, setFieldErrors] = useState({});
   const [formError, setFormError] = useState<string | undefined>();
   const { promptAsync, isReady, isLoading, error: googleError } = useGoogleAuth();
   const { isRateLimited, onRateLimitError } = useRateLimitGate({ onExpire: () => setFormError(undefined) });
+  const sessionErrorConsumed = useRef(false);
 
-  useEffect(() => {
-    if (googleError) {
-      setFormError(`auth.signIn.errors.${googleError}`);
-    }
-  }, [googleError]);
-
-  useEffect(() => {
-    if (params.error) {
+  // Derive google/session errors from props without effects
+  const googleFormError = useMemo(() => {
+    if (googleError) return `auth.signIn.errors.${googleError}`;
+    if (params.error && !sessionErrorConsumed.current) {
+      sessionErrorConsumed.current = true;
       if (params.error === 'auth.refresh_token_invalid' || params.error === 'sessionExpired') {
-        setFormError('auth.signIn.errors.sessionExpired');
+        return 'auth.signIn.errors.sessionExpired';
       }
-      router.setParams({ error: '' });
     }
-  }, [params.error, router]);
+    return undefined;
+  }, [googleError, params.error]);
+
+  const displayError = formError ?? googleFormError;
 
   return (
     <View style={{ flex: 1 }}>
       <SignInScreen
-        formError={formError}
+        formError={displayError}
         onCreateAccountPress={() => router.push('/(auth)/sign-up')}
         onSignInPress={async (values) => {
           setFieldErrors({});
