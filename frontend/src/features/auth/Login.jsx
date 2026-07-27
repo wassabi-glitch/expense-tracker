@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,9 @@ import { getGoogleLoginUrl } from "@/lib/api";
 import { signinSchema } from "./authSchemas.js";
 import { AuthFormCard } from "@/components/AuthFormCard";
 import { useSigninMutation } from "./hooks/useAuthMutations";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useRateLimitGate } from "@/hooks/useRateLimitGate";
 
 function GoogleIcon() {
     return (
@@ -41,71 +44,77 @@ function GoogleIcon() {
 export default function Login() {
     const { t } = useTranslation();
     const translateValidation = useCallback((message) => t(message, { defaultValue: message }), [t]);
-    const [email, setEmail] = useState("");
-    const [password, setPassword] = useState("");
+    
     const [showPassword, setShowPassword] = useState(false);
     const [status, setStatus] = useState("");
-    const [fieldErrors, setFieldErrors] = useState({});
     const [showResendVerification, setShowResendVerification] = useState(false);
+    
     const signinMutation = useSigninMutation();
     const isSubmitting = signinMutation.isPending;
+    const { isRateLimited, onRateLimitError } = useRateLimitGate({ onExpire: () => setStatus("") });
     const navigate = useNavigate();
+
+    const {
+        register,
+        handleSubmit,
+        setError,
+        watch,
+        formState: { errors }
+    } = useForm({
+        resolver: zodResolver(signinSchema),
+        defaultValues: {
+            email: "",
+            password: "",
+        },
+        mode: "onChange"
+    });
+
+    const email = watch("email");
+
     const loginInputClass = "h-11 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-emerald-500";
     const disabledLoginButtonCursorClass = "disabled:pointer-events-auto disabled:cursor-not-allowed";
-    const signinParsed = useMemo(() => signinSchema.safeParse({ email, password }), [email, password]);
-    const canSignIn = signinParsed.success && !isSubmitting;
-    const liveSigninIssuesByField = useMemo(() => {
-        if (signinParsed.success) return {};
-        const next = {};
-        signinParsed.error.issues.forEach((issue) => {
-            const field = issue.path?.[0];
-            if (field && !next[field]) next[field] = translateValidation(issue.message);
-        });
-        return next;
-    }, [signinParsed, translateValidation]);
-    const emailHasError = !!((email.trim().length > 0 && liveSigninIssuesByField.email) || fieldErrors.email);
-    const passwordHasError = !!((password.length > 0 && liveSigninIssuesByField.password) || fieldErrors.password);
 
     useEffect(() => {
         // Clean up a stray empty hash so URL stays /sign-in instead of /sign-in#
         if (window.location.hash === "#") {
-            window.history.replaceState(null, "", `${window.location.pathname}${window.location.search} `);
+            window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
         }
 
-    }, []);
+        const searchParams = new URLSearchParams(window.location.search);
+        const errorParam = searchParams.get("error");
+        if (errorParam) {
+            setStatus(t(errorParam, { defaultValue: errorParam }));
+            searchParams.delete("error");
+            const newSearch = searchParams.toString();
+            window.history.replaceState(null, "", `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}`);
+        }
+    }, [t]);
 
-    async function handleSubmit(e) {
-        e.preventDefault();
+    async function onSubmit(data) {
         setStatus("");
-        setFieldErrors({});
-
-        const parsed = signinSchema.safeParse({ email, password });
-        if (!parsed.success) {
-            const nextErrors = {};
-            parsed.error.issues.forEach((issue) => {
-                const field = issue.path?.[0];
-                if (field && !nextErrors[field]) nextErrors[field] = translateValidation(issue.message);
-            });
-            setFieldErrors(nextErrors);
-            return;
-        }
+        setShowResendVerification(false);
 
         try {
             await signinMutation.mutateAsync({
-                email: parsed.data.email,
-                password: parsed.data.password,
+                email: data.email,
+                password: data.password,
             });
             navigate("/dashboard");
         } catch (err) {
+            onRateLimitError(err);
             const msg = String(err?.message || "");
             if (msg === "auth.invalid_credentials" || msg.toLowerCase() === "invalid credentials") {
                 setStatus(t("auth.invalidCredentials"));
+                setError("email", { type: "server", message: "auth.invalidCredentials" });
+                setError("password", { type: "server", message: "auth.invalidCredentials" });
                 setShowResendVerification(false);
             } else if (msg === "auth.email_not_verified") {
                 setStatus(t("auth.emailNotVerified"));
                 setShowResendVerification(true);
             } else if (msg === "auth.login_rate_limited") {
                 setStatus(t("auth.loginRateLimited"));
+            } else if (msg === "auth.idempotency_conflict_in_progress") {
+                setStatus(t("auth.loginIdempotencyConflictInProgress"));
             } else {
                 setStatus(t(msg, { defaultValue: msg || t("auth.loginFailed") }));
             }
@@ -115,7 +124,7 @@ export default function Login() {
     return (
         <AuthFormCard title={t("auth.loginTitle")}>
 
-            <form onSubmit={handleSubmit} className="space-y-2">
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-2">
                 <Button type="button" variant="outline" className="h-11 w-full" asChild>
                     <a href={getGoogleLoginUrl()} className="inline-flex items-center justify-center gap-2">
                         <GoogleIcon />
@@ -137,19 +146,13 @@ export default function Login() {
                         id="email"
                         type="email"
                         placeholder={t("auth.email")}
-                        value={email}
-                        onChange={(e) => {
-                            setEmail(e.target.value);
-                            setStatus("");
-                            setFieldErrors((prev) => ({ ...prev, email: "" }));
-                        }}
-                        className={`${loginInputClass} ${emailHasError ? "border-red-500 focus-visible:border-red-500" : ""}`}
-                        required
+                        className={`${loginInputClass} ${errors.email ? "border-red-500 focus-visible:border-red-500" : ""}`}
+                        {...register("email")}
                     />
                     <div className="min-h-2.5">
-                        {((email.trim().length > 0 && liveSigninIssuesByField.email) || fieldErrors.email) && (
+                        {errors.email && (
                             <p className="text-xs text-red-500">
-                                {(email.trim().length > 0 && liveSigninIssuesByField.email) || fieldErrors.email}
+                                {translateValidation(errors.email.message)}
                             </p>
                         )}
                     </div>
@@ -160,15 +163,9 @@ export default function Login() {
                         <Input
                             id="password"
                             type={showPassword ? "text" : "password"}
-                            value={password}
-                            onChange={(e) => {
-                                setPassword(e.target.value);
-                                setStatus("");
-                                setFieldErrors((prev) => ({ ...prev, password: "" }));
-                            }}
-                            className={`${loginInputClass} pr-10 ${passwordHasError ? "border-red-500 focus-visible:border-red-500" : ""}`}
+                            className={`${loginInputClass} pr-10 ${errors.password ? "border-red-500 focus-visible:border-red-500" : ""}`}
                             placeholder={t("auth.password")}
-                            required
+                            {...register("password")}
                         />
                         <button
                             type="button"
@@ -179,11 +176,13 @@ export default function Login() {
                             {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                         </button>
                     </div>
-                    {((password.length > 0 && liveSigninIssuesByField.password) || fieldErrors.password) && (
-                        <p className="mt-1 text-xs text-red-500">
-                            {(password.length > 0 && liveSigninIssuesByField.password) || fieldErrors.password}
-                        </p>
-                    )}
+                    <div className="min-h-2.5">
+                        {errors.password && (
+                            <p className="mt-1 text-xs text-red-500">
+                                {translateValidation(errors.password.message)}
+                            </p>
+                        )}
+                    </div>
                     <div className="mt-0.5">
                         <Link
                             to={email ? `/forgot-password?email=${encodeURIComponent(email)}` : "/forgot-password"}
@@ -197,7 +196,7 @@ export default function Login() {
                 <Button
                     type="submit"
                     className={`h-11 w-full ${disabledLoginButtonCursorClass}`}
-                    disabled={!canSignIn}
+                    disabled={isSubmitting || isRateLimited || !!errors.email || !!errors.password}
                 >
                     {isSubmitting ? (
                         <span

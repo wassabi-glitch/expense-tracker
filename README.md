@@ -1,4 +1,4 @@
-﻿# 💰 SarfLog — Expense Tracker
+# 💰 SarfLog — Expense Tracker
 
 > A full-stack personal finance app built with FastAPI & React.
 > Track expenses, manage budgets, analyze spending — in English, Russian, and Uzbek.
@@ -95,7 +95,6 @@ ExpenseTracker/
 │   ├── session.py              # Database session
 │   ├── utils.py                # Password hashing utilities
 │   ├── timezone.py             # Timezone helpers
-│   ├── email_service.py        # SMTP email sending
 │   ├── email_verification.py   # Email token generation
 │   ├── redis_rate_limiter.py   # Rate limiting middleware
 │   └── routers/
@@ -206,10 +205,8 @@ npm run dev
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Token TTL | `60` |
 | `REDIS_URL` | Redis connection URL | `redis://localhost:6379/0` |
 | `CORS_ORIGINS` | Allowed frontend origins | `http://localhost:5173` |
-| `SMTP_HOST` | Email SMTP host | `sandbox.smtp.mailtrap.io` |
-| `SMTP_PORT` | Email SMTP port | `587` |
-| `SMTP_USERNAME` | SMTP username | `your_smtp_user` |
-| `SMTP_PASSWORD` | SMTP password | `your_smtp_pass` |
+| `RESEND_API_KEY` | Resend API key | `re_123456789` |
+| `EMAIL_FROM` | Sender identity | `onboarding@resend.dev` |
 | `FRONTEND_URL` | Frontend base URL | `http://localhost:5173` |
 
 ---

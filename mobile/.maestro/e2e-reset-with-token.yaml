@@ -1,0 +1,11 @@
+appId: com.ahror2937.sarflog
+---
+# Requires: --env TOKEN=xxx --env EMAIL=xxx
+- launchApp:
+    clearState: true
+- openLink: "sarflog://reset-password?token=${TOKEN}"
+- tapOn: { point: "50%,42%" }
+- inputText: "${PASSWORD}"
+- tapOn: { point: "50%,52%" }
+- inputText: "${PASSWORD}"
+- tapOn: { point: "50%,65%" }

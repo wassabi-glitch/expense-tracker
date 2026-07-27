@@ -1,6 +1,7 @@
 import time
 from dataclasses import dataclass
 
+# pyrefly: ignore [missing-import]
 import redis
 from config import settings
 
@@ -84,15 +85,14 @@ def _key(scope: str, identifier: str, window: int) -> str:
     return f"rl:{scope}:{safe_id}:{window}"
 
 
-def check_and_consume(scope: str, identifier: str) -> RateLimitResult:
+def check_and_consume(scope: str, identifier: str, window_seconds: int = 60, max_attempts: int = 5) -> RateLimitResult:
     try:
         now_ts = time.time()
-        current_window = _window_id(now_ts)
+        current_window = int(now_ts // window_seconds)
         prev_window = current_window - 1
 
-        elapsed = now_ts % WINDOW_SECONDS
-        prev_weight = (WINDOW_SECONDS - elapsed) / \
-            WINDOW_SECONDS  # 1 -> 0 across window
+        elapsed = now_ts % window_seconds
+        prev_weight = (window_seconds - elapsed) / window_seconds
 
         key_curr = _key(scope, identifier, current_window)
         key_prev = _key(scope, identifier, prev_window)
@@ -100,7 +100,7 @@ def check_and_consume(scope: str, identifier: str) -> RateLimitResult:
         prev_raw = redis_client.get(key_prev)
         curr_count, curr_ttl = INCR_EXPIRE_SCRIPT(
             keys=[key_curr],
-            args=[WINDOW_SECONDS + 1],
+            args=[window_seconds + 1],
         )
         curr_count = int(curr_count)
         curr_ttl = int(curr_ttl)
@@ -108,15 +108,15 @@ def check_and_consume(scope: str, identifier: str) -> RateLimitResult:
         prev_count = int(prev_raw or 0)
 
         effective = (prev_count * prev_weight) + curr_count
-        allowed = effective <= MAX_ATTEMPTS
+        allowed = effective <= max_attempts
 
-        remaining = max(0, int(MAX_ATTEMPTS - effective))
+        remaining = max(0, int(max_attempts - effective))
         reset_seconds = max(
-            1, int(curr_ttl if curr_ttl and curr_ttl > 0 else WINDOW_SECONDS - elapsed))
+            1, int(curr_ttl if curr_ttl and curr_ttl > 0 else window_seconds - elapsed))
 
         return RateLimitResult(
             allowed=allowed,
-            limit=MAX_ATTEMPTS,
+            limit=max_attempts,
             remaining=remaining,
             reset_seconds=reset_seconds,
         )
@@ -127,8 +127,8 @@ def check_and_consume(scope: str, identifier: str) -> RateLimitResult:
         logging.getLogger(__name__).warning("Redis rate limiter failed (check_and_consume): %s", exc)
         return RateLimitResult(
             allowed=True,
-            limit=MAX_ATTEMPTS,
-            remaining=MAX_ATTEMPTS,
+            limit=max_attempts,
+            remaining=max_attempts,
             reset_seconds=1,
         )
 

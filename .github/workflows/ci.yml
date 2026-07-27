@@ -9,8 +9,31 @@ on:
       - main
 
 jobs:
+  mobile-tests:
+    name: Mobile Quality Gate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.1"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install Mobile Dependencies
+        run: npm ci
+
+      - name: Run Mobile Quality Gate
+        run: npm run verify
+
   lint:
-    name: Lint
+    name: Lint (Python + Frontend)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -39,6 +62,29 @@ jobs:
 
       - name: ESLint (Frontend)
         run: cd frontend && npx eslint src/ --max-warnings 50
+
+  mobile-lint:
+    name: Lint (Mobile)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.1"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install Mobile Dependencies
+        run: npm ci
+
+      - name: Run Mobile Lint
+        run: npm run lint
 
   backend-tests:
     name: Backend Tests
@@ -125,6 +171,9 @@ jobs:
       - name: Run Alembic Migrations
         run: python -m alembic upgrade head
 
+      - name: Check Migration Safety
+        run: python -m alembic check
+
       - name: Run Pytest with Coverage
         run: pytest -q --cov=app --cov-report=term-missing --cov-fail-under=60
 
@@ -171,6 +220,65 @@ jobs:
       - name: Build Frontend
         run: npm run build
 
+  frontend-tests:
+    name: Frontend Tests (Vitest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Run Vitest
+        run: npm run test:run
+
+  frontend-e2e:
+    name: Frontend E2E (Playwright)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Start Vite Dev Server
+        run: npx vite --port 5173 &
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:5173
+
+      - name: Wait For Dev Server
+        run: npx wait-on http://localhost:5173
+
+      - name: Run Playwright Tests
+        run: npx playwright test
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:5173
+
   security-audit:
     name: Dependency Audit
     runs-on: ubuntu-latest
@@ -205,7 +313,18 @@ jobs:
       - name: Install Frontend Dependencies
         run: npm ci
 
-      - name: NPM Audit (high+)
+      - name: NPM Audit Frontend (high+)
+        run: npm audit --audit-level=high
+
+      - name: Setup Node (Mobile)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.1"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: NPM Audit Mobile (high+)
+        working-directory: mobile
         run: npm audit --audit-level=high
 
   owasp-dast:

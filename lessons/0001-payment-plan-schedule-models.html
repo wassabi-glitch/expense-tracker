@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Three Schedule Models, One Payment Plan Engine</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="eyebrow">Sarflog architecture lesson 001</p>
+  <h1>Three schedule models, not three kinds of reality</h1>
+  <p class="lede">A product says what the agreement is. A schedule model says how Sarflog obtains the dated amounts. Keeping those axes separate is the foundation of a durable rebuild.</p>
+
+  <div class="verdict"><strong>Verdict:</strong> fixed total, standard amortization, and exact contract rows are a strong first set for <em>closed-end</em> obligations. They are not a universal model of every credit product, and they should never be presented as one.</div>
+
+  <section>
+    <h2>The separation that matters</h2>
+    <div class="architecture" role="img" aria-label="Product kind flows to schedule strategy, which materializes common schedule rows">
+      <div class="flow-node"><div><strong>Product kind</strong><br><span class="small">BNPL · mortgage · auto loan · service contract</span></div></div>
+      <div class="arrow">→</div>
+      <div class="flow-node"><div><strong>Schedule strategy</strong><br><span class="small">fixed total · amortized · exact rows</span></div></div>
+      <div class="arrow">→</div>
+      <div class="flow-node"><div><strong>Common rows + actions</strong><br><span class="small">due dates · amounts · payments · write-offs · reversals</span></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The three strategies</h2>
+    <div class="grid">
+      <article class="card flat">
+        <h3>1. Fixed total</h3>
+        <p>The provider has already told the customer the final amount owed. Sarflog divides the unpaid amount into installments.</p>
+        <div class="formula">unpaid = final total − upfront paid<br>row ≈ unpaid ÷ count</div>
+        <p><strong>Reality:</strong> pay-in-four BNPL, store installments, a fixed-price service paid over time.</p>
+        <p><strong>Unknown:</strong> no interest calculation is needed; any markup may already be baked into the quoted total.</p>
+      </article>
+
+      <article class="card amortized">
+        <h3>2. Standard amortization</h3>
+        <p>The customer borrowed principal. Each payment contains interest on the declining principal plus some principal repayment.</p>
+        <div class="formula">interest = remaining principal × period rate<br>principal part = payment − interest</div>
+        <p><strong>Reality:</strong> many fixed-rate mortgages, auto loans, and personal loans.</p>
+        <p><strong>Movement:</strong> early payments are interest-heavy; later payments are principal-heavy.</p>
+      </article>
+
+      <article class="card manual">
+        <h3>3. Exact contract rows</h3>
+        <p>Sarflog does not invent the math. It records the dates and components shown by the authoritative agreement or lender.</p>
+        <div class="formula">schedule = the contract's exact rows</div>
+        <p><strong>Reality:</strong> balloon payments, irregular milestones, negotiated repayment agreements, lender-specific fees or rounding.</p>
+        <p><strong>Important:</strong> this is an input strategy, not a financial product.</p>
+      </article>
+    </div>
+  </section>
+
+  <section>
+    <h2>Classify the agreement, not the logo</h2>
+    <table>
+      <thead><tr><th>Real agreement</th><th>Product language</th><th>Schedule strategy</th><th>Reason</th></tr></thead>
+      <tbody>
+        <tr><td>Phone split into four equal interest-free payments</td><td>BNPL</td><td>Fixed total</td><td>The final total and installments are known.</td></tr>
+        <tr><td>Fixed-rate car loan</td><td>Auto loan</td><td>Standard amortization</td><td>Interest is calculated from declining principal.</td></tr>
+        <tr><td>Zero-interest bank employee loan</td><td>Bank loan</td><td>Fixed total or zero-rate amortization</td><td>The product label alone does not choose the math.</td></tr>
+        <tr><td>Mortgage with lender-specific daily interest and fees</td><td>Mortgage</td><td>Exact contract rows</td><td>A generic monthly formula may not match the lender.</td></tr>
+        <tr><td>20% / 30% / 50% construction milestones</td><td>Service contract</td><td>Exact contract rows</td><td>Amounts and dates are deliberately uneven.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Where the first version must stop</h2>
+    <div class="boundary">
+      <h3>Do not fake these with a standard generator</h3>
+      <p>Revolving credit cards, redrawable credit lines, adjustable-rate resets, income-driven repayments, negative amortization, and daily-interest recasting have rules that react to future events. Exact rows can record a lender's current schedule, but they do not turn Sarflog into the lender's live calculation engine.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>The production rule</h2>
+    <p><span class="check">Generate when the rule is supported.</span> <span class="warn">Copy exact rows when the contract is more complex.</span> Materialize both outcomes into the same schedule-row structure so payments, charges, write-offs, history, and reversals do not care how the original rows were created.</p>
+    <p class="small">Primary reading: <a href="https://www.consumerfinance.gov/ask-cfpb/what-is-amortization-and-how-could-it-affect-my-auto-loan-en-771/">CFPB on amortization</a>. Project decision: <a href="../docs/adr/0028-payment-plan-schedule-models-and-contract-review.md">ADR 0028</a>. Keep asking follow-up questions—especially by giving a real contract example and asking which strategy it belongs to.</p>
+  </section>
+
+  <p><a href="../reference/payment-plan-schedule-models.html">Open the one-page reference →</a></p>
+</main>
+</body>
+</html>

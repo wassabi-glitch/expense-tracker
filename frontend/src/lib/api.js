@@ -9,6 +9,8 @@ export {
     verifyEmail,
     resetPassword,
     logout,
+    logoutAll,
+    changePassword,
     getGoogleLoginUrl,
 } from "./api/auth";
 

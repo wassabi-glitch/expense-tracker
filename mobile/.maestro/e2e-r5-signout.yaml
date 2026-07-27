@@ -1,0 +1,25 @@
+appId: com.ahror2937.sarflog
+---
+# R5: Sign in → navigate to Settings → Sign Out
+- launchApp
+
+# Sign in
+- tapOn: { point: "50%,45%" }
+- inputText: "e2e_r1@test.com"
+- tapOn: { point: "50%,54%" }
+- inputText: "E2eNewPassR5_1!"
+- tapOn: { point: "50%,68%" }
+
+# Tap Settings tab
+- tapOn: { point: "83%,95%" }
+
+# Scroll down to see Sign Out button, then tap it
+- scrollUntilVisible:
+    element:
+      text: "Sign out"
+    direction: DOWN
+- tapOn:
+    text: "Sign out"
+
+# Verify we're back on Sign In screen
+- tapOn: { point: "50%,45%" }

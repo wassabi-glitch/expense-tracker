@@ -1,0 +1,18 @@
+appId: com.ahror2937.sarflog
+---
+# Tier 2: Verify email with real DB token (passed via --env TOKEN=xxx)
+- launchApp:
+    clearState: true
+
+# Deep-link to verify with real token from DB
+- openLink: "sarflog://verify-email?token=${TOKEN}"
+
+# "Ready to verify" screen → tap Verify my account
+- tapOn: { point: "50%,55%" }
+
+# Should succeed → "Account Verified" with "Back to Sign In"
+- tapOn: { point: "50%,65%" }
+
+# Should be on Sign In. Type email to prove we're there.
+- tapOn: { point: "50%,45%" }
+- inputText: "${VERIFY_EMAIL}"

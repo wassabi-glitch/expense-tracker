@@ -44,6 +44,8 @@ services:
       - TRUSTED_HOSTS=${TRUSTED_HOSTS}
       - IS_PRODUCTION=False
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost}
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - EMAIL_FROM=${EMAIL_FROM:-Sarflog Development <onboarding@resend.dev>}
     depends_on:
       - db
       - redis

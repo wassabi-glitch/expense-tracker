@@ -1,0 +1,16 @@
+appId: com.ahror2937.sarflog
+---
+- stopApp
+- launchApp
+# Navigate to Sign Up from Sign In
+- tapOn: { point: "50%,94%" }
+# Step 1: Identity
+- tapOn: { point: "50%,42%" }
+- inputText: "e2e_full@test.com"
+- tapOn: { point: "50%,50%" }
+- inputText: "e2efulluser"
+- tapOn: { point: "50%,60%" }
+# Step 2: Password
+- tapOn: { point: "50%,52%" }
+- inputText: "E2eFullPass1!"
+- tapOn: { point: "50%,64%" }

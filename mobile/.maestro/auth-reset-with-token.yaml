@@ -1,0 +1,21 @@
+appId: com.ahror2937.sarflog
+---
+# Tier 2: Reset password with real DB reset token (passed via --env TOKEN=xxx)
+- launchApp:
+    clearState: true
+
+# Deep-link to reset password with real token from DB
+- openLink: "sarflog://reset-password?token=${TOKEN}"
+
+# Fill new passwords
+- tapOn: { point: "50%,42%" }
+- inputText: "NewStrongPass1!"
+- tapOn: { point: "50%,52%" }
+- inputText: "NewStrongPass1!"
+
+# Save password
+- tapOn: { point: "50%,65%" }
+
+# Should succeed → navigate to Sign In. Prove it.
+- tapOn: { point: "50%,45%" }
+- inputText: "${RESET_EMAIL}"

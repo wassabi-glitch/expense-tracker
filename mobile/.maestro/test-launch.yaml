@@ -1,0 +1,4 @@
+appId: com.ahror2937.sarflog
+---
+- launchApp
+- tapOn: { point: "50%,50%" }

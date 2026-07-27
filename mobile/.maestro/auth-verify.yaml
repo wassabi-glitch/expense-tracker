@@ -1,0 +1,9 @@
+appId: com.ahror2937.sarflog
+---
+- launchApp:
+    clearState: true
+# Deep-link to verify screen with an invalid token
+- openLink: "sarflog://verify-email?token=invalid-token"
+- assertVisible: "Ready to verify"
+- tapOn: "Verify my account"
+- assertVisible: "Link Expired or Invalid"

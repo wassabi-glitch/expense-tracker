@@ -6,6 +6,7 @@ import {
     markAllNotificationsRead,
     deleteNotification,
 } from "@/lib/api/notifications";
+import { isLoggedIn } from "@/lib/api";
 
 const NotificationContext = createContext(null);
 
@@ -16,7 +17,7 @@ export function NotificationProvider({ children }) {
         queryKey: ["notifications"],
         queryFn: () => getNotifications({ limit: 50 }),
         staleTime: 30000,
-        enabled: true,
+        enabled: isLoggedIn(),
     });
 
     const markReadMutation = useMutation({

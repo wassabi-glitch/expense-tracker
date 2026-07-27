@@ -1,0 +1,55 @@
+# app-lock-failed-attempts.yaml
+# Maestro E2E flow: Wrong PIN × 3 → warning popup → wrong PIN × 2 → cooldown.
+# This file is written for CI/physical-device testing but NOT run locally.
+
+appId: com.ahror2937.sarflog
+---
+- clearState
+- launchApp
+
+# Lock screen visible
+- assertVisible: "Enter your PIN"
+
+# Attempt 1 — wrong PIN
+- tapOn: "1"
+- tapOn: "1"
+- tapOn: "1"
+- tapOn: "1"
+- tapOn: "1"
+- assertVisible: "Wrong PIN"
+
+# Attempt 2 — wrong PIN
+- tapOn: "2"
+- tapOn: "2"
+- tapOn: "2"
+- tapOn: "2"
+- tapOn: "2"
+- assertVisible: "Wrong PIN"
+
+# Attempt 3 — wrong PIN, expect warning alert
+- tapOn: "3"
+- tapOn: "3"
+- tapOn: "3"
+- tapOn: "3"
+- tapOn: "3"
+- assertVisible: "Almost locked out"
+- tapOn: "Got it"
+
+# Attempt 4 — wrong PIN
+- tapOn: "4"
+- tapOn: "4"
+- tapOn: "4"
+- tapOn: "4"
+- tapOn: "4"
+- assertVisible: "Wrong PIN"
+
+# Attempt 5 — wrong PIN, expect cooldown
+- tapOn: "5"
+- tapOn: "5"
+- tapOn: "5"
+- tapOn: "5"
+- tapOn: "5"
+- assertVisible: "Too many attempts"
+
+# Biometric button should still be visible during cooldown
+- assertVisible: "Use fingerprint"

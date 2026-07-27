@@ -1,0 +1,57 @@
+# app-lock-settings.yaml
+# Maestro E2E flow: Navigate to Settings, toggle App Lock OFF/ON.
+# This file is written for CI/physical-device testing but NOT run locally.
+
+appId: com.ahror2937.sarflog
+---
+- clearState
+- launchApp
+
+# Unlock (assumes PIN = "12345")
+- tapOn: "1"
+- tapOn: "2"
+- tapOn: "3"
+- tapOn: "4"
+- tapOn: "5"
+
+# Navigate to Settings tab
+- tapOn: "Settings"
+
+# Verify App Lock section is visible
+- assertVisible: "App Lock"
+
+# Verify toggle is ON (PIN exists)
+- assertVisible: "App lock is enabled"
+
+# Toggle OFF
+- tapOn:
+    id: "app-lock-toggle"
+
+# Verify toggle is OFF
+- assertVisible: "App lock is disabled"
+
+# Toggle back ON (should trigger PIN creation flow)
+- tapOn:
+    id: "app-lock-toggle"
+
+# Create new PIN
+- assertVisible: "Create your PIN"
+- tapOn: "6"
+- tapOn: "7"
+- tapOn: "8"
+- tapOn: "9"
+- tapOn: "0"
+
+# Repeat PIN
+- assertVisible: "Repeat your PIN"
+- tapOn: "6"
+- tapOn: "7"
+- tapOn: "8"
+- tapOn: "9"
+- tapOn: "0"
+
+# Skip biometric
+- tapOn: "Later"
+
+# Back in Settings, toggle is ON
+- assertVisible: "App lock is enabled"

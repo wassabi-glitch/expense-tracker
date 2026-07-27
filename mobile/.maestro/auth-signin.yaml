@@ -1,0 +1,21 @@
+appId: com.ahror2937.sarflog
+---
+- launchApp:
+    clearState: true
+
+# Sign In: type credentials and try to sign in (will fail, stays on screen)
+- tapOn: { point: "50%,45%" }
+- inputText: "wrong@example.com"
+- tapOn: { point: "50%,54%" }
+- inputText: "WrongPassword123!"
+- tapOn: { point: "50%,68%" }
+
+# App stays on Sign In (invalid credentials). Verify by tapping email again.
+- tapOn: { point: "50%,45%" }
+- eraseText: 30
+
+# Now navigate to Create Account
+- tapOn: { point: "50%,94%" }
+# Should be on Sign Up screen — verify by typing in email field
+- tapOn: { point: "50%,42%" }
+- inputText: "navtest@test.com"

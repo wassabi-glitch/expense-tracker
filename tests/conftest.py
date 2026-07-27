@@ -1,9 +1,14 @@
 import os
 
+# pyrefly: ignore [missing-import]
 import pytest
+# pyrefly: ignore [missing-import]
 from fastapi.testclient import TestClient
+# pyrefly: ignore [missing-import]
 from sqlalchemy import create_engine
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import sessionmaker
+# pyrefly: ignore [missing-import]
 from sqlalchemy.pool import StaticPool
 
 from app.main import app
@@ -15,7 +20,6 @@ from config import settings
 # Tests rely on being able to toggle premium via a dev-only endpoint.
 # In production, this endpoint is still blocked by `settings.is_production`.
 settings.debug_allow_premium_toggle = True
-settings.smtp_host = None # Disable emails in tests
 settings.resend_api_key = None # Disable Resend API emails in tests
 
 
@@ -59,6 +63,24 @@ class InMemoryRedis:
         return True
 
 
+    def pipeline(self):
+        class DummyPipe:
+            def __enter__(self_pipe): return self_pipe
+            def __exit__(self_pipe, *args): pass
+            def watch(self_pipe, *keys): pass
+            def unwatch(self_pipe): pass
+            def multi(self_pipe): pass
+            def execute(self_pipe): pass
+            def get(self_pipe, k): return self.get(k)
+            def delete(self_pipe, *k): self.delete(*k)
+            def smembers(self_pipe, k): return self.smembers(k)
+            def sadd(self_pipe, k, *v): self.sadd(k, *v)
+            def srem(self_pipe, k, *v): self.srem(k, *v)
+            def setex(self_pipe, k, t, v): self.setex(k, t, v)
+            def expire(self_pipe, k, t): self.expire(k, t)
+        return DummyPipe()
+
+
 _REDIS_AVAILABLE_CACHE = None
 
 
@@ -83,7 +105,8 @@ def silent_scheduler(monkeypatch):
 @pytest.fixture(autouse=True)
 def fake_refresh_token_store(monkeypatch):
     """Keep auth tests local when Docker Redis is not running."""
-    monkeypatch.setattr("app.oauth2._redis", InMemoryRedis())
+    if not _redis_available():
+        monkeypatch.setattr("app.oauth2._redis", InMemoryRedis())
 
 
 @pytest.fixture(autouse=True)

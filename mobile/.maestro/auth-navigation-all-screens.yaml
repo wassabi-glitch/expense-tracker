@@ -1,0 +1,44 @@
+appId: com.ahror2937.sarflog
+---
+- launchApp:
+    clearState: true
+
+# Verify: Sign In screen is showing → tap email field to prove it
+- tapOn: { point: "50%,45%" }
+- inputText: "navtest@test.com"
+- eraseText: 20
+
+# Test: Navigate to Forgot Password → Back to Sign In
+- tapOn: { point: "83%,60%" }
+- tapOn: { point: "50%,45%" }
+- inputText: "back@test.com"
+- eraseText: 20
+- tapOn: { point: "50%,72%" }
+- tapOn: { point: "50%,45%" }
+- inputText: "backtosignin@test.com"
+- eraseText: 25
+
+# Test: Navigate to Sign Up → Back to Sign In
+- tapOn: { point: "50%,94%" }
+- tapOn: { point: "50%,94%" }
+- tapOn: { point: "50%,45%" }
+- inputText: "backagain@test.com"
+- eraseText: 25
+
+# Test: Full Sign Up flow → Check Email screen
+- tapOn: { point: "50%,94%" }
+- tapOn: { point: "50%,42%" }
+- inputText: "fullflow@test.com"
+- tapOn: { point: "50%,50%" }
+- inputText: "fullflowuser"
+- tapOn: { point: "50%,60%" }
+- tapOn: { point: "50%,52%" }
+- inputText: "TestStrongPass1!"
+- tapOn: { point: "50%,64%" }
+
+# Should be on Check Email screen
+- tapOn: { point: "50%,80%" }
+
+# Back on Sign In
+- tapOn: { point: "50%,45%" }
+- inputText: "final@test.com"

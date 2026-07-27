@@ -1,0 +1,9 @@
+appId: com.ahror2937.sarflog
+---
+# R1: Verify email via deep link with real DB token (--env TOKEN=xxx)
+- launchApp
+- openLink: "sarflog://verify-email?token=${TOKEN}"
+# "Ready to verify" screen → tap Verify
+- tapOn: { point: "50%,55%" }
+# Success → tap Back to Sign In
+- tapOn: { point: "50%,65%" }

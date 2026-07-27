@@ -1,0 +1,9 @@
+appId: com.ahror2937.sarflog
+---
+# R3: Sign in with the NEW password after reset
+- launchApp
+- tapOn: { point: "50%,45%" }
+- inputText: "e2e_r1@test.com"
+- tapOn: { point: "50%,54%" }
+- inputText: "E2eNewStrongPass2!"
+- tapOn: { point: "50%,68%" }

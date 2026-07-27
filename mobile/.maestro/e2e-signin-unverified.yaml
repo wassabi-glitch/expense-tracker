@@ -1,0 +1,10 @@
+appId: com.ahror2937.sarflog
+---
+# E2E: Sign in with unverified user → backend returns "email not verified"
+- launchApp:
+    clearState: true
+- tapOn: { point: "50%,45%" }
+- inputText: "e2e_signup@test.com"
+- tapOn: { point: "50%,54%" }
+- inputText: "E2eTestPass123!"
+- tapOn: { point: "50%,68%" }

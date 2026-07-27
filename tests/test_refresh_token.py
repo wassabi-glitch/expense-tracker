@@ -8,7 +8,9 @@ Covers:
   - Used refresh tokens cannot be reused (rotation security)
   - Password reset revokes all refresh tokens
 """
+import concurrent.futures
 from unittest.mock import patch
+
 
 from app import models, oauth2
 from app.routers import oauth_google
@@ -135,10 +137,11 @@ def test_refresh_with_invalid_cookie_returns_401(client):
     assert response.status_code == 401
 
 
-def test_used_refresh_token_cannot_be_reused(client, session):
+def test_used_refresh_token_cannot_be_reused_and_revokes_family(client, session):
     """
     After a refresh token is used, the OLD token should be invalid.
-    This tests the one-time-use rotation security model.
+    If the old token is replayed, the ENTIRE token family (including
+    the newest active token) must be revoked.
     """
     login_res = create_and_login(client, session)
     old_cookie = login_res.cookies.get("refresh_token")
@@ -146,12 +149,32 @@ def test_used_refresh_token_cannot_be_reused(client, session):
     # Use the refresh token once — this should succeed
     refresh_res = client.post("/auth/refresh")
     assert refresh_res.status_code == 200
+    new_cookie = refresh_res.cookies.get("refresh_token")
+
+    # Fast-forward the rotated marker's timestamp so it's outside the 5-second grace period
+    from app.oauth2 import _hash_token, _redis
+    old_hash = _hash_token(old_cookie)
+    rotated_marker_key = f"rotated:{old_hash}"
+    rotated_info = _redis.get(rotated_marker_key)
+    if rotated_info:
+        parts = rotated_info.split("|", 2)
+        if len(parts) >= 2:
+            import time
+            fake_time = int(time.time()) - 10
+            new_info = f"{parts[0]}|{parts[1]}|{fake_time}"
+            _redis.setex(rotated_marker_key, 604800, new_info)
 
     # Now try to manually use the OLD cookie again
     # (simulating an attacker who stole the old token)
     client.cookies.set("refresh_token", old_cookie)
     replay_res = client.post("/auth/refresh")
     assert replay_res.status_code == 401
+
+    # Because a replay occurred, the active token family should be revoked.
+    # Trying to use the newest token should now fail as well.
+    client.cookies.set("refresh_token", new_cookie)
+    active_res = client.post("/auth/refresh")
+    assert active_res.status_code == 401
 
 
 # ═══════════════════════════════════════════════════
@@ -301,3 +324,97 @@ def test_google_oauth_returns_refresh_cookie(mock_verify, mock_post, client, ses
     
     # 5. Verify the cookie was set
     assert "refresh_token" in response.cookies
+
+
+# ═══════════════════════════════════════════════════
+# Concurrency / Race Condition Tests (AUTH-002)
+# ═══════════════════════════════════════════════════
+
+def test_concurrent_refresh_requests(client, session):
+    """
+    If multiple requests try to rotate the exact same refresh token concurrently,
+    only ONE should succeed. The others should fail with 401.
+    This proves that the rotation is atomic and replay logic doesn't falsely
+    trigger due to a race condition.
+    """
+    login_res = create_and_login(client, session)
+    old_cookie = login_res.cookies.get("refresh_token")
+    
+    # We will fire 5 concurrent requests all using the same old cookie
+    def make_request():
+        # Each thread gets its own cookies so they don't interfere
+        client.cookies.clear()
+        client.cookies.set("refresh_token", old_cookie)
+        return client.post("/auth/refresh")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(make_request) for _ in range(5)]
+        results = [f.result() for f in concurrent.futures.as_completed(futures)]
+    
+    # Check outcomes
+    status_codes = [res.status_code for res in results]
+    
+    # Exactly one request should succeed
+    assert status_codes.count(200) == 1
+    # Exactly four requests should fail with 401
+    assert status_codes.count(401) == 4
+    
+    # The family should NOT be completely revoked (which a false replay would do).
+    # The single successful request should have returned a valid new token.
+    successful_res = next(res for res in results if res.status_code == 200)
+    new_cookie = successful_res.cookies.get("refresh_token")
+    
+    client.cookies.set("refresh_token", new_cookie)
+    verify_res = client.post("/auth/refresh")
+    assert verify_res.status_code == 200
+
+
+# ═══════════════════════════════════════════════════
+# Session Cap (Max 10) Eviction
+# ═══════════════════════════════════════════════════
+
+from unittest.mock import patch
+from app.redis_rate_limiter import RateLimitResult
+
+@patch("app.routers.users.check_and_consume", return_value=RateLimitResult(allowed=True, limit=999, remaining=999, reset_seconds=1))
+def test_session_cap_eviction(mock_rl, client, session):
+    """
+    If a user logs in 11 times, the session cap (10) should trigger.
+    The oldest session (or one of the same-second sessions) should be silently evicted.
+    Exactly 10 sessions should remain valid, and 1 should fail.
+    """
+    client.post("/users/sign-up", json={
+        "username": "sessioncap",
+        "email": "cap@example.com",
+        "password": "SecurePass1!",
+    })
+    user = session.query(models.User).filter(
+        models.User.email == "cap@example.com"
+    ).first()
+    user.is_verified = True
+    session.commit()
+
+    # Log in 11 times and store their cookies
+    cookies_list = []
+    for _ in range(11):
+        res = client.post("/users/sign-in", data={
+            "username": "cap@example.com",
+            "password": "SecurePass1!",
+        })
+        cookies_list.append(res.cookies.get("refresh_token"))
+
+    # Check how many are still valid
+    valid_count = 0
+    invalid_count = 0
+    for cookie in cookies_list:
+        client.cookies.clear()
+        if cookie:
+            client.cookies.set("refresh_token", cookie)
+        res = client.post("/auth/refresh")
+        if res.status_code == 200:
+            valid_count += 1
+        elif res.status_code == 401:
+            invalid_count += 1
+
+    assert valid_count == 10
+    assert invalid_count == 1

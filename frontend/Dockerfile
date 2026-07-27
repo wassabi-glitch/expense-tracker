@@ -1,5 +1,5 @@
 # Step 1: Build the React application
-FROM --platform=linux/amd64 node:20-slim AS build
+FROM --platform=linux/amd64 node:20 AS build
 
 # Install essential build libs for Tailwind/Vite (Rust-based tools)
 RUN apt-get update && apt-get install -y python3 make g++

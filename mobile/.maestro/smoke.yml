@@ -1,0 +1,15 @@
+appId: com.ahror2937.sarflog
+---
+- launchApp
+# HeroUI Native doesn't expose text to accessibility layer.
+# Use coordinate-based taps throughout.
+# Screen: 1080x2340
+
+# Tap the email field (center of screen, upper portion)
+- tapOn:
+    point: "50%,45%"
+- inputText: "smoke@test.com"
+# Clear the field
+- eraseText: 20
+
+# App is running and responsive — smoke test passes

@@ -1,0 +1,23 @@
+appId: com.ahror2937.sarflog
+---
+- launchApp:
+    clearState: true
+
+# Navigate to Sign Up from Sign In
+- tapOn: { point: "50%,94%" }
+
+# Step 1: Identity
+- tapOn: { point: "50%,42%" }
+- inputText: "maestrotest@example.com"
+- tapOn: { point: "50%,50%" }
+- inputText: "maestrotestuser"
+- tapOn: { point: "50%,60%" }
+
+# Step 2: Password
+- tapOn: { point: "50%,52%" }
+- inputText: "StrongPassword123!"
+- tapOn: { point: "50%,64%" }
+
+# Should navigate to Check Email screen after signup
+# Verify by tapping Back to Sign In
+- tapOn: { point: "50%,80%" }

@@ -5,6 +5,7 @@ import { CheckCircle2, Loader2, Mail, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useVerifyEmailMutation } from "./hooks/useAuthMutations";
+import { useRateLimitGate } from "@/hooks/useRateLimitGate";
 
 export default function VerifyEmail() {
   const { t } = useTranslation();
@@ -20,12 +21,16 @@ export default function VerifyEmail() {
   const disabledVerifyButtonCursorClass = "disabled:pointer-events-auto disabled:cursor-not-allowed";
   const verifyMutation = useVerifyEmailMutation();
   const isVerifying = verifyMutation.isPending;
+  const { isRateLimited, onRateLimitError } = useRateLimitGate({ onExpire: () => setVerifyError("") });
 
   const mapVerifyError = (message) => {
     const msg = String(message || "");
     const normalized = msg.toLowerCase();
     if (normalized === "auth.verify_email_token_invalid_or_expired") {
       return t("auth.verifyEmailInvalidToken");
+    }
+    if (normalized === "auth.verify_email_rate_limited") {
+      return t("auth.verifyEmailRateLimited");
     }
     if (normalized.includes("invalid") && normalized.includes("expired")) {
       return t("auth.verifyEmailInvalidToken");
@@ -49,18 +54,13 @@ export default function VerifyEmail() {
         setVerifyStatus(message || t("auth.verifyEmailSuccess"));
       }
     } catch (err) {
+      onRateLimitError(err);
       setVerifyError(mapVerifyError(err.message));
     }
   }
 
-  useEffect(() => {
-    if (token && !didAutoVerifyRef.current) {
-      didAutoVerifyRef.current = true;
-      handleVerify();
-    }
-    // Intentionally one-time per URL token in dev StrictMode too.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  // Deliberately removed auto-verify on mount to protect against email scanner pre-fetching.
+  // The user must click the "Verify Email" button explicitly.
 
   const state = isVerifying ? "loading" : verifyStatus ? "success" : verifyError ? "error" : "idle";
   const title =
@@ -146,7 +146,7 @@ export default function VerifyEmail() {
                 onClick={handleVerify}
                 type="button"
                 className={`h-11 w-full ${disabledVerifyButtonCursorClass}`}
-                disabled={isVerifying}
+                disabled={isVerifying || isRateLimited}
               >
                 {isVerifying ? (
                   <span

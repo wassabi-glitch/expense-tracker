@@ -1,0 +1,16 @@
+appId: com.ahror2937.sarflog
+---
+- runFlow:
+    file: "helpers/login.yaml"
+    env:
+      EMAIL: "testuser@example.com"
+      PASSWORD: "Password123!"
+
+- tapOn: "System" # This represents the Settings tab which has the explore.png icon currently named "System" in app-tabs (we named it 'settings' but text is 'Settings') Wait, we added <NativeTabs.Trigger.Label>Settings</NativeTabs.Trigger.Label>. Let's tap on Settings.
+- tapOn: "Settings"
+
+- assertVisible: "Logout of All Devices"
+- tapOn: "Logout of All Devices"
+
+# Assuming we route to sign-in screen
+- assertVisible: "Sign in to your account"

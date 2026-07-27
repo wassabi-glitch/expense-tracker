@@ -1,4 +1,6 @@
+# pyrefly: ignore [missing-import]
 from pydantic_settings import BaseSettings, SettingsConfigDict
+# pyrefly: ignore [missing-import]
 from pydantic import computed_field, SecretStr
 from urllib.parse import quote_plus
 from typing import Optional
@@ -26,13 +28,10 @@ class Settings(BaseSettings):
     google_client_id: str
     google_client_secret: SecretStr
     google_redirect_uri: str
+    google_ios_client_id: Optional[str] = None
+    google_android_client_id: Optional[str] = None
     frontend_url: str
-    smtp_host: str = "smtp.resend.com"
-    smtp_port: int = 465
-    smtp_username: str = "resend"
-    smtp_password: Optional[SecretStr] = None
-    smtp_use_tls: bool = False
-    email_from: str = "Sarflog <no-reply@staging-mail.sarflog.uz>"
+    email_from: str = "Sarflog Development <onboarding@resend.dev>"
     resend_api_key: Optional[SecretStr] = None
 
     # Telegram (manual payment verification)
@@ -42,6 +41,10 @@ class Settings(BaseSettings):
 
     # Debug / dev-only toggles
     debug_allow_premium_toggle: bool = False
+
+    # CAPTCHA
+    require_captcha: bool = False
+    cloudflare_turnstile_secret_key: SecretStr = SecretStr("1x0000000000000000000000000000000AA")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
