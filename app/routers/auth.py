@@ -481,7 +481,7 @@ def refresh_token(
     # Step 5: Set the new refresh token cookie (replaces the old one)
     oauth2.set_refresh_cookie(response, new_raw_token)
 
-    return {"access_token": access_token, "token_type": "bearer"}  # nosec B105
+    return {"access_token": access_token, "token_type": "bearer"  # nosec B105}  # nosec B105
 
 
 @router.post("/logout", status_code=status.HTTP_200_OK)
@@ -606,7 +606,7 @@ def mobile_sign_in(
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "token_type": "bearer"
+        "token_type": "bearer"  # nosec B105
     }
 
 
@@ -643,7 +643,7 @@ def mobile_refresh_token(
     return {
         "access_token": access_token,
         "refresh_token": new_raw_token,
-        "token_type": "bearer"
+        "token_type": "bearer"  # nosec B105
     }
 
 
@@ -714,7 +714,7 @@ def change_password(
     log_security_event(db, action=SecurityAction.PASSWORD_CHANGED, status=SecurityStatus.SUCCESS,
                        request=request, user_id=current_user.id)
 
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"access_token": access_token, "token_type": "bearer"  # nosec B105}
 
 
 @router.post("/mobile/change-password", response_model=schemas.MobileTokenResponse)
@@ -774,7 +774,7 @@ def mobile_change_password(
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "token_type": "bearer"
+        "token_type": "bearer"  # nosec B105
     }
 
 

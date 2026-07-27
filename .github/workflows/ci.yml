@@ -265,11 +265,11 @@ jobs:
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: '0'
 
       - name: Start Vite Dev Server
         run: npx vite --port 5173 &
-        env:
-          PLAYWRIGHT_BASE_URL: http://localhost:5173
 
       - name: Wait For Dev Server
         run: npx wait-on http://localhost:5173
@@ -277,6 +277,7 @@ jobs:
       - name: Run Playwright Tests
         run: npx playwright test
         env:
+          PLAYWRIGHT_BROWSERS_PATH: '0'
           PLAYWRIGHT_BASE_URL: http://localhost:5173
 
   security-audit:

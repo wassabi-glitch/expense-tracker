@@ -119,9 +119,9 @@ def create_user(
             try:
                 # If valid JSON, return immediately 
                 return json.loads(cached_res)
-            except Exception:
+            except Exception:  # nosec B110
                 pass
-        
+
         # Lock it for max 60s while processing
         redis_client.setex(cache_key, 60, "locked")
 

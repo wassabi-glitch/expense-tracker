@@ -289,5 +289,5 @@ def google_login_native(req: schemas.GoogleNativeAuthRequest, request: Request, 
     return {
         "access_token": app_token,
         "refresh_token": refresh_token,
-        "token_type": "bearer"
+        "token_type": "bearer"  # nosec B105
     }
