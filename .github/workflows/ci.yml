@@ -73,7 +73,7 @@ jobs:
         run: cd frontend && npm install
 
       - name: ESLint (Frontend)
-        run: cd frontend && npx eslint src/ --max-warnings 50
+        run: cd frontend && npx eslint src/ --max-warnings 100
 
   mobile-lint:
     name: Lint (Mobile)

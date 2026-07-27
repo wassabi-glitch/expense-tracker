@@ -32,6 +32,11 @@ export default defineConfig([
   {
     files: ['**/__tests__/**', '**/*.test.*'],
     languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      parserOptions: {
+        ecmaFeatures: { jsx: true },
+      },
       globals: {
         ...globals.browser,
         ...globals.vitest,
