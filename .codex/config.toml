@@ -1,0 +1,5 @@
+[mcp_servers.heroui-native]
+# Use the Windows npm shim directly; Codex starts it as a stdio server.
+command = "npx.cmd"
+args = ["-y", "@heroui/native-mcp@1.1.0"]
+startup_timeout_sec = 120

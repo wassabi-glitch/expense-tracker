@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Payment Plan Schedule Models — Quick Reference</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="eyebrow">Sarflog quick reference</p>
+  <h1>Choose the schedule, not the product label</h1>
+  <table>
+    <thead><tr><th>Question</th><th>Choose</th><th>Examples</th></tr></thead>
+    <tbody>
+      <tr><td>Is one final payable total known, with no interest math to reproduce?</td><td><strong>Fixed total</strong></td><td>BNPL, nasiya, store installments, fixed-price service</td></tr>
+      <tr><td>Is this a supported fixed-rate, fixed-payment loan on declining principal?</td><td><strong>Standard amortization</strong></td><td>Many mortgages, auto loans, personal loans</td></tr>
+      <tr><td>Does the provider already define exact or irregular rows?</td><td><strong>Exact contract rows</strong></td><td>Balloon, milestones, negotiated plan, custom bank schedule</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Keep these axes separate</h2>
+  <div class="formula">product kind ≠ schedule strategy<br>mortgage ≠ automatically standard amortization<br>bank loan ≠ automatically interest-bearing</div>
+
+  <h2>Shared output</h2>
+  <p>Every strategy materializes stable schedule rows. The common payment engine then handles allocation, added charges, write-offs, adjustments, archive state, activity, and append-only reversal.</p>
+
+  <h2>Boundary</h2>
+  <p>Do not claim live calculation parity for revolving balances, variable rates, daily-interest recasting, negative amortization, or income-driven schedules. Record exact provider rows or add a specialized strategy later.</p>
+
+  <p class="small"><a href="../lessons/0001-payment-plan-schedule-models.html">Return to the lesson</a> · <a href="../docs/adr/0028-payment-plan-schedule-models-and-contract-review.md">ADR 0028</a></p>
+</main>
+</body>
+</html>

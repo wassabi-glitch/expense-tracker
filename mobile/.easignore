@@ -1,0 +1,31 @@
+# Dependencies are restored from package-lock.json by EAS.
+node_modules/
+
+# Expo and generated build output.
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+/ios/
+/android/
+.kotlin/
+
+# Local development and editor/agent files.
+.vscode/
+.claude/
+AGENTS.md
+CLAUDE.md
+README.md
+*.log
+.DS_Store
+*.tsbuildinfo
+
+# Credentials and local environment files must never be uploaded.
+.env
+.env.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem

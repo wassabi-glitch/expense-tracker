@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Idempotency: one payment, once</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+  <style>
+    .timeline{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.step{padding:16px;border:1px solid var(--line);border-radius:14px;background:#fff}.quiz button{margin:6px 8px 6px 0;padding:10px 14px;border:1px solid var(--green);border-radius:10px;background:#fff;color:var(--ink);cursor:pointer}.quiz button:hover{background:var(--green-soft)}#feedback{min-height:3rem;margin-top:12px;padding:12px;border-radius:10px;background:var(--blue-soft)}@media(max-width:760px){.timeline,.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body><main>
+  <p class="eyebrow">Lesson 5 · Payment Plan reliability</p>
+  <h1>One payment, once—even when the request arrives twice</h1>
+  <p class="lede">Your tangible win: decide whether a retry should create work, replay a result, or be rejected.</p>
+
+  <div class="verdict"><strong>Idempotency is a business-effect guarantee.</strong> Sending the same logical command two or ten times leaves Sarflog as though it succeeded once.</div>
+
+  <h2>The failure that matters</h2>
+  <div class="timeline">
+    <div class="step"><strong>1.</strong><br>App sends “record 200,000 UZS.”</div>
+    <div class="step"><strong>2.</strong><br>Server commits payment and ledger entries.</div>
+    <div class="step"><strong>3.</strong><br>Response is lost on a weak connection.</div>
+    <div class="step"><strong>4.</strong><br>App retries because it cannot know step 2 succeeded.</div>
+  </div>
+  <p>Without idempotency, the retry may subtract another 200,000 UZS from the wallet and add another payment entry. The request payload can be perfectly valid both times; validation cannot detect that both requests mean the same user action.</p>
+
+  <h2>The key gives the command an identity</h2>
+  <div class="formula">POST /payment-plans/42/payments<br>Idempotency-Key: pay_7f3...<br>{ amount: 200000, paid_date: "2026-07-17", ... }</div>
+  <div class="grid">
+    <section class="card flat"><h3>Key unseen</h3><p>Execute once and atomically store the result under the key.</p></section>
+    <section class="card amortized"><h3>Key seen, payload same</h3><p>Replay the original result. Create no new financial effects.</p></section>
+    <section class="card manual"><h3>Key seen, payload changed</h3><p>Reject it. Reusing one identity for two commands is a client error.</p></section>
+  </div>
+
+  <h2>Transaction ≠ idempotency</h2>
+  <p>A database transaction answers: <em>did this single attempt commit all its rows or none?</em> Idempotency answers: <em>are these two attempts actually one logical command?</em> Sarflog needs both. The idempotency record, payment, financial events, wallet effects, and ledger entries must commit as one unit.</p>
+  <p>A “check then insert” in application code is insufficient: two concurrent requests can both observe no key. A database uniqueness constraint on a scope such as <code>(owner_id, operation, idempotency_key)</code> makes one contender win.</p>
+
+  <h2>Retrieval practice</h2>
+  <section class="card quiz">
+    <p><strong>Scenario:</strong> the first request used key <code>K1</code> for 200,000 UZS and succeeded. What should Sarflog do next?</p>
+    <button onclick="answer('replay')">K1 + 200,000</button>
+    <button onclick="answer('reject')">K1 + 250,000</button>
+    <button onclick="answer('create')">K2 + 200,000</button>
+    <div id="feedback" aria-live="polite">Choose one request, predict the behavior, then click it.</div>
+  </section>
+
+  <h2>Apply it to Sarflog</h2>
+  <p><code>POST /payment-plans/{plan_id}/payments</code> is a natural protection boundary because it creates money history. A production design should specify key scope, payload fingerprinting, retention, concurrent in-flight behavior, response replay, and a database uniqueness constraint before implementation.</p>
+
+  <p><strong>Primary reading:</strong> <a href="https://www.rfc-editor.org/rfc/rfc9110.html#section-9.2.2">RFC 9110 §9.2.2, Idempotent Methods</a>. For the emerging header protocol, see the <a href="https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-idempotency-key-header-07">IETF Idempotency-Key draft</a>.</p>
+  <p><a href="../reference/idempotency-for-money-writes.html">Keep the quick reference</a> · Ask your agent any follow-up question or explain your answer aloud for feedback.</p>
+</main>
+<script>
+function answer(kind){
+  const messages={
+    replay:'Replay: same key and same command means return the stored result with no new money movement.',
+    reject:'Reject: the key already identifies the 200,000 UZS command; a different payload cannot borrow that identity.',
+    create:'Create: a new key declares a new intentional command, even when the amount happens to match.'
+  };
+  document.getElementById('feedback').textContent=messages[kind];
+}
+</script>
+</body></html>

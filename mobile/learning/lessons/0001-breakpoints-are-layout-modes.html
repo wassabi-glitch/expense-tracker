@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Fluid first, breakpoints second</title>
+  <link rel="stylesheet" href="../../../assets/lesson.css">
+</head>
+<body><main>
+  <p class="eyebrow">Mobile lesson 1 · Adaptive layout</p>
+  <h1>Mobile responsiveness starts without breakpoints</h1>
+  <p class="lede">Your tangible win: build the ordinary phone screen fluidly, then recognize the few cases where window size should change its structure.</p>
+
+  <div class="verdict"><strong>Most React Native screens need no width query.</strong> Professionals first rely on Flexbox, intrinsic content size, wrapping, scrolling, safe areas, and the keyboard. They classify the window only when an alternate structure actually exists.</div>
+
+  <h2>The four-step mental model</h2>
+  <div class="architecture">
+    <section class="flow-node"><strong>1. Window</strong><br>How much space does the app have now?</section>
+    <div class="arrow">→</div>
+    <section class="flow-node"><strong>2. Classifier</strong><br>Compact, medium, or expanded?</section>
+    <div class="arrow">→</div>
+    <section class="flow-node"><strong>3. Screen</strong><br>Which structure is useful here?</section>
+  </div>
+  <p>The operating system can resize the app because of rotation, an unfolded foldable, split-screen, or a desktop-style window. React Native's <code>useWindowDimensions()</code> observes that current app window and updates when it changes.</p>
+
+  <h2>Concrete Sarflog example</h2>
+  <div class="grid">
+    <section class="card flat">
+      <h3>390 × 844</h3>
+      <p><strong>Compact width.</strong> Show the expense list as one pane. Tapping an expense navigates to its details.</p>
+    </section>
+    <section class="card amortized">
+      <h3>700 × 1000</h3>
+      <p><strong>Medium width.</strong> Keep one pane unless a specific screen proves a supporting pane is useful.</p>
+    </section>
+    <section class="card manual">
+      <h3>1024 × 1366</h3>
+      <p><strong>Expanded width.</strong> The expense list and selected expense details may appear side by side.</p>
+    </section>
+  </div>
+  <p>Notice what did not happen: the code never asked whether the hardware was an iPhone, Samsung phone, iPad, or foldable. It only asked how much usable space the app had.</p>
+
+  <h2>Where the rules belong</h2>
+  <table>
+    <thead><tr><th>Concern</th><th>Professional home</th><th>Example</th></tr></thead>
+    <tbody>
+      <tr><td>Shared thresholds</td><td>One layout module</td><td><code>window-size.ts</code></td></tr>
+      <tr><td>Reading live window space</td><td>One shared hook</td><td><code>useAdaptiveLayout()</code></td></tr>
+      <tr><td>Tailwind-style variants</td><td>One global styling configuration</td><td><code>global.css</code></td></tr>
+      <tr><td>Screen structure</td><td>The screen, using semantic classes</td><td><code>widthClass === 'expanded'</code></td></tr>
+      <tr><td>Content-specific exception</td><td>Named constant in that component's module</td><td><code>CHART_SPLIT_MIN_WIDTH</code></td></tr>
+    </tbody>
+  </table>
+
+  <section class="boundary">
+    <h3>The bad pattern</h3>
+    <div class="formula">// Several unrelated screens<br>if (width &gt; 700) ...<br>if (width &gt; 735) ...<br>if (width &gt; 720) ...</div>
+    <p>These unexplained values become “magic numbers.” Nobody knows which behavior owns them, and screens drift apart.</p>
+  </section>
+
+  <h2>Breakpoints do less work than you think</h2>
+  <p>Most responsiveness should come naturally from <code>flex</code>, wrapping, scrolling, safe areas, spacing tokens, and maximum content widths. Use a breakpoint only when the high-level structure changes—such as one pane becoming two.</p>
+  <div class="formula">// Mobile-first: base behavior works everywhere<br>&lt;View className="flex-col gap-4 expanded:flex-row"&gt;<br>  ...<br>&lt;/View&gt;</div>
+  <p>The unprefixed classes are the compact mobile layout. The <code>expanded:</code> variant activates only after the shared expanded boundary.</p>
+
+  <h2>What Sarflog has today</h2>
+  <p class="check">✓ Central TypeScript classifier in <code>src/layout/window-size.ts</code></p>
+  <p class="check">✓ Reactive hook based on <code>useWindowDimensions()</code></p>
+  <p class="check">✓ Matching Uniwind thresholds in <code>global.css</code></p>
+  <p class="check">✓ Automated boundary verification</p>
+  <p class="check">✓ The old web-derived 426/768/1024/1280/1440 ladder has been removed. Sarflog keeps only two justified width transitions: 600 for tablet spacing and 840 for two-pane eligibility.</p>
+
+  <h2>The implemented mobile-native starting point</h2>
+  <table>
+    <thead><tr><th>Class</th><th>Width</th><th>Default structural intent</th></tr></thead>
+    <tbody>
+      <tr><td>Compact</td><td>&lt; 600</td><td>One pane</td></tr>
+      <tr><td>Medium</td><td>600–839</td><td>One pane by default; supporting content is optional</td></tr>
+      <tr><td>Expanded</td><td>≥ 840</td><td>Two panes become eligible</td></tr>
+    </tbody>
+  </table>
+  <p>Android documents larger categories too, but Sarflog does not currently have behavior that needs them. An expanded layout remains capped instead of acquiring empty breakpoint tiers.</p>
+
+  <h2>Retrieval practice</h2>
+  <section class="card">
+    <p>Without looking back, classify these windows using compact &lt;600, medium 600–839, expanded ≥840:</p>
+    <ol>
+      <li><code>430 × 932</code></li>
+      <li><code>700 × 1000</code></li>
+      <li><code>1000 × 700</code></li>
+    </ol>
+    <details>
+      <summary>Reveal after answering</summary>
+      <p>430 is compact; 700 is medium; 1000 is expanded. Width and height are considered separately, so the third window is expanded width with regular height.</p>
+    </details>
+  </section>
+
+  <p><strong>Primary reading:</strong> <a href="https://reactnative.dev/docs/flexbox">React Native Flexbox</a>. Read <a href="https://reactnative.dev/docs/dimensions">React Native Dimensions</a> only when the screen has a real alternate structure, and use <a href="https://developer.android.com/develop/ui/views/layout/use-window-size-classes">Android window size classes</a> as guidance rather than a requirement to implement every tier.</p>
+  <p><a href="../reference/breakpoint-cheat-sheet.html">Keep the breakpoint cheat sheet</a> · Ask your agent any follow-up question or send your three classifications for immediate feedback.</p>
+</main></body>
+</html>

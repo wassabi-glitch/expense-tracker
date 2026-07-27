@@ -1,0 +1,13 @@
+appId: com.ahror2937.sarflog
+---
+- launchApp
+- tapOn: "Create your account" # Or whatever gets us to sign up
+- tapOn: "Email"
+- inputText: "spammer123@mailinator.com"
+- tapOn: "Username"
+- inputText: "spammer_user"
+- tapOn: "Continue"
+- tapOn: "Password"
+- inputText: "StrongPass123!"
+- tapOn: "Create account"
+- assertVisible: "Registration with disposable email addresses is not allowed. Please use a real email."

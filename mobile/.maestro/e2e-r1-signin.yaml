@@ -1,0 +1,9 @@
+appId: com.ahror2937.sarflog
+---
+# R1: Sign in with verified user → reach dashboard
+- launchApp
+- tapOn: { point: "50%,45%" }
+- inputText: "e2e_r1@test.com"
+- tapOn: { point: "50%,54%" }
+- inputText: "E2eStrongPass1!"
+- tapOn: { point: "50%,68%" }

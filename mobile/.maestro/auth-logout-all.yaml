@@ -1,0 +1,17 @@
+appId: com.ahror2937.sarflog
+---
+- launchApp
+- assertVisible: "Sign in to Sarflog"
+- tapOn: "Enter your email"
+- inputText: "test@example.com"
+- tapOn: "Enter your password"
+- inputText: "Password123!"
+- tapOn: "Sign in"
+- assertNotVisible: "Sign in to Sarflog"
+- tapOn: "Settings"
+- assertVisible: "Settings"
+- scrollUntilVisible:
+    element: "Logout of All Devices"
+    direction: DOWN
+- tapOn: "Logout of All Devices"
+- assertVisible: "Sign in to Sarflog"

@@ -1,0 +1,41 @@
+appId: com.ahror2937.sarflog
+---
+- launchApp:
+    clearState: true
+
+# 1. Start HTTP Server Mock to intercept the login request
+- startRecording: auth-signin-idempotency.mp4
+- evalScript: ${output.mockServerUrl = "http://localhost:8080"}
+
+# Mock the sign-in endpoint to return 409
+- runScript: 
+    script: |
+      fetch(output.mockServerUrl + '/__admin/mappings/new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request: {
+            method: 'POST',
+            urlPath: '/auth/mobile/sign-in'
+          },
+          response: {
+            status: 409,
+            jsonBody: { detail: "auth.idempotency_conflict_in_progress" }
+          }
+        })
+      });
+
+- tapOn: "Sign in"
+- tapOn: "Enter your email"
+- inputText: "spam@example.com"
+- tapOn: "Enter your password"
+- inputText: "Password123!"
+
+# Verify Idempotency-Key handling
+- tapOn: "Sign in"
+
+# Validate native Alert matches English translated error
+- assertVisible: "Sign in to your account"
+- assertVisible: "Sign-in is already in progress. Please wait a moment."
+
+- stopRecording

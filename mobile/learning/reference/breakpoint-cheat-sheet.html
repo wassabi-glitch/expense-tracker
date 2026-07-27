@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sarflog fluid mobile layout cheat sheet</title>
+  <link rel="stylesheet" href="../../../assets/lesson.css">
+</head>
+<body><main>
+  <p class="eyebrow">Quick reference · React Native adaptive layout</p>
+  <h1>Fluid first; breakpoints only for structure</h1>
+  <p class="lede">Let Flexbox, content, wrapping, and scrolling handle ordinary phone variation. Read window size only when a real alternate layout exists.</p>
+
+  <div class="verdict"><strong>Most mobile screens need no breakpoint condition.</strong> A breakpoint is optional: use it only where available space makes a different structure useful.</div>
+
+  <h2>Recommended mobile-first vocabulary</h2>
+  <table>
+    <thead><tr><th>Width class</th><th>Available width</th><th>Typical Sarflog structure</th></tr></thead>
+    <tbody>
+      <tr><td>Compact</td><td>&lt; 600</td><td>One pane; phone-first navigation and vertical scrolling</td></tr>
+      <tr><td>Medium</td><td>600–839</td><td>One pane by default; carefully chosen supporting content may sit beside the main content</td></tr>
+      <tr><td>Expanded</td><td>≥ 840</td><td>Two-pane list/detail or dashboard structures become eligible</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Height is a separate guard</h2>
+  <table>
+    <thead><tr><th>Height class</th><th>Available height</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td>Compact</td><td>&lt; 480</td><td>Vertically cramped; avoid multi-pane structures</td></tr>
+      <tr><td>Regular</td><td>≥ 480</td><td>Normal scrollable application height; no extra tier is needed yet</td></tr>
+    </tbody>
+  </table>
+
+  <h2>The professional ownership rule</h2>
+  <div class="architecture">
+    <section class="flow-node"><strong>Fluid base</strong><br>Flex, wrap, scroll, safe area</section>
+    <div class="arrow">→</div>
+    <section class="flow-node"><strong>Optional classifier</strong><br><code>useAdaptiveLayout()</code></section>
+    <div class="arrow">→</div>
+    <section class="flow-node"><strong>Screen decisions</strong><br>one pane, two panes, spacing, caps</section>
+  </div>
+
+  <h2>Code review checklist</h2>
+  <ul>
+    <li>Start without a breakpoint: use Flexbox, wrapping, scrolling, and content caps.</li>
+    <li>When structure truly changes, use <code>useWindowDimensions()</code>, not cached startup dimensions.</li>
+    <li>Use available window space, not model names such as <code>isTablet</code>.</li>
+    <li>Keep global thresholds centralized and mirrored into Uniwind.</li>
+    <li>Use mobile-first base classes; add variants only when structure changes.</li>
+    <li>Prefer flex, wrapping, scrolling, and maximum widths before adding breakpoints.</li>
+    <li>If a component truly needs a local threshold, name it, document the content reason, and test it.</li>
+    <li>Test both sides of each boundary: 599/600 and 839/840.</li>
+  </ul>
+
+  <p><strong>Primary sources:</strong> <a href="https://reactnative.dev/docs/flexbox">React Native Flexbox</a>, <a href="https://reactnative.dev/docs/dimensions">React Native Dimensions</a>, and <a href="https://developer.android.com/develop/ui/views/layout/use-window-size-classes">Android window size classes</a>.</p>
+  <p><a href="../lessons/0001-breakpoints-are-layout-modes.html">Read the short lesson</a> · Ask your agent about any rule that still feels abstract.</p>
+</main></body>
+</html>

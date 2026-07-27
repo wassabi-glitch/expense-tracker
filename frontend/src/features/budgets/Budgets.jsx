@@ -959,10 +959,12 @@ export default function Budgets() {
         .filter((subcategory) => subcategory.budget_year === summaryTarget.year && subcategory.budget_month === summaryTarget.month)
         .map((subcategory) => String(subcategory.user_subcategory_id || "")),
     );
-    return (overlayProjectSubcategoriesQuery.data || []).filter((subcategory) => !assigned.has(String(subcategory.id)));
+    const data = Array.isArray(overlayProjectSubcategoriesQuery.data) ? overlayProjectSubcategoriesQuery.data : [];
+    return data.filter((subcategory) => !assigned.has(String(subcategory.id)));
   }, [overlayProjectSubcategoriesQuery.data, structureProjectCategories, summaryTarget.month, summaryTarget.year]);
   const getOverlaySubcategoryHeadroom = React.useCallback((userSubcategoryId, excludeAmount = 0) => {
-    const subcategory = (overlayProjectSubcategoriesQuery.data || []).find(
+    const data = Array.isArray(overlayProjectSubcategoriesQuery.data) ? overlayProjectSubcategoriesQuery.data : [];
+    const subcategory = data.find(
       (item) => String(item.id) === String(userSubcategoryId),
     );
     if (!subcategory) {
@@ -1172,8 +1174,8 @@ export default function Budgets() {
 
   const taxonomyQuery = useTaxonomyQuery();
   const projectIsolatedMicroSubcategories = React.useMemo(() => {
-    if (!taxonomyQuery.data) return [];
-    return taxonomyQuery.data.filter(tag => tag.category === projectMicroCategory && tag.is_active);
+    const data = Array.isArray(taxonomyQuery.data) ? taxonomyQuery.data : [];
+    return data.filter(tag => tag.category === projectMicroCategory && tag.is_active);
   }, [taxonomyQuery.data, projectMicroCategory]);
 
   const projectIsolatedUsedMicroSubcategoryIds = React.useMemo(

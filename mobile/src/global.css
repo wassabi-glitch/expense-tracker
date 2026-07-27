@@ -1,0 +1,85 @@
+@import 'tailwindcss';
+@import 'uniwind';
+@import 'heroui-native/styles';
+
+@source '../node_modules/heroui-native/lib';
+
+@theme {
+  --breakpoint-*: initial;
+  --breakpoint-medium: 600px;
+  --breakpoint-expanded: 840px;
+
+  --font-normal: 'Inter_400Regular';
+  --font-medium: 'Inter_400Regular';
+  --font-semibold: 'Inter_600SemiBold';
+}
+
+@layer theme {
+  :root {
+    @variant light {
+      --background: #fafafa;
+      --foreground: #18181b;
+      --surface: #ffffff;
+      --surface-foreground: #18181b;
+      --surface-secondary: #f4f4f5;
+      --surface-secondary-foreground: #18181b;
+      --surface-tertiary: #e4e4e7;
+      --surface-tertiary-foreground: #18181b;
+      --overlay: #ffffff;
+      --overlay-foreground: #18181b;
+      --muted: #52525b;
+      --default: #f4f4f5;
+      --default-foreground: #18181b;
+      --accent: #22c55e;
+      --accent-foreground: #052e16;
+      --field-background: #ffffff;
+      --field-foreground: #18181b;
+      --field-placeholder: #71717a;
+      --success: #047857;
+      --success-foreground: #ffffff;
+      --warning: #b45309;
+      --warning-foreground: #ffffff;
+      --danger: #dc2626;
+      --danger-foreground: #ffffff;
+      --segment: #ffffff;
+      --segment-foreground: #18181b;
+      --border: #e4e4e7;
+      --separator: #d4d4d8;
+      --focus: #15803d;
+      --link: #15803d;
+    }
+
+    @variant dark {
+      --background: #09090b;
+      --foreground: #fafafa;
+      --surface: #18181b;
+      --surface-foreground: #fafafa;
+      --surface-secondary: #27272a;
+      --surface-secondary-foreground: #fafafa;
+      --surface-tertiary: #3f3f46;
+      --surface-tertiary-foreground: #fafafa;
+      --overlay: #18181b;
+      --overlay-foreground: #fafafa;
+      --muted: #a1a1aa;
+      --default: #27272a;
+      --default-foreground: #fafafa;
+      --accent: #22c55e;
+      --accent-foreground: #052e16;
+      --field-background: #18181b;
+      --field-foreground: #fafafa;
+      --field-placeholder: #a1a1aa;
+      --success: #34d399;
+      --success-foreground: #022c22;
+      --warning: #fbbf24;
+      --warning-foreground: #451a03;
+      --danger: #f87171;
+      --danger-foreground: #450a0a;
+      --segment: #27272a;
+      --segment-foreground: #fafafa;
+      --border: #27272a;
+      --separator: #3f3f46;
+      --focus: #86efac;
+      --link: #4ade80;
+    }
+  }
+}

@@ -15,7 +15,8 @@ import {
 } from "@/components/ui/dialog";
 import { localizeApiError } from "@/lib/errorMessages";
 import { useSettingsDataQuery } from "./hooks/useSettingsDataQuery";
-import { useLogoutMutation } from "./hooks/useSettingsMutations";
+import { useLogoutMutation, useLogoutAllMutation } from "./hooks/useSettingsMutations";
+import { ChangePasswordForm } from "./components/ChangePasswordForm";
 
 const CURRENCY_KEY = "settings.currency";
 const DATE_FORMAT_KEY = "settings.date_format";
@@ -34,8 +35,10 @@ export default function Settings() {
   const savedDateFormat = useMemo(() => getStoredPreference(DATE_FORMAT_KEY, "YYYY-MM-DD"), []);
 
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const [logoutAllOpen, setLogoutAllOpen] = useState(false);
   const userQuery = useSettingsDataQuery();
   const logoutMutation = useLogoutMutation();
+  const logoutAllMutation = useLogoutAllMutation();
   const username = userQuery.data?.username || "";
   const email = userQuery.data?.email || "";
   const isPremium = !!userQuery.data?.is_premium;
@@ -51,6 +54,18 @@ export default function Settings() {
     } catch (e) {
       setSessionError(
         localizeApiError(e?.message, t) || e?.message || t("settings.signOutFailed"),
+      );
+    }
+  };
+
+  const handleLogoutAll = async () => {
+    setSessionError("");
+    try {
+      await logoutAllMutation.mutateAsync();
+      navigate("/sign-in", { replace: true });
+    } catch (e) {
+      setSessionError(
+        localizeApiError(e?.message, t) || e?.message || t("settings.signOutAllFailed"),
       );
     }
   };
@@ -84,21 +99,7 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        <Card className="shadow-sm card-mobile">
-          <CardHeader>
-            <CardTitle>{t("settings.password")}</CardTitle>
-            <CardDescription>{t("settings.passwordDesc")}</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
-            <Input placeholder={t("settings.currentPassword")} type="password" disabled />
-            <Input placeholder={t("settings.newPassword")} type="password" disabled />
-            <div className="md:col-span-2">
-              <Button variant="outline" disabled>
-                {t("settings.updatePassword")}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        {userQuery.data?.has_local_password && <ChangePasswordForm />}
 
         <Card className="shadow-sm card-mobile">
           <CardHeader>
@@ -130,9 +131,14 @@ export default function Settings() {
           </CardHeader>
           <CardContent>
             {sessionError && <p className="text-sm text-red-600 mb-3">{sessionError}</p>}
-            <Button variant="destructive" onClick={() => setLogoutOpen(true)}>
-              {t("common.signOut")}
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button variant="destructive" onClick={() => setLogoutOpen(true)}>
+                {t("common.signOut")}
+              </Button>
+              <Button variant="destructive" onClick={() => setLogoutAllOpen(true)}>
+                {t("settings.signOutAll")}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -149,6 +155,23 @@ export default function Settings() {
             </Button>
             <Button variant="destructive" onClick={handleLogout}>
               {t("common.signOut")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={logoutAllOpen} onOpenChange={setLogoutAllOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("settings.signOutAllConfirmTitle")}</DialogTitle>
+            <DialogDescription>{t("settings.signOutAllConfirmDesc")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLogoutAllOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button variant="destructive" onClick={handleLogoutAll}>
+              {t("settings.signOutAll")}
             </Button>
           </DialogFooter>
         </DialogContent>

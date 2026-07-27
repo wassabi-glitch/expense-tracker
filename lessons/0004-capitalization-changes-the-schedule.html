@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Capitalization Changes Principal and the Schedule</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="eyebrow">Sarflog architecture lesson 004</p>
+  <h1>Capitalization moves unpaid interest into principal</h1>
+  <p class="lede">At the moment of capitalization, the current total owed does not increase. The labels inside that total change—and future interest can then increase because principal is larger.</p>
+
+  <div class="verdict"><strong>Recommended v1:</strong> record a provider-reported capitalization event and replacement/recalculated schedule. Do not automatically decide when lenders capitalize.</div>
+
+  <section>
+    <h2>The moment capitalization happens</h2>
+    <table>
+      <thead><tr><th></th><th>Principal</th><th>Separate unpaid interest</th><th>Current total owed</th></tr></thead>
+      <tbody>
+        <tr><td>Before</td><td>1,000.00</td><td>100.00</td><td>1,100.00</td></tr>
+        <tr><td>Capitalization movement</td><td>+100.00</td><td>−100.00</td><td>0.00 change</td></tr>
+        <tr><td>After</td><td>1,100.00</td><td>0.00</td><td>1,100.00</td></tr>
+      </tbody>
+    </table>
+    <div class="formula">principal_delta = +100<br>interest_delta = −100<br>total_delta = 0</div>
+  </section>
+
+  <section>
+    <h2>Why the future schedule changes</h2>
+    <p>Use a deliberately high 10% monthly rate and two remaining payments so the difference is visible.</p>
+    <h3>Before capitalization</h3>
+    <p>The separate 100.00 interest is still owed, while the future two-payment calculation uses 1,000.00 principal.</p>
+    <table>
+      <thead><tr><th>Row</th><th>Beginning principal</th><th>Interest</th><th>Principal paid</th><th>Total payment</th><th>Ending principal</th></tr></thead>
+      <tbody>
+        <tr><td>Existing unpaid interest</td><td>—</td><td>100.00</td><td>—</td><td>100.00</td><td>—</td></tr>
+        <tr><td>Future installment 1</td><td>1,000.00</td><td>100.00</td><td>476.19</td><td>576.19</td><td>523.81</td></tr>
+        <tr><td>Future installment 2</td><td>523.81</td><td>52.38</td><td>523.81</td><td>576.19</td><td>0.00</td></tr>
+      </tbody>
+    </table>
+    <p><strong>Remaining scheduled payments:</strong> 100.00 + 576.19 + 576.19 = 1,252.38.</p>
+
+    <h3>After the provider capitalizes 100.00</h3>
+    <p>The old interest row is consumed by capitalization. Principal becomes 1,100.00 and the two-payment schedule is recalculated from that larger principal.</p>
+    <table>
+      <thead><tr><th>Row</th><th>Beginning principal</th><th>Interest</th><th>Principal paid</th><th>Total payment</th><th>Ending principal</th></tr></thead>
+      <tbody>
+        <tr><td>Capitalized old interest</td><td>—</td><td>−100.00</td><td>+100.00 principal</td><td>0.00 movement</td><td>1,100.00</td></tr>
+        <tr><td>Revised installment 1</td><td>1,100.00</td><td>110.00</td><td>523.81</td><td>633.81</td><td>576.19</td></tr>
+        <tr><td>Revised installment 2</td><td>576.19</td><td>57.62</td><td>576.19</td><td>633.81</td><td>0.00</td></tr>
+      </tbody>
+    </table>
+    <p><strong>Remaining scheduled payments:</strong> 633.81 + 633.81 = 1,267.62. The extra 15.24 is future interest caused by the higher principal.</p>
+  </section>
+
+  <section>
+    <h2>The provider still controls the new schedule</h2>
+    <table>
+      <thead><tr><th>Provider decision</th><th>Visible result</th></tr></thead>
+      <tbody>
+        <tr><td>Keep the same number of payments</td><td>Regular payment usually rises.</td></tr>
+        <tr><td>Keep approximately the same payment</td><td>Term may extend or the final payment may grow.</td></tr>
+        <tr><td>Use lender-specific rules</td><td>Sarflog must copy the replacement schedule exactly.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Architecture action</h2>
+    <div class="formula">INTEREST_CAPITALIZED action<br>principal_delta = +amount<br>interest_delta = −amount<br>amount_delta = 0<br>no wallet movement<br>append revised future schedule</div>
+    <div class="boundary">
+      <h3>The ledger invariant must allow reclassification</h3>
+      <p>A rule requiring every ledger entry's total delta to be nonzero would reject capitalization. The correct rule is that at least one component delta is nonzero while their sum still equals total delta.</p>
+    </div>
+    <p class="small">Primary reading: <a href="https://www.consumerfinance.gov/ask-cfpb/how-does-interest-accrue-while-i-am-in-school-en-593/">CFPB capitalization example</a>. Related lesson: <a href="0003-where-interest-rules-fit.html">where interest rules fit</a>. Ask follow-up questions with a provider statement and we can map every line to a Sarflog action.</p>
+  </section>
+
+  <p><a href="../reference/capitalization-schedule-effects.html">Open the one-page reference →</a></p>
+</main>
+</body>
+</html>

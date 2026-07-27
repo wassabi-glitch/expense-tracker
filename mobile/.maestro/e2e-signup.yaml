@@ -1,0 +1,13 @@
+appId: com.ahror2937.sarflog
+---
+- launchApp:
+    clearState: true
+- tapOn: { point: "50%,94%" }
+- tapOn: { point: "50%,42%" }
+- inputText: "e2e_signup@test.com"
+- tapOn: { point: "50%,50%" }
+- inputText: "e2esignupuser"
+- tapOn: { point: "50%,60%" }
+- tapOn: { point: "50%,52%" }
+- inputText: "E2eTestPass123!"
+- tapOn: { point: "50%,64%" }

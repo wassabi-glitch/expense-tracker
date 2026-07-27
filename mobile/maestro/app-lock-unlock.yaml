@@ -1,0 +1,22 @@
+# app-lock-unlock.yaml
+# Maestro E2E flow: App opens → lock screen → enter correct PIN → unlocked.
+# This file is written for CI/physical-device testing but NOT run locally.
+
+appId: com.ahror2937.sarflog
+---
+- clearState
+- launchApp
+
+# Assuming user is signed in and has a PIN set (PIN = "12345")
+# Lock screen should appear on app open
+- assertVisible: "Enter your PIN"
+
+# Enter correct PIN
+- tapOn: "1"
+- tapOn: "2"
+- tapOn: "3"
+- tapOn: "4"
+- tapOn: "5"
+
+# App should unlock and show tabs
+- assertVisible: "Home"

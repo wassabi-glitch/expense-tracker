@@ -72,3 +72,20 @@ docker compose exec api python -m alembic upgrade head
 docker compose exec api python -m alembic current
 docker compose exec api pytest -q tests/test_budget.py tests/test_expenses.py
 docker compose exec frontend npm run build
+```
+
+## Error Mapping & Testing Pattern
+
+When introducing new backend errors, messages, or features, always execute the work inside-out across the entire stack using this pattern:
+
+1. **Error Mapping:** Map backend errors and messages to both the Frontend (Web) and Mobile App so that errors are caught and rendered appropriately (avoiding silent failures).
+2. **Translations:** Translate all new user-facing messages into all 3 supported languages (English, Russian, Uzbek) in both Web and Mobile locales.
+3. **Unit Tests:** Write robust unit tests verifying the UI handles and translates the backend state correctly in both Web (Vitest + React Testing Library) and Mobile (Jest + `@testing-library/react-native`).
+4. **End-to-End Tests:** Write E2E tests simulating the feature/error flow in both Web (Playwright) and Mobile (Maestro).
+
+
+Our job will be to start it from backend and write new pytests for it and run full signin tests to check if they pass. Then, we go to web and map any new backend code messages to web frontend and translate them to all 3 langs and integrate them to the frontend so that they become actually visible in the UI when such error occurs in backend. And we do the same pattern for mobile react native expo as we did for web frontend (map the backend code messages -> translate them to all 3 langs -> use them in the app).
+
+**CRITICAL TESTING RULE:**
+For mobile, ALWAYS write all existing tests such as Jest and Maestro, but ONLY run Jest during execution because the user's computer struggles to run Maestro every time. This does NOT give you an excuse to cut corners with writing Maestro tests! 
+For WEB, ALWAYS write all existing tests such as Vitest and Playwright, but ONLY run Vitest during execution because the user's computer struggles to run Playwright every time. This does NOT give you an excuse to cut corners with writing Playwright tests!

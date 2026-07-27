@@ -1,0 +1,19 @@
+appId: com.ahror2937.sarflog
+---
+# Session Cap (Max 10) Eviction Stub
+# We simulate the user having been evicted by the backend (resulting in a 401 on refresh).
+# The app should catch the 401, clear local state, and show the sessionExpired alert.
+
+- launchApp:
+    clearState: true
+
+# Note: In a real e2e environment, we would inject a dead refresh token 
+# or use a mock server to return 401. Since Maestro is black-box, we assume 
+# the app has fallen into the unauthenticated state due to the eviction.
+
+- assertVisible: ".*Sign In.*"
+
+# We verify that the translation for 'sessionExpired' is displayed if the error triggered
+# "Session expired. Please sign in again."
+# (If we could inject the URL params or simulate the 401 intercept here)
+#- assertVisible: ".*Session expired.*"

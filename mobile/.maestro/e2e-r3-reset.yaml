@@ -1,0 +1,12 @@
+appId: com.ahror2937.sarflog
+---
+# R3: Reset password via deep link with real DB token (--env TOKEN=xxx)
+- launchApp
+- openLink: "sarflog://reset-password?token=${TOKEN}"
+# Fill new password
+- tapOn: { point: "50%,42%" }
+- inputText: "E2eNewStrongPass2!"
+- tapOn: { point: "50%,52%" }
+- inputText: "E2eNewStrongPass2!"
+# Save password
+- tapOn: { point: "50%,65%" }

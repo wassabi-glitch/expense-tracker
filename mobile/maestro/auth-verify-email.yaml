@@ -1,0 +1,21 @@
+appId: com.ahror2937.sarflog
+---
+- launchApp
+- stopApp
+# Clear the cache to ensure clean state
+- clearState
+- launchApp:
+    clearState: true
+
+- tapOn:
+    id: "nav-to-sign-in" # Assuming there's a way to get to sign in
+
+# We can mock deep link verify but Maestro deep links look like this:
+- openLink: "sarflog://verify-email?token=invalid_token"
+
+- assertVisible: "Ready to verify"
+- tapOn: "Verify my account"
+
+- assertVisible: "Link Expired or Invalid"
+- tapOn: "Request new link"
+- assertVisible: "Sign in to your account"

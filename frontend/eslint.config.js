@@ -8,6 +8,7 @@ export default defineConfig([
   globalIgnores(['dist']),
   {
     files: ['**/*.{js,jsx}'],
+    ignores: ['**/__tests__/**', '**/*.test.*'],
     extends: [
       js.configs.recommended,
       reactHooks.configs.flat.recommended,
@@ -26,6 +27,24 @@ export default defineConfig([
       'no-unused-vars': ['warn', { varsIgnorePattern: '^[A-Z_]' }],
       'react-hooks/set-state-in-effect': 'off',
       'react-hooks/static-components': 'off',
+    },
+  },
+  {
+    files: ['**/__tests__/**', '**/*.test.*'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      parserOptions: {
+        ecmaFeatures: { jsx: true },
+      },
+      globals: {
+        ...globals.browser,
+        ...globals.vitest,
+        vi: 'readonly',
+      },
+    },
+    rules: {
+      'no-unused-vars': 'off',
     },
   },
 ])

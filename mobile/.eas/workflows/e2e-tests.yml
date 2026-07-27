@@ -1,0 +1,32 @@
+name: Mobile E2E Tests
+
+on:
+  pull_request:
+    branches: ['main']
+
+jobs:
+  build_android:
+    type: build
+    params:
+      platform: android
+      profile: e2e-test
+
+  build_ios:
+    type: build
+    params:
+      platform: ios
+      profile: e2e-test
+
+  test_android:
+    needs: [build_android]
+    type: maestro
+    params:
+      build_id: ${{ needs.build_android.outputs.build_id }}
+      flow_path: ['.maestro/smoke.yml']
+
+  test_ios:
+    needs: [build_ios]
+    type: maestro
+    params:
+      build_id: ${{ needs.build_ios.outputs.build_id }}
+      flow_path: ['.maestro/smoke.yml']

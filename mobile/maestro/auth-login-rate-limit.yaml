@@ -1,0 +1,29 @@
+appId: com.ahror2937.sarflog
+---
+- clearState
+- launchApp
+# Wait for Sign In screen
+- assertVisible: "Sign in to your account"
+
+# Mock the API response for mobile sign in to force a 429 Rate Limit error
+- mockNetwork:
+    - request:
+        method: POST
+        url: ".*auth/mobile/sign-in.*"
+      response:
+        status: 429
+        body: '{"detail":"auth.login_rate_limited"}'
+
+- tapOn: "Email"
+- inputText: "ratelimited@example.com"
+- hideKeyboard
+- tapOn: "Password"
+- inputText: "WrongPassword123!"
+- hideKeyboard
+
+- tapOn: "Sign in"
+
+# Verify the Alert dialog appears with the correct translated title and message
+- assertVisible: "Sign in to your account"
+- assertVisible: "Too many sign in attempts. Please try again later."
+- tapOn: "OK"

@@ -1,9 +1,21 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { logout, togglePremium } from "@/lib/api";
+import { logout, logoutAll, changePassword, togglePremium } from "@/lib/api";
 
 export function useLogoutMutation() {
     return useMutation({
         mutationFn: logout,
+    });
+}
+
+export function useLogoutAllMutation() {
+    return useMutation({
+        mutationFn: logoutAll,
+    });
+}
+
+export function useChangePasswordMutation() {
+    return useMutation({
+        mutationFn: ({ current_password, new_password }) => changePassword(current_password, new_password),
     });
 }
 

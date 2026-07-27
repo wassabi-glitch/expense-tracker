@@ -1,0 +1,19 @@
+appId: com.ahror2937.sarflog
+---
+- launchApp:
+    clearState: true
+- tapOn: "Open Real Auth Flow"
+- assertVisible: "Sign Up"
+- tapOn: "Email" # Or whatever the placeholder/accessibilityLabel is
+- inputText: "ratelimit_maestro@example.com"
+- tapOn: "Username"
+- inputText: "ratelimit_maestro"
+- tapOn: "Continue"
+- assertVisible: "Password"
+- tapOn: "Password"
+- inputText: "StrongPassword123!"
+- repeat:
+    times: 6 # Tap 6 times to hit rate limit (assuming 5 is max)
+    commands:
+        - tapOn: "Create account"
+- assertVisible: "Too many sign-up attempts globally. Please try again later."

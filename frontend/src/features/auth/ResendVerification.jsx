@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { signinSchema } from "./authSchemas.js";
 import { AuthFormCard } from "@/components/AuthFormCard";
 import { useResendVerificationMutation } from "./hooks/useAuthMutations";
+import { useRateLimitGate } from "@/hooks/useRateLimitGate";
 
 export default function ResendVerification() {
   const INITIAL_SIGNUP_COOLDOWN_SECONDS = 20;
@@ -23,12 +24,18 @@ export default function ResendVerification() {
     const params = new URLSearchParams(window.location.search);
     return params.get("signup") === "1";
   }, []);
+  const signupSent = useMemo(() => {
+    if (typeof window === "undefined") return true;
+    const params = new URLSearchParams(window.location.search);
+    return params.get("sent") !== "0";
+  }, []);
 
   const [email, setEmail] = useState(initialEmail);
-  const [status, setStatus] = useState(fromSignup ? t("auth.signupCheckEmail") : "");
-  const [error, setError] = useState("");
+  const [status, setStatus] = useState(fromSignup && signupSent ? t("auth.signupCheckEmail") : "");
+  const [error, setError] = useState(fromSignup && !signupSent ? t("auth.signupEmailFailed") : "");
   const resendMutation = useResendVerificationMutation();
   const isSubmitting = resendMutation.isPending;
+  const { isRateLimited, onRateLimitError } = useRateLimitGate({ onExpire: () => setError("") });
   const [cooldownSeconds, setCooldownSeconds] = useState(
     fromSignup && initialEmail ? INITIAL_SIGNUP_COOLDOWN_SECONDS : 0
   );
@@ -40,7 +47,7 @@ export default function ResendVerification() {
     return translateValidation(emailParsed.error.issues[0]?.message || "");
   }, [emailParsed, email, translateValidation]);
   const emailHasError = !!(emailLiveError || error);
-  const canSubmit = emailParsed.success && !isSubmitting && cooldownSeconds === 0;
+  const canSubmit = emailParsed.success && !isSubmitting && !isRateLimited && cooldownSeconds === 0;
 
   useEffect(() => {
     if (cooldownSeconds <= 0) return;
@@ -81,6 +88,7 @@ export default function ResendVerification() {
       }
       setCooldownSeconds(INITIAL_SIGNUP_COOLDOWN_SECONDS);
     } catch (err) {
+      onRateLimitError(err);
       setError(mapResendError(err));
     }
   }

@@ -1,36 +1,18 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowLeft, Check, Circle, Eye, EyeOff } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Link, useNavigate } from "react-router-dom";
-import { Card } from "@/components/ui/card";
 import { getGoogleLoginUrl } from "@/lib/api";
 import { evaluatePasswordRules, signinSchema, signupSchema } from "./authSchemas.js";
 import { AuthFormCard } from "@/components/AuthFormCard";
 import { useSignupMutation } from "./hooks/useAuthMutations";
-
-const usernameRegex = /^[A-Za-z0-9._]+$/;
-const signupStepOneSchema = z.object({
-    email: signinSchema.shape.email,
-    username: z
-        .string()
-        .trim()
-        .min(3, "auth.validation.username.length")
-        .max(32, "auth.validation.username.length")
-        .refine((v) => !v.includes(" "), "auth.validation.username.noSpaces")
-        .refine((v) => usernameRegex.test(v), "auth.validation.username.allowedChars")
-        .refine(
-            (v) => ![".", "_"].includes(v[0]) && ![".", "_"].includes(v[v.length - 1]),
-            "auth.validation.username.edgeSeparators"
-        )
-        .refine(
-            (v) => !v.includes("..") && !v.includes("__") && !v.includes("._") && !v.includes("_."),
-            "auth.validation.username.consecutiveSeparators"
-        )
-        .refine((v) => !/^\d+$/.test(v), "auth.validation.username.notOnlyNumbers"),
-});
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Turnstile } from "@marsidev/react-turnstile";
+import { useRateLimitGate } from "@/hooks/useRateLimitGate";
 
 function GoogleIcon() {
     return (
@@ -65,21 +47,37 @@ export default function Signup() {
     const navigate = useNavigate();
 
     const [step, setStep] = useState(1);
-    const [username, setUsername] = useState("");
-    const [email, setEmail] = useState("");
-    const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
     const [status, setStatus] = useState("");
-    const [fieldErrors, setFieldErrors] = useState({});
+    const [captchaToken, setCaptchaToken] = useState("");
+    
     const signupMutation = useSignupMutation();
     const isSubmitting = signupMutation.isPending;
-    const stepBackTimerRef = useRef(null);
-    const signupInputClass = "h-11 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-emerald-500";
-    const disabledSignupButtonCursorClass = "disabled:pointer-events-auto disabled:cursor-not-allowed";
+    const { isRateLimited, onRateLimitError } = useRateLimitGate({ onExpire: () => setStatus("") });
 
+    const {
+        register,
+        handleSubmit,
+        watch,
+        trigger,
+        setError,
+        formState: { errors }
+    } = useForm({
+        resolver: zodResolver(signupSchema),
+        defaultValues: {
+            email: "",
+            username: "",
+            password: "",
+        },
+        mode: "onChange"
+    });
+
+    const email = watch("email");
+    const password = watch("password");
+    
     const translateValidation = useCallback((message) => t(message, { defaultValue: message }), [t]);
-    const passwordRules = evaluatePasswordRules(password, email);
-    const passwordTouched = password.length > 0;
+    const passwordRules = evaluatePasswordRules(password || "", email || "");
+    const passwordTouched = (password || "").length > 0;
 
     const passwordChecklist = [
         { id: "minLength", text: t("auth.passwordRuleMinLength"), ok: passwordRules.minLength },
@@ -97,106 +95,56 @@ export default function Signup() {
         });
     }
 
-    const stepOneParsed = useMemo(
-        () => signupStepOneSchema.safeParse({ email, username }),
-        [email, username]
-    );
-    const stepOneIssuesByField = useMemo(() => {
-        if (stepOneParsed.success) return {};
-        const next = {};
-        stepOneParsed.error.issues.forEach((issue) => {
-            const field = issue.path?.[0];
-            if (field && !next[field]) next[field] = translateValidation(issue.message);
-        });
-        return next;
-    }, [stepOneParsed, translateValidation]);
+    const signupInputClass = "h-11 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-emerald-500";
+    const disabledSignupButtonCursorClass = "disabled:pointer-events-auto disabled:cursor-not-allowed";
 
-    const fullSignupParsed = useMemo(
-        () => signupSchema.safeParse({ username, email, password }),
-        [username, email, password]
-    );
-
-    const canContinue = stepOneParsed.success;
-    const canCreateAccount = fullSignupParsed.success && !isSubmitting;
-    const stepOneEmailHasError = !!((email.trim().length > 0 && stepOneIssuesByField.email) || fieldErrors.email);
-    const stepOneUsernameHasError = !!((username.trim().length > 0 && stepOneIssuesByField.username) || fieldErrors.username);
-    const stepTwoPasswordHasError = !!fieldErrors.password;
-
-    useEffect(() => {
-        return () => {
-            if (stepBackTimerRef.current) {
-                clearTimeout(stepBackTimerRef.current);
-            }
-        };
-    }, []);
-
-    function delayReturnToStepOneWithFieldError(field, message) {
-        if (step !== 2) return;
-        if (stepBackTimerRef.current) {
-            clearTimeout(stepBackTimerRef.current);
+    async function handleContinue() {
+        setStatus("");
+        const isStepValid = await trigger(["email", "username"]);
+        if (isStepValid) {
+            setStep(2);
         }
-        stepBackTimerRef.current = setTimeout(() => {
-            setStep(1);
-            setFieldErrors((prev) => ({ ...prev, [field]: message }));
-            setStatus("");
-            stepBackTimerRef.current = null;
-        }, 1500);
     }
 
-    function handleContinue(e) {
-        e.preventDefault();
+    async function onSubmit(data) {
         setStatus("");
-        setFieldErrors({});
-        if (!stepOneParsed.success) {
-            const nextErrors = {};
-            stepOneParsed.error.issues.forEach((issue) => {
-                const field = issue.path?.[0];
-                if (field && !nextErrors[field]) nextErrors[field] = translateValidation(issue.message);
-            });
-            setFieldErrors(nextErrors);
-            return;
-        }
-        setStep(2);
-    }
-
-    async function handleSubmit(e) {
-        e.preventDefault();
-        setStatus("");
-        setFieldErrors({});
-
-        const parsed = signupSchema.safeParse({ username, email, password });
-        if (!parsed.success) {
-            const nextErrors = {};
-            parsed.error.issues.forEach((issue) => {
-                const field = issue.path?.[0];
-                if (field && !nextErrors[field]) nextErrors[field] = translateValidation(issue.message);
-            });
-            setFieldErrors(nextErrors);
-            return;
-        }
-
         try {
-            await signupMutation.mutateAsync({
-                username: parsed.data.username,
-                email: parsed.data.email,
-                password: parsed.data.password,
+            const result = await signupMutation.mutateAsync({
+                username: data.username,
+                email: data.email,
+                password: data.password,
+                captcha_token: captchaToken || undefined,
             });
-            navigate(`/resend-verification?signup=1&email=${encodeURIComponent(parsed.data.email)}`);
+            const sent = result.verification_email_sent !== false ? 1 : 0;
+            navigate(`/resend-verification?signup=1&email=${encodeURIComponent(data.email)}&sent=${sent}`);
         } catch (err) {
+            onRateLimitError(err);
             const msg = String(err?.message || "");
             const normalized = msg.toLowerCase();
             if (msg === "auth.username_already_taken" || normalized === "username already taken") {
                 const usernameMsg = t("auth.usernameAlreadyTaken");
                 setStatus(usernameMsg);
-                delayReturnToStepOneWithFieldError("username", usernameMsg);
+                setError("username", { type: "server", message: "auth.usernameAlreadyTaken" });
+                setStep(1);
             } else if (msg === "auth.email_already_registered" || normalized === "email already registered") {
                 const emailMsg = t("auth.emailAlreadyRegistered");
                 setStatus(emailMsg);
-                delayReturnToStepOneWithFieldError("email", emailMsg);
+                setError("email", { type: "server", message: "auth.emailAlreadyRegistered" });
+                setStep(1);
             } else if (msg === "auth.signup_conflict" || normalized === "email or username already registered") {
                 setStatus(t("auth.signupConflict"));
             } else if (msg === "auth.signup_rate_limited") {
                 setStatus(t("auth.signupRateLimited"));
+            } else if (msg === "auth.signup_global_rate_limited") {
+                setStatus(t("auth.signupGlobalRateLimited"));
+            } else if (msg === "auth.captcha_failed") {
+                setStatus(t("auth.captchaFailed"));
+            } else if (msg === "auth.idempotency_conflict_in_progress") {
+                setStatus(t("auth.idempotencyConflictInProgress"));
+            } else if (msg === "auth.disposable_email_blocked") {
+                setStatus(t("auth.disposableEmailBlocked"));
+                setError("email", { type: "server", message: "auth.disposableEmailBlocked" });
+                setStep(1);
             } else {
                 setStatus(t(msg, { defaultValue: msg || t("auth.signupFailed") }));
             }
@@ -213,7 +161,6 @@ export default function Signup() {
                         onClick={() => {
                             setStep(1);
                             setStatus("");
-                            setFieldErrors({});
                         }}
                         className="absolute left-4 top-4 sm:left-8 sm:top-8 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
                     >
@@ -223,153 +170,140 @@ export default function Signup() {
                 )
             }
         >
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-2">
+                {step === 1 ? (
+                    <>
+                        <Button type="button" variant="outline" className="h-11 w-full" asChild>
+                            <a href={getGoogleLoginUrl()} className="inline-flex items-center justify-center gap-2">
+                                <GoogleIcon />
+                                <span>{t("auth.continueWithGoogle")}</span>
+                            </a>
+                        </Button>
 
-            {step === 1 ? (
-                <form onSubmit={handleContinue} className="space-y-2">
-                    <Button type="button" variant="outline" className="h-11 w-full" asChild>
-                        <a href={getGoogleLoginUrl()} className="inline-flex items-center justify-center gap-2">
-                            <GoogleIcon />
-                            <span>{t("auth.continueWithGoogle")}</span>
-                        </a>
-                    </Button>
-
-                    <div className="relative py-0">
-                        <div className="absolute inset-0 flex items-center">
-                            <span className="w-full border-t border-border" />
+                        <div className="relative py-0">
+                            <div className="absolute inset-0 flex items-center">
+                                <span className="w-full border-t border-border" />
+                            </div>
+                            <div className="relative flex justify-center text-xs uppercase tracking-wide text-muted-foreground">
+                                <span className="bg-card px-3">{t("auth.or")}</span>
+                            </div>
                         </div>
-                        <div className="relative flex justify-center text-xs uppercase tracking-wide text-muted-foreground">
-                            <span className="bg-card px-3">{t("auth.or")}</span>
-                        </div>
-                    </div>
 
-                    <div className="space-y-0.5">
-                        <Input
-                            id="signup-email"
-                            type="email"
-                            value={email}
-                            onChange={(e) => {
-                                setEmail(e.target.value);
-                                setStatus("");
-                                setFieldErrors((prev) => ({ ...prev, email: "" }));
-                            }}
-                            placeholder={t("auth.email")}
-                            className={`${signupInputClass} ${stepOneEmailHasError ? "border-red-500 focus-visible:border-red-500" : ""}`}
-                            required
-                        />
-                        <div className="min-h-2.5">
-                            {((email.trim().length > 0 && stepOneIssuesByField.email) || fieldErrors.email) && (
-                                <p className="text-xs text-red-500">
-                                    {(email.trim().length > 0 && stepOneIssuesByField.email) || fieldErrors.email}
-                                </p>
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="space-y-0.5">
-                        <Input
-                            id="signup-username-step"
-                            value={username}
-                            onChange={(e) => {
-                                setUsername(e.target.value);
-                                setStatus("");
-                                setFieldErrors((prev) => ({ ...prev, username: "" }));
-                            }}
-                            className={`${signupInputClass} ${stepOneUsernameHasError ? "border-red-500 focus-visible:border-red-500" : ""}`}
-                            placeholder={t("auth.username")}
-                            required
-                        />
-                        <div className="min-h-2.5">
-                            {((username.trim().length > 0 && stepOneIssuesByField.username) || fieldErrors.username) && (
-                                <p className="text-xs text-red-500">
-                                    {(username.trim().length > 0 && stepOneIssuesByField.username) || fieldErrors.username}
-                                </p>
-                            )}
-                        </div>
-                    </div>
-
-                    <Button
-                        className={`h-11 w-full ${disabledSignupButtonCursorClass}`}
-                        type="submit"
-                        disabled={!canContinue}
-                    >
-                        {t("auth.continue")}
-                    </Button>
-
-                    <div className="min-h-2.5">
-                        {!!status && <p className="text-xs text-center text-red-500">{status}</p>}
-                    </div>
-                </form>
-            ) : (
-                <form onSubmit={handleSubmit} className="space-y-2">
-                    <div className="space-y-0.5">
-                        <div className="relative">
+                        <div className="space-y-0.5">
                             <Input
-                                id="password"
-                                type={showPassword ? "text" : "password"}
-                                value={password}
-                                onChange={(e) => {
-                                    setPassword(e.target.value);
-                                    setStatus("");
-                                    setFieldErrors((prev) => ({ ...prev, password: "" }));
-                                }}
-                                className={`${signupInputClass} pr-10 ${stepTwoPasswordHasError ? "border-red-500 focus-visible:border-red-500" : ""}`}
-                                placeholder={t("auth.createNewPasswordPlaceholder")}
-                                required
+                                id="signup-email"
+                                type="email"
+                                placeholder={t("auth.email")}
+                                className={`${signupInputClass} ${errors.email ? "border-red-500 focus-visible:border-red-500" : ""}`}
+                                {...register("email")}
                             />
-                            <button
-                                type="button"
-                                onClick={() => setShowPassword((v) => !v)}
-                                className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground"
-                                aria-label={showPassword ? "Hide password" : "Show password"}
-                            >
-                                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                            </button>
+                            <div className="min-h-2.5">
+                                {errors.email && (
+                                    <p className="text-xs text-red-500">
+                                        {translateValidation(errors.email.message)}
+                                    </p>
+                                )}
+                            </div>
                         </div>
-                        <div className="min-h-2.5">
-                            {!!fieldErrors.password && (
-                                <p className="text-xs text-red-500">{fieldErrors.password}</p>
+
+                        <div className="space-y-0.5">
+                            <Input
+                                id="signup-username-step"
+                                className={`${signupInputClass} ${errors.username ? "border-red-500 focus-visible:border-red-500" : ""}`}
+                                placeholder={t("auth.username")}
+                                {...register("username")}
+                            />
+                            <div className="min-h-2.5">
+                                {errors.username && (
+                                    <p className="text-xs text-red-500">
+                                        {translateValidation(errors.username.message)}
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+
+                        <Button
+                            className={`h-11 w-full ${disabledSignupButtonCursorClass}`}
+                            type="button"
+                            onClick={handleContinue}
+                            disabled={!!errors.email || !!errors.username}
+                        >
+                            {t("auth.continue")}
+                        </Button>
+                    </>
+                ) : (
+                    <>
+                        <div className="space-y-0.5">
+                            <div className="relative">
+                                <Input
+                                    id="password"
+                                    type={showPassword ? "text" : "password"}
+                                    className={`${signupInputClass} pr-10 ${errors.password ? "border-red-500 focus-visible:border-red-500" : ""}`}
+                                    placeholder={t("auth.createNewPasswordPlaceholder")}
+                                    {...register("password")}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword((v) => !v)}
+                                    className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground"
+                                    aria-label={showPassword ? "Hide password" : "Show password"}
+                                >
+                                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                </button>
+                            </div>
+                            <div className="min-h-2.5">
+                                {errors.password && (
+                                    <p className="text-xs text-red-500">{translateValidation(errors.password.message)}</p>
+                                )}
+                            </div>
+                            <ul className="grid grid-cols-1 gap-y-1 pt-1 sm:grid-cols-2 sm:gap-x-4">
+                                {passwordChecklist.map((rule) => {
+                                    const isMet = passwordTouched ? rule.ok : false;
+                                    return (
+                                        <li
+                                            key={rule.id}
+                                            className={`flex items-center gap-1.5 text-xs ${passwordTouched ? (rule.ok ? "text-emerald-600" : "text-muted-foreground") : "text-muted-foreground"}`}
+                                        >
+                                            {isMet ? (
+                                                <Check className="h-3 w-3 shrink-0" strokeWidth={2.25} />
+                                            ) : (
+                                                <Circle className="h-3 w-3 shrink-0" strokeWidth={2.25} />
+                                            )}
+                                            <span>{rule.text}</span>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        </div>
+
+                        <div className="flex justify-center">
+                            <Turnstile
+                                siteKey={import.meta.env.VITE_TURNSTILE_SITE_KEY || "1x00000000000000000000AA"}
+                                onSuccess={(token) => setCaptchaToken(token)}
+                                options={{ appearance: "interaction-only" }}
+                            />
+                        </div>
+
+                        <Button
+                            className={`h-11 w-full ${disabledSignupButtonCursorClass}`}
+                            type="submit"
+                            disabled={isSubmitting || isRateLimited || !!errors.password}
+                        >
+                            {isSubmitting ? (
+                                <span
+                                    aria-label="Loading"
+                                    className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
+                                />
+                            ) : (
+                                t("auth.createAccount")
                             )}
-                        </div>
-                        <ul className="grid grid-cols-1 gap-y-1 pt-1 sm:grid-cols-2 sm:gap-x-4">
-                            {passwordChecklist.map((rule) => {
-                                const isMet = passwordTouched ? rule.ok : false;
-                                return (
-                                    <li
-                                        key={rule.id}
-                                        className={`flex items-center gap-1.5 text-xs ${passwordTouched ? (rule.ok ? "text-emerald-600" : "text-muted-foreground") : "text-muted-foreground"}`}
-                                    >
-                                        {isMet ? (
-                                            <Check className="h-3 w-3 shrink-0" strokeWidth={2.25} />
-                                        ) : (
-                                            <Circle className="h-3 w-3 shrink-0" strokeWidth={2.25} />
-                                        )}
-                                        <span>{rule.text}</span>
-                                    </li>
-                                );
-                            })}
-                        </ul>
-                    </div>
-
-                    <Button
-                        className={`h-11 w-full ${disabledSignupButtonCursorClass}`}
-                        type="submit"
-                        disabled={!canCreateAccount}
-                    >
-                        {isSubmitting ? (
-                            <span
-                                aria-label="Loading"
-                                className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
-                            />
-                        ) : (
-                            t("auth.createAccount")
-                        )}
-                    </Button>
-
-                    <div className="min-h-2.5">
-                        {!!status && <p className="text-xs text-center text-red-500">{status}</p>}
-                    </div>
-                </form>
-            )}
+                        </Button>
+                    </>
+                )}
+                <div className="min-h-2.5">
+                    {!!status && <p className="text-xs text-center text-red-500">{status}</p>}
+                </div>
+            </form>
 
             <div className="mt-1.5 text-center text-sm text-muted-foreground">
                 {t("auth.alreadyHaveAccount")}{" "}

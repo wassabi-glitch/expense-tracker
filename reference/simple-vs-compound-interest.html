@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simple vs Compound Interest — Quick Reference</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="eyebrow">Sarflog quick reference</p>
+  <h1>Look only at the balance multiplied by the rate</h1>
+
+  <table>
+    <thead><tr><th>Method</th><th>Month-two calculation after 100 interest accrued</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Simple</strong></td><td>1,000 principal × 10% = 100</td><td>Previous interest stays separate.</td></tr>
+      <tr><td><strong>Compound</strong></td><td>1,100 combined balance × 10% = 110</td><td>Previous interest now earns interest.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Normal Sarflog standard-amortization row</h2>
+  <div class="formula">interest = beginning principal × monthly rate<br>principal paid = payment − interest<br>ending principal = beginning principal − principal paid</div>
+  <p>The scheduled payment covers the period's interest, so unpaid interest does not survive and join principal.</p>
+
+  <h2>Routing rule</h2>
+  <table>
+    <thead><tr><th>If the agreement says...</th><th>Use...</th></tr></thead>
+    <tbody>
+      <tr><td>One final total</td><td>Fixed total</td></tr>
+      <tr><td>Supported fixed monthly amortization</td><td>Standard amortization</td></tr>
+      <tr><td>Daily compounding, capitalization, or special rules</td><td>Exact contract</td></tr>
+    </tbody>
+  </table>
+
+  <p class="small"><a href="../lessons/0002-simple-vs-compound-interest.html">Return to the full lesson</a></p>
+</main>
+</body>
+</html>

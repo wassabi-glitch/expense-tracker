@@ -1,5 +1,8 @@
 import logging
+import json
+# pyrefly: ignore [missing-import]
 from datetime import datetime, timezone
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response, status
 # pyrefly: ignore [missing-import]
 from fastapi.security import OAuth2PasswordRequestForm
@@ -7,10 +10,12 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 # pyrefly: ignore [missing-import]
 from sqlalchemy.exc import IntegrityError
+from app.utils import is_disposable_email
 from .. import oauth2
 from .. import models, schemas, utils
 from ..session import get_db
-from app.redis_rate_limiter import check_and_consume
+from app.audit import log_security_event, SecurityAction, SecurityStatus
+from app.redis_rate_limiter import check_and_consume, consume_token_bucket, redis_client
 from app.email_service import send_verification_email
 from app.email_verification import build_verify_email_link, issue_email_verification_token
 from app.timezone import _safe_zoneinfo
@@ -44,12 +49,14 @@ def _default_income_sources_for_statuses(life_statuses: list[models.LifeStatus])
     return list(sources)
 
 
-def build_user_out(user: models.User) -> schemas.UserOut:
+def build_user_out(user: models.User, verification_email_sent: bool | None = None) -> schemas.UserOut:
     profile_out = None
     needs_onboarding = True
     if user.profile is not None:
         profile_out = schemas.UserProfileOut.model_validate(user.profile)
         needs_onboarding = user.profile.onboarding_completed_at is None
+
+    has_local = any(identity.provider == "local" for identity in user.identities)
 
     return schemas.UserOut(
         id=user.id,
@@ -57,8 +64,10 @@ def build_user_out(user: models.User) -> schemas.UserOut:
         email=user.email,
         created_at=user.created_at,
         is_premium=user.is_premium,
+        has_local_password=has_local,
         needs_onboarding=needs_onboarding,
         profile=profile_out,
+        verification_email_sent=verification_email_sent,
     )
 
 
@@ -94,7 +103,44 @@ def create_user(
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    cache_key = None
+    if idempotency_key:
+        cache_key = f"idempotency:signup:{idempotency_key}"
+        cached_res = redis_client.get(cache_key)
+        if cached_res == "locked":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, 
+                detail="auth.idempotency_conflict_in_progress"
+            )
+        elif cached_res:
+            try:
+                # If valid JSON, return immediately 
+                return json.loads(cached_res)
+            except Exception:  # nosec B110
+                pass
+
+        # Lock it for max 60s while processing
+        redis_client.setex(cache_key, 60, "locked")
+
+    # 1. Global Load Shedding (Token Bucket)
+    # Capacity 100, refill rate of 100 per 60 seconds (approx 1.66/sec)
+    global_rl = consume_token_bucket("signup_global", "global", capacity=100, refill_rate_per_second=100/60)
+    if not global_rl.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="auth.signup_global_rate_limited",
+            headers={"Retry-After": str(global_rl.reset_seconds)},
+        )
+
+    if is_disposable_email(user.email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="auth.disposable_email_blocked"
+        )
+
+    # 2. IP-based Rate Limiting (Sliding Window)
     client_ip = request.client.host if request.client else "unknown"
     signup_key = client_ip
     rl = check_and_consume("signup", signup_key)
@@ -114,7 +160,18 @@ def create_user(
             headers=rate_headers,
         )
 
-    # 1. Check if user already exists
+    # 3. Verify CAPTCHA (if required)
+    if settings.require_captcha:
+        if not user.captcha_token:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="auth.captcha_failed")
+        if not utils.verify_turnstile_token(
+            token=user.captcha_token,
+            client_ip=client_ip,
+            secret_key=settings.cloudflare_turnstile_secret_key.get_secret_value()
+        ):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="auth.captcha_failed")
+
+    # 4. Check if user already exists
     db_user = db.query(models.User).filter(
         models.User.email == user.email).first()
     if db_user:
@@ -160,10 +217,20 @@ def create_user(
     if not new_user.is_verified:
         raw_token = issue_email_verification_token(db, new_user)
         verify_link = build_verify_email_link(raw_token)
-        sent = send_verification_email(new_user.email, verify_link)
+        sent = send_verification_email(new_user.email, verify_link, idempotency_key=raw_token)
         if not sent and not settings.is_production:
             logger.info("Email verification link fallback for %s: %s", new_user.email, verify_link)
-    return build_user_out(new_user)
+        out_data = build_user_out(new_user, verification_email_sent=sent)
+    else:
+        out_data = build_user_out(new_user)
+        
+    if cache_key:
+        redis_client.setex(cache_key, 86400, out_data.model_dump_json())
+
+    log_security_event(db, action=SecurityAction.SIGNUP, status=SecurityStatus.SUCCESS,
+                       request=request, user_id=new_user.id, metadata={"email": new_user.email})
+
+    return out_data
 
 
 def _sync_user_timezone(db: Session, user: models.User, x_timezone: str | None) -> None:
@@ -184,21 +251,36 @@ def login(
     user_credentials: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
     x_timezone: str | None = Header(default=None, alias="X-Timezone"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    if idempotency_key:
+        cache_key = f"idempotency:signin:{idempotency_key}"
+        if not redis_client.set(cache_key, "IN_PROGRESS", nx=True, ex=30):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="auth.idempotency_conflict_in_progress"
+            )
+
     username = (user_credentials.username or "").strip().lower()
     client_ip = request.client.host if request.client else "unknown"
-    rate_key = f"{client_ip}|{username}"
-    rl = check_and_consume("login", rate_key)
+    # Bucket 1: IP Bucket (20 attempts / 5 mins)
+    ip_rl = check_and_consume("login_ip", client_ip, window_seconds=300, max_attempts=20)
+    
+    # Bucket 2: Email Bucket (5 attempts / 5 mins)
+    email_rl = check_and_consume("login_email", username, window_seconds=300, max_attempts=5)
+    
+    failed_rl = email_rl if not email_rl.allowed else ip_rl
+    
     rate_headers = {
-        "X-RateLimit-Limit": str(rl.limit),
-        "X-RateLimit-Remaining": str(rl.remaining),
-        "X-RateLimit-Reset": str(rl.reset_seconds),
+        "X-RateLimit-Limit": str(failed_rl.limit),
+        "X-RateLimit-Remaining": str(failed_rl.remaining),
+        "X-RateLimit-Reset": str(failed_rl.reset_seconds),
     }
     for k, v in rate_headers.items():
         response.headers[k] = v
 
-    if not rl.allowed:
-        rate_headers["Retry-After"] = str(rl.reset_seconds)
+    if not ip_rl.allowed or not email_rl.allowed:
+        rate_headers["Retry-After"] = str(max(ip_rl.reset_seconds, email_rl.reset_seconds))
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="auth.login_rate_limited",
@@ -213,6 +295,8 @@ def login(
     if not user:
         utils.verify_password(
             user_credentials.password or "", DUMMY_PASSWORD_HASH)
+        log_security_event(db, action=SecurityAction.LOGIN, status=SecurityStatus.FAILED,
+                           request=request, metadata={"reason": "user_not_found", "email": username})
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="auth.invalid_credentials",
@@ -220,9 +304,20 @@ def login(
         )
 
     if not utils.verify_password(user_credentials.password, user.hashed_password):
+        log_security_event(db, action=SecurityAction.LOGIN, status=SecurityStatus.FAILED,
+                           request=request, user_id=user.id, metadata={"reason": "invalid_password"})
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="auth.invalid_credentials",
+            headers=rate_headers,
+        )
+
+    if not user.is_verified:
+        log_security_event(db, action=SecurityAction.LOGIN, status=SecurityStatus.FAILED,
+                           request=request, user_id=user.id, metadata={"reason": "email_not_verified"})
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="auth.email_not_verified",
             headers=rate_headers,
         )
 
@@ -246,6 +341,9 @@ def login(
     oauth2.set_refresh_cookie(response, refresh_token)
 
     # 5. Return access token in the JSON response body
+    log_security_event(db, action=SecurityAction.LOGIN, status=SecurityStatus.SUCCESS,
+                       request=request, user_id=user.id)
+
     return {"access_token": access_token, "token_type": "bearer"}  # nosec B105
 
 

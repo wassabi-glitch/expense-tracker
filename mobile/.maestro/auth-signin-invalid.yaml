@@ -1,0 +1,10 @@
+appId: com.ahror2937.sarflog
+---
+# E2E: Sign in with invalid credentials → real backend returns error
+- launchApp:
+    clearState: true
+- tapOn: { point: "50%,45%" }
+- inputText: "nonexistent@example.com"
+- tapOn: { point: "50%,54%" }
+- inputText: "WrongPassword123!"
+- tapOn: { point: "50%,68%" }

@@ -1,7 +1,12 @@
 from datetime import date
 import logging
+from pathlib import Path
+# pyrefly: ignore [missing-import]
+import httpx
 
+# pyrefly: ignore [missing-import]
 from passlib.context import CryptContext
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
 
 from app import models
@@ -18,6 +23,53 @@ def hash_password(password: str):
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
+
+
+def verify_turnstile_token(token: str, client_ip: str, secret_key: str) -> bool:
+    """Verifies a Cloudflare Turnstile token."""
+    if not token:
+        return False
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            res = client.post(
+                "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+                data={
+                    "secret": secret_key,
+                    "response": token,
+                    "remoteip": client_ip,
+                }
+            )
+            res.raise_for_status()
+            data = res.json()
+            if not data.get("success"):
+                logger.warning(f"CAPTCHA verification failed for {client_ip}: {data}")
+                return False
+            return True
+    except httpx.RequestError as exc:
+        logger.error(f"Error contacting Cloudflare Turnstile: {exc}")
+        return False
+
+
+_disposable_domains: set[str] | None = None
+
+def is_disposable_email(email: str) -> bool:
+    """Checks if an email domain is in the disposable email blocklist."""
+    global _disposable_domains
+    if _disposable_domains is None:
+        blocklist_path = Path(__file__).parent / "resources" / "disposable_email_blocklist.txt"
+        try:
+            with blocklist_path.open("r", encoding="utf-8") as f:
+                _disposable_domains = {line.strip().lower() for line in f if line.strip() and not line.startswith("//")}
+            logger.info(f"Loaded {len(_disposable_domains)} disposable email domains.")
+        except Exception as e:
+            logger.error(f"Failed to load disposable email blocklist: {e}")
+            _disposable_domains = set()
+
+    try:
+        domain = email.split("@")[1].lower()
+        return domain in _disposable_domains
+    except IndexError:
+        return False
 
 
 def _calculate_spent(db: Session, owner_id: int, category: models.ExpenseCategory, budget_year: int, budget_month: int) -> int:

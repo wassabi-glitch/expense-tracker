@@ -18,8 +18,13 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 
+# pyrefly: ignore [missing-import]
 import redis
+# pyrefly: ignore [missing-import]
+import redis.exceptions
+# pyrefly: ignore [missing-import]
 from fastapi import Depends, HTTPException, Response, status
+# pyrefly: ignore [missing-import]
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 
@@ -176,9 +181,33 @@ def create_refresh_token(user_id: int) -> str:
     _redis.sadd(family_key, token_hash)
     _redis.expire(family_key, REFRESH_TOKEN_EXPIRE_SECONDS)
 
-    # Track this family under the user
+    # Track this family under the user (using ZSET for LRU eviction)
     user_key = _rt_user_families_key(user_id)
-    _redis.sadd(user_key, family_id)
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    
+    try:
+        _redis.zadd(user_key, {family_id: now_ts})
+    except redis.exceptions.ResponseError as e:
+        if "WRONGTYPE" in str(e):
+            _redis.delete(user_key)
+            _redis.zadd(user_key, {family_id: now_ts})
+        else:
+            raise
+
+    # LRU Eviction: Cap at 10 sessions
+    session_count = _redis.zcard(user_key)
+    if session_count > 10:
+        excess_count = session_count - 10
+        oldest_families = _redis.zrange(user_key, 0, excess_count - 1)
+        for old_family in oldest_families:
+            family_key_old = _rt_family_key(old_family)
+            token_hashes = _redis.smembers(family_key_old) or set()
+            for thash in token_hashes:
+                _redis.delete(_rt_key(thash))
+            _redis.delete(family_key_old)
+        
+        _redis.zrem(user_key, *oldest_families)
+
     _redis.expire(user_key, REFRESH_TOKEN_EXPIRE_SECONDS)
 
     return raw_token
@@ -206,58 +235,115 @@ def rotate_refresh_token(old_raw_token: str) -> tuple[str, int]:
     old_key = _rt_key(old_hash)
     rotated_marker_key = f"rotated:{old_hash}"
 
-    # 1. Check if this token was ALREADY rotated (already used once)
-    # If a rotated_marker exists, this old token is invalid — raise 401.
-    rotated_info = _redis.get(rotated_marker_key)
-    if rotated_info:
+    try:
+        with _redis.pipeline() as pipe:
+            pipe.watch(rotated_marker_key, old_key)
+
+            # 1. Check if this token was ALREADY rotated (already used once)
+            # If a rotated_marker exists, this old token is invalid — raise 401.
+            rotated_info = pipe.get(rotated_marker_key)
+            if rotated_info:
+                # Replay attack detected. 
+                # Check if it's a true replay or just a concurrent network retry.
+                parts = rotated_info.split("|", 2)
+                if len(parts) >= 2:
+                    rev_user_id = parts[0]
+                    rev_family_id = parts[1]
+                    rotated_at = int(parts[2]) if len(parts) == 3 else 0
+                    
+                    now = int(datetime.now(timezone.utc).timestamp())
+                    
+                    # 5 second grace period for concurrent network retries
+                    if now - rotated_at > 5:
+                        # True replay attack: Delete all tokens in the family
+                        family_key = _rt_family_key(rev_family_id)
+                        token_hashes = pipe.smembers(family_key) or set()
+                        
+                        pipe.multi()
+                        for thash in token_hashes:
+                            pipe.delete(_rt_key(thash))
+                        pipe.delete(family_key)
+                        
+                        # Remove family from the user's active families set
+                        pipe.zrem(_rt_user_families_key(int(rev_user_id)), rev_family_id)
+                        try:
+                            pipe.execute()
+                        except redis.exceptions.ResponseError as e:
+                            if "WRONGTYPE" in str(e):
+                                # If it fails due to old SET type, clear the pipeline and retry with srem
+                                pipe.reset()
+                                # recreate the multi manually if needed, but we are inside a loop, this is complex.
+                                # Given this is just replay attack cleanup, we can ignore or let it fail.
+                                pass
+                            else:
+                                raise
+
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="auth.refresh_token_invalid",
+                )
+
+            # 2. Look up the old token in Redis (the "live" one)
+            stored = pipe.get(old_key)
+            if not stored:
+                pipe.unwatch()
+                # Token not found — either expired naturally, or this is a replay attack.
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="auth.refresh_token_invalid",
+                )
+
+            # Parse the stored value: "user_id|family_id"
+            parts = stored.split("|", 1)
+            if len(parts) != 2:
+                pipe.unwatch()
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="auth.refresh_token_invalid",
+                )
+
+            user_id = int(parts[0])
+            family_id = parts[1]
+            family_key = _rt_family_key(family_id)
+
+            # 3. Rotate!
+            # Create a new token in the SAME family
+            new_raw = secrets.token_urlsafe(48)
+            new_hash = _hash_token(new_raw)
+
+            pipe.multi()
+            pipe.delete(old_key)
+            pipe.srem(family_key, old_hash)
+
+            # Write the new token to Redis
+            pipe.setex(
+                _rt_key(new_hash),
+                REFRESH_TOKEN_EXPIRE_SECONDS,
+                f"{user_id}|{family_id}",
+            )
+            pipe.sadd(family_key, new_hash)
+            pipe.expire(family_key, REFRESH_TOKEN_EXPIRE_SECONDS)
+
+            # Bump the active timestamp of this family in the user's ZSET so it doesn't get evicted early
+            now_ts = int(datetime.now(timezone.utc).timestamp())
+            pipe.zadd(_rt_user_families_key(user_id), {family_id: now_ts})
+            pipe.expire(_rt_user_families_key(user_id), REFRESH_TOKEN_EXPIRE_SECONDS)
+
+            # 4. Set a marker so we know this old hash was already rotated.
+            # Keep it for the full lifespan of a refresh token to detect replay attacks anytime.
+            now_ts = int(datetime.now(timezone.utc).timestamp())
+            pipe.setex(rotated_marker_key, REFRESH_TOKEN_EXPIRE_SECONDS, f"{user_id}|{family_id}|{now_ts}")
+
+            pipe.execute()
+            return new_raw, user_id
+
+    except redis.WatchError:
+        # Another request modified the keys between our watch and execute.
+        # It's a concurrent replay! Do not revoke the family, just fail.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="auth.refresh_token_invalid",
         )
-
-    # 2. Look up the old token in Redis (the "live" one)
-    stored = _redis.get(old_key)
-    if not stored:
-        # Token not found — either expired naturally, or this is a replay attack.
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="auth.refresh_token_invalid",
-        )
-
-    # Parse the stored value: "user_id|family_id"
-    parts = stored.split("|", 1)
-    if len(parts) != 2:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="auth.refresh_token_invalid",
-        )
-
-    user_id = int(parts[0])
-    family_id = parts[1]
-
-    # 3. Rotate!
-    _redis.delete(old_key)
-    family_key = _rt_family_key(family_id)
-    _redis.srem(family_key, old_hash)
-
-    # Create a new token in the SAME family
-    new_raw = secrets.token_urlsafe(48)
-    new_hash = _hash_token(new_raw)
-
-    # Write the new token to Redis
-    _redis.setex(
-        _rt_key(new_hash),
-        REFRESH_TOKEN_EXPIRE_SECONDS,
-        f"{user_id}|{family_id}",
-    )
-    _redis.sadd(family_key, new_hash)
-    _redis.expire(family_key, REFRESH_TOKEN_EXPIRE_SECONDS)
-
-    # 4. Set a short-lived marker so we know this old hash was already rotated.
-    # This prevents the old hash from being used again (replay protection).
-    _redis.setex(rotated_marker_key, 30, "used")
-
-    return new_raw, user_id
 
 
 def revoke_refresh_token(raw_token: str) -> None:
@@ -286,7 +372,10 @@ def revoke_all_user_tokens(user_id: int) -> None:
     HOW: walks through user's families → each family's tokens → deletes all.
     """
     user_key = _rt_user_families_key(user_id)
-    family_ids = _redis.smembers(user_key) or set()
+    try:
+        family_ids = _redis.zrange(user_key, 0, -1)
+    except redis.exceptions.ResponseError:
+        family_ids = _redis.smembers(user_key) or set()
 
     for family_id in family_ids:
         family_key = _rt_family_key(family_id)

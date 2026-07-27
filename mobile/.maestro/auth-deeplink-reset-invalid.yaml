@@ -1,0 +1,20 @@
+appId: com.ahror2937.sarflog
+---
+# Tier 1: Deep-link to reset password with invalid token → should show error
+- launchApp:
+    clearState: true
+
+# Deep-link directly to reset password screen
+- openLink: "sarflog://reset-password?token=expired-token"
+
+# Should land on reset password screen. Fill passwords.
+- tapOn: { point: "50%,42%" }
+- inputText: "NewStrongPass1!"
+- tapOn: { point: "50%,52%" }
+- inputText: "NewStrongPass1!"
+
+# Tap Save Password → should fail with invalid token error
+- tapOn: { point: "50%,65%" }
+
+# Error screen should have "Request new reset link" button. Tap it.
+- tapOn: { point: "50%,65%" }

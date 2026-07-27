@@ -1,0 +1,8 @@
+appId: com.ahror2937.sarflog
+---
+# Requires: --env TOKEN=xxx --env EMAIL=xxx
+- launchApp:
+    clearState: true
+- openLink: "sarflog://verify-email?token=${TOKEN}"
+- tapOn: { point: "50%,55%" }
+- tapOn: { point: "50%,65%" }

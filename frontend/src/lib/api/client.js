@@ -62,10 +62,14 @@ function clearAuthState() {
     resetThemeOnSignout();
 }
 
-function redirectToSigninOnUnauthorized() {
+function redirectToSigninOnUnauthorized(errorDetail) {
     clearAuthState();
     if (typeof window !== "undefined" && window.location.pathname !== "/sign-in") {
-        window.location.replace("/sign-in");
+        let redirectUrl = "/sign-in";
+        if (errorDetail) {
+            redirectUrl += `?error=${encodeURIComponent(errorDetail)}`;
+        }
+        window.location.replace(redirectUrl);
     }
 }
 
@@ -118,11 +122,11 @@ async function attemptRefresh() {
                 skipAuthRefresh: true,
             });
             const token = response?.data?.access_token;
-            if (!token) return false;
+            if (!token) return { success: false };
             accessToken = token;
-            return true;
-        } catch {
-            return false;
+            return { success: true };
+        } catch (error) {
+            return { success: false, detail: error?.response?.data?.detail };
         } finally {
             refreshPromise = null;
         }
@@ -182,14 +186,14 @@ apiClient.interceptors.response.use(
 
         if (status === 401 && !originalRequest._retried && !originalRequest.skipAuthRefresh) {
             originalRequest._retried = true;
-            const refreshed = await attemptRefresh();
-            if (refreshed) {
+            const refreshResult = await attemptRefresh();
+            if (refreshResult?.success) {
                 const headers = originalRequest.headers || {};
                 if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
                 originalRequest.headers = headers;
                 return apiClient.request(originalRequest);
             }
-            redirectToSigninOnUnauthorized();
+            redirectToSigninOnUnauthorized(refreshResult?.detail);
         }
 
         if (status === 401 && !originalRequest.skipAuthRefresh) {

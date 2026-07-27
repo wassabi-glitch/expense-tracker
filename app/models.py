@@ -416,6 +416,21 @@ class ExpenseSessionDraftSource(str, enum.Enum):
     OCR = "OCR"
 
 
+class SecurityAction(str, enum.Enum):
+    SIGNUP = "SIGNUP"
+    EMAIL_VERIFIED = "EMAIL_VERIFIED"
+    LOGIN = "LOGIN"
+    GOOGLE_LOGIN = "GOOGLE_LOGIN"
+    PASSWORD_CHANGED = "PASSWORD_CHANGED"  # nosec B105
+    PASSWORD_RESET = "PASSWORD_RESET"  # nosec B105
+    LOGOUT_ALL = "LOGOUT_ALL"
+
+
+class SecurityStatus(str, enum.Enum):
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+
+
 class UserIdentity(Base):
     __tablename__ = "user_identities"
     __table_args__ = (
@@ -549,6 +564,8 @@ class User(Base):
         "ExpenseSessionDraftWalletAllocation", back_populates="owner", cascade="all, delete-orphan")
     expense_session_draft_splits = relationship(
         "ExpenseSessionDraftSplit", back_populates="owner", cascade="all, delete-orphan")
+    security_events = relationship(
+        "SecurityEvent", back_populates="user", cascade="all, delete-orphan")
 
 
 class UserProfile(Base):
@@ -2930,3 +2947,23 @@ class Asset(Base):
     origin_event = relationship(
         "FinancialEvent", foreign_keys=[origin_event_id])
     sale_event = relationship("FinancialEvent", foreign_keys=[sale_event_id])
+
+
+class SecurityEvent(Base):
+    __tablename__ = "security_events"
+    __table_args__ = (
+        Index("ix_security_events_user_id_created_at", "user_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey(
+        "users.id", ondelete="CASCADE"), nullable=True, index=True)
+    action = Column(Enum(SecurityAction), nullable=False)
+    status = Column(Enum(SecurityStatus), nullable=False)
+    ip_address = Column(String(45), nullable=True)
+    user_agent = Column(String(512), nullable=True)
+    metadata_ = Column("metadata", JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True),
+                        server_default=func.now(), nullable=False)
+
+    user = relationship("User", back_populates="security_events")

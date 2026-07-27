@@ -22,13 +22,13 @@ export function useSignupMutation() {
 
 export function useForgotPasswordMutation() {
     return useMutation({
-        mutationFn: forgotPassword,
+        mutationFn: ({ email, captchaToken }) => forgotPassword(email, captchaToken),
     });
 }
 
 export function useResetPasswordMutation() {
     return useMutation({
-        mutationFn: ({ token, newPassword }) => resetPassword(token, newPassword),
+        mutationFn: ({ token, newPassword, captchaToken }) => resetPassword(token, newPassword, captchaToken),
     });
 }
 

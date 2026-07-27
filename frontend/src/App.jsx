@@ -8,7 +8,7 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
-import { silentRefresh } from "@/lib/api";
+import { silentRefresh, isLoggedIn } from "@/lib/api";
 import { AuthContext } from "@/lib/AuthContext";
 import { NotificationProvider } from "@/lib/context/NotificationContext";
 import { ToastProvider } from "@/lib/context/ToastContext";
@@ -77,7 +77,7 @@ export default function App() {
       <ToastProvider>
         <NotificationProvider>
           <Routes>
-        <Route path="/" element={<Navigate to="/sign-in" replace />} />
+        <Route path="/" element={<Navigate to={isLoggedIn() ? "/dashboard" : "/sign-in"} replace />} />
         <Route path="/sign-in" element={<Login />} />
         <Route path="/sign-up" element={<Signup />} />
         <Route path="/oauth-callback" element={<AuthCallback />} />

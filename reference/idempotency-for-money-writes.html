@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Idempotency for money writes — quick reference</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body><main>
+  <p class="eyebrow">Quick reference · Sarflog</p>
+  <h1>Idempotency for money writes</h1>
+  <div class="verdict"><strong>Rule:</strong> repeating one logical command must produce the same business effect as executing it once.</div>
+  <h2>The server decision</h2>
+  <div class="formula">scope = (owner_id, operation, idempotency_key)<br>fingerprint = hash(canonical_request_payload)</div>
+  <div class="grid">
+    <section class="card flat"><h3>New key</h3><p>Reserve key, execute the write and its ledger effects in one transaction, then store the response.</p></section>
+    <section class="card amortized"><h3>Same key + same payload</h3><p>Return the stored status and body. Do not execute domain logic again.</p></section>
+    <section class="card manual"><h3>Same key + different payload</h3><p>Reject the request. A key identifies one logical command, not a reusable client identity.</p></section>
+  </div>
+  <h2>Non-negotiable details</h2>
+  <ul>
+    <li>Use a database uniqueness constraint on the complete scope; an application check alone races.</li>
+    <li>Persist the key record atomically with the payment, financial event, wallet movement, and ledger entry.</li>
+    <li>Define behavior for a duplicate arriving while the first request is still running.</li>
+    <li>Do not confuse idempotency with validation, transactions, locks, or UI button disabling.</li>
+    <li>Keep genuine repeated payments possible by giving each intentional payment a new key.</li>
+  </ul>
+  <p><a href="../lessons/0005-idempotency-one-payment-once.html">Open the full lesson</a></p>
+</main></body></html>

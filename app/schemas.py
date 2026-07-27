@@ -139,6 +139,7 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str  # Only used during registration
+    captcha_token: Optional[str] = None
 
     @field_validator('password')
     def validate_password(cls, v):
@@ -164,6 +165,10 @@ class UserCreate(UserBase):
         if local_part and local_part in self.password.lower():
             raise ValueError("auth.validation.password.no_email_local_part")
         return self
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str
 
 
 # --- WALLET SCHEMAS ---
@@ -342,8 +347,10 @@ class UserOut(UserBase):
     id: int
     created_at: datetime
     is_premium: bool
+    has_local_password: bool = True
     needs_onboarding: bool = True
     profile: Optional[UserProfileOut] = None
+    verification_email_sent: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -2484,8 +2491,29 @@ class RefreshResponse(BaseModel):
     token_type: str
 
 
+class MobileSignInRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, v: str):
+        return v.strip().lower()
+
+
+class MobileRefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class MobileTokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str
+
+
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
+    captcha_token: str | None = None
 
     @field_validator("email")
     @classmethod
@@ -2505,6 +2533,7 @@ class ResendVerificationRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
+    captcha_token: str | None = None
 
     @field_validator("token")
     @classmethod
@@ -2532,6 +2561,34 @@ class ResetPasswordRequest(BaseModel):
         if not re.search(r"[^\w\s]", v):
             raise ValueError("auth.validation.password.special")
         return v
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v: str):
+        if len(v) < 8:
+            raise ValueError("auth.validation.password.min")
+        if len(v) > 64:
+            raise ValueError("auth.validation.password.max")
+        if " " in v:
+            raise ValueError("auth.validation.password.no_spaces")
+        if not re.search(r"[a-z]", v):
+            raise ValueError("auth.validation.password.lowercase")
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("auth.validation.password.uppercase")
+        if not re.search(r"\d", v):
+            raise ValueError("auth.validation.password.number")
+        if not re.search(r"[^\w\s]", v):
+            raise ValueError("auth.validation.password.special")
+        return v
+
+
+class VerifyPasswordRequest(BaseModel):
+    password: str
 
 
 class BudgetStatus(str, Enum):
@@ -4244,3 +4301,10 @@ class ProjectWrapUpSummaryOut(BaseModel):
     top_subcategories: List[ProjectWrapUpSubcategoryOut]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# --- AUTHENTICATION SCHEMAS ---
+
+class GoogleNativeAuthRequest(BaseModel):
+    id_token: str
+    nonce: Optional[str] = None

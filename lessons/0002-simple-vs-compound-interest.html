@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simple vs Compound Interest — The One Number That Changes</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="eyebrow">Sarflog architecture lesson 002</p>
+  <h1>Simple vs compound: which balance gets multiplied next?</h1>
+  <p class="lede">Forget the big formula for a moment. Use a deliberately easy example: borrow 1,000 UZS at 10% per month and make no payments for two months.</p>
+
+  <div class="verdict"><strong>The entire difference:</strong> simple interest multiplies the rate by principal only. Compound interest multiplies the rate by principal plus earlier unpaid interest.</div>
+
+  <section>
+    <h2>Simple interest: earlier interest stays separate</h2>
+    <table>
+      <thead><tr><th>Moment</th><th>Principal used</th><th>Calculation</th><th>New interest</th><th>Total owed</th></tr></thead>
+      <tbody>
+        <tr><td>Start</td><td>1,000</td><td>Nothing yet</td><td>0</td><td>1,000</td></tr>
+        <tr><td>End of month 1</td><td>1,000</td><td>1,000 × 10%</td><td>100</td><td>1,100</td></tr>
+        <tr><td>End of month 2</td><td><strong>Still 1,000</strong></td><td>1,000 × 10%</td><td>100</td><td>1,200</td></tr>
+      </tbody>
+    </table>
+    <div class="formula">principal: 1,000<br>separate unpaid interest: 200<br>total owed: 1,200</div>
+  </section>
+
+  <section>
+    <h2>Compound interest: earlier interest joins the base</h2>
+    <table>
+      <thead><tr><th>Moment</th><th>Balance used</th><th>Calculation</th><th>New interest</th><th>Total owed</th></tr></thead>
+      <tbody>
+        <tr><td>Start</td><td>1,000</td><td>Nothing yet</td><td>0</td><td>1,000</td></tr>
+        <tr><td>End of month 1</td><td>1,000</td><td>1,000 × 10%</td><td>100</td><td>1,100</td></tr>
+        <tr><td>End of month 2</td><td><strong>Now 1,100</strong></td><td>1,100 × 10%</td><td>110</td><td>1,210</td></tr>
+      </tbody>
+    </table>
+    <div class="formula">interest joined the balance: 1,000 + 100 = 1,100<br>month 2 interest: 1,100 × 10% = 110<br>total owed: 1,210</div>
+  </section>
+
+  <section>
+    <h2>Point to the exact difference</h2>
+    <div class="grid">
+      <article class="card flat">
+        <h3>Simple</h3>
+        <div class="formula">month 2: 1,000 × 10% = 100</div>
+        <p>The earlier 100 remains interest. It does not become principal.</p>
+      </article>
+      <article class="card amortized">
+        <h3>Compound</h3>
+        <div class="formula">month 2: 1,100 × 10% = 110</div>
+        <p>The earlier 100 joined the interest-bearing balance.</p>
+      </article>
+      <article class="card manual">
+        <h3>Difference</h3>
+        <div class="formula">1,210 − 1,200 = 10</div>
+        <p>That extra 10 is interest charged on earlier interest.</p>
+      </article>
+    </div>
+  </section>
+
+  <section>
+    <h2>What a normal amortized payment does</h2>
+    <p>Now start again with 1,000 principal and 10% monthly interest, but make a 600 payment after month one.</p>
+    <table>
+      <thead><tr><th>Step</th><th>Calculation</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>Month 1 interest</td><td>1,000 × 10%</td><td>100 interest</td></tr>
+        <tr><td>Payment covers interest first</td><td>600 − 100</td><td>500 left for principal</td></tr>
+        <tr><td>Reduce principal</td><td>1,000 − 500</td><td>500 principal remains</td></tr>
+        <tr><td>Month 2 interest</td><td>500 × 10%</td><td>50 interest</td></tr>
+      </tbody>
+    </table>
+    <p>The month-one interest was fully paid, so no interest remained to join the balance. Sarflog's planned <code>STANDARD_AMORTIZATION</code> follows this pattern: each scheduled payment covers that period's interest and then reduces principal.</p>
+  </section>
+
+  <section>
+    <h2>Where Sarflog draws the line</h2>
+    <table>
+      <thead><tr><th>Agreement behavior</th><th>Sarflog v1 treatment</th></tr></thead>
+      <tbody>
+        <tr><td>Fixed total with no interest calculation</td><td><strong>FIXED_TOTAL</strong></td></tr>
+        <tr><td>Fixed-rate monthly payments that cover interest and reduce principal</td><td><strong>STANDARD_AMORTIZATION</strong></td></tr>
+        <tr><td>Unpaid interest capitalizes, compounds, or follows special daily rules</td><td><strong>EXACT_CONTRACT</strong> until a specialized engine exists</td></tr>
+      </tbody>
+    </table>
+    <div class="boundary">
+      <h3>Do not ask users to guess “simple or compound”</h3>
+      <p>Sarflog should disclose its narrow supported rule. If the provider agreement behaves differently, copy the provider schedule instead of producing confident but false mathematics.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ten-second self-check</h2>
+    <p>A 1,000 balance earns 10% interest. After the first period it is 1,100. Next period's interest is calculated as 110. Did earlier interest join the interest-bearing balance?</p>
+    <p><strong>Answer:</strong> yes. This is compound behavior because 10% was applied to 1,100, not the original 1,000.</p>
+    <p class="small">Primary reading: <a href="https://www.consumerfinance.gov/ask-cfpb/whats-the-difference-between-a-simple-interest-rate-and-precomputed-interest-on-an-auto-loan-en-841/">CFPB on simple interest</a> and <a href="https://www.consumerfinance.gov/ask-cfpb/what-is-a-daily-periodic-rate-on-a-credit-card-en-46/">CFPB on daily compounding</a>. Keep asking follow-up questions—give one set of numbers and we can walk every row together.</p>
+  </section>
+
+  <p><a href="../reference/simple-vs-compound-interest.html">Open the one-page reference →</a></p>
+</main>
+</body>
+</html>

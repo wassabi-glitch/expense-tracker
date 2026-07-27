@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Where Interest Rules Fit in Sarflog</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="eyebrow">Sarflog architecture lesson 003</p>
+  <h1>Interest rules live inside a calculation engine</h1>
+  <p class="lede">Simple versus compound is not another product kind and not another universal Payment Plan choice. It matters only when Sarflog itself calculates interest.</p>
+
+  <div class="verdict"><strong>Orientation:</strong> the core architecture survives. The standard monthly generator locks one narrow rule; complex interest behavior routes to exact contract until a specialized engine is built.</div>
+
+  <section>
+    <h2>The tree</h2>
+    <div class="formula">PAYMENT PLAN<br>│<br>├─ FIXED_TOTAL<br>│  └─ no interest calculation<br>│<br>├─ STANDARD_AMORTIZATION<br>│  └─ Sarflog calculates monthly interest<br>│     └─ interest = outstanding principal × monthly rate<br>│<br>└─ EXACT_CONTRACT<br>   └─ provider supplies amounts; Sarflog does not calculate interest</div>
+  </section>
+
+  <section>
+    <h2>When simple versus compound becomes visible</h2>
+    <table>
+      <thead><tr><th>What happened?</th><th>Unpaid interest remains?</th><th>Does the distinction matter?</th></tr></thead>
+      <tbody>
+        <tr><td>Normal scheduled payment covers all interest</td><td>No</td><td><strong>No practical difference remains to process.</strong></td></tr>
+        <tr><td>Payment is missed or smaller than accrued interest</td><td>Yes</td><td><strong>Yes.</strong> The provider decides whether it stays separate or joins principal.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Our v1 promise</h2>
+    <div class="architecture">
+      <div class="flow-node"><div><strong>Normal supported loan</strong><br><span class="small">Monthly payment covers interest</span></div></div>
+      <div class="arrow">→</div>
+      <div class="flow-node"><div><strong>Standard generator</strong><br><span class="small">Calculate planned rows</span></div></div>
+      <div class="arrow">→</div>
+      <div class="flow-node"><div><strong>Deviation occurs</strong><br><span class="small">Copy provider adjustment; do not guess</span></div></div>
+    </div>
+    <p>Sarflog v1 does not automatically decide what a lender does with unpaid interest after a missed or insufficient payment. That consequence is provider-specific.</p>
+  </section>
+
+  <section>
+    <h2>What would require expansion later?</h2>
+    <p>A specialized daily-interest or capitalization engine would add contract terms and a calculation strategy. Stable schedule rows, actions, allocations, and ledger history would remain reusable.</p>
+    <div class="boundary">
+      <h3>Not broken; bounded</h3>
+      <p>The architecture is capable of extension. The current generator intentionally refuses to calculate rules it does not know.</p>
+    </div>
+    <p class="small">Read next: <a href="0002-simple-vs-compound-interest.html">the numerical simple-versus-compound example</a>. Primary source: <a href="https://www.consumerfinance.gov/ask-cfpb/whats-the-difference-between-a-simple-interest-rate-and-precomputed-interest-on-an-auto-loan-en-841/">CFPB on interest calculated from outstanding principal</a>. Ask follow-up questions with one real loan statement and we can classify it together.</p>
+  </section>
+</main>
+</body>
+</html>

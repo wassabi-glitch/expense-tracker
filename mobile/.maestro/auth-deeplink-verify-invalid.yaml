@@ -1,0 +1,10 @@
+appId: com.ahror2937.sarflog
+---
+# Test: deep-link to verify-email with invalid token
+- launchApp:
+    clearState: true
+- openLink: "sarflog://verify-email?token=expired-or-invalid-token"
+# If deep link works, should land on verify screen.
+# If not, the app stays on its current screen.
+# Tap at the center to see what happens
+- tapOn: { point: "50%,50%" }

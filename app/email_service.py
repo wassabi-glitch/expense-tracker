@@ -1,8 +1,6 @@
 import logging
-import smtplib
 import json
 import http.client
-from email.message import EmailMessage
 
 from config import settings
 
@@ -45,29 +43,24 @@ def _get_base_template(content_html: str, action_text: str, action_url: str) -> 
             </div>
         </div>
         <div class="footer">
-            &copy; 2024 Sarflog. All rights reserved.<br>
-            Sent via <strong>staging-mail.sarflog.uz</strong>
+            &copy; 2024 Sarflog. All rights reserved.
         </div>
     </div>
 </body>
 </html>
 """.strip()
 
-def _send_email(to_email: str, subject: str, text_body: str, html_body: str) -> bool:
+def _send_email(to_email: str, subject: str, text_body: str, html_body: str, idempotency_key: str | None = None) -> bool:
     """Centralized, resilient email sender helper.
 
     Delivery order:
-    1) Resend HTTP API (if RESEND_API_KEY is set)
-    2) SMTP fallback
+    1) Resend HTTP API
     """
-    if _send_email_via_resend_api(to_email, subject, text_body, html_body):
-        return True
-    logger.info("Falling back to SMTP for %s", to_email)
-    return _send_email_via_smtp(to_email, subject, text_body, html_body)
+    return _send_email_via_resend_api(to_email, subject, text_body, html_body, idempotency_key)
 
 
 def _send_email_via_resend_api(
-    to_email: str, subject: str, text_body: str, html_body: str
+    to_email: str, subject: str, text_body: str, html_body: str, idempotency_key: str | None = None
 ) -> bool:
     api_key = settings.resend_api_key
     if not api_key:
@@ -86,6 +79,8 @@ def _send_email_via_resend_api(
         "Authorization": f"Bearer {api_key.get_secret_value()}",
         "Content-Type": "application/json",
     }
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
 
     conn = None
     try:
@@ -112,40 +107,7 @@ def _send_email_via_resend_api(
         if conn is not None:
             conn.close()
 
-
-def _send_email_via_smtp(to_email: str, subject: str, text_body: str, html_body: str) -> bool:
-    if not settings.smtp_host or not settings.smtp_password:
-        logger.warning("SMTP not configured. Missing Host or Password. Host=%s", settings.smtp_host)
-        return False
-
-    logger.info("Email Attempt: Connecting to %s:%s", settings.smtp_host, settings.smtp_port)
-
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = settings.email_from
-    msg["To"] = to_email
-    msg.set_content(text_body)
-    msg.add_alternative(html_body, subtype="html")
-
-    pwd = settings.smtp_password.get_secret_value()
-    try:
-        # We use a short timeout (20s) to avoid hanging the app.
-        if settings.smtp_port == 465:
-            server_class = smtplib.SMTP_SSL
-        else:
-            server_class = smtplib.SMTP
-
-        with server_class(settings.smtp_host, settings.smtp_port, timeout=20) as server:
-            if settings.smtp_port != 465 and settings.smtp_use_tls:
-                server.starttls()
-            server.login(settings.smtp_username or "resend", pwd)
-            server.send_message(msg)
-        return True
-    except Exception:
-        logger.exception("Failed to send email to %s", to_email)
-        return False
-
-def send_password_reset_email(to_email: str, reset_link: str) -> bool:
+def send_password_reset_email(to_email: str, reset_link: str, idempotency_key: str | None = None) -> bool:
     subject = "Reset your Sarflog password"
     text_body = f"Use this link to set a new password: {reset_link}\nThis link expires in 30 minutes."
     
@@ -155,9 +117,9 @@ def send_password_reset_email(to_email: str, reset_link: str) -> bool:
         <p>Ready to set a new password? Click the button below:</p>
     """
     html_body = _get_base_template(content_html, "Reset Password", reset_link)
-    return _send_email(to_email, subject, text_body, html_body)
+    return _send_email(to_email, subject, text_body, html_body, idempotency_key)
 
-def send_verification_email(to_email: str, verify_link: str) -> bool:
+def send_verification_email(to_email: str, verify_link: str, idempotency_key: str | None = None) -> bool:
     subject = "Verify your Sarflog email"
     text_body = f"Welcome to Sarflog! Verify your email by opening this link: {verify_link}"
     
@@ -166,4 +128,19 @@ def send_verification_email(to_email: str, verify_link: str) -> bool:
         <p>To finish setting up your account and start tracking your finances like a pro, please verify your email address.</p>
     """
     html_body = _get_base_template(content_html, "Verify Email", verify_link)
-    return _send_email(to_email, subject, text_body, html_body)
+    return _send_email(to_email, subject, text_body, html_body, idempotency_key)
+
+
+def send_password_changed_email(to_email: str, idempotency_key: str | None = None) -> bool:
+    subject = "Your Sarflog password was changed"
+    text_body = "Your password has been changed successfully. If you did not make this change, please contact support immediately."
+    
+    content_html = """
+        <p>Hello,</p>
+        <p>This is a confirmation that the password for your Sarflog account has just been changed.</p>
+        <p><strong>If you made this change, you can safely ignore this email.</strong></p>
+        <p>If you did <strong>not</strong> make this change, please contact support or reset your password immediately to secure your account.</p>
+    """
+    signin_link = settings.frontend_url.rstrip("/") + "/sign-in"
+    html_body = _get_base_template(content_html, "Sign In to Account", signin_link)
+    return _send_email(to_email, subject, text_body, html_body, idempotency_key)
