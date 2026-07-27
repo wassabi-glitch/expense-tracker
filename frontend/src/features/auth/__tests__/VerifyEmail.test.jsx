@@ -96,7 +96,8 @@ describe("VerifyEmail component", () => {
       expect(mutateAsync).toHaveBeenCalledWith("valid_token_but_spammed");
     });
 
-    // Should show rate limited text
-    expect(screen.getByText("auth.verifyEmailRateLimited")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("auth.verifyEmailRateLimited")).toBeInTheDocument();
+    });
   });
 });
