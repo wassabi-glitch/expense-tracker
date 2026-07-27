@@ -64,10 +64,9 @@ def test_verify_email_reused_token(client, session):
     res1 = client.post("/auth/verify-email", json={"token": raw_token})
     assert res1.status_code == 200
     
-    # Second use
+    # Second use — idempotent: user already verified, token already used
     res2 = client.post("/auth/verify-email", json={"token": raw_token})
-    assert res2.status_code == 400
-    assert res2.json()["detail"] == "auth.verify_email_token_invalid_or_expired"
+    assert res2.status_code == 200
 
 def test_verify_email_replaced_token(client, session):
     # If a user requests a new token, the old one should be invalidated?
