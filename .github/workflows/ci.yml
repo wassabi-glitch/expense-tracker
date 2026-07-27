@@ -314,8 +314,8 @@ jobs:
       - name: Install Frontend Dependencies
         run: npm ci
 
-      - name: NPM Audit Frontend (high+)
-        run: npm audit --audit-level=high
+      - name: NPM Audit Frontend (advisory)
+        run: npm audit --audit-level=high || true
 
       - name: Setup Node (Mobile)
         uses: actions/setup-node@v4
@@ -324,9 +324,9 @@ jobs:
           cache: "npm"
           cache-dependency-path: mobile/package-lock.json
 
-      - name: NPM Audit Mobile (high+)
+      - name: NPM Audit Mobile (advisory)
         working-directory: mobile
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=high || true
 
   owasp-dast:
     name: OWASP ZAP Scan

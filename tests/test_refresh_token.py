@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 
 from app import models, oauth2
+from app.redis_rate_limiter import RateLimitResult
 from app.routers import oauth_google
 
 
@@ -372,9 +373,6 @@ def test_concurrent_refresh_requests(client, session):
 # ═══════════════════════════════════════════════════
 # Session Cap (Max 10) Eviction
 # ═══════════════════════════════════════════════════
-
-from unittest.mock import patch
-from app.redis_rate_limiter import RateLimitResult
 
 @patch("app.routers.users.check_and_consume", return_value=RateLimitResult(allowed=True, limit=999, remaining=999, reset_seconds=1))
 def test_session_cap_eviction(mock_rl, client, session):

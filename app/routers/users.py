@@ -1,7 +1,6 @@
 import logging
 import json
 # pyrefly: ignore [missing-import]
-import httpx
 from datetime import datetime, timezone
 # pyrefly: ignore [missing-import]
 from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response, status

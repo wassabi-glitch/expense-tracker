@@ -600,7 +600,6 @@ def test_change_password_wrong_current(client, session):
 def test_change_password_google_only(client, session):
     # Simulate google-only user
     from app import models, utils
-    import secrets
     
     email = "googleonly@example.com"
     user = models.User(

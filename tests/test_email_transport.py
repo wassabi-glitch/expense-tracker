@@ -1,6 +1,6 @@
 import json
 from unittest.mock import patch, MagicMock
-from app.email_service import _send_email_via_resend_api, send_verification_email, send_password_reset_email
+from app.email_service import _send_email_via_resend_api, send_password_reset_email
 from config import settings
 # pyrefly: ignore [missing-import]
 from pydantic import SecretStr

@@ -1,7 +1,6 @@
 import logging
 import json
 import http.client
-from email.message import EmailMessage
 
 from config import settings
 

@@ -1,5 +1,4 @@
 # pyrefly: ignore [missing-import]
-import pytest
 from unittest.mock import patch
 from app import models
 from config import settings

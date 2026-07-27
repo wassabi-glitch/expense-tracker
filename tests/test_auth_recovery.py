@@ -2,7 +2,6 @@
 import pytest
 import concurrent.futures
 # pyrefly: ignore [missing-import]
-import pytest
 from datetime import datetime, timedelta, timezone
 from app import models
 from app.session import get_db
@@ -148,7 +147,7 @@ def test_reset_password_success_and_revocation(client):
         _create_mock_reset_token(db, user.id, raw_token)
         
         # Create a refresh token to simulate an active session
-        refresh_token = create_refresh_token(user.id)
+        _ = create_refresh_token(user.id)
         
         # Verify redis has a token
         if hasattr(oauth2._redis, "values"):

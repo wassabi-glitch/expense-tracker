@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import patch
 from app import models
 from app.redis_rate_limiter import redis_client

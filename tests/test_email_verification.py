@@ -1,9 +1,6 @@
 # pyrefly: ignore [missing-import]
-import pytest
 from app import models
 from app.email_verification import issue_email_verification_token
-from datetime import datetime, timedelta, timezone
-from urllib.parse import urlparse, parse_qs
 
 def test_verify_email_success(client, session):
     # 1. Sign up

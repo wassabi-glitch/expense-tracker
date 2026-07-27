@@ -1,6 +1,5 @@
 import pytest
-from app.redis_rate_limiter import redis_client
-from tests.helpers import TEST_TIMEZONE, create_user_and_token
+from tests.helpers import TEST_TIMEZONE
 from app.main import app
 from app.session import get_db
 from app import models
@@ -34,7 +33,6 @@ def test_user(client):
                 
     return {"email": email, "password": password}
 
-from app.redis_rate_limiter import redis_client
 
 def test_mobile_sign_in_success(client, test_user):
     payload = {
