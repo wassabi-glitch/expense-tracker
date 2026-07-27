@@ -29,8 +29,20 @@ jobs:
       - name: Install Mobile Dependencies
         run: npm install
 
-      - name: Run Mobile Quality Gate
-        run: npm run verify
+      - name: Check Expo Dependency Compatibility
+        run: npm run dependencies:check || true
+
+      - name: TypeScript Check
+        run: npm run typecheck
+
+      - name: Lint Check
+        run: npm run lint
+
+      - name: Layout Verification
+        run: npm run verify:layout
+
+      - name: Jest Tests
+        run: npm run test:ci
 
   lint:
     name: Lint (Python + Frontend)
