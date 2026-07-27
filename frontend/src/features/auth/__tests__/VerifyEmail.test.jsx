@@ -79,8 +79,9 @@ describe("VerifyEmail component", () => {
       expect(mutateAsync).toHaveBeenCalledWith("invalid_token");
     });
 
-    // Should show invalid token text and resend link
-    expect(screen.getByText("auth.verifyEmailInvalidToken")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("auth.verifyEmailInvalidToken")).toBeInTheDocument();
+    });
     expect(screen.getByRole("link", { name: "auth.resendVerificationAction" })).toBeInTheDocument();
   });
 
