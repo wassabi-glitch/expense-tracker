@@ -187,7 +187,7 @@ describe('Auth Integration: SignUp & CheckEmail', () => {
 
     it('displays session expired error when navigated to sign-in with sessionExpired error', async () => {
       const { useLocalSearchParams } = require('expo-router');
-      useLocalSearchParams.mockReturnValueOnce({ error: 'auth.refresh_token_invalid' });
+      useLocalSearchParams.mockReturnValue({ error: 'auth.refresh_token_invalid' });
 
       await renderWithProviders(<SignInRoute />);
 
