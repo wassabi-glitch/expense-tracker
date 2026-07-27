@@ -27,7 +27,7 @@ jobs:
           cache-dependency-path: mobile/package-lock.json
 
       - name: Install Mobile Dependencies
-        run: npm ci
+        run: npm install
 
       - name: Run Mobile Quality Gate
         run: npm run verify
@@ -58,7 +58,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install Frontend Dependencies
-        run: cd frontend && npm ci
+        run: cd frontend && npm install
 
       - name: ESLint (Frontend)
         run: cd frontend && npx eslint src/ --max-warnings 50
@@ -77,11 +77,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22.13.1"
-          cache: "npm"
-          cache-dependency-path: mobile/package-lock.json
 
       - name: Install Mobile Dependencies
-        run: npm ci
+        run: npm install
 
       - name: Run Mobile Lint
         run: npm run lint
@@ -215,7 +213,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install Frontend Dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build Frontend
         run: npm run build
@@ -238,7 +236,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install Frontend Dependencies
-        run: npm ci
+        run: npm install
 
       - name: Run Vitest
         run: npm run test:run
@@ -261,7 +259,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install Frontend Dependencies
-        run: npm ci
+        run: npm install
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium
@@ -312,7 +310,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install Frontend Dependencies
-        run: npm ci
+        run: npm install
 
       - name: NPM Audit Frontend (advisory)
         run: npm audit --audit-level=high || true
