@@ -1,5 +1,6 @@
+/* eslint-disable testing-library/no-unnecessary-act */
 import React from 'react';
-import { screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { screen, fireEvent, waitFor, act } from '@testing-library/react-native';
 import { renderWithProviders } from '../../../../tests/test-utils';
 import { ChangePasswordForm } from '../components/change-password-form';
 import { apiClient } from '@/lib/api/client';
@@ -36,8 +37,10 @@ describe('ChangePasswordForm Integration', () => {
     mockIsRateLimited = false;
   });
 
-  afterEach(() => {
-    jest.restoreAllMocks();
+  afterEach(async () => {
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
   });
 
   it('renders correctly', async () => {
@@ -59,15 +62,19 @@ describe('ChangePasswordForm Integration', () => {
 
     await renderWithProviders(<ChangePasswordForm />);
 
-    const currentInput = await screen.findByTestId('current-password-input');
-    const newInput = await screen.findByTestId('new-password-input');
-    const confirmInput = await screen.findByTestId('confirm-password-input');
+    await act(async () => {
+      const currentInput = await screen.findByTestId('current-password-input');
+      const newInput = await screen.findByTestId('new-password-input');
+      const confirmInput = await screen.findByTestId('confirm-password-input');
 
-    fireEvent.changeText(currentInput, 'OldPass1!');
-    fireEvent.changeText(newInput, 'NewStrong2@');
-    fireEvent.changeText(confirmInput, 'NewStrong2@');
+      fireEvent.changeText(currentInput, 'OldPass1!');
+      fireEvent.changeText(newInput, 'NewStrong2@');
+      fireEvent.changeText(confirmInput, 'NewStrong2@');
+    });
 
-    fireEvent.press(screen.getByLabelText('settings.updatePassword'));
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('settings.updatePassword'));
+    });
 
     await waitFor(() => {
       expect(apiClient.post).toHaveBeenCalledWith('/auth/mobile/change-password', {
@@ -88,15 +95,19 @@ describe('ChangePasswordForm Integration', () => {
 
     await renderWithProviders(<ChangePasswordForm />);
 
-    const currentInput = await screen.findByTestId('current-password-input');
-    const newInput = await screen.findByTestId('new-password-input');
-    const confirmInput = await screen.findByTestId('confirm-password-input');
+    await act(async () => {
+      const currentInput = await screen.findByTestId('current-password-input');
+      const newInput = await screen.findByTestId('new-password-input');
+      const confirmInput = await screen.findByTestId('confirm-password-input');
 
-    fireEvent.changeText(currentInput, 'WrongPass1!');
-    fireEvent.changeText(newInput, 'NewStrong2@');
-    fireEvent.changeText(confirmInput, 'NewStrong2@');
+      fireEvent.changeText(currentInput, 'WrongPass1!');
+      fireEvent.changeText(newInput, 'NewStrong2@');
+      fireEvent.changeText(confirmInput, 'NewStrong2@');
+    });
 
-    fireEvent.press(screen.getByLabelText('settings.updatePassword'));
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('settings.updatePassword'));
+    });
 
     await waitFor(() => {
       expect(screen.getByText('auth.incorrect_current_password')).toBeTruthy();
@@ -118,15 +129,19 @@ describe('ChangePasswordForm Integration', () => {
 
     await renderWithProviders(<ChangePasswordForm />);
 
-    const currentInput = await screen.findByTestId('current-password-input');
-    const newInput = await screen.findByTestId('new-password-input');
-    const confirmInput = await screen.findByTestId('confirm-password-input');
+    await act(async () => {
+      const currentInput = await screen.findByTestId('current-password-input');
+      const newInput = await screen.findByTestId('new-password-input');
+      const confirmInput = await screen.findByTestId('confirm-password-input');
 
-    fireEvent.changeText(currentInput, 'OldPass1!');
-    fireEvent.changeText(newInput, 'NewStrong2@');
-    fireEvent.changeText(confirmInput, 'NewStrong2@');
+      fireEvent.changeText(currentInput, 'OldPass1!');
+      fireEvent.changeText(newInput, 'NewStrong2@');
+      fireEvent.changeText(confirmInput, 'NewStrong2@');
+    });
 
-    fireEvent.press(screen.getByLabelText('settings.updatePassword'));
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('settings.updatePassword'));
+    });
 
     await waitFor(() => {
       expect(mockOnRateLimitError).toHaveBeenCalled();

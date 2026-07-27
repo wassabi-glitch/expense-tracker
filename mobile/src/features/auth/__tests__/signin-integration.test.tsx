@@ -38,7 +38,7 @@ describe('SignInRoute Integration', () => {
     await renderWithProviders(<SignInRoute />);
 
     await waitFor(() => {
-      expect(screen.getByText('auth.signIn.errors.sessionExpired')).toBeTruthy();
+      expect(screen.getByText('Your session has expired or is invalid. Please sign in again.')).toBeTruthy();
     });
   });
 

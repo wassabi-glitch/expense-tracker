@@ -192,7 +192,7 @@ describe('Auth Integration: SignUp & CheckEmail', () => {
       await renderWithProviders(<SignInRoute />);
 
       await waitFor(() => {
-        expect(screen.getByText('auth.signIn.errors.sessionExpired')).toBeTruthy();
+        expect(screen.getByText('Your session has expired or is invalid. Please sign in again.')).toBeTruthy();
       });
     });
   });
@@ -215,7 +215,7 @@ describe('Auth Integration: SignUp & CheckEmail', () => {
       await user.press(signInButton);
 
       await waitFor(() => {
-        expect(screen.getByText('auth.signIn.errors.loginRateLimited')).toBeTruthy();
+        expect(screen.getByText('Too many login attempts. Please try again later.')).toBeTruthy();
       });
     });
 
@@ -236,7 +236,7 @@ describe('Auth Integration: SignUp & CheckEmail', () => {
       await user.press(signInButton);
 
       await waitFor(() => {
-        expect(screen.getByText('auth.signIn.errors.idempotencyConflictInProgress')).toBeTruthy();
+        expect(screen.getByText('Sign-in is already in progress. Please wait a moment.')).toBeTruthy();
       });
     });
   });
