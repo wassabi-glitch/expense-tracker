@@ -185,83 +185,59 @@ describe('Auth Integration: SignUp & CheckEmail', () => {
       });
     });
 
-    it('displays session expired alert when navigated to sign-in with sessionExpired error', async () => {
-      // Mock the router params to include the error
+    it('displays session expired error when navigated to sign-in with sessionExpired error', async () => {
       const { useLocalSearchParams } = require('expo-router');
       useLocalSearchParams.mockReturnValueOnce({ error: 'auth.refresh_token_invalid' });
 
-      // Mock React Native Alert
-      const { Alert } = require('react-native');
-      const alertSpy = jest.spyOn(Alert, 'alert');
-
       await renderWithProviders(<SignInRoute />);
 
-      expect(alertSpy).toHaveBeenCalledWith(
-        'Sign in to your account', 
-        'Your session has expired or is invalid. Please sign in again.'
-      );
-      
-      alertSpy.mockRestore();
+      await waitFor(() => {
+        expect(screen.getByText('auth.signIn.errors.sessionExpired')).toBeTruthy();
+      });
     });
   });
 
   describe('SignInRoute', () => {
-    it('displays rate limit alert when backend returns auth.login_rate_limited', async () => {
+    it('displays rate limit error when backend returns auth.login_rate_limited', async () => {
       server.use(
         http.post('*/auth/mobile/sign-in', () => {
           return HttpResponse.json({ detail: 'auth.login_rate_limited' }, { status: 429 });
         })
       );
 
-      const { Alert } = require('react-native');
-      const alertSpy = jest.spyOn(Alert, 'alert');
-
       const user = userEvent.setup();
       await renderWithProviders(<SignInRoute />);
-      
+
       await user.type(screen.getByPlaceholderText('Enter your email'), 'test@example.com');
       await user.type(screen.getByPlaceholderText('Enter your password'), 'Password123!');
-      
+
       const signInButton = screen.getByRole('button', { name: 'Sign in' });
       await user.press(signInButton);
 
       await waitFor(() => {
-        expect(alertSpy).toHaveBeenCalledWith(
-          'Sign in to your account',
-          'Too many login attempts. Please try again later.'
-        );
+        expect(screen.getByText('auth.signIn.errors.loginRateLimited')).toBeTruthy();
       });
-
-      alertSpy.mockRestore();
     });
 
-    it('displays idempotency alert when backend returns auth.idempotency_conflict_in_progress', async () => {
+    it('displays idempotency error when backend returns auth.idempotency_conflict_in_progress', async () => {
       server.use(
         http.post('*/auth/mobile/sign-in', () => {
           return HttpResponse.json({ detail: 'auth.idempotency_conflict_in_progress' }, { status: 409 });
         })
       );
 
-      const { Alert } = require('react-native');
-      const alertSpy = jest.spyOn(Alert, 'alert');
-
       const user = userEvent.setup();
       await renderWithProviders(<SignInRoute />);
-      
+
       await user.type(screen.getByPlaceholderText('Enter your email'), 'test@example.com');
       await user.type(screen.getByPlaceholderText('Enter your password'), 'Password123!');
-      
+
       const signInButton = screen.getByRole('button', { name: 'Sign in' });
       await user.press(signInButton);
 
       await waitFor(() => {
-        expect(alertSpy).toHaveBeenCalledWith(
-          'Sign in to your account',
-          'Sign-in is already in progress. Please wait a moment.'
-        );
+        expect(screen.getByText('auth.signIn.errors.idempotencyConflictInProgress')).toBeTruthy();
       });
-
-      alertSpy.mockRestore();
     });
   });
 });

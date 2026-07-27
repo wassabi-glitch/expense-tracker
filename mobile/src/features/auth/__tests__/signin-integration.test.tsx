@@ -1,6 +1,5 @@
 import { screen, userEvent, waitFor } from '@testing-library/react-native';
 import { http, HttpResponse } from 'msw';
-import { Alert } from 'react-native';
 import SignInRoute from '@/app/(auth)/sign-in';
 import { server } from '../../../../tests/mocks/server';
 import { renderWithProviders } from '../../../../tests/test-utils';
@@ -34,24 +33,12 @@ jest.mock('@react-native-google-signin/google-signin', () => ({
 
 describe('SignInRoute Integration', () => {
   jest.setTimeout(15000);
-  let alertSpy: jest.SpyInstance;
 
-  beforeEach(() => {
-    alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    alertSpy.mockRestore();
-  });
-
-  it('displays session expired alert if error parameter is passed', async () => {
+  it('displays session expired error if error parameter is passed', async () => {
     await renderWithProviders(<SignInRoute />);
-    
+
     await waitFor(() => {
-      expect(alertSpy).toHaveBeenCalledWith(
-        'Sign in to your account', // default translation for auth.signIn.title
-        'Your session has expired or is invalid. Please sign in again.' // default for sessionExpired
-      );
+      expect(screen.getByText('auth.signIn.errors.sessionExpired')).toBeTruthy();
     });
   });
 

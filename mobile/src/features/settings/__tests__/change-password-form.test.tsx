@@ -36,6 +36,10 @@ describe('ChangePasswordForm Integration', () => {
     mockIsRateLimited = false;
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('renders correctly', async () => {
     await renderWithProviders(<ChangePasswordForm />);
     expect(await screen.findByText('settings.changePassword')).toBeTruthy();
