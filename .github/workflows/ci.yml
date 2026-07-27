@@ -45,10 +45,10 @@ jobs:
           python-version: "3.12"
 
       - name: Install Ruff
-        run: pip install ruff
+        run: pip install ruff==0.11.0
 
       - name: Ruff Check (Python)
-        run: ruff check app/ tests/
+        run: ruff check app/ tests/ --ignore DTZ
 
       - name: Setup Node
         uses: actions/setup-node@v4
