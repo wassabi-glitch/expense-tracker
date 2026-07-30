@@ -15,8 +15,10 @@ import { fontAssets } from '@/theme';
 
 import { AppQueryProvider } from '@/providers/query-provider';
 import { AppLockProvider } from '@/providers/app-lock-provider';
+import * as SystemUI from 'expo-system-ui';
 
 void SplashScreen.preventAutoHideAsync();
+SystemUI.setBackgroundColorAsync('transparent');
 
 if (__DEV__) {
   LogBox.ignoreLogs([

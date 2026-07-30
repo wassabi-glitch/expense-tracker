@@ -19,7 +19,12 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.ahror2937.sarflog"
+      "package": "com.ahror2937.sarflog",
+      "softwareKeyboardLayoutMode": "pan"
+    },
+    "androidNavigationBar": {
+      "visible": "sticky-immersive",
+      "backgroundColor": "#00000000"
     },
     "web": {
       "output": "static",
@@ -37,7 +42,15 @@
       ],
       "expo-secure-store",
       "expo-localization",
-      "@react-native-google-signin/google-signin"
+      "@react-native-google-signin/google-signin",
+      "@react-native-community/datetimepicker",
+      "expo-sharing",
+      [
+        "expo-navigation-bar",
+        {
+          "enforceContrast": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

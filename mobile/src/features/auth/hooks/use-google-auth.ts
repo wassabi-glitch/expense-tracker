@@ -35,13 +35,23 @@ export function useGoogleAuth() {
               await signIn(data.access_token, data.refresh_token);
             },
             onError: (err: any) => {
-              const msg = err?.response?.data?.detail;
-              setError(msg || 'auth.generic_error');
+              const detail: string | undefined = err?.response?.data?.detail;
+              if (!detail) {
+                setError('generic');
+                return;
+              }
+              // Strip 'auth.' prefix and convert snake_case to camelCase so
+              // backend error codes (auth.google_id_token_invalid) match
+              // translation keys (auth.signIn.errors.googleIdTokenInvalid).
+              const key = detail.startsWith('auth.')
+                ? detail.slice(5).replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())
+                : detail;
+              setError(key);
             },
           }
         );
       } else {
-        setError('google_id_token_missing');
+        setError('googleIdTokenMissing');
       }
     } catch (err: any) {
       if (err.code === statusCodes.SIGN_IN_CANCELLED) {
@@ -49,9 +59,9 @@ export function useGoogleAuth() {
       } else if (err.code === statusCodes.IN_PROGRESS) {
         // operation (e.g. sign in) is in progress already
       } else if (err.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
-        setError('google_play_services_unavailable');
+        setError('googlePlayServicesUnavailable');
       } else {
-        setError('google_auth_failed');
+        setError('googleAuthFailed');
       }
     }
   };

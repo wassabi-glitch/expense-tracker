@@ -1,0 +1,34 @@
+appId: com.expense.tracker
+---
+- launchApp
+- tapOn: "More"
+
+# Verify visual elements of the new More screen
+- assertVisible: "More"
+- assertVisible: "Wallets"
+- assertVisible: "Goals"
+- assertVisible: "Obligations"
+- assertVisible: "Income"
+- assertVisible: "Assets"
+- assertVisible: "Analytics"
+- assertVisible: "Export"
+- assertVisible: "Appearance"
+- assertVisible: "Settings"
+
+# Tap settings
+- tapOn: "Settings"
+
+# Verify Settings render
+- assertVisible: "Tab Bar Appearance"
+
+# Test Language toggle (Russian)
+- tapOn: "Русский"
+- assertVisible: "Главная" # Home tab in Russian
+
+# Test Language toggle (Uzbek)
+- tapOn: "O'zbek"
+- assertVisible: "Asosiy" # Home tab in Uzbek
+
+# Switch back to English
+- tapOn: "English"
+- assertVisible: "Home"
