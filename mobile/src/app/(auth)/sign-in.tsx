@@ -52,8 +52,12 @@ export default function SignInRoute() {
               setFormError('auth.signIn.errors.loginRateLimited');
             } else if (msg === 'auth.idempotency_conflict_in_progress') {
               setFormError('auth.signIn.errors.idempotencyConflictInProgress');
+            } else if (msg === 'auth.invalid_credentials') {
+              setFormError('auth.signIn.errors.invalidCredentials');
+            } else if (msg === 'auth.email_not_verified') {
+              setFormError('auth.signIn.errors.emailNotVerified');
             } else {
-              setFieldErrors({ email: true, password: true });
+              setFormError('auth.signIn.errors.generic');
             }
           }
         }}

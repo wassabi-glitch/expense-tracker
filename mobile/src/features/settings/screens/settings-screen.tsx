@@ -21,9 +21,10 @@ import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { useUserQuery } from '../../auth/hooks/use-user-query';
 import { ChangePasswordForm } from '../components/change-password-form';
 import { useAppLockStore } from '@/features/app-lock/hooks/use-app-lock';
+import { useNavigationTheme } from '@/hooks/use-navigation-theme';
 
 export function SettingsScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const router = useRouter();
   const { signOut, signOutAll } = useAuthStore();
   const { colors } = useTheme();
@@ -46,6 +47,8 @@ export function SettingsScreen() {
     toggleAppLock,
     startChangePin,
   } = useAppLockStore();
+
+  const { tabBarPreference, setTabBarPreference } = useNavigationTheme();
 
   const [error, setError] = useState<string | null>(null);
 
@@ -103,6 +106,53 @@ export function SettingsScreen() {
         <Text style={[styles.title, { color: colors.textPrimary }]}>{t('settings.title')}</Text>
 
         {error && <Text style={styles.errorText}>{error}</Text>}
+
+        {/* ── Tab Bar Appearance ── */}
+        <View style={[styles.appLockSection, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+            Tab Bar Appearance
+          </Text>
+          <Text style={[styles.sectionDesc, { color: colors.textSecondary }]}>
+            Choose between Solid and Glass styles for the bottom navigation bar.
+          </Text>
+          <View style={styles.appLockRow}>
+            <Text style={{ color: colors.textPrimary, flex: 1 }}>
+              {tabBarPreference === 'glass' ? 'Glass (Translucent)' : 'Solid (Opaque)'}
+            </Text>
+            <Switch
+              value={tabBarPreference === 'glass'}
+              onValueChange={(isGlass) => setTabBarPreference(isGlass ? 'glass' : 'solid')}
+              trackColor={{ false: colors.borderControl, true: colors.brand.action }}
+            />
+          </View>
+        </View>
+
+        {/* ── Language Settings ── */}
+        <View style={[styles.appLockSection, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+            Language / Язык / Til
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+            <TouchableOpacity 
+              style={[styles.changePinButton, { flex: 1, borderColor: i18n?.language === 'en' ? colors.brand.action : colors.borderControl, backgroundColor: i18n?.language === 'en' ? colors.brand.action : 'transparent' }]}
+              onPress={() => i18n.changeLanguage('en')}
+            >
+              <Text style={[styles.changePinText, { color: i18n?.language === 'en' ? colors.brand.onAction : colors.textPrimary }]}>English</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.changePinButton, { flex: 1, borderColor: i18n?.language === 'ru' ? colors.brand.action : colors.borderControl, backgroundColor: i18n?.language === 'ru' ? colors.brand.action : 'transparent' }]}
+              onPress={() => i18n.changeLanguage('ru')}
+            >
+              <Text style={[styles.changePinText, { color: i18n?.language === 'ru' ? colors.brand.onAction : colors.textPrimary }]}>Русский</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.changePinButton, { flex: 1, borderColor: i18n?.language === 'uz' ? colors.brand.action : colors.borderControl, backgroundColor: i18n?.language === 'uz' ? colors.brand.action : 'transparent' }]}
+              onPress={() => i18n.changeLanguage('uz')}
+            >
+              <Text style={[styles.changePinText, { color: i18n?.language === 'uz' ? colors.brand.onAction : colors.textPrimary }]}>O'zbek</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
 
         {/* ── App Lock Section ── */}
         {isInitialized && (

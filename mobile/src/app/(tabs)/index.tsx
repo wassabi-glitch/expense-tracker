@@ -22,6 +22,10 @@ export default function HomeScreen() {
         Open Auth Preview
       </Link>
 
+      <Link href="/layout-preview" style={[styles.link, { color: theme.colors.brand.action }]}>
+        Open Layout Preview
+      </Link>
+
       <Link href="/(auth)/sign-up" style={[styles.link, { color: theme.colors.brand.action }]}>
         Open Real Auth Flow
       </Link>

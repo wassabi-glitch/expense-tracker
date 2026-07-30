@@ -98,7 +98,8 @@ export const lightColors = {
 
 export const darkColors = {
   screen: palette.zinc950,
-  surface: palette.zinc900,
+  // surface: palette.zinc900, // Original card background
+  surface: '#121214', // Slightly darker, closer to pure black
   surfaceSubtle: palette.zinc800,
   textPrimary: palette.zinc50,
   textSecondary: palette.zinc400,
