@@ -53,6 +53,7 @@ def _today_patch(target_date: date):
         mock.patch("app.routers.income.today_in_tz", return_value=target_date),
         mock.patch("app.routers.wallets.today_in_tz", return_value=target_date),
         mock.patch("app.timezone.today_in_tz", return_value=target_date),
+        mock.patch("tests.helpers.user_timezone_today", return_value=target_date),
         # Also patch now_in_tz for refund flows
         mock.patch("app.routers.expenses.now_in_tz", return_value=target_dt),
     ])
@@ -60,12 +61,13 @@ def _today_patch(target_date: date):
 
 def _make_expense(client, headers, **kwargs):
     """Create an expense directly via the API."""
+    from tests.helpers import user_timezone_today
     payload = {
         "title": kwargs.get("title", "Test Expense"),
         "amount": kwargs.get("amount", 10),
         "category": kwargs.get("category", "Groceries"),
         "description": kwargs.get("description", "test"),
-        "date": kwargs.get("expense_date", date(2026, 7, 1)).isoformat(),
+        "date": kwargs.get("expense_date", user_timezone_today().replace(day=1)).isoformat(),
     }
     for opt in ("wallet_id", "subcategory_id", "project_id"):
         if kwargs.get(opt) is not None:
@@ -108,7 +110,8 @@ class TestIssue1ExpenseTimezoneBoundary:
             client, "tzexp1", "tzexp1@example.com", "Password123!"
         )
         create_budget(client, headers, category="Food", monthly_limit=500)
-        explicit = date(2026, 7, 4)
+        from tests.helpers import user_timezone_today
+        explicit = user_timezone_today().replace(day=1)
         res = _make_expense(
             client, headers, title="Explicit Date",
             amount=10, category="Groceries", expense_date=explicit,
@@ -137,9 +140,9 @@ class TestIssue1ExpenseTimezoneBoundary:
         headers = create_user_and_token(
             client, "tzexp3", "tzexp3@example.com", "Password123!"
         )
-        create_budget(client, headers, category="Food", monthly_limit=500)
-
         with _today_patch(date(2026, 7, 5)):
+            create_budget(client, headers, category="Food", monthly_limit=500)
+
             res = _make_expense(
                 client, headers, title="Today Date",
                 amount=10, category="Groceries",
@@ -415,9 +418,9 @@ class TestIssue3DebtDueStatusTimezoneBoundary:
                 headers=headers,
             )
 
-        overdue_list = client.get(
-            "/debts?time_status=OVERDUE", headers=headers,
-        )
+            overdue_list = client.get(
+                "/debts?time_status=OVERDUE", headers=headers,
+            )
         assert overdue_list.status_code == 200, overdue_list.text
         overdue_items = overdue_list.json()["items"]
         assert len(overdue_items) == 1
@@ -581,18 +584,18 @@ class TestIssue5RefundTimezoneBoundary:
         headers = create_user_and_token(
             client, "tzref1", "tzref1@example.com", "Password123!"
         )
-        create_budget(client, headers, category="Food", monthly_limit=500)
-
-        # Create an expense to refund
-        exp = _make_expense(
-            client, headers, title="To Refund",
-            amount=50, category="Groceries",
-            expense_date=date(2026, 7, 5),
-        )
-        assert exp.status_code == 201, exp.text
-        expense_id = exp.json()["id"]
-
         with _today_patch(date(2026, 7, 10)):
+            create_budget(client, headers, category="Food", monthly_limit=500)
+
+            # Create an expense to refund
+            exp = _make_expense(
+                client, headers, title="To Refund",
+                amount=50, category="Groceries",
+                expense_date=date(2026, 7, 5),
+            )
+            assert exp.status_code == 201, exp.text
+            expense_id = exp.json()["id"]
+
             res = client.post(
                 f"/expenses/{expense_id}/refund",
                 json={"amount": 50},
@@ -616,17 +619,17 @@ class TestIssue5ReversalVoidTimezoneBoundary:
         headers = create_user_and_token(
             client, "tzvoid1", "tzvoid1@example.com", "Password123!"
         )
-        create_budget(client, headers, category="Food", monthly_limit=500)
-
-        exp = _make_expense(
-            client, headers, title="To Void",
-            amount=30, category="Groceries",
-            expense_date=date(2026, 7, 5),
-        )
-        assert exp.status_code == 201, exp.text
-        expense_id = exp.json()["id"]
-
         with _today_patch(date(2026, 7, 10)):
+            create_budget(client, headers, category="Food", monthly_limit=500)
+    
+            exp = _make_expense(
+                client, headers, title="To Void",
+                amount=30, category="Groceries",
+                expense_date=date(2026, 7, 5),
+            )
+            assert exp.status_code == 201, exp.text
+            expense_id = exp.json()["id"]
+    
             res = client.delete(
                 f"/expenses/{expense_id}",
                 headers=headers,

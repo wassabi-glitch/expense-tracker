@@ -361,7 +361,12 @@ def test_money_in_lists_and_classifies_incoming_money(client, session):
     assert missing_search.json() == {"total": 0, "items": []}
 
 
-def test_income_entry_rejects_date_outside_current_month(client):
+def test_income_entry_rejects_date_outside_current_month(client, monkeypatch):
+    import app.routers.income as income_router
+    monkeypatch.setattr(
+        income_router, "today_in_tz",
+        lambda _tz: date(2026, 7, 10),
+    )
     headers = create_user_and_token(
         client, "incomeuser4", "incomeuser4@example.com", "Password123!"
     )
@@ -369,7 +374,7 @@ def test_income_entry_rejects_date_outside_current_month(client):
     assert source.status_code == 201
     source_id = source.json()["id"]
 
-    today = user_timezone_today()
+    today = date(2026, 7, 10)
     month_start = today.replace(day=1)
     outside_date = month_start - timedelta(days=1)
 
@@ -1008,9 +1013,14 @@ def test_income_source_edit_voids_and_creates_corrected_event(client, session):
     assert corrected.entity_legs[0].income_source_id == source2_id
 
 
-def test_income_date_edit_voids_and_creates_corrected_event(client, session):
+def test_income_date_edit_voids_and_creates_corrected_event(client, session, monkeypatch):
     """Ticket 5: Changing the income date triggers a correction repost.
     The corrected date must pass normal-logging boundaries."""
+    import app.routers.income as income_router
+    monkeypatch.setattr(
+        income_router, "today_in_tz",
+        lambda _tz: date(2026, 7, 10),
+    )
     headers = create_user_and_token(
         client, "inccorrect4", "inccorrect4@example.com", "Password123!"
     )
@@ -1018,10 +1028,8 @@ def test_income_date_edit_voids_and_creates_corrected_event(client, session):
     assert source.status_code == 201
     source_id = source.json()["id"]
 
-    today = user_timezone_today()
-    # Use yesterday or today — whichever is within current month
-    first_date = today.replace(day=max(1, today.day - 2 if today.day > 2 else today.day))
-    second_date = today
+    first_date = date(2026, 7, 5)
+    second_date = date(2026, 7, 10)
 
     created = client.post(
         "/income/entries",

@@ -391,14 +391,23 @@ def test_project_expense_tagging_uses_expense_date_not_current_date(client):
     headers = create_user_and_token(
         client, "expprojectdates", "expprojectdates@example.com", "Password123!"
     )
+    today = user_timezone_today()
+    first_of_this = today.replace(day=1)
+    last_of_prev = first_of_this - timedelta(days=1)
+    
+    start_date = last_of_prev.replace(day=1)
+    target_end_date = last_of_prev.replace(day=15)
+    expense_date = last_of_prev.replace(day=10)
+    outside_window_date = last_of_prev.replace(day=20)
+
     project = client.post(
         "/projects",
         json={
             "title": "Conference",
             "is_isolated": True,
             "total_limit": 1_000_000,
-            "start_date": user_timezone_today().replace(day=1).isoformat(),
-            "target_end_date": user_timezone_today().replace(day=5).isoformat(),
+            "start_date": start_date.isoformat(),
+            "target_end_date": target_end_date.isoformat(),
         },
         headers=headers,
     )
@@ -418,7 +427,7 @@ def test_project_expense_tagging_uses_expense_date_not_current_date(client):
             "title": "Venue bill",
             "amount": 100_000,
             "category": "Family & Events",
-            "date": user_timezone_today().replace(day=5).isoformat(),
+            "date": expense_date.isoformat(),
             "project_id": project_id,
         },
         headers=headers,
@@ -426,14 +435,7 @@ def test_project_expense_tagging_uses_expense_date_not_current_date(client):
     assert accepted_late_entry.status_code == 201, accepted_late_entry.text
     assert accepted_late_entry.json()["project_id"] == project_id
 
-    outside_window_date = user_timezone_today().replace(day=7)
-    # If day 7 is in the future, the future-date check fires before
-    # the project window check. This is a known ordering: both are
-    # 400-level rejections and the first one wins.
-    if outside_window_date > user_timezone_today():
-        expected_detail = "expenses.date_in_future"
-    else:
-        expected_detail = "projects.expense_after_end"
+    expected_detail = "projects.expense_after_end"
     outside_window = client.post(
         "/expenses/",
         json={
@@ -454,9 +456,12 @@ def test_project_date_update_allows_expansion_and_blocks_orphaning_tagged_expens
         client, "expprojectshrink", "expprojectshrink@example.com", "Password123!"
     )
     today = user_timezone_today()
-    start_date = today.replace(day=1)
-    expense_date = today.replace(day=min(10, today.day - 1 if today.day > 1 else today.day))
-    end_date = today.replace(day=min(20, today.day)) if today.day >= 10 else today
+    first_of_this = today.replace(day=1)
+    last_of_prev = first_of_this - timedelta(days=1)
+    
+    start_date = last_of_prev.replace(day=5)
+    expense_date = last_of_prev.replace(day=10)
+    end_date = last_of_prev.replace(day=20)
 
     project = client.post(
         "/projects",
@@ -530,9 +535,12 @@ def test_completed_project_rejects_edits_and_expense_tagging_until_reopen(client
         client, "expprojectlocked", "expprojectlocked@example.com", "Password123!"
     )
     today = user_timezone_today()
-    start_date = today.replace(day=1)
-    expense_date = today.replace(day=min(5, today.day - 2 if today.day > 2 else today.day))
-    end_date = today.replace(day=min(15, today.day - 1 if today.day > 1 else today.day))
+    first_of_this = today.replace(day=1)
+    last_of_prev = first_of_this - timedelta(days=1)
+    
+    start_date = last_of_prev.replace(day=1)
+    expense_date = last_of_prev.replace(day=5)
+    end_date = last_of_prev.replace(day=15)
 
     project = client.post(
         "/projects",
