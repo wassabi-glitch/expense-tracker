@@ -33,10 +33,11 @@ export default function CheckEmailRoute() {
   // the stack once the transition ends so device-back goes to SignIn, not
   // back to the already-submitted sign-up form.
   useEffect(() => {
-    const state = navigation.getState();
+    const nav = navigation as any;
+    const state = nav.getState();
     if (!state?.routes) return;
-    const unsubscribe = navigation.addListener('transitionEnd', () => {
-      const currentState = navigation.getState();
+    const unsubscribe = nav.addListener('transitionEnd', () => {
+      const currentState = nav.getState();
       if (!currentState?.routes) return;
       const signUpIndex = currentState.routes.findIndex(
         (r: any) => r.name?.includes('sign-up'),
@@ -45,7 +46,7 @@ export default function CheckEmailRoute() {
         const newRoutes = [...currentState.routes];
         newRoutes.splice(signUpIndex, 1);
         const newIndex = currentState.index > signUpIndex ? currentState.index - 1 : currentState.index;
-        navigation.reset({
+        nav.reset({
           ...currentState,
           routes: newRoutes,
           index: newIndex,
@@ -101,7 +102,7 @@ export default function CheckEmailRoute() {
             startCooldown(60);
           },
           onError: (error) => {
-            const wasRateLimited = error?.retryAfterSeconds > 0;
+            const wasRateLimited = (error as any)?.retryAfterSeconds > 0;
             onRateLimitError(error);
             if (wasRateLimited) {
               showErrorToast(toast, t('auth.checkEmail.errors.rateLimited'), 'top');
