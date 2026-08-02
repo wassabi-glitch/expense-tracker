@@ -29,6 +29,7 @@ export type ThemeColors = {
   screen: string;
   surface: string;
   surfaceSubtle: string;
+  surfacePressed: string;
   textPrimary: string;
   textSecondary: string;
   borderSubtle: string;

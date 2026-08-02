@@ -1,5 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { BackHandler } from 'react-native';
 import { VerifyAccountScreen, VerifyAccountState } from '@/features/auth/screens/verify-account-screen';
 import { useVerifyEmailMutation } from '@/features/auth/api/auth-mutations';
 import { useRateLimitGate } from '@/hooks/useRateLimitGate';
@@ -12,6 +13,15 @@ export default function VerifyEmailRoute() {
   const { isRateLimited, onRateLimitError } = useRateLimitGate();
 
   const token = typeof params.token === 'string' ? params.token.trim() : '';
+
+  // Deep-link screen — back goes to SignIn, not into the void.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      router.replace('/(auth)/sign-in');
+      return true;
+    });
+    return () => sub.remove();
+  }, []);
 
   let verifyState: VerifyAccountState = 'ready';
   let customErrorMessage: string | undefined;
@@ -40,6 +50,7 @@ export default function VerifyEmailRoute() {
       customErrorMessage={customErrorMessage}
       verifyState={verifyState}
       isRateLimited={isRateLimited}
+      onBack={() => router.replace('/(auth)/sign-in')}
       onVerifyPress={() => {
         if (!token) {
           setLocalError(true);

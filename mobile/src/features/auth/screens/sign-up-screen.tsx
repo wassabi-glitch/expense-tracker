@@ -17,21 +17,21 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Button } from '@/components/ui/button';
+import { AppButton } from '@/components/ui/app-button';
 import { FieldError } from 'heroui-native/field-error';
 import { InputGroup } from 'heroui-native/input-group';
-import { Spinner } from 'heroui-native/spinner';
+// Spinner is handled by AppButton
 import { TextField } from 'heroui-native/text-field';
 import { Eye, EyeOff, Lock, Mail, User } from 'lucide-react-native';
 
 import {
   authPresentationColors,
-  darkColors,
   motion,
   sizes,
   spacing,
   typography,
 } from '@/theme';
+import { useAppTheme } from '@/providers/theme-provider';
 
 import { AuthScreenLayout, useAuthLayout } from '../components/auth-screen-layout';
 import { PasswordRequirementList } from '../components/password-requirement-list';
@@ -99,6 +99,7 @@ export function SignUpScreen({
   onIdentityBack,
 }: SignUpScreenProps) {
   const { t } = useTranslation();
+  const { colors } = useAppTheme();
   const [step, setStep] = useState<SignUpStep>(initialStep);
   const [direction, setDirection] = useState<1 | -1>(1);
   const [passwordVisible, setPasswordVisible] = useState(initialPasswordVisible);
@@ -123,7 +124,7 @@ export function SignUpScreen({
 
 
   const identityReady = !formState.errors.email && !formState.errors.username && email.length > 0 && username.length > 0;
-  
+
   const passwordRequirements = useMemo(
     () => evaluatePasswordRequirements(password, email),
     [email, password],
@@ -161,7 +162,7 @@ export function SignUpScreen({
       if (step !== 'identity') {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setDirection(-1);
-         
+
         setStep('identity');
       }
     }
@@ -246,6 +247,7 @@ export function SignUpScreen({
             onTouched={markTouched}
             touched={touched}
             username={username}
+            colors={colors}
           />
         ) : (
           <PasswordState
@@ -253,7 +255,7 @@ export function SignUpScreen({
             createAccountState={createAccountState}
             isRateLimited={isRateLimited}
             fieldError={Boolean(fieldErrors.password)}
-            formError={formError || formState.errors.password?.message}
+            formError={formError}
             isCreating={isCreating}
             onCreateAccount={createAccount}
             onToggleVisibility={() => setPasswordVisible((visible) => !visible)}
@@ -265,6 +267,7 @@ export function SignUpScreen({
             previewTextScale={previewTextScale}
             control={control}
             onCaptchaSuccess={setCaptchaToken}
+            colors={colors}
           />
         )}
       </Animated.View>
@@ -286,6 +289,7 @@ type IdentityStateProps = {
   onGooglePress: () => void;
   onContinue: () => void;
   onSignInPress: () => void;
+  colors: any;
 };
 
 function IdentityState({
@@ -302,6 +306,7 @@ function IdentityState({
   onGooglePress,
   onContinue,
   onSignInPress,
+  colors,
 }: IdentityStateProps) {
   const { t } = useTranslation();
   const { scrollToEnd } = useAuthLayout();
@@ -316,50 +321,41 @@ function IdentityState({
 
   return (
     <View className="gap-6">
-      <Button
+      <AppButton
         accessibilityLabel={t('auth.signUp.continueWithGoogle')}
-        accessibilityState={{ disabled: googleDisabled, busy: googlePending }}
-        animation={
-          googlePending
-            ? { scale: false, highlight: false }
-            : undefined
-        }
         className="w-full"
         isDisabled={googleDisabled}
-        onPress={googlePending ? undefined : onGooglePress}
+        isLoading={googlePending}
+        onPress={onGooglePress}
         size="md"
         style={googleState === 'pressed' ? styles.pressed : null}
         variant="ghost"
       >
-        {googlePending ? (
-          <Spinner color={darkColors.textPrimary} size="sm" />
-        ) : (
-          <>
-            <Image
-              aria-hidden={true}
-              source={require('@/assets/images/auth/google-g.png')}
-              style={styles.googleLogo}
-            />
-            <Button.Label style={styles.googleLabel}>
-              {t('auth.signUp.continueWithGoogle')}
-            </Button.Label>
-          </>
+        {!googlePending && (
+          <Image
+            aria-hidden={true}
+            source={require('@/assets/images/auth/google-g.png')}
+            style={styles.googleLogo}
+          />
         )}
-      </Button>
+        <AppButton.Label>
+          {t('auth.signUp.continueWithGoogle')}
+        </AppButton.Label>
+      </AppButton>
 
       <View accessibilityRole="text" className="flex-row items-center gap-3">
-        <View className="h-px flex-1" style={styles.divider} />
-        <Text style={[typography.supporting, styles.dividerText]}>
+        <View className="h-px flex-1" style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+        <Text style={[typography.supporting, styles.dividerText, { color: colors.textSecondary }]}>
           {t('auth.signUp.emailAlternative')}
         </Text>
-        <View className="h-px flex-1" style={styles.divider} />
+        <View className="h-px flex-1" style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
       </View>
 
       <View className="gap-4">
         <TextField isInvalid={emailInvalid} isRequired>
           <InputGroup>
             <InputGroup.Prefix isDecorative>
-              <Mail color={darkColors.textSecondary} size={16} />
+              <Mail color={colors.textSecondary} size={16} />
             </InputGroup.Prefix>
             <Controller
               control={control}
@@ -395,7 +391,7 @@ function IdentityState({
         <TextField isInvalid={usernameInvalid} isRequired>
           <InputGroup>
             <InputGroup.Prefix isDecorative>
-              <User color={darkColors.textSecondary} size={16} />
+              <User color={colors.textSecondary} size={16} />
             </InputGroup.Prefix>
             <Controller
               control={control}
@@ -428,29 +424,28 @@ function IdentityState({
         </TextField>
       </View>
 
-      <Button
+      <AppButton
         accessibilityLabel={t('auth.signUp.continue')}
-        accessibilityState={{ disabled: !identityReady }}
         className="w-full"
         isDisabled={!identityReady}
         onPress={onContinue}
         size="md"
       >
         {t('auth.signUp.continue')}
-      </Button>
+      </AppButton>
 
       <View className="flex-row flex-wrap items-center justify-center gap-1">
-        <Text style={[typography.supporting, styles.footerText]}>
+        <Text style={[typography.supporting, styles.footerText, { color: colors.textSecondary }]}>
           {t('auth.signUp.existingAccount')}
         </Text>
-        <Button
+        <AppButton
           accessibilityLabel={t('auth.signUp.signIn')}
           onPress={onSignInPress}
           size="sm"
           variant="ghost"
         >
           {t('auth.signUp.signIn')}
-        </Button>
+        </AppButton>
       </View>
     </View>
   );
@@ -473,6 +468,7 @@ type PasswordStateProps = {
   onToggleVisibility: () => void;
   onTouched: () => void;
   onCaptchaSuccess: (token: string) => void;
+  colors: any;
 };
 
 function PasswordState({
@@ -492,6 +488,7 @@ function PasswordState({
   onToggleVisibility,
   onTouched,
   onCaptchaSuccess,
+  colors,
 }: PasswordStateProps) {
   const { t } = useTranslation();
   const { scrollToEnd } = useAuthLayout();
@@ -506,7 +503,7 @@ function PasswordState({
           <TextField isInvalid={fieldError} isRequired>
             <InputGroup>
               <InputGroup.Prefix isDecorative>
-                <Lock color={darkColors.textSecondary} size={16} />
+                <Lock color={colors.textSecondary} size={16} />
               </InputGroup.Prefix>
               <InputGroup.Input
                 accessibilityLabel={t('auth.signUp.passwordLabel')}
@@ -520,7 +517,7 @@ function PasswordState({
                 value={value}
               />
               <InputGroup.Suffix>
-                <Button
+                <AppButton
                   accessibilityLabel={
                     passwordVisible
                       ? t('auth.signUp.hidePassword')
@@ -534,22 +531,19 @@ function PasswordState({
                   {passwordVisible ? (
                     <EyeOff
                       aria-hidden={true}
-                      color={darkColors.textSecondary}
+                      color={colors.textSecondary}
                       size={sizes.button.icon}
                     />
                   ) : (
                     <Eye
                       aria-hidden={true}
-                      color={darkColors.textSecondary}
+                      color={colors.textSecondary}
                       size={sizes.button.icon}
                     />
                   )}
-                </Button>
+                </AppButton>
               </InputGroup.Suffix>
             </InputGroup>
-            {fieldError ? (
-              <FieldError>{t(fieldErrorKey('password'))}</FieldError>
-            ) : null}
           </TextField>
         )}
       />
@@ -565,39 +559,28 @@ function PasswordState({
         onSuccess={onCaptchaSuccess}
       />
 
-      {formError ? (
-        <Text style={{ color: darkColors.status.destructive.main, fontSize: 14, fontWeight: '500', textAlign: 'center', marginBottom: 16 }}>
-          {t(formError as any)}
-        </Text>
-      ) : null}
-
-      <Button
+      <AppButton
         accessibilityLabel={
-          isCreating
-            ? t('auth.signUp.creatingAccount')
-            : t('auth.signUp.createAccount')
-        }
-        accessibilityState={{ busy: isCreating, disabled: createDisabled }}
-        animation={
-          isCreating
-            ? { scale: false, highlight: false }
-            : undefined
+          isRateLimited
+            ? (formError || t('auth.signUp.errors.rateLimited'))
+            : isCreating
+              ? t('auth.signUp.creatingAccount')
+              : t('auth.signUp.createAccount')
         }
         className="w-full"
         isDisabled={createDisabled}
-        onPress={isCreating ? undefined : onCreateAccount}
+        isLoading={isCreating && !isRateLimited}
+        onPress={onCreateAccount}
         size="md"
-        style={createAccountState === 'pressed' ? styles.pressed : undefined}
+        variant={isRateLimited ? 'danger-soft' : undefined}
+        style={createAccountState === 'pressed' && !isRateLimited ? styles.pressed : undefined}
       >
-        {isCreating ? (
-          <View className="flex-row items-center justify-center gap-2">
-            <Spinner color={darkColors.brand.onAction} size="sm" />
-            <Button.Label>{t('auth.signUp.creatingAccount')}</Button.Label>
-          </View>
-        ) : (
-          t('auth.signUp.createAccount')
-        )}
-      </Button>
+        {isRateLimited
+          ? (formError || t('auth.signUp.errors.rateLimited'))
+          : isCreating
+            ? t('auth.signUp.creatingAccount')
+            : t('auth.signUp.createAccount')}
+      </AppButton>
     </View>
   );
 }
@@ -610,20 +593,15 @@ const styles = StyleSheet.create({
     width: sizes.button.icon,
     height: sizes.button.icon,
   },
-  googleLabel: {
-    color: authPresentationColors.google.foreground,
-  },
+
   pressed: {
     opacity: 0.78,
   },
   divider: {
-    backgroundColor: darkColors.borderSubtle,
   },
   dividerText: {
-    color: darkColors.textSecondary,
   },
   footerText: {
-    color: darkColors.textSecondary,
     paddingVertical: spacing.xs,
   },
 });

@@ -17,13 +17,14 @@ export const lightColors = {
   screen: palette.zinc50,
   surface: palette.white,
   surfaceSubtle: palette.zinc100,
+  surfacePressed: palette.zinc200,
   textPrimary: palette.zinc900,
   textSecondary: palette.zinc600,
   borderSubtle: palette.zinc200,
   borderControl: palette.zinc500,
   brand: {
     action: palette.green500,
-    onAction: palette.green950,
+    onAction: palette.white,
   },
   status: {
     destructive: {
@@ -61,9 +62,9 @@ export const lightColors = {
       content: palette.zinc500,
     },
     primary: {
-      default: { background: palette.green500, content: palette.green950 },
-      pressed: { background: palette.green600, content: palette.green950 },
-      loading: { background: palette.green500, content: palette.green950 },
+      default: { background: palette.green500, content: palette.white },
+      pressed: { background: palette.green600, content: palette.white },
+      loading: { background: palette.green500, content: palette.white },
       focusOutline: palette.green700,
     },
     secondary: {
@@ -101,6 +102,7 @@ export const darkColors = {
   // surface: palette.zinc900, // Original card background
   surface: '#121214', // Slightly darker, closer to pure black
   surfaceSubtle: palette.zinc800,
+  surfacePressed: palette.zinc800,
   textPrimary: palette.zinc50,
   textSecondary: palette.zinc400,
   borderSubtle: palette.zinc800,
@@ -111,8 +113,8 @@ export const darkColors = {
   },
   status: {
     destructive: {
-      main: palette.red400,
-      onMain: palette.red950,
+      main: palette.red600,
+      onMain: palette.white,
       subtle: palette.red950,
       onSubtle: palette.red300,
       border: palette.red900,
@@ -157,10 +159,10 @@ export const darkColors = {
       focusOutline: palette.green300,
     },
     destructive: {
-      default: { background: palette.red400, content: palette.red950 },
-      pressed: { background: palette.red300, content: palette.red950 },
-      loading: { background: palette.red400, content: palette.red950 },
-      focusOutline: palette.red300,
+      default: { background: palette.red600, content: palette.white },
+      pressed: { background: palette.red700, content: palette.white },
+      loading: { background: palette.red600, content: palette.white },
+      focusOutline: palette.red700,
     },
     ghost: {
       default: { background: palette.transparent, content: palette.zinc50 },

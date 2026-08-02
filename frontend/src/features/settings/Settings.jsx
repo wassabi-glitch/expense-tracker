@@ -17,6 +17,8 @@ import { localizeApiError } from "@/lib/errorMessages";
 import { useSettingsDataQuery } from "./hooks/useSettingsDataQuery";
 import { useLogoutMutation, useLogoutAllMutation } from "./hooks/useSettingsMutations";
 import { ChangePasswordForm } from "./components/ChangePasswordForm";
+import { LanguageSelect } from "@/components/ui/language-select";
+import { APP_LANGUAGE_KEY } from "@/i18n";
 
 const CURRENCY_KEY = "settings.currency";
 const DATE_FORMAT_KEY = "settings.date_format";
@@ -27,9 +29,15 @@ function getStoredPreference(key, fallback) {
 }
 
 export default function Settings() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const [sessionError, setSessionError] = useState("");
+  const [language, setLanguage] = useState(() => {
+    const raw = String(i18n.resolvedLanguage || "uz").toLowerCase();
+    if (raw.startsWith("ru")) return "ru";
+    if (raw.startsWith("en")) return "en";
+    return "uz";
+  });
 
   const savedCurrency = useMemo(() => getStoredPreference(CURRENCY_KEY, "UZS"), []);
   const savedDateFormat = useMemo(() => getStoredPreference(DATE_FORMAT_KEY, "YYYY-MM-DD"), []);
@@ -45,6 +53,12 @@ export default function Settings() {
   const profileError = userQuery.error
     ? localizeApiError(userQuery.error?.message, t) || userQuery.error?.message || t("settings.failedProfile")
     : "";
+
+  const handleLanguageChange = async (nextLang) => {
+    setLanguage(nextLang);
+    await i18n.changeLanguage(nextLang);
+    localStorage.setItem(APP_LANGUAGE_KEY, nextLang);
+  };
 
   const handleLogout = async () => {
     setSessionError("");
@@ -107,6 +121,12 @@ export default function Settings() {
             <CardDescription>{t("settings.preferencesDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
+            <LanguageSelect
+              ariaLabel={t("common.language")}
+              value={language}
+              onChange={handleLanguageChange}
+              buttonClassName="w-full justify-between hidden lg:flex"
+            />
             <Input value={savedCurrency === "UZS" ? "UZS - so'm" : savedCurrency} readOnly disabled />
             <Input value={savedDateFormat} readOnly disabled />
           </CardContent>

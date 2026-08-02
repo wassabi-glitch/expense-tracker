@@ -2,14 +2,14 @@ import { useRef } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, Text, View } from 'react-native';
-import { Button } from '@/components/ui/button';
+import { AppButton } from '@/components/ui/app-button';
 import { FieldError } from 'heroui-native/field-error';
 import { InputGroup } from 'heroui-native/input-group';
-import { Spinner } from 'heroui-native/spinner';
 import { TextField } from 'heroui-native/text-field';
 import { CheckCircle2, Mail } from 'lucide-react-native';
 
-import { darkColors } from '@/theme';
+import { useAppTheme } from '@/providers/theme-provider';
+import { palette } from '@/theme/palette';
 import { AuthScreenLayout } from '../components/auth-screen-layout';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { forgotPasswordSchema, ForgotPasswordValues } from '../schemas/forgot-password-schema';
@@ -23,7 +23,7 @@ export type ForgotPasswordScreenProps = {
   isRateLimited?: boolean;
   previewTextScale?: number;
   onSendLinkPress?: (values: ForgotPasswordValues) => void;
-  onBackToSignInPress?: () => void;
+  onBack?: () => void;
 };
 
 export function ForgotPasswordScreen({
@@ -33,9 +33,10 @@ export function ForgotPasswordScreen({
   isRateLimited = false,
   previewTextScale = 1,
   onSendLinkPress = () => {},
-  onBackToSignInPress = () => {},
+  onBack = () => {},
 }: ForgotPasswordScreenProps) {
   const { t } = useTranslation();
+  const { colors } = useAppTheme();
   const sendHandledRef = useRef(false);
 
   const { control, watch, handleSubmit, formState } = useForm<ForgotPasswordValues>({
@@ -63,25 +64,25 @@ export function ForgotPasswordScreen({
   if (isSuccess) {
     return (
       <AuthScreenLayout
+        backLabel={t('common.back')}
+        onBack={onBack}
         previewTextScale={previewTextScale}
         supportingText={t('auth.forgotPassword.successBody')}
         title={t('auth.forgotPassword.successTitle')}
       >
         <View className="items-center justify-center py-6">
-          <CheckCircle2 color={darkColors.status.success.main} size={64} strokeWidth={1.5} />
+          <CheckCircle2 color={palette.emerald400} size={64} strokeWidth={1.5} />
         </View>
 
         <View className="gap-4 mt-2">
-          <Button
+          <AppButton
             className="w-full"
-            onPress={onBackToSignInPress}
+            onPress={onBack}
             size="md"
-            variant="secondary"
+            variant="ghost"
           >
-            <Button.Label style={{ color: darkColors.textPrimary }}>
-              {t('auth.forgotPassword.backToSignIn')}
-            </Button.Label>
-          </Button>
+            {t('auth.forgotPassword.backToSignIn')}
+          </AppButton>
         </View>
       </AuthScreenLayout>
     );
@@ -89,6 +90,8 @@ export function ForgotPasswordScreen({
 
   return (
     <AuthScreenLayout
+      backLabel={t('common.back')}
+      onBack={onBack}
       previewTextScale={previewTextScale}
       supportingText={t('auth.forgotPassword.body')}
       title={t('auth.forgotPassword.title')}
@@ -102,7 +105,7 @@ export function ForgotPasswordScreen({
               <TextField isInvalid={!!formState.errors.email} isRequired>
                 <InputGroup>
                   <InputGroup.Prefix isDecorative>
-                    <Mail color={darkColors.textSecondary} size={16} />
+                    <Mail color={colors.textSecondary} size={16} />
                   </InputGroup.Prefix>
                   <InputGroup.Input
                     accessibilityLabel={t('auth.forgotPassword.emailLabel')}
@@ -128,47 +131,37 @@ export function ForgotPasswordScreen({
           />
         </View>
 
-        {formError ? (
-          <Text style={{ color: darkColors.status.destructive.main, fontSize: 14, fontWeight: '500', textAlign: 'center' }}>
-            {t(formError as any)}
-          </Text>
-        ) : null}
-
         <View className="gap-4 mt-2">
-          <Button
+          <AppButton
             accessibilityLabel={
-              isPending
-                ? t('auth.forgotPassword.sendingLink')
-                : t('auth.forgotPassword.sendLink')
+              isRateLimited
+                ? (formError || t('auth.forgotPassword.errors.rateLimited'))
+                : isPending
+                  ? t('auth.forgotPassword.sendingLink')
+                  : t('auth.forgotPassword.sendLink')
             }
-            accessibilityState={{ busy: isPending, disabled: sendDisabled }}
-            animation={isPending ? { scale: false, highlight: false } : undefined}
             className="w-full"
             isDisabled={sendDisabled}
-            onPress={isPending ? undefined : submitForm}
+            isLoading={isPending && !isRateLimited}
+            onPress={submitForm}
             size="md"
-            variant="primary"
+            variant={isRateLimited ? 'danger-soft' : 'primary'}
           >
-            {isPending ? (
-              <View className="flex-row items-center justify-center gap-2">
-                <Spinner color={darkColors.brand?.onAction ?? '#052E16'} size="sm" />
-                <Button.Label>{t('auth.forgotPassword.sendingLink')}</Button.Label>
-              </View>
-            ) : (
-              t('auth.forgotPassword.sendLink')
-            )}
-          </Button>
+            {isRateLimited
+              ? (formError || t('auth.forgotPassword.errors.rateLimited'))
+              : isPending
+                ? t('auth.forgotPassword.sendingLink')
+                : t('auth.forgotPassword.sendLink')}
+          </AppButton>
 
-          <Button
+          <AppButton
             className="w-full"
-            onPress={onBackToSignInPress}
+            onPress={onBack}
             size="md"
             variant="ghost"
           >
-            <Button.Label style={{ color: darkColors.textPrimary }}>
-              {t('auth.forgotPassword.backToSignIn')}
-            </Button.Label>
-          </Button>
+            {t('auth.forgotPassword.backToSignIn')}
+          </AppButton>
         </View>
       </View>
     </AuthScreenLayout>

@@ -7,8 +7,9 @@ import { useTheme } from '@/hooks/use-theme';
 import * as NavigationBar from 'expo-navigation-bar';
 import { PhosphorHouse } from '@/components/icons/PhosphorHouse';
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 
-export function PlaygroundGlassTabBar({ opacity = 0.85, blur = 80 }: { opacity?: number, blur?: number }) {
+export function PlaygroundGlassTabBar({ opacity = 0.85, blur = 80, rgbColor = '0,0,0' }: { opacity?: number, blur?: number, rgbColor?: string }) {
   const { t } = useTranslation();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -23,11 +24,14 @@ export function PlaygroundGlassTabBar({ opacity = 0.85, blur = 80 }: { opacity?:
       <NavigationBar.NavigationBar style={isDark ? 'light' : 'dark'} />
 
       <BlurView intensity={blur} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
-      <View 
-        style={[
-          StyleSheet.absoluteFill, 
-          { backgroundColor: isDark ? `rgba(9,9,11,${opacity})` : `rgba(255,255,255,${opacity})` }
-        ]} 
+      <LinearGradient
+        colors={[
+          'transparent',
+          isDark ? `rgba(${rgbColor},${opacity})` : `rgba(255,255,255,${opacity})`,
+          isDark ? `rgba(${rgbColor},1)` : 'rgba(255,255,255,1)'
+        ]}
+        locations={[0, 0.4, 0.9]}
+        style={StyleSheet.absoluteFill}
       />
 
       <View style={{ paddingBottom }} className="flex-row items-center justify-between px-2 pt-4">

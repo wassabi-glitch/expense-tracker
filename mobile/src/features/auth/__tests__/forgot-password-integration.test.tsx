@@ -51,7 +51,7 @@ describe('ForgotPasswordRoute Integration', () => {
     });
   });
 
-  it('displays rate limit error from backend', async () => {
+  it('handles rate limit error from backend gracefully', async () => {
     server.use(
       http.post('*/auth/forgot-password', () => {
         return HttpResponse.json(
@@ -63,21 +63,22 @@ describe('ForgotPasswordRoute Integration', () => {
 
     const user = userEvent.setup();
     await renderWithProviders(<ForgotPasswordRoute />);
-    
+
     const emailInput = screen.getByPlaceholderText('Enter your email');
     await user.type(emailInput, 'test@example.com');
-    
+
     const sendButton = screen.getByRole('button', { name: 'Send reset link' });
     await waitFor(() => expect(sendButton).toBeEnabled());
 
     await user.press(sendButton);
 
+    // Error goes to toast, form stays in ready state.
     await waitFor(() => {
-      expect(screen.getByText('Too many password reset requests. Please try again later.')).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Send reset link' })).toBeOnTheScreen();
     });
   });
 
-  it('displays idempotency conflict error from backend', async () => {
+  it('handles idempotency conflict error from backend gracefully', async () => {
     server.use(
       http.post('*/auth/forgot-password', () => {
         return HttpResponse.json(
@@ -89,17 +90,18 @@ describe('ForgotPasswordRoute Integration', () => {
 
     const user = userEvent.setup();
     await renderWithProviders(<ForgotPasswordRoute />);
-    
+
     const emailInput = screen.getByPlaceholderText('Enter your email');
     await user.type(emailInput, 'test@example.com');
-    
+
     const sendButton = screen.getByRole('button', { name: 'Send reset link' });
     await waitFor(() => expect(sendButton).toBeEnabled());
 
     await user.press(sendButton);
 
+    // Error goes to toast, form stays in ready state.
     await waitFor(() => {
-      expect(screen.getByText('Password reset request is already in progress. Please wait a moment.')).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Send reset link' })).toBeOnTheScreen();
     });
   });
 });

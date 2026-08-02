@@ -3,11 +3,13 @@ import { StyleSheet, Text, View, ScrollView, Pressable, useColorScheme } from 'r
 import { useRouter } from 'expo-router';
 import { useTheme, useThemePreference } from '@/hooks/use-theme';
 import { useTranslation } from 'react-i18next';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Card } from '@/components/ui/card';
 
 type ListItemProps = {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: string;
+  iconFamily?: 'Ionicons' | 'MaterialCommunityIcons';
   label: string;
   href?: string;
   isLast?: boolean;
@@ -35,16 +37,20 @@ export default function MoreScreen() {
     dark: 'Dark'
   };
 
-  const ListItem = ({ icon, label, href, isLast = false, value, onPress }: ListItemProps) => {
+  const ListItem = ({ icon, iconFamily = 'Ionicons', label, href, isLast = false, value, onPress }: ListItemProps) => {
     return (
-      <Pressable 
+      <Pressable
         className="flex-row items-center px-4 py-4"
         style={({ pressed }) => [
-          { backgroundColor: pressed ? theme.colors.surfaceSubtle : 'transparent' }
+          { backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' }
         ]}
         onPress={() => onPress ? onPress() : href ? router.push(href as any) : null}
       >
-        <Ionicons name={icon} size={22} color={theme.colors.brand.action} style={{ marginRight: 16 }} />
+        {iconFamily === 'MaterialCommunityIcons' ? (
+          <MaterialCommunityIcons name={icon as any} size={22} color={theme.colors.brand.action} style={{ marginRight: 16 }} />
+        ) : (
+          <Ionicons name={icon as any} size={22} color={theme.colors.brand.action} style={{ marginRight: 16 }} />
+        )}
         <Text style={[theme.typography.body, { color: theme.colors.textPrimary, flex: 1, fontWeight: '500' }]}>
           {label}
         </Text>
@@ -64,35 +70,32 @@ export default function MoreScreen() {
         <Text style={[theme.typography.supporting, { color: theme.colors.textSecondary, marginLeft: 16, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '600' }]}>
           {title}
         </Text>
-        <View 
-          className="rounded-2xl overflow-hidden" 
-          style={{ 
-            backgroundColor: theme.colors.surface
-          }}
-        >
-          {children}
-        </View>
+        <Card>
+          <Card.Body noPadding>
+            {children}
+          </Card.Body>
+        </Card>
       </View>
     );
   };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.screen }]}>
-      <View 
+      <View
         className="absolute top-0 left-0 right-0 justify-end px-4 z-10"
-        style={{ 
+        style={{
           backgroundColor: theme.colors.screen,
-          paddingTop: insets.top + 12, 
-          paddingBottom: 12, 
+          paddingTop: insets.top + 12,
+          paddingBottom: 12,
         }}
       >
         <Text style={[theme.typography.title, { color: theme.colors.textPrimary }]}>
           {t('layout.tabs.more')}
         </Text>
       </View>
-      <ScrollView 
-        contentContainerStyle={{ 
-          paddingTop: insets.top + 60, 
+      <ScrollView
+        contentContainerStyle={{
+          paddingTop: insets.top + 60,
           paddingBottom: insets.bottom + 120,
           paddingHorizontal: 16
         }}
@@ -100,22 +103,22 @@ export default function MoreScreen() {
         <ListGroup title={t('moreScreen.groups.finances')}>
           <ListItem icon="wallet-outline" label={t('moreScreen.items.wallets')} href="/wallets" />
           <ListItem icon="flag-outline" label={t('moreScreen.items.goals')} href="/goals" />
-          <ListItem icon="document-text-outline" label={t('moreScreen.items.obligations')} href="/obligations" />
+          <ListItem iconFamily="MaterialCommunityIcons" icon="hand-coin-outline" label={t('moreScreen.items.obligations')} href="/obligations" />
           <ListItem icon="cash-outline" label={t('moreScreen.items.income')} href="/income" />
           <ListItem icon="briefcase-outline" label={t('moreScreen.items.assets')} href="/assets" isLast />
         </ListGroup>
 
         <ListGroup title={t('moreScreen.groups.insights')}>
-          <ListItem icon="pie-chart-outline" label={t('moreScreen.items.analytics')} href="/analytics" />
+          <ListItem icon="stats-chart-outline" label={t('moreScreen.items.analytics')} href="/analytics" />
           <ListItem icon="download-outline" label={t('moreScreen.items.export')} href="/export" isLast />
         </ListGroup>
 
         <ListGroup title={t('moreScreen.groups.general')}>
-          <ListItem 
-            icon="moon-outline" 
-            label={t('moreScreen.items.appearance')} 
-            value={themeDisplayNames[preference]} 
-            onPress={handleThemeCycle} 
+          <ListItem
+            icon="moon-outline"
+            label={t('moreScreen.items.appearance')}
+            value={themeDisplayNames[preference]}
+            onPress={handleThemeCycle}
           />
           <ListItem icon="settings-outline" label={t('moreScreen.items.settings')} href="/settings" isLast />
         </ListGroup>

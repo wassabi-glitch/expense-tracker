@@ -39,10 +39,17 @@ ButtonRoot.displayName = 'Button';
 function ButtonLabel({ className, style, ...props }: ButtonLabelProps) {
   const { isDisabled, variant } = useButton();
 
-  const isFilled = variant === 'primary' || variant === 'danger' || variant === undefined;
+  const isPrimary = variant === 'primary' || variant === undefined;
+  const isDanger = variant === 'danger';
 
-  // 4. Use crisp black text that is readable but not overly harsh
-  const disabledLabelClass = (isDisabled && isFilled) ? 'text-black' : '';
+  let disabledLabelClass = '';
+  if (isDisabled) {
+    if (isPrimary) {
+      disabledLabelClass = 'text-white dark:text-black';
+    } else if (isDanger) {
+      disabledLabelClass = 'text-white';
+    }
+  }
 
   return (
     <HeroButton.Label

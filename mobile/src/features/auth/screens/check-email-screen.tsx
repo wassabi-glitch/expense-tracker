@@ -1,10 +1,8 @@
 import { useTranslation } from 'react-i18next';
 import { View } from 'react-native';
-import { Button } from '@/components/ui/button';
-import { Spinner } from 'heroui-native/spinner';
+import { AppButton } from '@/components/ui/app-button';
 import { Mailbox } from 'lucide-react-native';
-
-import { darkColors } from '@/theme';
+import { useAppTheme } from '@/providers/theme-provider';
 import { AuthScreenLayout } from '../components/auth-screen-layout';
 
 export type CheckEmailActionState = 'default' | 'pending' | 'countdown';
@@ -13,71 +11,79 @@ export type CheckEmailScreenProps = {
   resendState?: CheckEmailActionState;
   resendCountdownSeconds?: number;
   isRateLimited?: boolean;
+  initialSendFailed?: boolean;
   previewTextScale?: number;
   onResendPress?: () => void;
-  onBackToSignInPress?: () => void;
+  onBack?: () => void;
 };
 
 export function CheckEmailScreen({
   resendState = 'default',
   resendCountdownSeconds = 0,
   isRateLimited = false,
+  initialSendFailed = false,
   previewTextScale = 1,
   onResendPress = () => {},
-  onBackToSignInPress = () => {},
+  onBack = () => {},
 }: CheckEmailScreenProps) {
   const { t } = useTranslation();
+  const { colors } = useAppTheme();
 
   const isResending = resendState === 'pending';
   const isCountdown = resendState === 'countdown';
   const resendDisabled = isResending || isCountdown || isRateLimited;
 
+  const body = initialSendFailed
+    ? t('auth.checkEmail.bodyRetry')
+    : t('auth.checkEmail.body');
+
   return (
     <AuthScreenLayout
+      backLabel={t('common.back')}
+      onBack={onBack}
       previewTextScale={previewTextScale}
-      supportingText={t('auth.checkEmail.body')}
+      supportingText={body}
       title={t('auth.checkEmail.title')}
     >
       <View className="items-center justify-center py-6">
-        <Mailbox color={darkColors.textPrimary} size={64} strokeWidth={1.5} />
+        <Mailbox color={colors.textPrimary} size={64} strokeWidth={1.5} />
       </View>
 
       <View className="gap-4 mt-2">
-        <Button
+        <AppButton
           accessibilityLabel={
-            isResending
+            isRateLimited
+              ? t('auth.checkEmail.errors.rateLimited')
+              : isResending
+                ? t('auth.checkEmail.resendingLink')
+                : isCountdown
+                  ? t('auth.checkEmail.resendCountdown', { seconds: resendCountdownSeconds })
+                  : t('auth.checkEmail.resendLink')
+          }
+          className="w-full"
+          isDisabled={resendDisabled}
+          isLoading={isResending && !isRateLimited}
+          onPress={onResendPress}
+          size="md"
+          variant={isRateLimited ? 'danger-soft' : 'tertiary'}
+        >
+          {isRateLimited
+            ? t('auth.checkEmail.errors.rateLimited')
+            : isResending
               ? t('auth.checkEmail.resendingLink')
               : isCountdown
                 ? t('auth.checkEmail.resendCountdown', { seconds: resendCountdownSeconds })
-                : t('auth.checkEmail.resendLink')
-          }
-          accessibilityState={{ busy: isResending, disabled: resendDisabled }}
-          className="w-full"
-          isDisabled={resendDisabled}
-          onPress={resendDisabled ? undefined : onResendPress}
-          size="md"
-          variant="secondary"
-        >
-          {isResending ? (
-            <View className="flex-row items-center justify-center gap-2">
-              <Spinner color={darkColors.textPrimary} size="sm" />
-              <Button.Label style={{ color: darkColors.textPrimary }}>{t('auth.checkEmail.resendingLink')}</Button.Label>
-            </View>
-          ) : isCountdown ? (
-            <Button.Label style={{ color: darkColors.textPrimary }}>{t('auth.checkEmail.resendCountdown', { seconds: resendCountdownSeconds })}</Button.Label>
-          ) : (
-            <Button.Label style={{ color: darkColors.textPrimary }}>{t('auth.checkEmail.resendLink')}</Button.Label>
-          )}
-        </Button>
+                : t('auth.checkEmail.resendLink')}
+        </AppButton>
 
-        <Button
+        <AppButton
           className="w-full"
-          onPress={onBackToSignInPress}
+          onPress={onBack}
           size="md"
           variant="ghost"
         >
-          <Button.Label style={{ color: darkColors.textPrimary }}>{t('auth.checkEmail.backToSignIn')}</Button.Label>
-        </Button>
+          {t('auth.checkEmail.backToSignIn')}
+        </AppButton>
       </View>
     </AuthScreenLayout>
   );
