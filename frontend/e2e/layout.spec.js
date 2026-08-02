@@ -4,18 +4,22 @@ test.describe("Layout Responsive & Routing", () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to a page that uses Layout. Wait for networkidle if needed, or DOM load.
     await page.goto("/dashboard");
-    
+
     // We assume the user is logged in via state injection or we just test the layout rendering if the app handles unauthenticated redirects by mocking API, but since this is an E2E test, we should mock the API route to return a fake user, otherwise it redirects to /sign-in.
-    await page.route("**/api/v1/auth/me", async (route) => {
+    await page.route("**/api/v1/auth/refresh", async (route) => {
+      await route.fulfill({ json: { access_token: "fake-token-for-e2e" } });
+    });
+
+    await page.route("**/api/v1/users/me", async (route) => {
       const json = { id: 1, email: "test@example.com", username: "testuser" };
       await route.fulfill({ json });
     });
-    
+
     // Also mock wallets/expenses/etc if they are loaded on /dashboard to prevent crashing
     await page.route("**/api/v1/wallets**", async (route) => {
       await route.fulfill({ json: [] });
     });
-    
+
     // Reload with mocks
     await page.goto("/dashboard");
   });
@@ -50,14 +54,14 @@ test.describe("Layout Responsive & Routing", () => {
     // Let's just check the sidebar's width or the link's width
     const box = await dashboardLink.boundingBox();
     // Icon wrapper is 40px wide. With padding, the row is roughly 40-50px wide in compact mode.
-    expect(box.width).toBeLessThan(100); 
+    expect(box.width).toBeLessThan(100);
   });
 
   test("Navigation routing updates the URL and content", async ({ page }) => {
     // Navigate to Wallets
     const walletsLink = page.locator('a[href="/wallets"]').first();
     await walletsLink.click();
-    
+
     await expect(page).toHaveURL(/.*\/wallets/);
   });
 });

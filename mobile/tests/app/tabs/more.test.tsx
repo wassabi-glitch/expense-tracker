@@ -25,6 +25,7 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 jest.mock('@expo/vector-icons', () => ({
   Ionicons: 'Ionicons',
+  MaterialCommunityIcons: 'MaterialCommunityIcons',
 }));
 
 describe('MoreTab Screen', () => {

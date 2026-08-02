@@ -26,38 +26,19 @@ Call log:
 
 ```yaml
 - generic [ref=e3]:
-  - generic [ref=e4]:
-    - generic [ref=e7]:
-      - img "Sarflog logo" [ref=e8]
-      - generic [ref=e9]: Sarflog v1.0.0
-    - generic [ref=e10]:
-      - heading "Financial data infrastructure." [level=2] [ref=e11]
-      - generic [ref=e13]:
-        - paragraph [ref=e14]: Holat
-        - paragraph [ref=e19]: Ishlayapti
-  - generic [ref=e22]:
-    - generic [ref=e24]:
-      - img "Sarflog logo" [ref=e26]
-      - heading "Hisobingizga kiring" [level=1] [ref=e27]
-    - generic [ref=e28]:
-      - link "Google orqali kirish" [ref=e29] [cursor=pointer]:
-        - /url: /auth/google/login
-        - img
-        - generic [ref=e30]: Google orqali kirish
-      - generic [ref=e35]: yoki
-      - textbox "Email" [ref=e37]
-      - generic [ref=e39]:
-        - generic [ref=e40]:
-          - textbox "Parol" [ref=e41]
-          - button "Show password" [ref=e42] [cursor=pointer]:
-            - img [ref=e43]
-        - link "Parolni unutdingizmi?" [ref=e48] [cursor=pointer]:
-          - /url: /forgot-password
-      - button "Kirish" [ref=e49] [cursor=pointer]
-    - generic [ref=e51]:
-      - text: Hisobingiz yo'qmi?
-      - link "Ro'yxatdan o'tish" [ref=e52] [cursor=pointer]:
-        - /url: /sign-up
+  - generic [ref=e4]: "[plugin:vite:import-analysis] Failed to resolve import \"react-icons/io5\" from \"src/components/Layout.jsx\". Does the file exist?"
+  - generic [ref=e5]: D:/Projects/ExpenseTracker/frontend/src/components/Layout.jsx:46:7
+  - generic [ref=e6]: "46 | IoDownloadOutline, 47 | IoSettingsOutline 48 | } from \"react-icons/io5\"; | ^ 49 | import { cn } from \"@/lib/utils\"; 50 | import { getCurrentUser, logout } from \"@/lib/api\";"
+  - generic [ref=e7]: at TransformPluginContext._formatLog (file:///D:/Projects/ExpenseTracker/frontend/node_modules/vite/dist/node/chunks/config.js:29079:43) at TransformPluginContext.error (file:///D:/Projects/ExpenseTracker/frontend/node_modules/vite/dist/node/chunks/config.js:29076:14) at normalizeUrl (file:///D:/Projects/ExpenseTracker/frontend/node_modules/vite/dist/node/chunks/config.js:27199:18) at process.processTicksAndRejections (node:internal/process/task_queues:103:5) at async file:///D:/Projects/ExpenseTracker/frontend/node_modules/vite/dist/node/chunks/config.js:27257:32 at async Promise.all (index 10) at async TransformPluginContext.transform (file:///D:/Projects/ExpenseTracker/frontend/node_modules/vite/dist/node/chunks/config.js:27225:4) at async EnvironmentPluginContainer.transform (file:///D:/Projects/ExpenseTracker/frontend/node_modules/vite/dist/node/chunks/config.js:28877:14) at async loadAndTransform (file:///D:/Projects/ExpenseTracker/frontend/node_modules/vite/dist/node/chunks/config.js:22746:26) at async viteTransformMiddleware (file:///D:/Projects/ExpenseTracker/frontend/node_modules/vite/dist/node/chunks/config.js:24622:20)
+  - generic [ref=e8]:
+    - text: Click outside, press Esc key, or fix the code to dismiss.
+    - text: You can also disable this overlay by setting
+    - code [ref=e9]: server.hmr.overlay
+    - text: to
+    - code [ref=e10]: "false"
+    - text: in
+    - code [ref=e11]: vite.config.js
+    - text: .
 ```
 
 # Test source
@@ -69,18 +50,18 @@ Call log:
   4  |   test.beforeEach(async ({ page }) => {
   5  |     // Navigate to a page that uses Layout. Wait for networkidle if needed, or DOM load.
   6  |     await page.goto("/dashboard");
-  7  |     
+  7  | 
   8  |     // We assume the user is logged in via state injection or we just test the layout rendering if the app handles unauthenticated redirects by mocking API, but since this is an E2E test, we should mock the API route to return a fake user, otherwise it redirects to /sign-in.
-  9  |     await page.route("**/api/v1/auth/me", async (route) => {
+  9  |     await page.route("**/api/v1/users/me", async (route) => {
   10 |       const json = { id: 1, email: "test@example.com", username: "testuser" };
   11 |       await route.fulfill({ json });
   12 |     });
-  13 |     
+  13 | 
   14 |     // Also mock wallets/expenses/etc if they are loaded on /dashboard to prevent crashing
   15 |     await page.route("**/api/v1/wallets**", async (route) => {
   16 |       await route.fulfill({ json: [] });
   17 |     });
-  18 |     
+  18 | 
   19 |     // Reload with mocks
   20 |     await page.goto("/dashboard");
   21 |   });
@@ -115,7 +96,7 @@ Call log:
   50 |     // Let's just check the sidebar's width or the link's width
   51 |     const box = await dashboardLink.boundingBox();
   52 |     // Icon wrapper is 40px wide. With padding, the row is roughly 40-50px wide in compact mode.
-  53 |     expect(box.width).toBeLessThan(100); 
+  53 |     expect(box.width).toBeLessThan(100);
   54 |   });
   55 | 
   56 |   test("Navigation routing updates the URL and content", async ({ page }) => {
@@ -123,7 +104,7 @@ Call log:
   58 |     const walletsLink = page.locator('a[href="/wallets"]').first();
 > 59 |     await walletsLink.click();
      |                       ^ Error: locator.click: Test timeout of 30000ms exceeded.
-  60 |     
+  60 | 
   61 |     await expect(page).toHaveURL(/.*\/wallets/);
   62 |   });
   63 | });
