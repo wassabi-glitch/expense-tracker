@@ -26,6 +26,7 @@ export default function LayoutPreviewRoute() {
   // Playground State
   const [opacity, setOpacity] = useState(0.85);
   const [blur, setBlur] = useState(isDark ? 50 : 80);
+  const [glassColor, setGlassColor] = useState('0,0,0'); // '0,0,0' (Pure Black) or '9,9,11' (Zinc950)
 
   const adjustValue = (setter: React.Dispatch<React.SetStateAction<number>>, delta: number, min: number, max: number) => {
     setter(prev => Math.min(max, Math.max(min, Number((prev + delta).toFixed(2)))));
@@ -35,7 +36,7 @@ export default function LayoutPreviewRoute() {
   const dummyItems = Array.from({ length: 20 }, (_, i) => i + 1);
 
   return (
-    <View className="flex-1 bg-zinc-50 dark:bg-zinc-900">
+    <View className="flex-1 bg-zinc-50 dark:bg-zinc-950">
       {/* Mock Header */}
       <View className="pt-14 pb-4 px-4 bg-white dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800">
         <Text className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
@@ -95,6 +96,26 @@ export default function LayoutPreviewRoute() {
           {tabType === 'playground' && (
             <View className="mb-6 p-4 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
               <Text className="text-zinc-900 dark:text-white font-bold mb-4 text-center">RGBA Glass Playground</Text>
+              
+              <View className="mb-4 space-y-2">
+                <Text className="text-zinc-500 dark:text-zinc-400 text-xs uppercase font-bold tracking-wider">Base Color (Dark Mode)</Text>
+                <View className="flex-row space-x-2">
+                  <View className="flex-1">
+                    <ToggleOption
+                      label="Pure Black (0,0,0)"
+                      isSelected={glassColor === '0,0,0'}
+                      onSelect={() => setGlassColor('0,0,0')}
+                    />
+                  </View>
+                  <View className="flex-1">
+                    <ToggleOption
+                      label="Zinc 950 (9,9,11)"
+                      isSelected={glassColor === '9,9,11'}
+                      onSelect={() => setGlassColor('9,9,11')}
+                    />
+                  </View>
+                </View>
+              </View>
               
               <ControlRow 
                 label={`Tint Opacity: ${opacity.toFixed(2)}`} 
@@ -156,7 +177,7 @@ export default function LayoutPreviewRoute() {
       {tabType === 'elite-glass' && <EliteGlassTabBar />}
       {tabType === 'elite-mini-fab' && <EliteMiniFabTabBar />}
       {tabType === 'premium-glass' && <PremiumGlassTabBar />}
-      {tabType === 'playground' && <PlaygroundGlassTabBar opacity={opacity} blur={blur} />}
+      {tabType === 'playground' && <PlaygroundGlassTabBar opacity={opacity} blur={blur} rgbColor={glassColor} />}
     </View>
   );
 }

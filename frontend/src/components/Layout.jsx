@@ -13,14 +13,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   LayoutDashboard,
-  Receipt,
-  Landmark,
-  PiggyBank,
-  Wallet,
-  LineChart,
-  Download,
-  Settings,
   Sparkles,
   Menu,
   LogOut,
@@ -28,11 +29,24 @@ import {
   Sun,
   Moon,
   HandCoins,
-  CreditCard,
-  BriefcaseBusiness,
+  PanelLeftClose,
+  PanelLeftOpen,
+  ArrowDownCircle,
 } from "lucide-react";
+import {
+  IoReceiptOutline,
+  IoCashOutline,
+  IoPieChartOutline,
+  IoWalletOutline,
+  IoFlagOutline,
+  IoBriefcaseOutline,
+  IoStatsChartOutline,
+  IoDownloadOutline,
+  IoSettingsOutline,
+} from "react-icons/io5";
 import { cn } from "@/lib/utils";
 import { getCurrentUser, logout } from "@/lib/api";
+import { useSidebarStore } from "@/lib/store";
 import { APP_LANGUAGE_KEY } from "@/i18n";
 import { LanguageSelect } from "@/components/ui/language-select";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -40,21 +54,21 @@ import flowLockup from "@/assets/brand/sarflog-flow-lockup.svg";
 import flowLockupDark from "@/assets/brand/sarflog-flow-lockup-dark.svg";
 
 const mainNavItems = [
-  { to: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
-  { to: "/wallets", labelKey: "nav.wallets", icon: CreditCard },
-  { to: "/expenses", labelKey: "nav.expenses", icon: Receipt },
-  { to: "/money-in", labelKey: "nav.income", icon: Landmark },
-  { to: "/budgets", labelKey: "nav.budgets", icon: PiggyBank },
-  { to: "/savings", labelKey: "nav.savings", icon: Wallet },
-  { to: "/assets", labelKey: "nav.assets", icon: BriefcaseBusiness },
-  { to: "/debts", labelKey: "nav.debts", icon: HandCoins },
-  { to: "/analytics", labelKey: "nav.analytics", icon: LineChart },
+  { to: "/dashboard", labelKey: "nav.dashboard", icon: (props) => <LayoutDashboard {...props} strokeWidth={1.5} /> },
+  { to: "/wallets", labelKey: "nav.wallets", icon: IoWalletOutline },
+  { to: "/expenses", labelKey: "nav.expenses", icon: IoReceiptOutline },
+  { to: "/money-in", labelKey: "nav.income", icon: (props) => <ArrowDownCircle {...props} strokeWidth={1.5} /> },
+  { to: "/budgets", labelKey: "nav.budgets", icon: IoPieChartOutline },
+  { to: "/savings", labelKey: "nav.savings", icon: IoFlagOutline },
+  { to: "/assets", labelKey: "nav.assets", icon: IoBriefcaseOutline },
+  { to: "/debts", labelKey: "nav.debts", icon: (props) => <HandCoins {...props} strokeWidth={1.5} /> },
+  { to: "/analytics", labelKey: "nav.analytics", icon: (props) => <IoStatsChartOutline {...props} className={cn(props.className, "[&>*]:!stroke-[32px]")} /> },
 ];
 
 const secondaryNavItems = [
-  { to: "/export", labelKey: "nav.exportData", icon: Download },
-  { to: "/premium", labelKey: "nav.premium", icon: Sparkles },
-  { to: "/settings", labelKey: "nav.settings", icon: Settings },
+  { to: "/export", labelKey: "nav.exportData", icon: IoDownloadOutline },
+  { to: "/premium", labelKey: "nav.premium", icon: (props) => <Sparkles {...props} strokeWidth={1.5} /> },
+  { to: "/settings", labelKey: "nav.settings", icon: IoSettingsOutline },
 ];
 
 function useDarkMode() {
@@ -84,112 +98,97 @@ function useDarkMode() {
   return { isDark, toggle: () => setIsDark((v) => !v) };
 }
 
-function NavList({ onNavigate, compact = false, isPremium = false, isMobile = false }) {
+function NavList({ onNavigate, compact = false, isPremium = false, isPinned = false, isMobile = false }) {
   const { t } = useTranslation();
   const visibleMainNavItems = mainNavItems.filter((item) => !item.premiumOnly || isPremium);
 
   const rowBase =
-    cn("group relative rounded-lg py-2 text-sm font-medium transition-colors hover:bg-muted/70 hover:text-foreground", isMobile ? "px-1" : "px-3");
+    cn("group relative rounded-lg py-2 text-sm font-medium transition-colors hover:bg-black/5 hover:text-black dark:hover:bg-muted/70 dark:hover:text-foreground", isMobile ? "px-1" : "px-3");
   const rowLayout = "grid grid-cols-[40px_minmax(0,1fr)] items-center";
   const iconWrap = "h-9 w-10 grid place-items-center";
-  const labelReveal =
-    "block min-w-0 max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-[max-width,opacity] duration-200 group-hover/sidebar:max-w-[180px] group-hover/sidebar:opacity-100";
-
-  // IMPORTANT: section headers reserve height always so nothing shifts in Y.
-  // We only fade them out when compact (collapsed).
-  const sectionHeaderBase =
-    cn("mb-2 pr-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground h-6 flex items-center", isMobile ? "px-2" : "pl-6");
-  const sectionHeaderCompact =
-    "max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-[max-width,opacity] duration-200 group-hover/sidebar:max-w-[180px] group-hover/sidebar:opacity-100";
+  const labelReveal = cn(
+    "block min-w-0 overflow-hidden whitespace-nowrap transition-[max-width,opacity] duration-200",
+    isPinned
+      ? "max-w-[180px] opacity-100"
+      : "max-w-0 opacity-0 group-hover/sidebar:max-w-[180px] group-hover/sidebar:opacity-100"
+  );
 
   return (
-    <div className={cn("flex flex-col gap-6 py-6", isMobile ? "px-0" : "")}>
-      <div>
-        <div className={cn(sectionHeaderBase, compact && sectionHeaderCompact)}>
-          {t("nav.platform")}
-        </div>
+    <div className={cn("flex flex-col h-full", isMobile ? "pt-2 pb-6 px-0" : "py-6")}>
+      <div className="space-y-1 flex-1">
+        {visibleMainNavItems.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            onClick={onNavigate}
+            className={({ isActive }) =>
+              cn(
+                rowBase,
+                rowLayout,
+                isActive
+                  ? `bg-black/5 dark:bg-muted/40 text-foreground ring-0 before:absolute ${isMobile ? "before:left-0" : "before:left-1"} before:top-2 before:bottom-2 before:w-0.5 ${isMobile ? "before:rounded-r-full" : "before:rounded-full"} before:bg-primary`
+                  : "text-black dark:text-muted-foreground"
+              )
+            }
+          >
+            {({ isActive }) => (
+              <>
+                <span className={iconWrap}>
+                  <item.icon
+                    className={cn(
+                      "h-4 w-4 shrink-0 transition-colors",
+                      isActive
+                        ? "text-primary"
+                        : "text-black dark:text-muted-foreground group-hover:text-black dark:group-hover:text-foreground"
+                    )}
+                  />
+                </span>
 
-        <div className="space-y-1">
-          {visibleMainNavItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              onClick={onNavigate}
-              className={({ isActive }) =>
-                cn(
-                  rowBase,
-                  rowLayout,
-                  isActive
-                    ? `bg-muted/40 text-foreground ring-0 before:absolute ${isMobile ? "before:left-0" : "before:left-1"} before:top-2 before:bottom-2 before:w-0.5 ${isMobile ? "before:rounded-r-full" : "before:rounded-full"} before:bg-primary`
-                    : "text-muted-foreground"
-                )
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  <span className={iconWrap}>
-                    <item.icon
-                      className={cn(
-                        "h-4 w-4 shrink-0 transition-colors",
-                        isActive
-                          ? "text-primary"
-                          : "text-muted-foreground group-hover:text-foreground"
-                      )}
-                    />
-                  </span>
-
-                  <span className={cn(compact && labelReveal)}>
-                    {t(item.labelKey)}
-                  </span>
-                </>
-              )}
-            </NavLink>
-          ))}
-        </div>
+                <span className={cn(compact && labelReveal)}>
+                  {t(item.labelKey)}
+                </span>
+              </>
+            )}
+          </NavLink>
+        ))}
       </div>
 
-      <div>
-        <div className={cn(sectionHeaderBase, compact && sectionHeaderCompact)}>
-          {t("nav.tools")}
-        </div>
+      <div className="space-y-1 mt-6">
+        {secondaryNavItems.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            onClick={onNavigate}
+            className={({ isActive }) =>
+              cn(
+                rowBase,
+                rowLayout,
+                isActive
+                  ? `bg-black/5 dark:bg-muted/40 text-foreground ring-0 before:absolute ${isMobile ? "before:left-0" : "before:left-1"} before:top-2 before:bottom-2 before:w-0.5 ${isMobile ? "before:rounded-r-full" : "before:rounded-full"} before:bg-primary`
+                  : "text-black dark:text-muted-foreground"
+              )
+            }
+          >
+            {({ isActive }) => (
+              <>
+                <span className={iconWrap}>
+                  <item.icon
+                    className={cn(
+                      "h-4 w-4 shrink-0 transition-colors",
+                      isActive
+                        ? "text-primary"
+                        : "text-black dark:text-muted-foreground group-hover:text-black dark:group-hover:text-foreground"
+                    )}
+                  />
+                </span>
 
-        <div className="space-y-1">
-          {secondaryNavItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              onClick={onNavigate}
-              className={({ isActive }) =>
-                cn(
-                  rowBase,
-                  rowLayout,
-                  isActive
-                    ? `bg-muted/40 text-foreground ring-0 before:absolute ${isMobile ? "before:left-0" : "before:left-1"} before:top-2 before:bottom-2 before:w-0.5 ${isMobile ? "before:rounded-r-full" : "before:rounded-full"} before:bg-primary`
-                    : "text-muted-foreground"
-                )
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  <span className={iconWrap}>
-                    <item.icon
-                      className={cn(
-                        "h-4 w-4 shrink-0 transition-colors",
-                        isActive
-                          ? "text-primary"
-                          : "text-muted-foreground group-hover:text-foreground"
-                      )}
-                    />
-                  </span>
-
-                  <span className={cn(compact && labelReveal)}>
-                    {t(item.labelKey)}
-                  </span>
-                </>
-              )}
-            </NavLink>
-          ))}
-        </div>
+                <span className={cn(compact && labelReveal)}>
+                  {t(item.labelKey)}
+                </span>
+              </>
+            )}
+          </NavLink>
+        ))}
       </div>
     </div>
   );
@@ -197,6 +196,7 @@ function NavList({ onNavigate, compact = false, isPremium = false, isMobile = fa
 
 export default function Layout() {
   const { t, i18n } = useTranslation();
+  const { isPinned, togglePin } = useSidebarStore();
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const [logoutOpen, setLogoutOpen] = React.useState(false);
   const [username, setUsername] = React.useState("");
@@ -247,100 +247,156 @@ export default function Layout() {
   };
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-background">
-      <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b bg-background/90 px-4 backdrop-blur lg:px-6">
-        <div className="flex items-center gap-3">
-          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-            <SheetTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="lg:hidden -ml-2 text-muted-foreground"
-                aria-label={t("nav.openNavigation")}
-              >
-                <Menu className="h-5 w-5" />
-              </Button>
-            </SheetTrigger>
-
-            <SheetContent side="left" className="w-[15rem] pt-8 flex flex-col h-full [&>button]:right-4 px-2">
-              <div className="flex-1 overflow-y-auto pt-4 [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none]">
-                <NavList onNavigate={() => setMobileOpen(false)} isPremium={!!userQuery.data?.is_premium} isMobile />
+    <div className="flex h-dvh flex-col overflow-hidden bg-background lg:flex-row">
+      {/* Desktop Sidebar */}
+      <aside className={cn("group/sidebar relative hidden shrink-0 transition-[width] duration-200 lg:block", isPinned ? "w-64" : "w-16")}>
+        <div className={cn(
+          "absolute inset-y-0 left-0 z-20 flex h-full flex-col overflow-hidden bg-background/95 shadow-none transition-[width,box-shadow,backdrop-filter,background-color] duration-200",
+          isPinned
+            ? "w-64"
+            : "w-16 group-hover/sidebar:w-64 group-hover/sidebar:bg-background/80 group-hover/sidebar:backdrop-blur-xl group-hover/sidebar:shadow-xl dark:bg-background/80 dark:group-hover/sidebar:bg-background/60"
+        )}>
+          {/* Logo Section (CSS Native) */}
+          <div className="flex h-16 shrink-0 items-center px-4 lg:h-auto lg:pt-8 lg:pb-6">
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
+                S
               </div>
-            </SheetContent>
-          </Sheet>
-
-          <div className="flex items-center gap-1.5 lg:-ml-2">
-            <img
-              src={isDark ? flowLockupDark : flowLockup}
-              alt="Sarflog logo"
-              className="h-9 w-auto object-contain"
-            />
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <LanguageSelect
-            ariaLabel={t("common.language")}
-            value={language}
-            onChange={handleLanguageChange}
-            buttonClassName="min-w-0 px-2 lg:min-w-[74px] lg:px-3"
-          />
-
-          <NotificationBell />
-
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggle}
-            className="rounded-xl"
-            aria-label={isDark ? t("nav.switchToLight") : t("nav.switchToDark")}
-          >
-            {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-          </Button>
-
-          <div className="hidden text-right md:block">
-            <p className="text-sm font-medium leading-none">
-              {username || t("common.user")}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {email || t("common.signedIn")}
-            </p>
-          </div>
-
-          <div className="flex h-9 w-9 items-center justify-center rounded-full border bg-muted text-muted-foreground">
-            <User className="h-5 w-5" />
-          </div>
-        </div>
-      </header>
-
-      <div className="relative flex flex-1 overflow-hidden">
-        <aside className="group/sidebar relative hidden w-16 border-r bg-background lg:block">
-          <div className="absolute inset-y-0 left-0 z-20 w-16 overflow-hidden border-r bg-background/90 shadow-none transition-[width,box-shadow,backdrop-filter,background-color] duration-200 group-hover/sidebar:w-64 group-hover/sidebar:bg-background/75 group-hover/sidebar:backdrop-blur-xl group-hover/sidebar:shadow-lg dark:bg-background/80 dark:group-hover/sidebar:bg-background/60">
-            <div className="flex h-full flex-col">
-              <div className="flex-1 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none]">
-                <NavList compact isPremium={!!userQuery.data?.is_premium} />
-              </div>
-
-              <div className="border-t py-3">
-                <button
-                  type="button"
-                  onClick={() => setLogoutOpen(true)}
-                  className="w-full grid grid-cols-[40px_minmax(0,1fr)] items-center rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                >
-                  <span className="h-9 w-10 grid place-items-center">
-                    <LogOut className="h-4 w-4 shrink-0" />
-                  </span>
-
-                  <span className="block min-w-0 max-w-0 overflow-hidden whitespace-nowrap text-left opacity-0 transition-[max-width,opacity] duration-200 group-hover/sidebar:max-w-[180px] group-hover/sidebar:opacity-100">
-                    {t("common.signOut")}
-                  </span>
-                </button>
-              </div>
+              <span className={cn(
+                "whitespace-nowrap text-xl font-bold tracking-tight transition-[max-width,opacity] duration-200",
+                isPinned ? "max-w-[180px] opacity-100" : "max-w-0 opacity-0 group-hover/sidebar:max-w-[180px] group-hover/sidebar:opacity-100"
+              )}>
+                Sarflog
+              </span>
             </div>
           </div>
-        </aside>
-        <main className="mobile-page-scroll flex-1 overflow-y-auto px-0 pt-2 pb-4 lg:px-6 lg:pt-3 lg:pb-6">
-          <div className="mx-auto max-w-full md:max-w-3xl lg:max-w-6xl xl:max-w-7xl 2xl:max-w-screen-2xl">
+
+          <div className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none] pb-4">
+            <NavList compact isPremium={!!userQuery.data?.is_premium} isPinned={isPinned} />
+          </div>
+
+          {/* Bottom Sidebar Utilities */}
+          <div className="mt-auto flex flex-col py-2 px-2">
+            <div className={cn(
+              "flex gap-1 transition-all duration-200",
+              isPinned ? "flex-row justify-between items-center" : "flex-col items-center group-hover/sidebar:flex-row group-hover/sidebar:justify-between"
+            )}>
+              <div className={cn(
+                "flex items-center gap-1 transition-[flex-direction] duration-200",
+                isPinned ? "flex-row order-last" : "flex-col order-first group-hover/sidebar:flex-row group-hover/sidebar:order-last"
+              )}>
+                <NotificationBell />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggle}
+                  className="rounded-xl h-9 w-9 shrink-0"
+                  aria-label={isDark ? t("nav.switchToLight") : t("nav.switchToDark")}
+                >
+                  {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+                </Button>
+              </div>
+
+              <button
+                type="button"
+                onClick={togglePin}
+                className={cn(
+                  "flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-all active:scale-95 hover:bg-muted/70 hover:text-foreground shrink-0",
+                  isPinned ? "order-first" : "order-last group-hover/sidebar:order-first"
+                )}
+                aria-label={isPinned ? t("nav.collapse", { defaultValue: "Collapse" }) : t("nav.expand", { defaultValue: "Expand" })}
+              >
+                {isPinned ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Mobile Header (Hidden on LG) */}
+        <header className="sticky top-0 z-50 flex h-14 w-full shrink-0 items-center border-b bg-background/90 backdrop-blur lg:hidden">
+          <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 md:px-6">
+            <div className="flex items-center gap-3">
+              <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+                <SheetTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="-ml-2 text-muted-foreground"
+                    aria-label={t("nav.openNavigation")}
+                  >
+                    <Menu className="h-5 w-5" />
+                  </Button>
+                </SheetTrigger>
+
+                <SheetContent side="left" className="w-[15rem] pt-8 flex flex-col h-full [&>button]:right-4 px-2">
+                  <div className="flex h-12 shrink-0 items-center px-4 mb-0">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
+                        S
+                      </div>
+                      <span className="text-xl font-bold tracking-tight">Sarflog</span>
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none]">
+                    <NavList onNavigate={() => setMobileOpen(false)} isPremium={!!userQuery.data?.is_premium} isMobile />
+                  </div>
+                </SheetContent>
+              </Sheet>
+
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-sm">
+                  S
+                </div>
+                <span className="text-lg font-bold tracking-tight">Sarflog</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 md:gap-3">
+              <NotificationBell />
+
+              <Button variant="ghost" size="icon" onClick={toggle} className="rounded-xl h-9 w-9 shrink-0">
+                {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+              </Button>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="flex items-center gap-2 rounded-full p-1 transition-all active:scale-95 hover:bg-muted/70">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted text-muted-foreground">
+                      <User className="h-4 w-4" />
+                    </div>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel>
+                    <div className="flex flex-col space-y-1">
+                      <p className="text-sm font-medium leading-tight truncate">{username || t("common.user")}</p>
+                      <p className="text-xs leading-tight text-muted-foreground truncate">{email || t("common.signedIn")}</p>
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => { setMobileOpen(false); navigate("/settings"); }}>
+                    <IoSettingsOutline className="mr-2 h-4 w-4" />
+                    {t("nav.settings")}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => { setMobileOpen(false); setLogoutOpen(true); }} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
+                    <LogOut className="mr-2 h-4 w-4 text-destructive" />
+                    {t("common.signOut")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        </header>
+
+
+
+        {/* Content Canvas */}
+        <main className="mobile-page-scroll flex-1 overflow-y-auto pt-4 pb-4 lg:pt-8 lg:pb-8">
+          <div className="mx-auto w-full max-w-7xl px-4 md:px-6 lg:px-8">
             <Outlet />
           </div>
         </main>

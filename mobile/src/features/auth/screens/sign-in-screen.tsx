@@ -3,21 +3,21 @@ import { useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { Image, StyleSheet, Text, View, Pressable } from 'react-native';
-import { Button } from '@/components/ui/button';
+import { AppButton } from '@/components/ui/app-button';
 import { FieldError } from 'heroui-native/field-error';
 import { Input } from 'heroui-native/input';
 import { InputGroup } from 'heroui-native/input-group';
-import { Spinner } from 'heroui-native/spinner';
+import { Spinner } from 'heroui-native/spinner'; // Keep if used elsewhere? Wait, no, removing Spinner
 import { TextField } from 'heroui-native/text-field';
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react-native';
 
 import {
   authPresentationColors,
-  darkColors,
   sizes,
   spacing,
   typography,
 } from '@/theme';
+import { useAppTheme } from '@/providers/theme-provider';
 
 import { AuthScreenLayout, useAuthLayout } from '../components/auth-screen-layout';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -35,12 +35,15 @@ export type SignInScreenProps = {
   googleState?: SignInVisualState;
   signInState?: SignInActionState;
   isRateLimited?: boolean;
+  showResendVerification?: boolean;
+  isResendingVerification?: boolean;
   reduceMotion?: boolean;
   previewTextScale?: number;
   onSignInPress?: (values: SignInValues) => void;
   onGooglePress?: () => void;
   onCreateAccountPress?: () => void;
   onForgotPasswordPress?: () => void;
+  onResendVerificationPress?: () => void;
 };
 
 export function SignInScreen({
@@ -51,14 +54,18 @@ export function SignInScreen({
   googleState = 'default',
   signInState = 'default',
   isRateLimited = false,
+  showResendVerification = false,
+  isResendingVerification = false,
   reduceMotion = false,
   previewTextScale = 1,
   onSignInPress = () => { },
   onGooglePress = () => { },
   onCreateAccountPress = () => { },
   onForgotPasswordPress = () => { },
+  onResendVerificationPress = () => { },
 }: SignInScreenProps) {
   const { t } = useTranslation();
+  const { colors } = useAppTheme();
   const [passwordVisible, setPasswordVisible] = useState(initialPasswordVisible);
   const passwordInputRef = useRef<any>(null);
   const { scrollToEnd } = useAuthLayout();
@@ -102,43 +109,34 @@ export function SignInScreen({
       title={t('auth.signIn.title')}
     >
       <View className="gap-6">
-        <Button
+        <AppButton
           accessibilityLabel={t('auth.signIn.continueWithGoogle')}
-          accessibilityState={{ disabled: googleDisabled, busy: googlePending }}
-          animation={
-            googlePending
-              ? { scale: false, highlight: false }
-              : undefined
-          }
           className="w-full"
           isDisabled={googleDisabled}
-          onPress={googlePending ? undefined : onGooglePress}
+          isLoading={googlePending}
+          onPress={onGooglePress}
           size="md"
           style={googleState === 'pressed' ? styles.pressed : null}
           variant="ghost"
         >
-          {googlePending ? (
-            <Spinner color={darkColors.textPrimary} size="sm" />
-          ) : (
-            <>
-              <Image
-                aria-hidden={true}
-                source={require('@/assets/images/auth/google-g.png')}
-                style={styles.googleLogo}
-              />
-              <Button.Label style={styles.googleLabel}>
-                {t('auth.signIn.continueWithGoogle')}
-              </Button.Label>
-            </>
+          {!googlePending && (
+            <Image
+              aria-hidden={true}
+              source={require('@/assets/images/auth/google-g.png')}
+              style={styles.googleLogo}
+            />
           )}
-        </Button>
+          <AppButton.Label style={styles.googleLabel}>
+            {t('auth.signIn.continueWithGoogle')}
+          </AppButton.Label>
+        </AppButton>
 
         <View accessibilityRole="text" className="flex-row items-center gap-3">
-          <View className="h-px flex-1" style={styles.divider} />
-          <Text style={[typography.supporting, styles.dividerText]}>
+          <View className="h-px flex-1" style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+          <Text style={[typography.supporting, styles.dividerText, { color: colors.textSecondary }]}>
             {t('auth.signIn.emailAlternative')}
           </Text>
-          <View className="h-px flex-1" style={styles.divider} />
+          <View className="h-px flex-1" style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
         </View>
 
         <View className="gap-4">
@@ -150,7 +148,7 @@ export function SignInScreen({
                 <InputGroup>
                   <InputGroup.Prefix isDecorative>
                     <Mail
-                      color={darkColors.textSecondary}
+                      color={colors.textSecondary}
                       size={16}
                     />
                   </InputGroup.Prefix>
@@ -186,7 +184,7 @@ export function SignInScreen({
                   <InputGroup>
                     <InputGroup.Prefix isDecorative>
                       <Lock
-                        color={darkColors.textSecondary}
+                        color={colors.textSecondary}
                         size={16}
                       />
                     </InputGroup.Prefix>
@@ -202,7 +200,7 @@ export function SignInScreen({
                       value={value}
                     />
                     <InputGroup.Suffix>
-                      <Button
+                      <AppButton
                         accessibilityLabel={
                           passwordVisible
                             ? t('auth.signIn.hidePassword')
@@ -216,17 +214,17 @@ export function SignInScreen({
                         {passwordVisible ? (
                           <EyeOff
                             aria-hidden={true}
-                            color={darkColors.textSecondary}
+                            color={colors.textSecondary}
                             size={sizes.button.icon}
                           />
                         ) : (
                           <Eye
                             aria-hidden={true}
-                            color={darkColors.textSecondary}
+                            color={colors.textSecondary}
                             size={sizes.button.icon}
                           />
                         )}
-                      </Button>
+                      </AppButton>
                     </InputGroup.Suffix>
                   </InputGroup>
                   {passwordHasError ? (
@@ -243,54 +241,68 @@ export function SignInScreen({
               className="mt-3 self-end"
               onPress={onForgotPasswordPress}
             >
-              <Text style={{ color: darkColors.brand.action, fontSize: 13, fontWeight: '500' }}>
+              <Text style={{ color: colors.textSecondary, fontSize: 13, fontWeight: '500' }}>
                 {t('auth.signIn.forgotPassword')}
               </Text>
             </Pressable>
           </View>
         </View>
 
-        {formError ? (
-          <Text style={{ color: darkColors.status.destructive.main, fontSize: 14, fontWeight: '500', textAlign: 'center', marginTop: 16 }}>
-            {t(formError as any)}
-          </Text>
-        ) : null}
+        <View className="gap-2 mt-4">
+          <AppButton
+            accessibilityLabel={
+              isRateLimited
+                ? (formError || t('auth.signIn.errors.loginRateLimited'))
+                : isSigningIn
+                  ? t('auth.signIn.signingIn')
+                  : t('auth.signIn.signIn')
+            }
+            className="w-full"
+            isDisabled={signInDisabled}
+            isLoading={isSigningIn && !isRateLimited}
+            onPress={submitForm}
+            size="md"
+            variant={isRateLimited ? 'danger-soft' : undefined}
+            style={signInState === 'pressed' && !isRateLimited ? styles.pressed : undefined}
+          >
+            {isRateLimited
+              ? (formError || t('auth.signIn.errors.loginRateLimited'))
+              : isSigningIn
+                ? t('auth.signIn.signingIn')
+                : t('auth.signIn.signIn')}
+          </AppButton>
 
-        <Button
-          accessibilityLabel={t('auth.signIn.signIn')}
-          accessibilityState={{ busy: isSigningIn, disabled: signInDisabled }}
-          animation={isSigningIn ? { scale: false, highlight: false } : undefined}
-          className="w-full mt-8"
-          isDisabled={signInDisabled}
-          onPress={isSigningIn ? undefined : submitForm}
-          size="md"
-          style={signInState === 'pressed' ? styles.pressed : undefined}
-        >
-          {isSigningIn ? (
-            <View className="flex-row items-center justify-center gap-2">
-              <Spinner color={darkColors.brand?.onAction ?? '#052E16'} size="sm" />
-              <Button.Label>{t('auth.signIn.signingIn')}</Button.Label>
-            </View>
-          ) : (
-            t('auth.signIn.signIn')
+          {showResendVerification && (
+            <AppButton
+              accessibilityLabel={t('auth.signIn.resendVerification')}
+              className="w-full"
+              isLoading={isResendingVerification}
+              onPress={onResendVerificationPress}
+              size="md"
+              variant="secondary"
+            >
+              {isResendingVerification
+                ? t('auth.signIn.resendingVerification')
+                : t('auth.signIn.resendVerification')}
+            </AppButton>
           )}
-        </Button>
+        </View>
       </View>
 
       <View className="mt-auto flex-row items-center justify-center gap-2">
-        <Text style={[typography.supporting, styles.existingAccountText]}>
+        <Text style={[typography.supporting, { color: colors.textSecondary }]}>
           {t('auth.signIn.noAccount')}
         </Text>
-        <Button
+        <AppButton
           accessibilityLabel={t('auth.signIn.createAccount')}
           onPress={onCreateAccountPress}
           size="sm"
           variant="ghost"
         >
-          <Button.Label style={styles.signInLabel}>
+          <AppButton.Label style={[styles.signInLabel, { color: colors.textPrimary }]}>
             {t('auth.signIn.createAccount')}
-          </Button.Label>
-        </Button>
+          </AppButton.Label>
+        </AppButton>
       </View>
     </AuthScreenLayout>
   );
@@ -301,21 +313,19 @@ const styles = StyleSheet.create({
     height: 18,
     width: 18,
   },
-  googleLabel: {
-    color: darkColors.textPrimary,
-  },
-  divider: {
-    backgroundColor: darkColors.borderSubtle,
-  },
+  googleLabel: {},
+  divider: {},
   dividerText: {
-    color: darkColors.textSecondary,
     fontSize: 14,
   },
-  existingAccountText: {
-    color: darkColors.textSecondary,
+  forgotPasswordContainer: {
+    alignSelf: 'flex-end',
+    marginTop: spacing.xs,
+  },
+  forgotPasswordText: {
+    textDecorationLine: 'underline',
   },
   signInLabel: {
-    color: darkColors.textPrimary,
     fontWeight: '600',
   },
   pressed: {

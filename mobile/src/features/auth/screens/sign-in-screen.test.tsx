@@ -45,10 +45,12 @@ describe('SignInScreen', () => {
   });
 
   it('shows pending state for Google and Sign In buttons', async () => {
-    const { rerender } = await renderWithProviders(<SignInScreen googleState="pending" />);
-    expect(screen.getByRole('button', { name: 'Continue with Google' }).props.accessibilityState.busy).toBe(true);
+    await renderWithProviders(<SignInScreen googleState="pending" />);
+    // AppButton sets isDisabled when loading, so the pending Google button is disabled.
+    expect(screen.getByRole('button', { name: 'Continue with Google' })).toBeDisabled();
 
-    await rerender(<SignInScreen signInState="pending" initialValues={{ email: 'demo@example.com', password: 'password123' }} />);
-    expect(screen.getByLabelText('Sign in').props.accessibilityState.busy).toBe(true);
+    const { rerender } = await renderWithProviders(<SignInScreen signInState="pending" initialValues={{ email: 'demo@example.com', password: 'password123' }} />);
+    // Sign In button shows loading text when pending.
+    expect(screen.getByText('Signing in')).toBeOnTheScreen();
   });
 });

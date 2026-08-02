@@ -1,22 +1,49 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { BackHandler } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { ResetPasswordScreen, ResetPasswordState } from '@/features/auth/screens/reset-password-screen';
 import { useResetPasswordMutation } from '@/features/auth/api/auth-mutations';
 import { ResetPasswordValues } from '@/features/auth/schemas/reset-password-schema';
 import { useRateLimitGate } from '@/hooks/useRateLimitGate';
+import { useToast } from 'heroui-native';
+import { showErrorToast } from '@/lib/toast-utils';
 
 export default function ResetPasswordRoute() {
   const router = useRouter();
+  const { t } = useTranslation();
+  const { toast } = useToast();
   const { token } = useLocalSearchParams<{ token?: string }>();
   const [resetPasswordState, setResetPasswordState] = useState<ResetPasswordState>('ready');
   const [formError, setFormError] = useState<string | undefined>(undefined);
   const resetPasswordMutation = useResetPasswordMutation();
   const { isRateLimited, onRateLimitError } = useRateLimitGate({ onExpire: () => setFormError(undefined) });
 
+  // Deep-link screen — back goes to SignIn, not into the void.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      router.replace('/(auth)/sign-in');
+      return true;
+    });
+    return () => sub.remove();
+  }, []);
+
+  // Missing-token error in ready state → top toast.
+  // Error-page errors (rate limit, invalid token, etc.) replace the form
+  // entirely so they don't need a toast on top.
+  const prevFormError = useRef(formError);
+  useEffect(() => {
+    if (formError && resetPasswordState !== 'error' && formError !== prevFormError.current) {
+      prevFormError.current = formError;
+      showErrorToast(toast, formError, 'top');
+    } else if (!formError) {
+      prevFormError.current = undefined;
+    }
+  }, [formError, resetPasswordState]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleResetPassword = async (values: ResetPasswordValues) => {
     if (!token) {
-      setFormError('auth.resetPassword.errors.missingToken');
+      setFormError(t('auth.resetPassword.errors.missingToken'));
       return;
     }
 
@@ -34,16 +61,16 @@ export default function ResetPasswordRoute() {
       setResetPasswordState('ready');
       const errorCode = error?.response?.data?.detail;
       if (errorCode === 'auth.reset_password_rate_limited') {
-        setFormError('auth.resetPassword.errors.rateLimited');
+        setFormError(t('auth.resetPassword.errors.rateLimited'));
         setResetPasswordState('error');
       } else if (errorCode === 'auth.idempotency_conflict_in_progress') {
-        setFormError('auth.resetPassword.errors.idempotencyConflictInProgress');
+        setFormError(t('auth.resetPassword.errors.idempotencyConflictInProgress'));
         setResetPasswordState('error');
       } else if (errorCode === 'auth.invalid_token') {
-        setFormError('auth.resetPassword.errors.invalidToken');
+        setFormError(t('auth.resetPassword.errors.invalidToken'));
         setResetPasswordState('error');
       } else {
-        setFormError('auth.resetPassword.errors.generic');
+        setFormError(t('auth.resetPassword.errors.generic'));
         setResetPasswordState('error');
       }
     }
@@ -71,6 +98,7 @@ export default function ResetPasswordRoute() {
     <ResetPasswordScreen
       formError={formError}
       isRateLimited={isRateLimited}
+      onBack={() => router.replace('/(auth)/sign-in')}
       onContinueToSignInPress={handleContinueToSignIn}
       onRequestNewLinkPress={handleRequestNewLink}
       onResetPasswordPress={handleResetPassword}

@@ -27,7 +27,7 @@ export function EliteGlassTabBar({ state, descriptors, navigation }: BottomTabBa
         1. A BlurView for the glass effect 
         2. A LinearGradient mask that fades from transparent to solid background color
       */}
-      <BlurView intensity={isDark ? 50 : 80} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+      <BlurView intensity={isDark ? 0 : 80} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
       <LinearGradient
         colors={[
           'transparent',
@@ -44,8 +44,8 @@ export function EliteGlassTabBar({ state, descriptors, navigation }: BottomTabBa
           const label = options.tabBarLabel !== undefined
             ? options.tabBarLabel
             : options.title !== undefined
-            ? options.title
-            : route.name;
+              ? options.title
+              : route.name;
 
           const isFocused = state.index === index;
 

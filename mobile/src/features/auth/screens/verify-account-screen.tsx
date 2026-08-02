@@ -1,10 +1,9 @@
 import { useTranslation } from 'react-i18next';
 import { View } from 'react-native';
-import { Button } from '@/components/ui/button';
-import { Spinner } from 'heroui-native/spinner';
+import { AppButton } from '@/components/ui/app-button';
 import { CheckCircle2, AlertCircle, ShieldCheck } from 'lucide-react-native';
-
-import { darkColors } from '@/theme';
+import { useAppTheme } from '@/providers/theme-provider';
+import { palette } from '@/theme/palette';
 import { AuthScreenLayout } from '../components/auth-screen-layout';
 
 export type VerifyAccountState = 'ready' | 'loading' | 'success' | 'error';
@@ -17,6 +16,7 @@ export type VerifyAccountScreenProps = {
   onVerifyPress?: () => void;
   onContinueToSignInPress?: () => void;
   onRequestNewLinkPress?: () => void;
+  onBack?: () => void;
 };
 
 export function VerifyAccountScreen({
@@ -27,8 +27,10 @@ export function VerifyAccountScreen({
   onVerifyPress = () => {},
   onContinueToSignInPress = () => {},
   onRequestNewLinkPress = () => {},
+  onBack = () => {},
 }: VerifyAccountScreenProps) {
   const { t } = useTranslation();
+  const { colors } = useAppTheme();
 
   const isReady = verifyState === 'ready';
   const isLoading = verifyState === 'loading';
@@ -38,22 +40,24 @@ export function VerifyAccountScreen({
   let title = t('auth.verifyAccount.readyTitle');
   let body = t('auth.verifyAccount.readyBody');
   let Icon = ShieldCheck;
-  let iconColor: string = darkColors.textPrimary;
+  let iconColor: string = colors.textPrimary;
 
   if (isSuccess) {
     title = t('auth.verifyAccount.successTitle');
     body = t('auth.verifyAccount.successBody');
     Icon = CheckCircle2;
-    iconColor = darkColors.status.success.main;
+    iconColor = palette.emerald400;
   } else if (isError) {
     title = t('auth.verifyAccount.errorTitle');
     body = customErrorMessage ? t(customErrorMessage) : t('auth.verifyAccount.errorBody');
     Icon = AlertCircle;
-    iconColor = darkColors.status.destructive.main;
+    iconColor = colors.status.destructive.main;
   }
 
   return (
     <AuthScreenLayout
+      backLabel={t('common.back')}
+      onBack={onBack}
       previewTextScale={previewTextScale}
       supportingText={body}
       title={title}
@@ -64,50 +68,45 @@ export function VerifyAccountScreen({
 
       <View className="gap-4 mt-2">
         {(isReady || isLoading) && (
-          <Button
+          <AppButton
             accessibilityLabel={
               isLoading
                 ? t('auth.verifyAccount.verifying')
                 : t('auth.verifyAccount.verifyAccount')
             }
-            accessibilityState={{ busy: isLoading, disabled: isLoading }}
             className="w-full"
-            isDisabled={isLoading || isRateLimited}
-            onPress={isLoading ? undefined : onVerifyPress}
+            isDisabled={isRateLimited}
+            isLoading={isLoading}
+            onPress={onVerifyPress}
             size="md"
             variant="primary"
           >
-            {isLoading ? (
-              <View className="flex-row items-center justify-center gap-2">
-                <Spinner color={darkColors.brand?.onAction ?? '#052E16'} size="sm" />
-                <Button.Label>{t('auth.verifyAccount.verifying')}</Button.Label>
-              </View>
-            ) : (
-              t('auth.verifyAccount.verifyAccount')
-            )}
-          </Button>
+            {isLoading
+              ? t('auth.verifyAccount.verifying')
+              : t('auth.verifyAccount.verifyAccount')}
+          </AppButton>
         )}
 
         {isSuccess && (
-          <Button
+          <AppButton
             className="w-full"
             onPress={onContinueToSignInPress}
             size="md"
             variant="primary"
           >
             {t('auth.verifyAccount.continueToSignIn')}
-          </Button>
+          </AppButton>
         )}
 
         {isError && (
-          <Button
+          <AppButton
             className="w-full"
             onPress={onRequestNewLinkPress}
             size="md"
-            variant="secondary"
+            variant="ghost"
           >
-            <Button.Label style={{ color: darkColors.textPrimary }}>{t('auth.verifyAccount.requestNewLink')}</Button.Label>
-          </Button>
+            {t('auth.verifyAccount.requestNewLink')}
+          </AppButton>
         )}
       </View>
     </AuthScreenLayout>

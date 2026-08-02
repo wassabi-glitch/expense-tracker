@@ -2,14 +2,15 @@ import { useMemo, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { Text, View } from 'react-native';
-import { Button } from '@/components/ui/button';
+import { AppButton } from '@/components/ui/app-button';
 import { FieldError } from 'heroui-native/field-error';
 import { InputGroup } from 'heroui-native/input-group';
-import { Spinner } from 'heroui-native/spinner';
 import { TextField } from 'heroui-native/text-field';
 import { AlertCircle, CheckCircle2, Eye, EyeOff, Lock } from 'lucide-react-native';
 
-import { darkColors, sizes } from '@/theme';
+import { sizes } from '@/theme';
+import { palette } from '@/theme/palette';
+import { useAppTheme } from '@/providers/theme-provider';
 import { AuthScreenLayout } from '../components/auth-screen-layout';
 import { PasswordRequirementList } from '../components/password-requirement-list';
 import { arePasswordRequirementsMet, evaluatePasswordRequirements } from '../components/sign-up-ui-rules';
@@ -20,12 +21,13 @@ export type ResetPasswordState = 'ready' | 'loading' | 'success' | 'error';
 
 export type ResetPasswordScreenProps = {
   resetPasswordState?: ResetPasswordState;
-  formError?: string; // used for non-global inline errors (e.g., rate limits) or just passed through
+  formError?: string;
   isRateLimited?: boolean;
   previewTextScale?: number;
   onResetPasswordPress?: (values: ResetPasswordValues) => void;
   onContinueToSignInPress?: () => void;
   onRequestNewLinkPress?: () => void;
+  onBack?: () => void;
 };
 
 export function ResetPasswordScreen({
@@ -36,8 +38,10 @@ export function ResetPasswordScreen({
   onResetPasswordPress = () => {},
   onContinueToSignInPress = () => {},
   onRequestNewLinkPress = () => {},
+  onBack = () => {},
 }: ResetPasswordScreenProps) {
   const { t } = useTranslation();
+  const { colors } = useAppTheme();
   const [passwordVisible, setPasswordVisible] = useState(false);
   const resetHandledRef = useRef(false);
 
@@ -69,10 +73,12 @@ export function ResetPasswordScreen({
     const title = isSuccess ? t('auth.resetPassword.successTitle') : t('auth.verifyAccount.errorTitle'); // "Link Expired or Invalid" or similar
     const body = isSuccess ? t('auth.resetPassword.successBody') : (formError ? t(formError as any) : t('auth.verifyAccount.errorBody'));
     const Icon = isSuccess ? CheckCircle2 : AlertCircle;
-    const iconColor = isSuccess ? darkColors.status.success.main : darkColors.status.destructive.main;
+    const iconColor = isSuccess ? palette.emerald400 : colors.status.destructive.main;
 
     return (
       <AuthScreenLayout
+        backLabel={t('common.back')}
+        onBack={onBack}
         previewTextScale={previewTextScale}
         supportingText={body}
         title={title}
@@ -83,25 +89,23 @@ export function ResetPasswordScreen({
 
         <View className="gap-4 mt-2">
           {isSuccess ? (
-            <Button
+            <AppButton
               className="w-full"
               onPress={onContinueToSignInPress}
               size="md"
               variant="primary"
             >
               {t('auth.resetPassword.continueToSignIn')}
-            </Button>
+            </AppButton>
           ) : (
-            <Button
+            <AppButton
               className="w-full"
               onPress={onRequestNewLinkPress}
               size="md"
-              variant="secondary"
+              variant="ghost"
             >
-              <Button.Label style={{ color: darkColors.textPrimary }}>
-                {t('auth.verifyAccount.requestNewLink')}
-              </Button.Label>
-            </Button>
+              {t('auth.verifyAccount.requestNewLink')}
+            </AppButton>
           )}
         </View>
       </AuthScreenLayout>
@@ -110,6 +114,8 @@ export function ResetPasswordScreen({
 
   return (
     <AuthScreenLayout
+      backLabel={t('common.back')}
+      onBack={onBack}
       previewTextScale={previewTextScale}
       supportingText={t('auth.resetPassword.body')}
       title={t('auth.resetPassword.title')}
@@ -123,7 +129,7 @@ export function ResetPasswordScreen({
               <TextField isInvalid={!!formState.errors.password} isRequired>
                 <InputGroup>
                   <InputGroup.Prefix isDecorative>
-                    <Lock color={darkColors.textSecondary} size={16} />
+                    <Lock color={colors.textSecondary} size={16} />
                   </InputGroup.Prefix>
                   <InputGroup.Input
                     accessibilityLabel={t('auth.resetPassword.passwordLabel')}
@@ -137,7 +143,7 @@ export function ResetPasswordScreen({
                     value={value}
                   />
                   <InputGroup.Suffix>
-                    <Button
+                    <AppButton
                       accessibilityLabel={
                         passwordVisible
                           ? t('auth.resetPassword.hidePassword')
@@ -151,24 +157,19 @@ export function ResetPasswordScreen({
                       {passwordVisible ? (
                         <EyeOff
                           aria-hidden={true}
-                          color={darkColors.textSecondary}
+                          color={colors.textSecondary}
                           size={sizes.button.icon}
                         />
                       ) : (
                         <Eye
                           aria-hidden={true}
-                          color={darkColors.textSecondary}
+                          color={colors.textSecondary}
                           size={sizes.button.icon}
                         />
                       )}
-                    </Button>
+                    </AppButton>
                   </InputGroup.Suffix>
                 </InputGroup>
-                {formState.errors.password ? (
-                  <FieldError>
-                    {t(formState.errors.password.message as any)}
-                  </FieldError>
-                ) : null}
               </TextField>
             )}
           />
@@ -180,36 +181,22 @@ export function ResetPasswordScreen({
           />
         </View>
 
-        {formError ? (
-          <Text style={{ color: darkColors.status.destructive.main, fontSize: 14, fontWeight: '500', textAlign: 'center' }}>
-            {t(formError as any)}
-          </Text>
-        ) : null}
-
         <View className="gap-4 mt-2">
-          <Button
+          <AppButton
             accessibilityLabel={
               isPending
                 ? t('auth.resetPassword.resettingPassword')
                 : t('auth.resetPassword.resetPassword')
             }
-            accessibilityState={{ busy: isPending, disabled: resetDisabled }}
-            animation={isPending ? { scale: false, highlight: false } : undefined}
             className="w-full"
             isDisabled={resetDisabled}
-            onPress={isPending ? undefined : submitForm}
+            isLoading={isPending}
+            onPress={submitForm}
             size="md"
             variant="primary"
           >
-            {isPending ? (
-              <View className="flex-row items-center justify-center gap-2">
-                <Spinner color={darkColors.brand?.onAction ?? '#052E16'} size="sm" />
-                <Button.Label>{t('auth.resetPassword.resettingPassword')}</Button.Label>
-              </View>
-            ) : (
-              t('auth.resetPassword.resetPassword')
-            )}
-          </Button>
+            {isPending ? t('auth.resetPassword.resettingPassword') : t('auth.resetPassword.resetPassword')}
+          </AppButton>
         </View>
       </View>
     </AuthScreenLayout>

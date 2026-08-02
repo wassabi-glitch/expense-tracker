@@ -1,10 +1,12 @@
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { SignUpScreen, SignUpField } from '@/features/auth/screens/sign-up-screen';
 import { useSignUpMutation } from '@/features/auth/api/auth-mutations';
 import { useGoogleAuth } from '@/features/auth/hooks/use-google-auth';
 import { useRateLimitGate } from '@/hooks/useRateLimitGate';
+import { useToast } from 'heroui-native';
+import { showErrorToast } from '@/lib/toast-utils';
 
 export default function SignUpRoute() {
   const router = useRouter();
@@ -14,13 +16,36 @@ export default function SignUpRoute() {
   const [formError, setFormError] = useState<string | undefined>();
   const { promptAsync, isReady, isLoading, error: googleError } = useGoogleAuth();
   const { isRateLimited, onRateLimitError } = useRateLimitGate({ onExpire: () => setFormError(undefined) });
+  const { toast } = useToast();
+
+  // Google auth error → bottom toast (thumb-friendly, step 1 only).
+  const prevGoogleError = useRef(googleError);
+  useEffect(() => {
+    if (googleError && googleError !== prevGoogleError.current) {
+      prevGoogleError.current = googleError;
+      showErrorToast(toast, t('auth.signUp.errors.googleGeneric'), 'bottom');
+    } else if (!googleError) {
+      prevGoogleError.current = null;
+    }
+  }, [googleError]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Form errors (rate limits, conflict, generic) → top toast so the button stays clear.
+  const prevFormError = useRef(formError);
+  useEffect(() => {
+    if (formError && formError !== prevFormError.current) {
+      prevFormError.current = formError;
+      showErrorToast(toast, formError, 'top');
+    } else if (!formError) {
+      prevFormError.current = undefined;
+    }
+  }, [formError]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <SignUpScreen
       createAccountState={signUpMutation.isPending ? 'pending' : 'default'}
       googleState={isLoading ? 'pending' : (!isReady ? 'unavailable' : 'default')}
       fieldErrors={fieldErrors}
-      formError={formError || (googleError ? String(t(`auth.signUp.errors.${googleError}` as any)) : undefined)}
+      formError={formError}
       isRateLimited={isRateLimited}
       onSignInPress={() => router.push('/(auth)/sign-in')}
       onGooglePress={() => promptAsync()}

@@ -1,0 +1,13 @@
+diff --git a/node_modules/heroui-native/src/components/button/button.styles.ts b/node_modules/heroui-native/src/components/button/button.styles.ts
+index f129c7c..f694000 100644
+--- a/node_modules/heroui-native/src/components/button/button.styles.ts
++++ b/node_modules/heroui-native/src/components/button/button.styles.ts
+@@ -42,7 +42,7 @@ const root = tv({
+       true: 'p-0 aspect-square',
+     },
+     isDisabled: {
+-      true: 'disabled:opacity-disabled disabled:pointer-events-none',
++      true: 'opacity-disabled pointer-events-none',
+     },
+   },
+   defaultVariants: {

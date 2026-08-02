@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, Text, View } from 'react-native';
+import { useToast } from 'heroui-native';
+import { showErrorToast } from '@/lib/toast-utils';
 import { Button } from '@/components/ui/button';
-import { Settings2, X } from 'lucide-react-native';
+import { Settings2, X, Sun, Moon } from 'lucide-react-native';
 
 import i18next from '@/i18n';
+import { useAppThemePreference, useAppTheme } from '@/providers/theme-provider';
 import { authPresentationColors, darkColors, radii, sizes, spacing, typography } from '@/theme';
 
 import { SignInScreen } from '../screens/sign-in-screen';
@@ -34,6 +37,9 @@ export function AuthPreviewScreen() {
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('signUp');
   const [fixtureIndex, setFixtureIndex] = useState(0);
   const [isToolbarVisible, setIsToolbarVisible] = useState(true);
+  const { preference, setPreference } = useAppThemePreference();
+  const { mode } = useAppTheme();
+  const isDark = mode === 'dark';
 
   let fixtures: readonly any[];
   switch (currentScreen) {
@@ -47,6 +53,19 @@ export function AuthPreviewScreen() {
   }
   
   const fixture = fixtures[fixtureIndex] ?? fixtures[0];
+  const { toast } = useToast();
+
+  // Show a toast when the current preview fixture requests one (e.g. Google auth errors).
+  const toastKey = `${fixture.toastVariant ?? ''}:${fixture.toastLabel ?? ''}:${fixtureIndex}`;
+  const prevToastKey = useRef(toastKey);
+  useEffect(() => {
+    if (!fixture.toastVariant || !fixture.toastLabel) return;
+    if (toastKey === prevToastKey.current) return;
+    prevToastKey.current = toastKey;
+    // Auto-hide the toolbar so it doesn't block the toast.
+    setIsToolbarVisible(false);
+    showErrorToast(toast, t(fixture.toastLabel as any), 'top');
+  }, [toastKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function moveFixture(offset: number) {
     setFixtureIndex((current) =>
@@ -59,8 +78,25 @@ export function AuthPreviewScreen() {
     setFixtureIndex(0);
   }
 
+  const { colors } = useAppTheme();
+
   return (
-    <View className="flex-1" style={styles.root}>
+    <View className="flex-1" style={[styles.root, { backgroundColor: colors.screen }]}>
+      <View className="absolute left-4 top-12 z-50">
+        <Button
+          accessibilityLabel={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          isIconOnly
+          onPress={() => setPreference(isDark ? 'light' : 'dark')}
+          size="md"
+          variant="ghost"
+        >
+          {isDark ? (
+            <Sun color={colors.textPrimary} size={24} />
+          ) : (
+            <Moon color={colors.textPrimary} size={24} />
+          )}
+        </Button>
+      </View>
       {currentScreen === 'signUp' && (
         <SignUpScreen
           key={fixture.id}
@@ -80,13 +116,14 @@ export function AuthPreviewScreen() {
         <CheckEmailScreen
           key={fixture.id}
           {...fixture.screenProps}
-          onBackToSignInPress={() => handleSwitchScreen('signIn')}
+          onBack={() => handleSwitchScreen('signIn')}
         />
       )}
       {currentScreen === 'verifyAccount' && (
         <VerifyAccountScreen
           key={fixture.id}
           {...fixture.screenProps}
+          onBack={() => handleSwitchScreen('signIn')}
           onContinueToSignInPress={() => handleSwitchScreen('signIn')}
           onRequestNewLinkPress={() => handleSwitchScreen('checkEmail')}
         />
@@ -95,13 +132,14 @@ export function AuthPreviewScreen() {
         <ForgotPasswordScreen
           key={fixture.id}
           {...fixture.screenProps}
-          onBackToSignInPress={() => handleSwitchScreen('signIn')}
+          onBack={() => handleSwitchScreen('signIn')}
         />
       )}
       {currentScreen === 'resetPassword' && (
         <ResetPasswordScreen
           key={fixture.id}
           {...fixture.screenProps}
+          onBack={() => handleSwitchScreen('signIn')}
         />
       )}
       {currentScreen === 'changePassword' && (
@@ -116,7 +154,7 @@ export function AuthPreviewScreen() {
 
       {!isToolbarVisible ? (
         <Button
-          className="absolute bottom-3 right-3"
+          className="absolute bottom-12 right-3"
           isIconOnly
           onPress={() => setIsToolbarVisible(true)}
           size="sm"
@@ -128,7 +166,7 @@ export function AuthPreviewScreen() {
       ) : (
         <View
           accessibilityLabel={t('auth.preview.galleryLabel')}
-          className="absolute bottom-3 left-3 right-3 gap-2"
+          className="absolute bottom-12 left-3 right-3 gap-2"
           style={styles.toolbar}
           testID="auth-preview-toolbar"
         >
@@ -202,7 +240,6 @@ export function AuthPreviewScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: authPresentationColors.canvas,
   },
   toolbar: {
     alignSelf: 'center',

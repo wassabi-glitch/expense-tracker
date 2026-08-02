@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -18,12 +19,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { contentMaxWidths, useAdaptiveLayout } from '@/layout';
 import {
   authPresentationColors,
-  darkColors,
   motion,
   sizes,
   spacing,
   typography,
 } from '@/theme';
+import { useAppTheme } from '@/providers/theme-provider';
 
 export type AuthScreenLayoutProps = {
   title: string;
@@ -60,9 +61,27 @@ export function AuthScreenLayout({
   previewTextScale = 1,
 }: AuthScreenLayoutProps) {
   const { metrics } = useAdaptiveLayout();
+  const { colors, mode } = useAppTheme();
+  const isDark = mode === 'dark';
   const scrollViewRef = useRef<ScrollView>(null);
   const [isKeyboardVisible, setKeyboardVisible] = useState(false);
   const [animationsReady, setAnimationsReady] = useState(false);
+
+  // Blur whatever TextInput is currently focused, if any.
+  // Needed because Android's system back button dismisses the IME
+  // without clearing native focus — Keyboard.dismiss() alone is a no-op
+  // when the keyboard is already gone.
+  const dismissKeyboardAndBlur = () => {
+    Keyboard.dismiss();
+    try {
+      const node = TextInput.State.currentlyFocusedInput?.();
+      if (node != null) {
+        TextInput.State.blurTextInput(node);
+      }
+    } catch {
+      // TextInput.State API is stable but internal — guard defensively.
+    }
+  };
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -75,6 +94,16 @@ export function AuthScreenLayout({
       showSub.remove();
       hideSub.remove();
     };
+  }, []);
+
+  // Auto-blur the focused input whenever the keyboard fully dismisses,
+  // regardless of how it was dismissed (back button, swipe, outer tap, etc.).
+  useEffect(() => {
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      dismissKeyboardAndBlur();
+    });
+    return () => hideSub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -92,23 +121,25 @@ export function AuthScreenLayout({
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }
     }}>
-      <View className="flex-1" style={styles.canvas} testID="auth-screen-layout">
-        <StatusBar style="light" />
-        <LinearGradient
-          colors={[
-            authPresentationColors.gradient[1],
-            authPresentationColors.gradient[2],
-          ]}
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            top: 0,
-            height: '40%',
-          }}
-          testID="auth-canvas-gradient"
-        />
+      <View className="flex-1" style={[styles.canvas, { backgroundColor: colors.screen }]} testID="auth-screen-layout">
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        {isDark && (
+          <LinearGradient
+            colors={[
+              authPresentationColors.gradient[1],
+              authPresentationColors.gradient[2],
+            ]}
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: 0,
+              height: '40%',
+            }}
+            testID="auth-canvas-gradient"
+          />
+        )}
         <View
           pointerEvents="none"
           style={StyleSheet.absoluteFill}
@@ -134,7 +165,7 @@ export function AuthScreenLayout({
               >
                 <ArrowLeft
                   aria-hidden={true}
-                  color={darkColors.textPrimary}
+                  color={colors.textPrimary}
                   size={24}
                 />
               </Button>
@@ -173,7 +204,7 @@ export function AuthScreenLayout({
                     ref={titleRef}
                     style={[
                       typography.authTitle,
-                      styles.title,
+                      { color: colors.textPrimary },
                       previewTextScale !== 1
                         ? {
                           fontSize: typography.authTitle.fontSize * previewTextScale,
@@ -187,7 +218,7 @@ export function AuthScreenLayout({
                   <Text
                     style={[
                       typography.body,
-                      styles.supportingText,
+                      { color: colors.textSecondary },
                       previewTextScale !== 1
                         ? {
                           fontSize: typography.body.fontSize * previewTextScale,
@@ -231,12 +262,6 @@ const styles = StyleSheet.create({
   headingGroup: {
     marginTop: spacing.xl,
     marginBottom: spacing.xl,
-  },
-  title: {
-    color: darkColors.textPrimary,
-  },
-  supportingText: {
-    color: darkColors.textSecondary,
   },
   content: {
     flexGrow: 1,

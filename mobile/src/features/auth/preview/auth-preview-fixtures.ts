@@ -10,6 +10,8 @@ export type AuthPreviewFixture = {
   id: string;
   labelKey: string;
   screenProps: SignUpScreenProps;
+  toastVariant?: 'danger' | 'success' | 'warning';
+  toastLabel?: string;
 };
 
 const readyIdentity = {
@@ -75,8 +77,9 @@ export const authPreviewFixtures: readonly AuthPreviewFixture[] = [
     labelKey: 'auth.preview.states.googleErrorIdToken',
     screenProps: {
       initialValues: readyIdentity,
-      formError: 'auth.signUp.errors.googleIdTokenInvalid',
     },
+    toastVariant: 'danger',
+    toastLabel: 'auth.signUp.errors.googleGeneric',
   },
   {
     id: 'password-untouched',
@@ -138,8 +141,10 @@ export const authPreviewFixtures: readonly AuthPreviewFixture[] = [
     screenProps: {
       initialStep: 'password',
       initialValues: readyAccount,
-      formError: 'auth.signUp.errors.globalRateLimited',
+      isRateLimited: true,
     },
+    toastVariant: 'danger',
+    toastLabel: 'auth.signUp.errors.globalRateLimited',
   },
   {
     id: 'captcha-failed',
@@ -147,8 +152,9 @@ export const authPreviewFixtures: readonly AuthPreviewFixture[] = [
     screenProps: {
       initialStep: 'password',
       initialValues: readyAccount,
-      formError: 'auth.signUp.errors.captchaFailed',
     },
+    toastVariant: 'danger',
+    toastLabel: 'auth.signUp.errors.captchaFailed',
   },
   {
     id: 'rate-limited',
@@ -156,8 +162,10 @@ export const authPreviewFixtures: readonly AuthPreviewFixture[] = [
     screenProps: {
       initialStep: 'password',
       initialValues: readyAccount,
-      formError: 'auth.signUp.errors.rateLimited',
+      isRateLimited: true,
     },
+    toastVariant: 'danger',
+    toastLabel: 'auth.signUp.errors.rateLimited',
   },
   {
     id: 'conflict',
@@ -165,8 +173,9 @@ export const authPreviewFixtures: readonly AuthPreviewFixture[] = [
     screenProps: {
       initialStep: 'password',
       initialValues: readyAccount,
-      formError: 'auth.signUp.errors.conflict',
     },
+    toastVariant: 'danger',
+    toastLabel: 'auth.signUp.errors.conflict',
   },
   {
     id: 'idempotency-conflict',
@@ -174,8 +183,9 @@ export const authPreviewFixtures: readonly AuthPreviewFixture[] = [
     screenProps: {
       initialStep: 'password',
       initialValues: readyAccount,
-      formError: 'auth.signUp.errors.idempotencyConflictInProgress',
     },
+    toastVariant: 'danger',
+    toastLabel: 'auth.signUp.errors.idempotencyConflictInProgress',
   },
   {
     id: 'disposable-email-blocked',
@@ -183,8 +193,9 @@ export const authPreviewFixtures: readonly AuthPreviewFixture[] = [
     screenProps: {
       initialStep: 'password',
       initialValues: readyAccount,
-      formError: 'auth.signUp.errors.disposableEmailBlocked',
     },
+    toastVariant: 'danger',
+    toastLabel: 'auth.signUp.errors.disposableEmailBlocked',
   },
   {
     id: 'generic',
@@ -192,8 +203,9 @@ export const authPreviewFixtures: readonly AuthPreviewFixture[] = [
     screenProps: {
       initialStep: 'password',
       initialValues: readyAccount,
-      formError: 'auth.signUp.errors.generic',
     },
+    toastVariant: 'danger',
+    toastLabel: 'auth.signUp.errors.generic',
   },
   {
     id: 'reduced-motion',
@@ -220,6 +232,8 @@ export type AuthPreviewSignInFixture = {
   id: string;
   labelKey: string;
   screenProps: SignInScreenProps;
+  toastVariant?: 'danger' | 'success' | 'warning';
+  toastLabel?: string;
 };
 
 export const authPreviewSignInFixtures: readonly AuthPreviewSignInFixture[] = [
@@ -264,33 +278,37 @@ export const authPreviewSignInFixtures: readonly AuthPreviewSignInFixture[] = [
     labelKey: 'auth.preview.states.signInError',
     screenProps: {
       initialValues: readyAccount,
-      formError: 'auth.signIn.errors.invalidCredentials',
     },
+    toastVariant: 'danger',
+    toastLabel: 'auth.signIn.errors.invalidCredentials',
   },
   {
     id: 'signin-login-rate-limited',
     labelKey: 'auth.preview.states.rateLimited',
     screenProps: {
       initialValues: readyAccount,
-      formError: 'auth.signIn.errors.loginRateLimited',
       isRateLimited: true,
     },
+    toastVariant: 'danger',
+    toastLabel: 'auth.signIn.errors.loginRateLimited',
   },
   {
     id: 'signin-idempotency-conflict',
     labelKey: 'auth.preview.states.idempotencyConflict',
     screenProps: {
       initialValues: readyAccount,
-      formError: 'auth.signIn.errors.idempotencyConflictInProgress',
     },
+    toastVariant: 'danger',
+    toastLabel: 'auth.signIn.errors.idempotencyConflictInProgress',
   },
   {
     id: 'signin-session-expired',
     labelKey: 'auth.preview.states.verifyError',
     screenProps: {
       initialValues: readyAccount,
-      formError: 'auth.signIn.errors.sessionExpired',
     },
+    toastVariant: 'danger',
+    toastLabel: 'auth.signIn.errors.sessionExpired',
   },
   {
     id: 'signin-google-pressed',
@@ -308,44 +326,23 @@ export const authPreviewSignInFixtures: readonly AuthPreviewSignInFixture[] = [
     screenProps: { initialValues: readyAccount, googleState: 'pending' },
   },
   {
-    id: 'signin-google-error-id-token',
+    id: 'signin-google-error',
     labelKey: 'auth.preview.states.googleErrorIdToken',
     screenProps: {
       initialValues: readyAccount,
-      formError: 'auth.signIn.errors.googleIdTokenInvalid',
     },
+    toastVariant: 'danger',
+    toastLabel: 'auth.signIn.errors.googleGeneric',
   },
   {
-    id: 'signin-google-error-audience',
-    labelKey: 'auth.preview.states.googleErrorAudience',
-    screenProps: {
-      initialValues: readyAccount,
-      formError: 'auth.signIn.errors.googleInvalidAudience',
-    },
-  },
-  {
-    id: 'signin-google-error-nonce',
+    id: 'signin-email-not-verified',
     labelKey: 'auth.preview.states.signInError',
     screenProps: {
       initialValues: readyAccount,
-      formError: 'auth.signIn.errors.googleInvalidNonce',
+      showResendVerification: true,
     },
-  },
-  {
-    id: 'signin-google-error-subject',
-    labelKey: 'auth.preview.states.signInError',
-    screenProps: {
-      initialValues: readyAccount,
-      formError: 'auth.signIn.errors.googleSubjectMissing',
-    },
-  },
-  {
-    id: 'signin-google-error-email',
-    labelKey: 'auth.preview.states.signInError',
-    screenProps: {
-      initialValues: readyAccount,
-      formError: 'auth.signIn.errors.googleEmailMissing',
-    },
+    toastVariant: 'danger',
+    toastLabel: 'auth.signIn.errors.emailNotVerified',
   },
   {
     id: 'signin-reduced-motion',
@@ -368,6 +365,8 @@ export type AuthPreviewCheckEmailFixture = {
   id: string;
   labelKey: string;
   screenProps: CheckEmailScreenProps;
+  toastVariant?: 'danger' | 'success' | 'warning';
+  toastLabel?: string;
 };
 
 export const authPreviewCheckEmailFixtures: readonly AuthPreviewCheckEmailFixture[] = [
@@ -375,6 +374,17 @@ export const authPreviewCheckEmailFixtures: readonly AuthPreviewCheckEmailFixtur
     id: 'check-email-ready',
     labelKey: 'auth.preview.states.checkEmailReady',
     screenProps: {},
+  },
+  {
+    id: 'check-email-send-failed',
+    labelKey: 'auth.preview.states.checkEmailSendFailed',
+    screenProps: {
+      initialSendFailed: true,
+      resendState: 'countdown',
+      resendCountdownSeconds: 59,
+    },
+    toastVariant: 'danger',
+    toastLabel: 'auth.checkEmail.errors.resendFailed',
   },
   {
     id: 'check-email-countdown',
@@ -387,9 +397,21 @@ export const authPreviewCheckEmailFixtures: readonly AuthPreviewCheckEmailFixtur
     screenProps: { resendState: 'pending' },
   },
   {
+    id: 'check-email-resend-failed',
+    labelKey: 'auth.preview.states.generic',
+    screenProps: {
+      resendState: 'countdown',
+      resendCountdownSeconds: 5,
+    },
+    toastVariant: 'danger',
+    toastLabel: 'auth.checkEmail.errors.resendFailed',
+  },
+  {
     id: 'check-email-rate-limited',
     labelKey: 'auth.preview.states.rateLimited',
-    screenProps: { resendState: 'countdown', resendCountdownSeconds: 5, isRateLimited: true },
+    screenProps: { isRateLimited: true },
+    toastVariant: 'danger',
+    toastLabel: 'auth.checkEmail.errors.rateLimited',
   },
 ] as const;
 
@@ -436,6 +458,8 @@ export type AuthPreviewForgotPasswordFixture = {
   id: string;
   labelKey: string;
   screenProps: ForgotPasswordScreenProps;
+  toastVariant?: 'danger' | 'success' | 'warning';
+  toastLabel?: string;
 };
 
 export const authPreviewForgotPasswordFixtures: readonly AuthPreviewForgotPasswordFixture[] = [
@@ -464,25 +488,28 @@ export const authPreviewForgotPasswordFixtures: readonly AuthPreviewForgotPasswo
     labelKey: 'auth.preview.states.rateLimited',
     screenProps: {
       initialValues: { email: 'john@example.com' },
-      formError: 'auth.forgotPassword.errors.rateLimited',
       isRateLimited: true,
     },
+    toastVariant: 'danger',
+    toastLabel: 'auth.forgotPassword.errors.rateLimited',
   },
   {
     id: 'forgot-password-idempotency-conflict',
     labelKey: 'auth.preview.states.idempotencyConflict',
     screenProps: {
       initialValues: { email: 'john@example.com' },
-      formError: 'auth.forgotPassword.errors.idempotencyConflictInProgress',
     },
+    toastVariant: 'danger',
+    toastLabel: 'auth.forgotPassword.errors.idempotencyConflictInProgress',
   },
   {
     id: 'forgot-password-generic',
     labelKey: 'auth.preview.states.generic',
     screenProps: {
       initialValues: { email: 'john@example.com' },
-      formError: 'auth.forgotPassword.errors.generic',
     },
+    toastVariant: 'danger',
+    toastLabel: 'auth.forgotPassword.errors.generic',
   },
   {
     id: 'forgot-password-large-text',
@@ -495,6 +522,8 @@ export type AuthPreviewResetPasswordFixture = {
   id: string;
   labelKey: string;
   screenProps: ResetPasswordScreenProps;
+  toastVariant?: 'danger' | 'success' | 'warning';
+  toastLabel?: string;
 };
 
 export const authPreviewResetPasswordFixtures: readonly AuthPreviewResetPasswordFixture[] = [
@@ -502,6 +531,13 @@ export const authPreviewResetPasswordFixtures: readonly AuthPreviewResetPassword
     id: 'reset-password-empty',
     labelKey: 'auth.preview.states.resetPasswordEmpty',
     screenProps: {},
+  },
+  {
+    id: 'reset-password-missing-token',
+    labelKey: 'auth.preview.states.verifyError',
+    screenProps: {},
+    toastVariant: 'danger',
+    toastLabel: 'auth.resetPassword.errors.missingToken',
   },
   {
     id: 'reset-password-partial',

@@ -25,7 +25,10 @@ export function useGoogleAuth() {
       await GoogleSignin.hasPlayServices();
       const response = await GoogleSignin.signIn();
       // GoogleSignin v16 returns { data: { idToken, user } }
-      const idToken = response.data?.idToken;
+      // On some Android versions, cancellation resolves with an empty response
+      // instead of throwing SIGN_IN_CANCELLED — silently return in that case.
+      if (!response?.data) return;
+      const idToken = response.data.idToken;
 
       if (idToken) {
         googleNativeAuthMutation.mutate(

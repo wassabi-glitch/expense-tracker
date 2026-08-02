@@ -22,7 +22,6 @@ describe('AuthScreenLayout', () => {
       expect(screen.getByRole('header', { name: 'Auth heading' })).toBeOnTheScreen();
       expect(screen.getByText('Supporting copy')).toBeOnTheScreen();
       expect(screen.getByText('Screen content')).toBeOnTheScreen();
-      expect(screen.getByTestId('auth-canvas-gradient')).toBeOnTheScreen();
       expect(screen.getByTestId('auth-canvas-glow')).toBeOnTheScreen();
       expect(screen.queryByText(/Sarflog/i)).not.toBeOnTheScreen();
       expect(screen.queryByText(/step|progress/i)).not.toBeOnTheScreen();

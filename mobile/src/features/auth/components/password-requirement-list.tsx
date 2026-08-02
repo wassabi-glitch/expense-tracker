@@ -1,8 +1,10 @@
 import { useTranslation } from 'react-i18next';
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { Check, Circle } from 'lucide-react-native';
 
-import { darkColors, spacing, typography } from '@/theme';
+import { spacing, typography } from '@/theme';
+import { palette } from '@/theme/palette';
+import { useAppTheme } from '@/providers/theme-provider';
 
 import type {
   PasswordRequirementKey,
@@ -31,6 +33,7 @@ export function PasswordRequirementList({
   previewTextScale = 1,
 }: PasswordRequirementListProps) {
   const { t } = useTranslation();
+  const { colors } = useAppTheme();
 
   return (
     <View
@@ -40,7 +43,7 @@ export function PasswordRequirementList({
       <Text
         style={[
           typography.supporting,
-          styles.groupLabel,
+          { color: colors.textPrimary, marginBottom: spacing.xxs },
           previewTextScale !== 1
             ? {
                 fontSize: typography.supporting.fontSize * previewTextScale,
@@ -69,14 +72,14 @@ export function PasswordRequirementList({
               {isMet ? (
                 <Check
                   accessibilityElementsHidden
-                  color={darkColors.status.success.main}
+                  color={palette.emerald400}
                   importantForAccessibility="no-hide-descendants"
                   size={16}
                 />
               ) : (
                 <Circle
                   accessibilityElementsHidden
-                  color={darkColors.textSecondary}
+                  color={colors.textSecondary}
                   importantForAccessibility="no-hide-descendants"
                   size={16}
                 />
@@ -85,8 +88,10 @@ export function PasswordRequirementList({
             <Text
               style={[
                 typography.supporting,
-                styles.requirement,
-                isMet ? styles.requirementMet : null,
+                {
+                  flex: 1,
+                  color: isMet ? colors.textPrimary : colors.textSecondary,
+                },
                 previewTextScale !== 1
                   ? {
                       fontSize: typography.supporting.fontSize * previewTextScale,
@@ -103,17 +108,3 @@ export function PasswordRequirementList({
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  groupLabel: {
-    color: darkColors.textPrimary,
-    marginBottom: spacing.xxs,
-  },
-  requirement: {
-    flex: 1,
-    color: darkColors.textSecondary,
-  },
-  requirementMet: {
-    color: darkColors.textPrimary,
-  },
-});

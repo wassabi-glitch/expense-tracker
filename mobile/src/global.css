@@ -31,7 +31,7 @@
       --default: #f4f4f5;
       --default-foreground: #18181b;
       --accent: #22c55e;
-      --accent-foreground: #052e16;
+      --accent-foreground: #ffffff;
       --field-background: #ffffff;
       --field-foreground: #18181b;
       --field-placeholder: #71717a;
@@ -72,8 +72,8 @@
       --success-foreground: #022c22;
       --warning: #fbbf24;
       --warning-foreground: #451a03;
-      --danger: #f87171;
-      --danger-foreground: #450a0a;
+      --danger: #dc2626;
+      --danger-foreground: #ffffff;
       --segment: #27272a;
       --segment-foreground: #fafafa;
       --border: #27272a;

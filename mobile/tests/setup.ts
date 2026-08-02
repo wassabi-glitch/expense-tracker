@@ -23,6 +23,10 @@ jest.mock('uniwind', () => ({
   withUniwind: (Component: unknown) => Component,
 }));
 
+jest.mock('@/lib/toast-utils', () => ({
+  showErrorToast: jest.fn(),
+}));
+
 jest.mock('react-native-webview', () => {
   const { View } = require('react-native');
   return {
